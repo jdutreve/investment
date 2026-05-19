@@ -1,0 +1,54 @@
+Remarks.txt
+
+EXAMPLE.md
+
+    cpi, pmi, ... as TS seulement (doublon avec Signal). 
+        Car "Signal : A qualitative event. Numeric data (CPI, PMI, VIX, prices) belongs in MarketData TS."
+    Signal est il vraiment utile ? Car "Greenspan nomination" (qualitatif) peut etre aussi un TS
+        Mettre a jour le edge. Event n est il pas un Vertex?
+    close, volume, regime_id sont inutiles
+    acceleration:-0.40 ← tightening accelerating : n est ce pas plutot deccelaring?
+
+RegimeType : trace = doublon avec descriptionRegime: 
+    id: "regime-stagflation-2026-05" : ajouter le jour et supprimer regime id: "stagflation-2026-05-02"
+    plutot start_date et end_date
+    remplir tags
+    signals_count : pas necessaire, a remplacer par des events: [ 
+            CPI level 3.1 (speed +0.30, accel +0.15),
+            PMI 47.2 (speed -1.4),
+            global liquidity tightening (level 98.4, speed -0.80)
+        ]
+        et trace resume le raisonnement : Acceleration on both axes confirms regime, not a transient blip."
+    ajouter updated_at (ou as_of). INSTRUCTION : utiliser le vocabulaire financier et economique
+
+Strategy:
+    horizon: "6-12 months" : a quoi ça sert ? une Strategy est elle valable autant de temps que son regime, non?
+    ajoute une description, regimeType et updated_at/created_at; created_at sans les secondes ex: 2026-03-01
+    id: "custom-stagflation-v2" ==> id: "stagflation-custom-v2" (le regimeType.Alias en premier pour tous les strategies)
+    base_strategy: a quoi ça sert?
+    revision_if: a quoi ça sert?
+    benchmark: n est ce pas plutot pour les portefeuille 
+
+Invariant
+    content et description ne sont ils pas redondants?
+     durability: "long-term" : pourquoi ce champs?
+     ajoute updated_at
+     ajoute tags: asset, indicator, ...
+     a quoi sert last_confronted?
+     donne la vrai source pas le type de provenance
+     author_weight: "dalio" ? ou bien juste author: "dalio"
+
+RegimeType
+    RegimeType#falling-growth-rising-inflation -[FAVORS sharpe_rolling:0.20, sortino_rolling:0.28,
+        calmar_rolling:0.5, max_drawdown:-19.4, n_periods:8, last_updated:2026-05-11]-> Strategy#momentum-macro
+            => ces ratios sont vraiment sur la strategie? et pas sur le portefeuille?
+
+weekly_snapshot :
+    ajoute les perfomances sur 3 et 6 mois, 1, 3 et 5 ans
+    comment le rank est il calculé?
+
+ajoute une liste d assets de reference dans lequel piocher pour constituer les portefeuilles
+quelle est la periode pour les ratios? renommer ratio par indicator
+remplace live portfolio par defender
+
+
