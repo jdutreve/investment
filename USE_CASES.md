@@ -53,20 +53,23 @@ corresponding vertex/edge commit.** UC8 reads this TS weekly to detect proposals
     - allowed_tickers (TIP, TLT, GLD, DJP, SPY, IEF, CHFUSD=X, ^IRX, ^VIX, ...)
     - system_thresholds (regime thresholds, calmar window 756d,
       recency half-life 365d, vector similarity 0.35, ...)
-    - invariant_source_config (dalio/marks/corpus-other/agent-discovery
-      floors and initial weight bands)
+    - invariant_author_config (dalio/marks/corpus-other/system
+      floors and initial weight bands — keyed by `author` field on Invariant)
 
 2.  Framework vertex:
     - '4seasons' enabled=true
 
-3.  Regime vertices (5), is_current=false initially:
+3.  RegimeType vertices (5), seeded once and never mutated:
     - rising-growth-falling-inflation
     - rising-growth-rising-inflation
     - falling-growth-rising-inflation  (aliases: ['stagflation'])
     - falling-growth-falling-inflation
     - uncertain
-    Tags reserved: 'deflation', 'liquidity-tightening', 'liquidity-easing',
-                   'market-stress'
+    Concrete Regime instances are created dynamically by `detect_regime()`
+    (id convention `<regimeType.alias>-<start_date>`, e.g.
+    `stagflation-2026-05-01`).
+    Tags reserved on instances: 'deflation', 'liquidity-tightening',
+                   'liquidity-easing', 'market-stress'
 
 4.  Corpus seed (optional, if PDFs are in /data/investment/sources/corpus):
     - Document + Passage vertices with embeddings
@@ -89,8 +92,8 @@ corresponding vertex/edge commit.** UC8 reads this TS weekly to detect proposals
     initial probabilities summing to 100; probability_d7 = probability
     + HAS_SCENARIO edges
 
-8.  Portfolio vertices (6-10), exactly one live=true:
-    - 4s-balanced-defender              (live=true)
+8.  Portfolio vertices (6-10), exactly one defender=true:
+    - 4s-balanced-defender              (defender=true)
     - 4s-stagflation-defensive
     - 4s-rising-growth-equities
     - 4s-falling-growth-defensive
@@ -110,10 +113,11 @@ corresponding vertex/edge commit.** UC8 reads this TS weekly to detect proposals
     - Set is_current=true on the matching Regime vertex
 
 11. Initial Backtests:
-    - For each (Strategy, Regime) cell where data coverage ≥ min_backtest_periods
+    - For each (Strategy, RegimeType) cell where data coverage ≥ min_backtest_periods
     - Backtest vertex with USD sharpe_rolling, sortino_rolling, calmar_rolling
-    - TESTED_IN + IN_REGIME edges
-    - FAVORS edges from Regime to Strategy with rolling metrics
+    - TESTED_IN + IN_REGIME (→ historical Regime instance) edges
+    - FAVORS edges from RegimeType to Strategy with strategy-level rolling
+      indicators (synthetic backtest of prescribed allocation)
 
 12. PortfolioNAV TS synthetic backfill:
     - For each Portfolio: NAV(t) = Σ allocation[asset] × close[asset](t) / close[asset](0)
@@ -121,9 +125,9 @@ corresponding vertex/edge commit.** UC8 reads this TS weekly to detect proposals
       drawdown, vs_benchmark
 
 13. First portfolio_weekly_snapshot:
-    - Rank all enabled Portfolios including the live defender
+    - Rank all enabled Portfolios including the defender
     - market_context filled from current regime + global liquidity state
-    - gap_to_defender computed for each non-live entry
+    - gap_to_defender computed for each non-defender entry
     - recommendation = 'maintain' on day zero
 
 14. SeedEvent → Event TS with full inventory:
@@ -220,10 +224,10 @@ schema element. Always generates a Telegram notification **before** commit.
 ## UC6 — Portfolio Valuation
 **Trigger:** Weekly cron (Monday, before Worker).
 **What it does:** Calculates USD `sharpe_rolling`, `sortino_rolling`,
-`calmar_rolling`, `max_drawdown`, `volatility`, and `total_return` for all
-enabled portfolios, including the live defender. Risk-free rate = 3M T-Bill.
-Calmar window = 36M. Updates each `Portfolio` vertex and appends to
-PortfolioNAV TS.
+`calmar_rolling`, `max_drawdown`, `volatility`, plus cumulative
+`return_3m / 6m / 1y / 3y / 5y` for all enabled portfolios, including the
+defender. Risk-free rate = 3M T-Bill. Rolling indicator window = 36M.
+Updates each `Portfolio` vertex and appends to PortfolioNAV TS.
 **Output:** ValuationEvent → Event TS.
 
 ```json
@@ -231,10 +235,12 @@ PortfolioNAV TS.
   "portfolios": [
     {
       "id": "4s-stagflation-defensive",
-      "live": false,
+      "defender": false,
       "allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
       "sharpe_rolling": 0.71, "sortino_rolling": 1.18, "calmar_rolling": 1.9,
-      "max_drawdown": -0.062, "volatility": 0.084, "total_return": 0.091
+      "max_drawdown": -0.062, "volatility": 0.084,
+      "return_3m": 0.038, "return_6m": 0.072, "return_1y": 0.143,
+      "return_3y": 0.321, "return_5y": 0.486
     }
   ]
 }
@@ -267,7 +273,7 @@ context. Every ranked portfolio includes its concrete allocation.
     {
       "rank": 1,
       "portfolio_id": "4s-stagflation-defensive",
-      "live": false,
+      "defender": false,
       "allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
       "sharpe_rolling": 0.71, "sortino_rolling": 1.18,
       "calmar_rolling": 1.90, "max_drawdown": -0.062
@@ -280,7 +286,7 @@ context. Every ranked portfolio includes its concrete allocation.
 
 ## UC8 — Proposal Detection
 **Trigger:** Weekly Worker cycle (Monday 09:00).
-**What it does:** Compares the live defender with top challengers. V1 never
+**What it does:** Compares the defender with top challengers. V1 never
 auto-applies. It may emit a Proposal vertex when a challenger meets the gate
 (better Sortino + better Calmar or lower drawdown + concentration constraints
 pass + meaningful allocation change).

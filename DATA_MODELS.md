@@ -19,7 +19,7 @@ multi-tier recency, per-invariant floor override).
 
 ---
 
-## Graph Schema — VERTEX types (14)
+## Graph Schema — VERTEX types (13)
 
 ### Framework
 *Lens used to interpret markets and design/refine strategies and portfolios.*
@@ -56,8 +56,7 @@ RegimeType {
   name         : STRING               -- human-readable label
   aliases      : STRING[]             -- ex: ['stagflation']
   framework_id : STRING               -- '4seasons' in V1
-  description  : STRING
-  trace        : STRING  -- MANDATORY
+  description  : STRING               -- carries the regime narrative
   created_at   : DATETIME
 }
 ```
@@ -67,45 +66,28 @@ only a dynamic tag on Regime instances (when CPI YoY < 0).
 
 ---
 
-### Signal
-*A qualitative event. Numeric data (CPI, PMI, VIX, prices) belongs in MarketData TS.*
-
-```
-Signal {
-  id            : STRING   PRIMARY KEY
-  date          : DATE
-  temporal_date : DATE     -- actual event date (≠ ingestion date)
-  tier          : INT      -- 1 = decision-critical | 2 = contextual
-  topic         : STRING[]
-  content       : STRING
-  source        : STRING   -- 'rss' | 'user-deposit'
-  embedding     : FLOAT[768]
-  trace         : STRING   -- MANDATORY
-  agent_version : STRING
-  created_at    : DATETIME
-}
-```
-
----
-
 ### Regime
 *A concrete occurrence of a RegimeType, bounded in time. Created/updated by the
 daily mechanical job (06:50). IMPLIES and IN_REGIME edges point here.*
 
 ```
 Regime {
-  id              : STRING  PRIMARY KEY   -- ex: 'regime-stagflation-2026-05'
+  id              : STRING  PRIMARY KEY   -- ex: 'stagflation-2026-05-01'
+                                          --   convention: <regimeType.alias>-<start_date>
   regime_type_id  : STRING                -- FK → RegimeType.id
   tags            : STRING[]              -- dynamic instance tags:
                                           --   'deflation' when CPI YoY < 0
                                           --   'liquidity-tightening' etc.
-  date_start      : DATE
-  date_end        : DATE                  -- null if currently active
+  start_date      : DATE
+  end_date        : DATE                  -- null if currently active
   confidence      : FLOAT                 -- 0-100
   is_current      : BOOLEAN               -- exactly one true at a time per framework
-  signals_count   : INT
+  events          : STRING[]              -- summarised numeric observations that
+                                          --   triggered the regime (CPI level/speed/accel,
+                                          --   PMI ditto, global liquidity ditto, ...)
   trace           : STRING  -- MANDATORY
   created_at      : DATETIME
+  updated_at      : DATETIME              -- a.k.a. as_of
 }
 ```
 
@@ -121,14 +103,16 @@ The static definition (name, aliases, framework_id) lives on RegimeType.
 Invariant {
   id            : STRING  PRIMARY KEY
   title         : STRING
-  content       : STRING
-  description   : STRING
+  description   : STRING            -- full statement (replaces former content+description)
   example       : STRING
-  source        : STRING  -- 'corpus' | 'agent-discovery'
-  author_weight : STRING  -- if corpus: 'dalio' | 'marks' | null
-  status        : STRING  -- 'proposed' | 'validated' | 'integrated' | 'rejected'
-  topic         : STRING[]
-  durability    : STRING  -- 'permanent' | 'long-term'
+  source        : STRING            -- free-text: real provenance (document+page, backtest,
+                                    --   observation date), NOT an enum of provenance types
+  author        : STRING            -- authority tier driving floor: 'dalio' | 'marks' |
+                                    --   'system' (agent-discovery) | null
+  status        : STRING            -- 'proposed' | 'validated' | 'integrated' | 'rejected'
+  topic         : STRING[]          -- semantic topics
+  tags          : STRING[]          -- ex: 'asset:GLD', 'indicator:max_drawdown',
+                                    --   'asset-class:fixed-income', 'phase:accumulation'
   embedding     : FLOAT[768]
 
   weight_initial   : FLOAT
@@ -139,18 +123,19 @@ Invariant {
   confirmation_count : INT
   infirmation_count  : INT
   market_score       : FLOAT
-  recency_factor     : FLOAT
+  recency_factor     : FLOAT  -- recomputed from updated_at; no separate last_confronted
 
-  last_confronted : DATE
   trace           : STRING  -- MANDATORY
   created_at      : DATETIME
   validated_at    : DATETIME
+  updated_at      : DATETIME  -- last confrontation (drives recency_factor)
 }
 ```
 
 Half-life uniform in V1: 365 days (see IMPROVEMENTS I-5).
-Floor by source category, persisted at creation:
-dalio=0.40, marks=0.35, corpus-other=0.20, agent-discovery=0.05.
+Floor by **author** tier, persisted at creation:
+`author='dalio'`=0.40, `author='marks'`=0.35, `author=null` (other corpus)=0.20,
+`author='system'` (agent-discovery)=0.05.
 
 ---
 
@@ -159,25 +144,32 @@ dalio=0.40, marks=0.35, corpus-other=0.20, agent-discovery=0.05.
 
 ```
 Strategy {
-  id             : STRING  PRIMARY KEY
+  id             : STRING  PRIMARY KEY  -- convention: <regimeType.alias>-<name>-<vN>
+                                        --   for regime-specific strategies (ex:
+                                        --   'stagflation-custom-v2'); framework-neutral
+                                        --   strategies keep canonical names
+                                        --   ('4seasons', 'permanent', ...)
   title          : STRING
-  base_strategy  : STRING  -- '4seasons' | 'permanent' | 'barbell' |
-                           --  'momentum-macro' | 'custom'
-  framework_id   : STRING  -- '4seasons' in V1
-  conviction     : FLOAT   -- 0-100; updated after each Evaluation
-  enabled        : BOOLEAN -- false = excluded from ranking and Worker context
-  conditions     : STRING  -- must include ≥1 dimension orthogonal to regime
-  revision_if    : STRING  -- conditions that would invalidate this strategy
-  horizon        : STRING  -- ex: "6-12 months"
-  source         : STRING  -- 'corpus' | 'agent-discovery'
-  status         : STRING  -- 'proposed' | 'validated' | 'active' | 'closed'
-  benchmark      : STRING  -- benchmark ticker string (vertex form deferred — I-2)
+  description    : STRING               -- one-paragraph rationale of the thesis
+  regime_type_id : STRING               -- FK → RegimeType.id; null for framework-neutral
+  framework_id   : STRING               -- '4seasons' in V1
+  conviction     : FLOAT                -- 0-100; updated after each Evaluation
+  enabled        : BOOLEAN              -- false = excluded from ranking and Worker context
+  conditions     : STRING               -- must include ≥1 dimension orthogonal to regime
+  source         : STRING               -- 'corpus' | 'agent-discovery' (free text accepted)
+  status         : STRING               -- 'proposed' | 'validated' | 'active' | 'closed'
   date_opened    : DATE
   date_revised   : DATE
   trace          : STRING  -- MANDATORY
   created_at     : DATETIME
+  updated_at     : DATETIME
 }
 ```
+
+`horizon`, `base_strategy`, `revision_if` and `benchmark` have been removed: a
+Strategy is implicitly bounded by the regime it serves, the alias-first ID makes
+the base lineage obvious, the revision condition is the inverse of `conditions`,
+and benchmarking is a Portfolio concern.
 
 ---
 
@@ -294,30 +286,38 @@ Adaptation {
 ---
 
 ### Portfolio
-*Concrete ETF allocation. Ranking unit. `live=true` marks the current defender.*
+*Concrete ETF allocation. Ranking unit. `defender=true` marks the current defender.*
 
 ```
 Portfolio {
   id                   : STRING  PRIMARY KEY
-  name                 : STRING  -- descriptive; never just "live"
+  name                 : STRING  -- descriptive; never just "defender"
   framework_id         : STRING  -- references Framework vertex; ex: '4seasons'
-  live                 : BOOLEAN -- true = current defender. Exactly one in V1.
+  defender             : BOOLEAN -- true = current defender. Exactly one in V1.
+                                 --   (replaces the former `live` boolean.)
   enabled              : BOOLEAN -- false = excluded from ranking
   currency             : STRING  -- user display currency (CHF)
-  benchmark            : STRING
+  benchmark            : STRING  -- benchmark ticker for this portfolio (Portfolio-level,
+                                 --   not Strategy-level)
   allocation           : MAP     -- concrete ETF allocation, mandatory
   max_drawdown_rule    : FLOAT   -- user-defined floor (e.g. -15.0)
   max_single_asset_pct : FLOAT   -- concentration cap (e.g. 40.0)
   phase                : STRING  -- 'accumulation'
   fx_usd_exposure      : FLOAT   -- informational
 
-  -- Ranking metrics, calculated in USD
+  -- Ranking indicators, calculated in USD, rolling 36M window
   sharpe_rolling       : FLOAT
   sortino_rolling      : FLOAT
   calmar_rolling       : FLOAT
   max_drawdown         : FLOAT
   volatility           : FLOAT
-  total_return         : FLOAT
+
+  -- Cumulative returns on calendar windows ending at updated_at
+  return_3m            : FLOAT
+  return_6m            : FLOAT
+  return_1y            : FLOAT
+  return_3y            : FLOAT
+  return_5y            : FLOAT
 
   date_revised         : DATE
   trace                : STRING  -- MANDATORY
@@ -368,19 +368,11 @@ Passage {
 
 ---
 
-## Graph Schema — EDGE types (13)
+## Graph Schema — EDGE types (11)
 
 Creation order: vertices first, edges second.
 
 ```
-Signal -[IMPLIES]-> Regime
-  -- Points to the current Regime instance, not the type
-  weight : FLOAT
-  tier   : INT
-
-Signal -[GENERATES]-> Evaluation
-  date : DATE
-
 Evaluation -[UPDATES]-> Strategy
   conviction_delta : FLOAT
   date             : DATE
@@ -450,13 +442,14 @@ CREATE TIME SERIES TYPE MarketData IF NOT EXISTS (
   asset_class  STRING,    -- 'US_TIPS' | 'GOLD' | 'MACRO' | 'FX' |
                           --  'RISK_FREE' | 'GLOBAL_LIQUIDITY'
   currency     STRING,    -- 'USD'
-  close        FLOAT,
   level        FLOAT,     -- current value (smoothed if applicable)
   speed        FLOAT,     -- first derivative over configured lookback
-  acceleration FLOAT,     -- second derivative — flags regime shifts early
-  volume       LONG,
-  regime_id    STRING
+  acceleration FLOAT      -- second derivative — flags regime shifts early
 );
+-- `close`, `volume`, `regime_id` were removed: `level` already carries the
+-- canonical numeric reading; volume is not used in any regime/indicator rule;
+-- the regime an observation belongs to is reached via date lookup on Regime
+-- (start_date/end_date), not stored redundantly on each TS row.
 ALTER TIMESERIES TYPE MarketData ADD DOWNSAMPLING POLICY
   AFTER 30 DAYS  GRANULARITY 1 DAY
   AFTER 365 DAYS GRANULARITY 1 WEEK;
@@ -589,15 +582,14 @@ CREATE TABLE invariant_weights (
   recency_factor     FLOAT,
   confirmation_count INT,
   infirmation_count  INT,
-  last_confronted    DATE,
-  updated_at         DATE
+  updated_at         DATE  -- last confrontation; drives recency_factor
 );
 
 CREATE TABLE regime_history (
   regime_id      VARCHAR(50) PRIMARY KEY,
   regime_type_id VARCHAR(50),  -- FK → RegimeType.id; denormalized for fast analytics
-  date_start     DATE,
-  date_end       DATE,
+  start_date     DATE,
+  end_date       DATE,
   confidence     FLOAT,
   duration_days  INT,
   followed_by    VARCHAR(50)   -- regime_id of the next instance
@@ -617,24 +609,35 @@ CREATE TABLE invariant_confrontations (
 CREATE TABLE portfolio_weekly_snapshot (
   date              DATE,
   portfolio_id      VARCHAR(50),
-  live              BOOLEAN,
+  defender          BOOLEAN,                -- renamed from `live`
   framework_id      VARCHAR(50),
   designed_regime_type_id VARCHAR(50),  -- denormalized from DESIGNED_FOR (Portfolio→RegimeType)
   primary_strategy_id VARCHAR(50), -- denormalized from HOLDS(primary=true) edge
   allocation        JSONB,
-  rank              INT,
-  sharpe_rolling    FLOAT,
+  rank              INT,                    -- see Ranking rule below
+  sharpe_rolling    FLOAT,                  -- USD, rolling 36M (756 trading days)
   sortino_rolling   FLOAT,
   calmar_rolling    FLOAT,
   max_drawdown      FLOAT,
   volatility        FLOAT,
-  total_return      FLOAT,
+  return_3m         FLOAT,                  -- cumulative return on calendar window
+  return_6m         FLOAT,
+  return_1y         FLOAT,
+  return_3y         FLOAT,
+  return_5y         FLOAT,
   gap_to_defender   JSONB,
   market_context    JSONB,
   recommendation    TEXT,
   trace             TEXT,
   PRIMARY KEY (date, portfolio_id)
 );
+-- Ranking rule:
+--   1. primary key  = sortino_rolling DESC
+--   2. tie-break (within 0.02) = calmar_rolling DESC
+--   3. final tie-break          = max_drawdown (less negative wins)
+-- Snapshots with calmar_rolling < 1.0 are demoted to the bottom regardless of
+-- Sortino (Invariant#calmar-accumulation gate). The Phase 1 max-drawdown rule
+-- (-15%) is a hard exclusion for the defender role.
 ```
 
 `adaptation_quality` removed from V1 (V2-only). Re-added with V2.
@@ -673,7 +676,6 @@ class ImprovementProposal(BaseModel):
 *Planner Post decides what to persist. Writeback is a pure executor. Event TS append always precedes vertex/edge commit.*
 
 ```
-Signal       → Event TS → vertex → IMPLIES + GENERATES → FTS + vector
 Invariant    → Event TS → vertex → edges → FTS + vector → invariant_weights SQL
 Evaluation   → Event TS → vertex → GENERATES + UPDATES → FTS
 Scenario     → Event TS → vertex update → ScenarioProbability TS

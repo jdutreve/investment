@@ -16,20 +16,24 @@ learning from real allocations are deferred to V2 (see IMPROVEMENTS.md).
   acceleration of indicators. Stagflation is a regime (alias of
   `falling-growth-rising-inflation`). Deflation is a tag, never a regime.
 - **Strategy** — investment thesis or concept (vertex `Strategy`).
-- **Portfolio** — concrete ETF allocation; the ranking unit. May have `live=true`
-  (the defender).
+- **Portfolio** — concrete ETF allocation; the ranking unit. May have
+  `defender=true` (exactly one at a time).
 
 ## Ranking rule
 
 All `Portfolio` rows with `enabled=true` are ranked together. The current regime
-and global liquidity state are **context**, not filters. The live defender is
-ranked alongside challengers, never excluded, never privileged.
+and global liquidity state are **context**, not filters. The defender
+(`defender=true`) is ranked alongside challengers, never excluded, never privileged.
+Primary sort: `sortino_rolling` DESC; tie-break: `calmar_rolling` DESC; final
+tie-break: `max_drawdown` (less negative wins). Portfolios with
+`calmar_rolling < 1.0` are demoted to the bottom.
 
-## Mandatory metrics
+## Mandatory indicators
 
 USD `sharpe_rolling`, `sortino_rolling`, `calmar_rolling` (36M window),
-`max_drawdown`, `volatility`, `total_return`, plus live-vs-challenger gap.
-Every ranked portfolio must expose its concrete allocation.
+`max_drawdown`, `volatility`, plus cumulative `return_3m / 6m / 1y / 3y / 5y`,
+plus defender-vs-challenger gap. Every ranked portfolio must expose its concrete
+allocation. Indicator (never "ratio") is the canonical generic term.
 
 ## Global liquidity
 
@@ -45,5 +49,5 @@ identifiers.
 ## V2 boundary
 
 V2 starts only after V1 paper-mode history demonstrates that challenger
-recommendations would have beaten the live defender net of costs and risk
+recommendations would have beaten the defender net of costs and risk
 over at least 3 months.

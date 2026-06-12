@@ -16,9 +16,9 @@ V1 mechanisms:
 2. Knowledge seed — Documents/notes → Passages → Invariants.
 3. Portfolio universe seed — Strategies as theses; Portfolios as concrete
    ETF allocations.
-4. Ranking — all enabled portfolios, including the live defender, using USD
+4. Ranking — all enabled portfolios, including the defender, using USD
    `sharpe_rolling`, `sortino_rolling`, `calmar_rolling`, `max_drawdown`,
-   `volatility`, `total_return`.
+   `volatility`, plus cumulative `return_3m / 6m / 1y / 3y / 5y`.
 5. Digest/proposal — Telegram weekly digest + optional Proposal vertex.
 
 See IMPROVEMENTS.md for deferred V2 features.
@@ -30,7 +30,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Component       | Detail                                                        |
 |-----------------|---------------------------------------------------------------|
 | DB              | ArcadeDB embedded in-process                                  |
-| Graph           | 13 vertex types, 13 edge types                                |
+| Graph           | 13 vertex types, 11 edge types                                |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV + Event       |
 | LLM Framework   | PydanticAI (V1, model-agnostic)                               |
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
@@ -39,7 +39,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Veille          | RSS feeds + user deposits                                     |
 | Market data     | Yahoo Finance prices + FRED macro + GLOBAL_LIQUIDITY composite |
 | Risk-free rate  | 3-Month T-Bill (^IRX) — USD                                   |
-| Currency        | USD for all ratios; CHFUSD=X for display only                 |
+| Currency        | USD for all indicators; CHFUSD=X for display only             |
 | Ingestion       | Telegram bot + SCP → inbox/ (nightly job 02:00)               |
 | Notification    | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Deployment      | systemd service on Hetzner CAX21 ARM                          |
@@ -182,10 +182,10 @@ python3 -c "import arcadedb_embedded; print('ArcadeDB OK')"
 │   │       └── tool_wrapper.py
 │   └── investment/
 │       ├── models/
-│       │   ├── entities.py       ← Pydantic: Framework, Signal, Regime,
-│       │   │                       Invariant, Strategy, Scenario, Evaluation,
-│       │   │                       Backtest, Adaptation, Proposal, Portfolio,
-│       │   │                       Document, Passage
+│       │   ├── entities.py       ← Pydantic: Framework, RegimeType,
+│       │   │                       Regime, Invariant, Strategy, Scenario,
+│       │   │                       Evaluation, Backtest, Adaptation, Proposal,
+│       │   │                       Portfolio, Document, Passage
 │       │   ├── command.py
 │       │   └── result.py
 │       ├── db/
@@ -279,7 +279,7 @@ alias feed-url='f() { ssh -i $VPS_KEY $VPS_USER@$VPS_IP "echo $1 > $VPS_INBOX/$(
 SCHEMA_SQL = """
 -- VERTEX TYPES (13)
 CREATE VERTEX TYPE Framework  IF NOT EXISTS;
-CREATE VERTEX TYPE Signal     IF NOT EXISTS;
+CREATE VERTEX TYPE RegimeType IF NOT EXISTS;
 CREATE VERTEX TYPE Regime     IF NOT EXISTS;
 CREATE VERTEX TYPE Invariant  IF NOT EXISTS;
 CREATE VERTEX TYPE Strategy   IF NOT EXISTS;
@@ -292,30 +292,26 @@ CREATE VERTEX TYPE Portfolio  IF NOT EXISTS;
 CREATE VERTEX TYPE Document   IF NOT EXISTS;
 CREATE VERTEX TYPE Passage    IF NOT EXISTS;
 
--- EDGE TYPES (13)
-CREATE EDGE TYPE IMPLIES       IF NOT EXISTS;
-CREATE EDGE TYPE GENERATES     IF NOT EXISTS;
+-- EDGE TYPES (11)
 CREATE EDGE TYPE UPDATES       IF NOT EXISTS;
-CREATE EDGE TYPE FAVORS        IF NOT EXISTS;  -- Regime → Strategy
+CREATE EDGE TYPE FAVORS        IF NOT EXISTS;  -- RegimeType → Strategy
 CREATE EDGE TYPE HAS_SCENARIO  IF NOT EXISTS;
 CREATE EDGE TYPE BACKED_BY     IF NOT EXISTS;
 CREATE EDGE TYPE TESTED_IN     IF NOT EXISTS;
-CREATE EDGE TYPE IN_REGIME     IF NOT EXISTS;
+CREATE EDGE TYPE IN_REGIME     IF NOT EXISTS;  -- Backtest → Regime instance
 CREATE EDGE TYPE MODIFIES      IF NOT EXISTS;  -- V2 only
 CREATE EDGE TYPE HOLDS         IF NOT EXISTS;  -- Portfolio → Strategy (primary BOOLEAN)
-CREATE EDGE TYPE DESIGNED_FOR  IF NOT EXISTS;  -- Portfolio → Regime (nullable)
+CREATE EDGE TYPE DESIGNED_FOR  IF NOT EXISTS;  -- Portfolio → RegimeType (nullable)
 CREATE EDGE TYPE CONTAINS      IF NOT EXISTS;
 CREATE EDGE TYPE SUPPORTS      IF NOT EXISTS;
 
 -- INDEXES
 CREATE INDEX ON Framework (enabled)           IF NOT EXISTS;
-CREATE INDEX ON Signal (date)                 IF NOT EXISTS;
-CREATE INDEX ON Signal (tier)                 IF NOT EXISTS;
 CREATE INDEX ON Regime (is_current)           IF NOT EXISTS;
 CREATE INDEX ON Invariant (status)            IF NOT EXISTS;
 CREATE INDEX ON Strategy (status)             IF NOT EXISTS;
 CREATE INDEX ON Strategy (enabled)            IF NOT EXISTS;
-CREATE INDEX ON Portfolio (live)              IF NOT EXISTS;
+CREATE INDEX ON Portfolio (defender)          IF NOT EXISTS;
 CREATE INDEX ON Portfolio (enabled)           IF NOT EXISTS;
 CREATE INDEX ON Proposal (date)               IF NOT EXISTS;
 CREATE INDEX ON Proposal (user_response)      IF NOT EXISTS;
@@ -325,16 +321,14 @@ CREATE INDEX ON Adaptation (learning_applied) IF NOT EXISTS;
 -- VECTOR INDEXES
 CREATE VECTOR INDEX ON Passage   (embedding) LSM TYPE COSINE IF NOT EXISTS;
 CREATE VECTOR INDEX ON Invariant (embedding) LSM TYPE COSINE IF NOT EXISTS;
-CREATE VECTOR INDEX ON Signal    (embedding) LSM TYPE COSINE IF NOT EXISTS;
 
 -- TIME-SERIES (4)
 CREATE TIME SERIES TYPE MarketData IF NOT EXISTS (
   ticker       STRING, asset_class STRING, currency STRING,
-  close        FLOAT,
-  level        FLOAT, speed FLOAT, acceleration FLOAT,
-  volume       LONG,
-  regime_id    STRING
+  level        FLOAT, speed FLOAT, acceleration FLOAT
 );
+-- `close`, `volume`, `regime_id` removed: `level` is canonical; regime
+-- membership is reached via date lookup on Regime.start_date/end_date.
 CREATE TIME SERIES TYPE ScenarioProbability IF NOT EXISTS (
   strategy_id  STRING, scenario STRING,
   probability  FLOAT,  shift_d7 FLOAT
@@ -362,7 +356,7 @@ ALTER TIMESERIES TYPE PortfolioNAV ADD DOWNSAMPLING POLICY
 """
 ```
 
-**Done when:** schema created without error; all 13 vertex + 13 edge + 4 TS types present.
+**Done when:** schema created without error; all 13 vertex + 11 edge + 4 TS types present.
 
 ---
 
@@ -420,16 +414,17 @@ SYSTEM_THRESHOLDS = {
     "derivative_lookback_long": 90.0,     # days for speed/acceleration long window
 }
 
-INVARIANT_SOURCE_CONFIG = [
-    {"source": "corpus", "author_weight": "dalio", "floor_weight": 0.40,
+INVARIANT_AUTHOR_CONFIG = [
+    {"author": "dalio",  "floor_weight": 0.40,
      "initial_weight_min": 0.80, "initial_weight_max": 0.90},
-    {"source": "corpus", "author_weight": "marks", "floor_weight": 0.35,
+    {"author": "marks",  "floor_weight": 0.35,
      "initial_weight_min": 0.75, "initial_weight_max": 0.85},
-    {"source": "corpus", "author_weight": None, "floor_weight": 0.20,
-     "initial_weight_min": 0.40, "initial_weight_max": 0.70},
-    {"source": "agent-discovery", "author_weight": None, "floor_weight": 0.05,
-     "initial_weight_min": 0.15, "initial_weight_max": 0.25},
+    {"author": None,     "floor_weight": 0.20,
+     "initial_weight_min": 0.40, "initial_weight_max": 0.70},  # other corpus
+    {"author": "system", "floor_weight": 0.05,
+     "initial_weight_min": 0.15, "initial_weight_max": 0.25},  # agent-discovery
 ]
+# `source` is the real provenance (free text). `author` tier drives the floor.
 
 ALLOWED_TICKERS = [
     {"ticker": "TIP",      "asset_class": "US_TIPS",          "currency": "USD"},
@@ -474,30 +469,29 @@ FRAMEWORKS = [
 ]
 ```
 
-### Task 1ter.2 — Regime seed (5 regimes, no deflation as primary)
+### Task 1ter.2 — RegimeType seed (5 types, seeded once, never mutated)
 
 ```python
-REGIMES = [
-    {"id": "rg-risingG-fallingI", "name": "rising-growth-falling-inflation",
-     "framework_id": "4seasons", "aliases": [], "tags": [],
-     "is_current": False, "confidence": 0,
-     "trace": "Goldilocks regime."},
-    {"id": "rg-risingG-risingI",  "name": "rising-growth-rising-inflation",
-     "framework_id": "4seasons", "aliases": ["overheating"], "tags": [],
-     "is_current": False, "confidence": 0,
-     "trace": "Late-cycle overheating."},
-    {"id": "rg-fallingG-risingI", "name": "falling-growth-rising-inflation",
-     "framework_id": "4seasons", "aliases": ["stagflation"], "tags": [],
-     "is_current": False, "confidence": 0,
-     "trace": "Stagflation. Alias preserved for legacy refs."},
-    {"id": "rg-fallingG-fallingI","name": "falling-growth-falling-inflation",
-     "framework_id": "4seasons", "aliases": [], "tags": [],
-     "is_current": False, "confidence": 0,
-     "trace": "Disinflation/recession; deflation can layer as tag."},
-    {"id": "rg-uncertain",        "name": "uncertain",
-     "framework_id": "4seasons", "aliases": [], "tags": [],
-     "is_current": False, "confidence": 0,
-     "trace": "Contradictory or straddled indicators."},
+# RegimeType IDs match DATA_MODELS.md schema (no rg- prefix).
+# `description` carries the narrative (RegimeType has no `trace`).
+# Concrete Regime instances are created later by detect_regime() with
+# id convention "<alias>-<start_date>" (e.g. "stagflation-2026-05-01").
+REGIME_TYPES = [
+    {"id": "rising-growth-falling-inflation", "name": "Goldilocks",
+     "framework_id": "4seasons", "aliases": [],
+     "description": "Rising PMI and decelerating CPI YoY — goldilocks quadrant."},
+    {"id": "rising-growth-rising-inflation",  "name": "Overheating",
+     "framework_id": "4seasons", "aliases": ["overheating"],
+     "description": "Rising PMI with accelerating CPI YoY — late-cycle overheating."},
+    {"id": "falling-growth-rising-inflation", "name": "Stagflation",
+     "framework_id": "4seasons", "aliases": ["stagflation"],
+     "description": "PMI < 50 with CPI YoY > 2.5 and accelerating — stagflation."},
+    {"id": "falling-growth-falling-inflation","name": "Disinflation/Recession",
+     "framework_id": "4seasons", "aliases": [],
+     "description": "Falling PMI and decelerating CPI YoY; deflation can layer as tag."},
+    {"id": "uncertain",                        "name": "Uncertain",
+     "framework_id": "4seasons", "aliases": [],
+     "description": "Contradictory or straddled indicators."},
 ]
 ```
 
@@ -507,32 +501,56 @@ REGIMES = [
 INVARIANTS = [
     {"id": "inv-inflation-persistence-tips",
      "title": "Persistent inflation favors TIPS, commodities, and gold",
-     "source": "corpus", "author_weight": "dalio", "status": "integrated",
+     "description": "When CPI YoY > 2.5% and speed > 0, real yields fall and "
+                    "TIPS/gold/commodities outperform nominal bonds.",
+     "source": "Dalio — Principles for Navigating Big Debt Crises, ch. inflation",
+     "author": "dalio", "status": "integrated",
+     "tags": ["asset:TIP", "asset:GLD", "indicator:real-yield", "regime:inflation-rising"],
      "weight_initial": 0.85, "floor_weight": 0.40,
      "trace": "Dalio Principles; chapter on inflation hedges."},
     {"id": "inv-falling-growth-duration",
      "title": "Falling growth favors duration and cash-like defense",
-     "source": "corpus", "author_weight": "dalio", "status": "integrated",
+     "description": "PMI < 50 with rate-cut expectations supports long duration "
+                    "(TLT) and cash equivalents (BIL).",
+     "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
+     "author": "dalio", "status": "integrated",
+     "tags": ["asset:TLT", "asset:BIL", "regime:growth-falling"],
      "weight_initial": 0.80, "floor_weight": 0.40,
      "trace": "Dalio Principles; recession playbook."},
     {"id": "inv-rising-growth-equities",
      "title": "Rising growth favors equity exposure",
-     "source": "corpus", "author_weight": "dalio", "status": "integrated",
+     "description": "PMI > 52 with positive earnings revisions supports broad "
+                    "equity beta (SPY/VTI).",
+     "source": "Standard cycle finance; multi-decade empirical regularity",
+     "author": "dalio", "status": "integrated",
+     "tags": ["asset:SPY", "asset:VTI", "regime:growth-rising"],
      "weight_initial": 0.80, "floor_weight": 0.40,
      "trace": "Standard cycle finance."},
     {"id": "inv-liquidity-tightening-risk",
      "title": "Tightening global liquidity pressures risk assets",
-     "source": "corpus", "author_weight": "marks", "status": "integrated",
+     "description": "GLOBAL_LIQUIDITY level < 100 with speed < 0 historically "
+                    "compresses risk-asset multiples.",
+     "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
+     "author": "marks", "status": "integrated",
+     "tags": ["indicator:global-liquidity", "regime:risk-off"],
      "weight_initial": 0.75, "floor_weight": 0.35,
      "trace": "Howard Marks memos on cycles and liquidity."},
     {"id": "inv-liquidity-easing-risk",
      "title": "Easing global liquidity supports risk assets",
-     "source": "corpus", "author_weight": "marks", "status": "integrated",
+     "description": "GLOBAL_LIQUIDITY speed > 0 historically expands risk-asset "
+                    "multiples.",
+     "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
+     "author": "marks", "status": "integrated",
+     "tags": ["indicator:global-liquidity", "regime:risk-on"],
      "weight_initial": 0.75, "floor_weight": 0.35,
      "trace": "Howard Marks memos on cycles and liquidity."},
     {"id": "inv-diversification-drawdown",
      "title": "Diversification lowers drawdown but dilutes upside",
-     "source": "corpus", "author_weight": "dalio", "status": "integrated",
+     "description": "Cross-asset diversification reduces max_drawdown at the "
+                    "cost of upside capture in single-regime bull runs.",
+     "source": "Dalio — All Weather framework documentation",
+     "author": "dalio", "status": "integrated",
+     "tags": ["indicator:max_drawdown", "phase:accumulation"],
      "weight_initial": 0.70, "floor_weight": 0.40,
      "trace": "Dalio Principles; All Weather chapter."},
 ]
@@ -542,39 +560,46 @@ INVARIANTS = [
 
 ```python
 STRATEGIES = [
+    # Framework-neutral strategies keep canonical names (no alias prefix).
+    # Regime-specific strategies follow id = "<regimeType.alias>-<name>-<vN>".
     {"id": "4seasons",
      "title": "4 Seasons Dalio",
-     "base_strategy": "4seasons",
+     "description": "Risk-parity baseline allocating across stocks, long bonds, "
+                    "TIPS, gold and commodities to perform in every quadrant.",
+     "regime_type_id": None,
      "framework_id": "4seasons",
      "status": "active", "enabled": True, "conviction": 65,
      "conditions": "applicable to all regimes AND VIX < 30",
-     "benchmark": "^GSPC",
      "trace": "Risk parity baseline."},
     {"id": "permanent",
      "title": "Permanent Portfolio Browne",
-     "base_strategy": "permanent",
+     "description": "Browne 25/25/25/25 across stocks, long bonds, gold and cash; "
+                    "simplicity baseline with low historical drawdown.",
+     "regime_type_id": None,
      "framework_id": "4seasons",
      "status": "active", "enabled": True, "conviction": 55,
      "conditions": "25/25/25/25 AND uncertainty_score > 0.6",
-     "benchmark": "^GSPC",
      "trace": "Simplicity baseline; low historical drawdown."},
     {"id": "barbell",
      "title": "Barbell Taleb",
-     "base_strategy": "barbell",
+     "description": "85% safety (short Treasuries) + 15% convexity (long-vol / "
+                    "tail-hedged equity) to capture upside while bounding downside.",
+     "regime_type_id": None,
      "framework_id": "4seasons",
      "status": "active", "enabled": True, "conviction": 45,
      "conditions": "tail risk elevated AND VIX > 25",
-     "benchmark": "^GSPC",
      "trace": "85% safety + 15% convexity."},
     {"id": "momentum-macro",
      "title": "Momentum Macro",
-     "base_strategy": "momentum-macro",
+     "description": "Dynamic rotation by detected regime; tilts toward the "
+                    "asset class with strongest current macro momentum.",
+     "regime_type_id": None,
      "framework_id": "4seasons",
      "status": "active", "enabled": True, "conviction": 50,
      "conditions": "clear stable regime AND momentum_signal > 0",
-     "benchmark": "^GSPC",
      "trace": "Dynamic rotation by detected regime."},
 ]
+# Benchmark is a Portfolio-level field, not Strategy-level — see Portfolio seed.
 
 # BACKED_BY edges (minimum):
 BACKED_BY_EDGES = [
@@ -611,14 +636,14 @@ SCENARIOS = [
 ]
 ```
 
-### Task 1ter.6 — Portfolio seed (6-10 portfolios, exactly one live=true)
+### Task 1ter.6 — Portfolio seed (6-10 portfolios, exactly one defender=true)
 
 ```python
 PORTFOLIOS = [
     {"id": "4s-balanced-defender",
      "name": "4 Seasons Balanced Defender",
      "framework_id": "4seasons",
-     "live": True, "enabled": True,
+     "defender": True, "enabled": True,
      "currency": "CHF", "benchmark": "60/40-USD",
      "allocation": {"TIP": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
@@ -627,7 +652,7 @@ PORTFOLIOS = [
     {"id": "4s-stagflation-defensive",
      "name": "4 Seasons Stagflation Defensive",
      "framework_id": "4seasons",
-     "live": False, "enabled": True,
+     "defender": False, "enabled": True,
      "currency": "CHF", "benchmark": "60/40-USD",
      "allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
@@ -636,7 +661,7 @@ PORTFOLIOS = [
     {"id": "4s-rising-growth-equities",
      "name": "4 Seasons Rising-Growth Equity Tilt",
      "framework_id": "4seasons",
-     "live": False, "enabled": True,
+     "defender": False, "enabled": True,
      "allocation": {"SPY": 50, "TLT": 15, "GLD": 10, "TIP": 15, "DJP": 5, "cash": 5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 50.0,
      "phase": "accumulation", "fx_usd_exposure": 100.0,
@@ -644,7 +669,7 @@ PORTFOLIOS = [
     {"id": "4s-falling-growth-defensive",
      "name": "4 Seasons Falling-Growth Defensive",
      "framework_id": "4seasons",
-     "live": False, "enabled": True,
+     "defender": False, "enabled": True,
      "allocation": {"TLT": 40, "IEF": 20, "GLD": 15, "SPY": 15, "cash": 10},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 95.0,
@@ -652,7 +677,7 @@ PORTFOLIOS = [
     {"id": "permanent-balanced",
      "name": "Permanent Portfolio Balanced",
      "framework_id": "permanent",
-     "live": False, "enabled": True,
+     "defender": False, "enabled": True,
      "allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 30.0,
      "phase": "accumulation", "fx_usd_exposure": 75.0,
@@ -660,7 +685,7 @@ PORTFOLIOS = [
     {"id": "barbell-defensive",
      "name": "Barbell Taleb Defensive",
      "framework_id": "4seasons",
-     "live": False, "enabled": True,
+     "defender": False, "enabled": True,
      "allocation": {"IEF": 70, "TLT": 15, "SPY": 15},
      "max_drawdown_rule": -10.0, "max_single_asset_pct": 70.0,
      "phase": "accumulation", "fx_usd_exposure": 100.0,
@@ -668,7 +693,7 @@ PORTFOLIOS = [
     {"id": "momentum-macro-rotation",
      "name": "Momentum Macro Rotation",
      "framework_id": "4seasons",
-     "live": False, "enabled": True,
+     "defender": False, "enabled": True,
      "allocation": {"SPY": 40, "TLT": 30, "GLD": 15, "DJP": 10, "cash": 5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 50.0,
      "phase": "accumulation", "fx_usd_exposure": 100.0,
@@ -686,12 +711,14 @@ HOLDS_EDGES = [
     ("momentum-macro-rotation",   "momentum-macro",  True),
 ]
 
-# DESIGNED_FOR edges (Portfolio → Regime, only when applicable):
+# DESIGNED_FOR edges (Portfolio → RegimeType, only when applicable).
+# Target is RegimeType, not Regime — a portfolio is designed for a regime type
+# in general, not for a specific historical instance.
 DESIGNED_FOR_EDGES = [
-    ("4s-stagflation-defensive",   "rg-fallingG-risingI",  "Designed for stagflation regime."),
-    ("4s-rising-growth-equities",  "rg-risingG-risingI",   "Designed for rising-growth quadrants."),
-    ("4s-rising-growth-equities",  "rg-risingG-fallingI",  "Designed for rising-growth quadrants."),
-    ("4s-falling-growth-defensive","rg-fallingG-fallingI", "Designed for disinflation/recession."),
+    ("4s-stagflation-defensive",   "falling-growth-rising-inflation",  "Designed for stagflation regime."),
+    ("4s-rising-growth-equities",  "rising-growth-rising-inflation",   "Designed for rising-growth quadrants."),
+    ("4s-rising-growth-equities",  "rising-growth-falling-inflation",  "Designed for rising-growth quadrants."),
+    ("4s-falling-growth-defensive","falling-growth-falling-inflation", "Designed for disinflation/recession."),
     # 4s-balanced-defender, permanent-balanced, barbell-defensive,
     # momentum-macro-rotation: no DESIGNED_FOR edge (framework-neutral or dynamic).
 ]
@@ -709,20 +736,25 @@ DESIGNED_FOR_EDGES = [
 #    (formula in src/investment/market/liquidity.py).
 #
 # 2. First regime detection: run RegimeDetector against most recent 12M.
-#    Set is_current=true on the matching Regime vertex.
+#    Create the first concrete Regime instance with id <alias>-<start_date>
+#    (e.g. "stagflation-2026-05-01"), set is_current=true, fill `events`.
 #
-# 3. Backtests: for each (Strategy × Regime) cell where coverage >= min_backtest_periods,
-#    create Backtest vertex + TESTED_IN + IN_REGIME edges,
-#    populate Regime -[FAVORS]-> Strategy with rolling ratios.
+# 3. Backtests: for each (Strategy × RegimeType) cell where coverage >=
+#    min_backtest_periods, create Backtest vertex + TESTED_IN + IN_REGIME edges
+#    (IN_REGIME points to the historical Regime instance),
+#    populate RegimeType -[FAVORS]-> Strategy with strategy-level rolling
+#    indicators aggregated across n_periods historical instances.
 #
 # 4. PortfolioNAV TS: for each Portfolio, synthesize NAV from
-#    NAV(t) = Σ_asset allocation[asset] × close[asset](t) / close[asset](0).
-#    Compute daily_return, sharpe_rolling (252d), sortino_rolling (252d),
+#    NAV(t) = Σ_asset allocation[asset] × price[asset](t) / price[asset](0).
+#    (Source: MarketData TS `level` column.)
+#    Compute daily_return, sharpe_rolling (756d), sortino_rolling (756d),
 #    calmar_rolling (756d), drawdown.
 #
 # 5. portfolio_weekly_snapshot: one row per enabled Portfolio for the seed
-#    date; rank by sortino_rolling DESC tiebroken by calmar_rolling DESC;
-#    fill market_context, gap_to_defender (null for live row), recommendation='maintain'.
+#    date; rank by sortino_rolling DESC tiebroken by calmar_rolling DESC then
+#    max_drawdown (less negative wins); fill market_context, return_3m/6m/1y/3y/5y,
+#    gap_to_defender (null for defender row), recommendation='maintain'.
 #
 # 6. Emit SeedEvent → Event TS with full inventory and schema_version.
 ```
@@ -806,17 +838,18 @@ the seeded invariants when similarity floor is met.)
 (unchanged structurally — see prior version. Key Cypher to fix:)
 
 ```cypher
--- FAVORS Cypher (was Regime → Portfolio; now Regime → Strategy):
-MATCH (r:Regime {is_current:true})-[f:FAVORS]->(s:Strategy)
+-- FAVORS Cypher: RegimeType → Strategy, joined to the current Regime instance:
+MATCH (r:Regime {is_current:true})
+MATCH (rt:RegimeType {id: r.regime_type_id})-[f:FAVORS]->(s:Strategy)
 WHERE s.enabled=true
 RETURN s, f.sortino_rolling, f.sharpe_rolling, f.calmar_rolling
 ORDER BY f.sortino_rolling DESC
 
 -- Defender query:
-MATCH (p:Portfolio {live:true, enabled:true})
+MATCH (p:Portfolio {defender:true, enabled:true})
 OPTIONAL MATCH (p)-[h:HOLDS {primary:true}]->(s:Strategy)
-OPTIONAL MATCH (p)-[:DESIGNED_FOR]->(r:Regime)
-RETURN p, s.id AS primary_strategy, r.id AS designed_regime
+OPTIONAL MATCH (p)-[:DESIGNED_FOR]->(rt:RegimeType)
+RETURN p, s.id AS primary_strategy, rt.id AS designed_regime_type
 
 -- Ranking query (from portfolio_weekly_snapshot):
 SELECT * FROM portfolio_weekly_snapshot
@@ -867,7 +900,7 @@ for proposal in post_result.proposals:
         f"MATCH (p:Portfolio {{id:'{proposal.challenger_id}'}}) RETURN p")
     p = challenger[0]["p"]
     defender = await db.query("cypher",
-        f"MATCH (p:Portfolio {{live:true}}) RETURN p")
+        f"MATCH (p:Portfolio {{defender:true}}) RETURN p")
     if self._violates_concentration(p["allocation"], p["max_single_asset_pct"]):
         await self.telegram.send(f"⛔ Proposal blocked: concentration violated\n{proposal.reasoning}")
         continue
@@ -909,7 +942,7 @@ async def test_uc0_seed_idempotent():
     # Run seed twice → no duplicate vertex; SeedEvent appears twice
 
 async def test_schema_complete():
-    # 13 vertex + 13 edge + 4 TS types created
+    # 13 vertex + 11 edge + 4 TS types created
 
 async def test_corpus_ingestion():
     # PDF → Document + Passages with embeddings; vector search works
@@ -919,11 +952,11 @@ async def test_regime_detection_with_derivatives():
     # to flag early shift
 
 async def test_portfolio_ranking():
-    # All enabled portfolios ranked, including live defender
-    # gap_to_defender is null for live, non-null for others
+    # All enabled portfolios ranked, including defender
+    # gap_to_defender is null for defender, non-null for others
 
 async def test_favors_targets_strategy():
-    # Regime -[FAVORS]-> Strategy (not Portfolio) for all FAVORS rows
+    # RegimeType -[FAVORS]-> Strategy (not Portfolio, not Regime instance)
 
 async def test_holds_primary():
     # Each Portfolio has exactly one HOLDS with primary=true
@@ -941,7 +974,7 @@ async def test_agent_innovation():
     # status=proposed, Telegram notification BEFORE commit
 
 async def test_event_ts_precedes_commit():
-    # For every Signal/Proposal/Invariant/Regime change, Event TS row exists
+    # For every MarketData/Proposal/Invariant/Regime change, Event TS row exists
     # with timestamp <= vertex commit timestamp
 ```
 
@@ -956,19 +989,21 @@ async def test_event_ts_precedes_commit():
 5. **Event TS first** — every Event TS append must precede vertex/edge commit.
 6. **Risk-free rate** — fetch ^IRX daily; use in Sharpe/Sortino.
 7. **Calmar window** — 756 trading days (36M). From `system_thresholds`.
-8. **Currency** — USD for ratios. CHFUSD=X for user display only.
+8. **Currency** — USD for indicators. CHFUSD=X for user display only.
 9. **Rolling suffix** — `sharpe_rolling`/`sortino_rolling`/`calmar_rolling`
-   everywhere (Portfolio, Backtest, FAVORS, PortfolioNAV).
+   everywhere (Portfolio, Backtest, FAVORS, PortfolioNAV). Cumulative
+   `return_3m/6m/1y/3y/5y` on Portfolio and portfolio_weekly_snapshot.
 10. **Recency formula** — `max(0.5, 0.5 + 0.5 * exp(-days_since / 365))` in V1.
-11. **Floor on Invariant vertex** — set at creation from source/author defaults.
+11. **Floor on Invariant vertex** — set at creation from `author` tier
+    (dalio=0.40, marks=0.35, null=0.20, system=0.05). `source` is real provenance.
 12. **Shift threshold** — `abs(prob - prob_d7) > 10` → context, not auto-action in V1.
 13. **V2 Auto-validation** — deferred; V1 never auto-applies.
 14. **Innovation status** — never `status:integrated` without `user_validated=True`.
 15. **Concentration check** — Writeback blocks if `max_single_asset_pct` violated.
 16. **YFinance rate limit** — `time.sleep(0.5)` between tickers.
 17. **Ollama already installed** — verify `ollama list`, do not reinstall.
-18. **FAVORS direction** — Regime → Strategy. Not Portfolio.
-19. **DESIGNED_FOR** — Portfolio → Regime, nullable.
+18. **FAVORS direction** — RegimeType → Strategy. Not Portfolio, not Regime instance.
+19. **DESIGNED_FOR** — Portfolio → RegimeType, nullable (framework-neutral).
 20. **HOLDS** — Portfolio → Strategy with `primary BOOLEAN`. No `strategy_id`
     scalar on Portfolio.
 

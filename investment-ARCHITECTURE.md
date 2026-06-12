@@ -70,13 +70,13 @@ WORKER system prompt:
   "You are a long-term investment expert, Phase 1 accumulation.
    Build capital for retirement over 15-20 years.
    Evaluate strategies, rank portfolios, compare challengers against the
-   live defender, propose paper-mode adjustments. V1 never auto-executes.
+   defender, propose paper-mode adjustments. V1 never auto-executes.
    Use the Skills provided and the data in your context.
    You are unaware of the Planner, Writeback, and internal storage.
    Three tools: db_query, market_fetch, portfolio_check.
-   Sharpe/Sortino/Calmar are pre-calculated in USD in ArcadeDB; the suffix
-   is _rolling. Interpret them — do not recalculate.
-   Calmar window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
+   Sharpe/Sortino/Calmar are pre-calculated indicators in USD in ArcadeDB;
+   the suffix is _rolling. Interpret them — do not recalculate.
+   Rolling window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
    WorkerResult must include innovations_proposed (empty list if none)."
 ```
 
@@ -89,11 +89,11 @@ SEED      (UC0) corpus + frameworks + regimes + invariants + strategies +
                 portfolios + first snapshot (one-shot)
 INGESTS   corpus → Passages → Invariants (UC4)
 DETECTS   regime (4 Seasons) from MarketData TS with level/speed/acceleration
-RANKS     all enabled portfolios, including the live defender, by USD
-          *_rolling ratios + drawdown (weekly)
+RANKS     all enabled portfolios, including the defender, by USD
+          *_rolling indicators + drawdown (weekly)
 PROPOSES  V1 emits Proposal vertices in paper-mode when gate is met
 V2 ADAPTS Telegram with auto-validation timeout (V2 only)
-MEASURES  PortfolioNAV + weekly snapshots with rolling ratios (USD)
+MEASURES  PortfolioNAV + weekly snapshots with rolling indicators (USD)
 V2 LEARNS Adaptation × performance_3m → BACKED_BY invariant weights
 ```
 
@@ -104,39 +104,41 @@ V2 LEARNS Adaptation × performance_3m → BACKED_BY invariant weights
 ```
 GRAPH VERTICES (13)
   Framework       lens for market interpretation; seeded '4seasons'
-  Signal          qualitative event Tier 1/2
-  Regime          detected macro regime (4 Seasons); stagflation = alias
-  Invariant       universal principle with dynamic weight and floor
-  Strategy        thesis/concept with conviction and enabled flag
+  RegimeType      static regime definition per framework
+  Regime          detected macro regime instance; id <alias>-<start_date>
+  Invariant       universal principle with dynamic weight, author-tier floor,
+                  tags, real-source provenance
+  Strategy        thesis tied to a regime_type_id (alias-first id); description
   Scenario        bull/base/bear per strategy (weekly shift detection)
-  Evaluation      Signal × Strategy crossing → weekly verdict
-  Backtest        Strategy × Regime historical performance
+  Evaluation      MarketData × Strategy crossing → weekly verdict
+  Backtest        Strategy × Regime instance historical performance
   Adaptation      V2-only allocation decision (reserved vertex)
   Proposal        V1 paper-mode recommendation persisted weekly
-  Portfolio       concrete ETF allocation; ranking unit; live=true = defender
+  Portfolio       concrete ETF allocation; ranking unit; defender=true
   Document        corpus source
   Passage         RAG unit (chunk + embedding)
 
-GRAPH EDGES (13)
-  Signal     → IMPLIES       → Regime
-  Signal     → GENERATES     → Evaluation
+GRAPH EDGES (11)
   Evaluation → UPDATES       → Strategy
-  Regime     → FAVORS        → Strategy (rolling ratios contextual)
+  RegimeType → FAVORS        → Strategy (strategy-level rolling indicators,
+                                aggregated across n_periods historical instances)
   Strategy   → HAS_SCENARIO  → Scenario (3 per Strategy)
   Strategy   → BACKED_BY     → Invariant
   Strategy   → TESTED_IN     → Backtest
-  Backtest   → IN_REGIME     → Regime
+  Backtest   → IN_REGIME     → Regime instance
   Adaptation → MODIFIES      → Portfolio (V2 only)
   Portfolio  → HOLDS         → Strategy (primary BOOLEAN, weight, since)
-  Portfolio  → DESIGNED_FOR  → Regime (nullable)
+  Portfolio  → DESIGNED_FOR  → RegimeType (nullable)
   Document   → CONTAINS      → Passage
   Passage    → SUPPORTS      → Invariant
 
 TIME-SERIES (4)
-  MarketData          OHLCV + level/speed/acceleration + regime_id
-                      Global liquidity is asset_class=GLOBAL_LIQUIDITY
+  MarketData          level/speed/acceleration per (ticker, asset_class).
+                      Global liquidity is asset_class=GLOBAL_LIQUIDITY.
+                      `close`, `volume`, `regime_id` removed — `level` is the
+                      canonical value; regime membership reached via date lookup.
   ScenarioProbability bull/base/bear probabilities per Strategy
-  PortfolioNAV        rolling ratios per day (USD)
+  PortfolioNAV        rolling indicators per day (USD)
   Event               all UC outputs — APPEND BEFORE vertex/edge commit
 ```
 
@@ -179,12 +181,13 @@ Seeded strategies (all enabled=true):
   momentum-macro   dynamic rotation by regime
 
 Mechanical (weekly):
-  → Backtest per Strategy × Regime cell where data coverage suffices
+  → Backtest per Strategy × RegimeType cell where data coverage suffices
   → Scenario bull/base/bear with weekly shift probabilities
-  → Regime → FAVORS → Strategy (rolling ratios)
+  → RegimeType → FAVORS → Strategy (strategy-level rolling indicators,
+                          aggregated across all historical instances)
 Worker (weekly):
   → ranks portfolios, not strategies (it's the portfolio that is valued)
-  → compares challengers against the live defender
+  → compares challengers against the defender
 ```
 
 ---
@@ -256,7 +259,7 @@ Once at install (UC0)
 Daily (mechanical only)
   02:00  inbox → CorpusIngester
   06:30  MarketData TS + level/speed/acceleration
-  06:35  rolling ratios → PortfolioNAV TS
+  06:35  rolling indicators → PortfolioNAV TS
   06:45  Scenario probabilities → ScenarioProbability TS
   06:50  regime detection → Regime vertex
 
@@ -275,7 +278,7 @@ Weekly (Monday)
 ```
 User is in CHF. Assets in USD.
 Portfolio.fx_usd_exposure tracked daily (informational only).
-Ratios calculated in USD. CHFUSD=X applied for display only.
+Indicators calculated in USD. CHFUSD=X applied for display only.
 No hedging in Phase 1. See IMPROVEMENTS.md I-15.
 ```
 
@@ -350,7 +353,7 @@ Produces WorkerResult with innovations_proposed (always present, possibly empty)
 ### CALL 2 — Knowledge Extractor (async post-Worker)
 ```
 asyncio.create_task() after WorkerResult.
-Extracts: signals, regime updates, evaluations, scenario updates,
+Extracts: regime updates, evaluations, scenario updates,
           proposals (V1) / adaptations (V2), invariant confrontations,
           innovations.
 Outputs PostPlannerResult via extract_knowledge tool.
@@ -381,6 +384,7 @@ Writeback commits — Event TS append first, then vertices, then edges.
 
 09:30   Weekly Telegram digest
           → regime + ranking + defender row + challenger gap
+          → cumulative returns (3m/6m/1y/3y/5y) displayed alongside indicators
           → V1 paper-mode Proposal payload if any
           → proposed innovations (user validation required)
 ```
