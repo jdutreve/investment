@@ -21,14 +21,14 @@ Currency overlay quotes back to CHF when the portfolio currency is CHF.
 
 ## Step 1 — Tier 1 events of 11 May 2026
 
-Numeric indicators (CPI, PMI, VIX, prices) flow into the **MarketData TS** (Step 2),
-not into Signal vertices. Signal is reserved for purely qualitative events with no
-direct TS analogue (e.g. *"Greenspan nomination"*, *"central-bank communiqué shift"*).
-Even those may eventually be promoted to **Event vertices** in V2 — the Signal vertex
-itself is under review (Event is a proper Vertex with edges, Signal is a thin record).
+Numeric indicators (CPI, PMI, VIX, prices) flow into the **MarketData TS** (Step 2).
+There is no Signal vertex in the V1 schema: purely qualitative events with no direct
+TS analogue (e.g. *"Greenspan nomination"*, *"central-bank communiqué shift"*) are
+captured in V1 as entries in `Regime.events` / `Evaluation.events`; a dedicated
+Event/Signal vertex is deferred to V2 (IMPROVEMENTS I-19).
 
 For 11 May 2026, all incoming Tier 1 information is numeric and is captured directly
-in the MarketData TS rows below. No Signal vertex is created for this cycle.
+in the MarketData TS rows below.
 
 ---
 
@@ -59,7 +59,8 @@ MarketData { ticker:"GLOBAL_LIQ_COMPOSITE", asset_class:"GLOBAL_LIQUIDITY"
   date:2026-05-11
   level:98.4         ← below 100 = contraction vs baseline
   speed:-0.80        ← negative → tightening
-  acceleration:-0.40 ← tightening decelerating (pace of contraction easing)
+  acceleration:-0.40 ← speed itself falling → tightening accelerating
+                       (contraction pace increasing)
 }
 ```
 
@@ -297,22 +298,22 @@ MATCH (rt:RegimeType)<-[{regime_type_id}]-(r:Regime {is_current:true}),
 ```
 RegimeType#falling-growth-rising-inflation
   -[FAVORS sharpe_rolling:0.65, sortino_rolling:1.09,
-    calmar_rolling:1.7, max_drawdown:-7.2,
+    calmar_rolling:1.7, max_drawdown:-0.072,
     n_periods:8, last_updated:2026-05-11]-> Strategy#stagflation-custom-v2
 
 RegimeType#falling-growth-rising-inflation
   -[FAVORS sharpe_rolling:0.58, sortino_rolling:0.91,
-    calmar_rolling:1.3, max_drawdown:-8.8,
+    calmar_rolling:1.3, max_drawdown:-0.088,
     n_periods:8, last_updated:2026-05-11]-> Strategy#4seasons
 
 RegimeType#falling-growth-rising-inflation
   -[FAVORS sharpe_rolling:0.45, sortino_rolling:0.69,
-    calmar_rolling:1.0, max_drawdown:-10.1,
+    calmar_rolling:1.0, max_drawdown:-0.101,
     n_periods:8, last_updated:2026-05-11]-> Strategy#permanent
 
 RegimeType#falling-growth-rising-inflation
   -[FAVORS sharpe_rolling:0.20, sortino_rolling:0.28,
-    calmar_rolling:0.5, max_drawdown:-19.4,
+    calmar_rolling:0.5, max_drawdown:-0.194,
     n_periods:8, last_updated:2026-05-11]-> Strategy#momentum-macro
 ```
 
@@ -325,6 +326,10 @@ vs the defender.
 **Indicator window:** rolling **36 months** (≈ 756 trading days). Cumulative-return
 columns (`return_3m`, `return_6m`, `return_1y`, `return_3y`, `return_5y`) are computed
 on the calendar windows ending at `date`.
+
+**Units:** drawdown/volatility/return values below are decimal fractions
+(-0.041 = -4.1%) per the DATA_MODELS.md units convention; the Telegram digest
+formats them as percent.
 
 **Rank rule:** primary key = `sortino_rolling` (desc). Tie-break (within 0.02):
 secondary = `calmar_rolling` (desc), tertiary = `max_drawdown` (less negative wins).
@@ -341,9 +346,9 @@ portfolio_weekly_snapshot {
   allocation: {GLD:20, TIP:30, DJP:15, cash:15, SPY:20}
   rank: 1
   sharpe_rolling: 0.71, sortino_rolling: 1.18, calmar_rolling: 1.9
-  max_drawdown: -4.1, volatility: 0.08
-  return_3m: +3.8, return_6m: +7.2, return_1y: +14.3,
-  return_3y: +32.1, return_5y: +48.6
+  max_drawdown: -0.041, volatility: 0.08
+  return_3m: 0.038, return_6m: 0.072, return_1y: 0.143,
+  return_3y: 0.321, return_5y: 0.486
   gap_to_defender: null
   recommendation: "maintain"
   market_context: {framework:"4seasons", regime_type_id:"falling-growth-rising-inflation",
@@ -359,11 +364,11 @@ portfolio_weekly_snapshot {
   allocation: {VTI:30, TIP:15, GLD:7.5, TLT:15, cash:32.5}
   rank: 2
   sharpe_rolling: 0.61, sortino_rolling: 0.94, calmar_rolling: 1.4
-  max_drawdown: -8.1, volatility: 0.10
-  return_3m: +2.4, return_6m: +5.1, return_1y: +11.2,
-  return_3y: +24.8, return_5y: +39.5
+  max_drawdown: -0.081, volatility: 0.10
+  return_3m: 0.024, return_6m: 0.051, return_1y: 0.112,
+  return_3y: 0.248, return_5y: 0.395
   gap_to_defender: {sharpe_delta:-0.10, sortino_delta:-0.24, calmar_delta:-0.5,
-                    max_drawdown_delta:-4.0}
+                    max_drawdown_delta:-0.040}
   recommendation: "monitor"
   market_context: {framework:"4seasons", regime_type_id:"falling-growth-rising-inflation",
                    confidence:78, global_liquidity:"tightening"}
@@ -378,11 +383,11 @@ portfolio_weekly_snapshot {
   allocation: {GLD:25, TLT:25, BIL:25, VTI:25}
   rank: 3
   sharpe_rolling: 0.48, sortino_rolling: 0.72, calmar_rolling: 1.1
-  max_drawdown: -9.4, volatility: 0.09
-  return_3m: +1.7, return_6m: +3.9, return_1y: +9.1,
-  return_3y: +19.4, return_5y: +33.0
+  max_drawdown: -0.094, volatility: 0.09
+  return_3m: 0.017, return_6m: 0.039, return_1y: 0.091,
+  return_3y: 0.194, return_5y: 0.330
   gap_to_defender: {sharpe_delta:-0.23, sortino_delta:-0.46, calmar_delta:-0.8,
-                    max_drawdown_delta:-5.3}
+                    max_drawdown_delta:-0.053}
   recommendation: "monitor"
   market_context: {framework:"4seasons", regime_type_id:"falling-growth-rising-inflation",
                    confidence:78, global_liquidity:"tightening"}
@@ -397,11 +402,11 @@ portfolio_weekly_snapshot {
   allocation: {QQQ:40, IEF:20, GLD:10, cash:30}
   rank: 4
   sharpe_rolling: 0.22, sortino_rolling: 0.31, calmar_rolling: 0.6
-  max_drawdown: -18.2, volatility: 0.16
-  return_3m: -0.4, return_6m: +1.2, return_1y: +6.2,
-  return_3y: +14.7, return_5y: +27.3
+  max_drawdown: -0.182, volatility: 0.16
+  return_3m: -0.004, return_6m: 0.012, return_1y: 0.062,
+  return_3y: 0.147, return_5y: 0.273
   gap_to_defender: {sharpe_delta:-0.49, sortino_delta:-0.87, calmar_delta:-1.3,
-                    max_drawdown_delta:-14.1}
+                    max_drawdown_delta:-0.141}
   recommendation: "monitor"
   market_context: {framework:"4seasons", regime_type_id:"falling-growth-rising-inflation",
                    confidence:78, global_liquidity:"tightening"}
@@ -459,14 +464,18 @@ Strategy#stagflation-custom-v2 -[HAS_SCENARIO active:true]-> Scenario#bear
 Strategy#stagflation-custom-v2 -[HAS_SCENARIO active:true]-> Scenario#base
 Strategy#stagflation-custom-v2 -[HAS_SCENARIO active:true]-> Scenario#bull
 
-MarketData#CPIAUCSL@2026-05-11 -[GENERATES date:2026-05-11]-> Evaluation#eval-20260511
-MarketData#PMICOMP@2026-05-11  -[GENERATES date:2026-05-11]-> Evaluation#eval-20260511
-
 Evaluation {
   id: "eval-20260511"
   date: 2026-05-11
   verdict: "confirms"
   conviction_delta: +6
+  events: [
+    "CPI level 3.1 (speed +0.30, accel +0.15)",
+    "PMI 47.2 (speed -1.40, accel -0.30)",
+    "VIX spike above stress threshold"
+  ]
+  -- triggering observations recorded inline: MarketData rows are TS entries,
+  -- not vertices, so no graph edge can point from them to the Evaluation
   reasoning: "CPI re-accelerates + PMI < 50 + VIX spike = exact trigger conditions
               of stagflation-custom. Conviction 74 → 80."
   trace: "3 convergent Tier 1 indicators — strong confirmation"
@@ -536,7 +545,7 @@ WorkerResult {
 Event TS append precedes vertex creation (architectural invariant):
 
 ```
-Event { type:"InnovationEvent", source_uc:"UC7", source_id:"wresult-20260512",
+Event { type:"InnovationEvent", source_uc:"UC8", source_id:"wresult-20260512",
         payload:'{"invariant_id":"calmar-v2-threshold","status":"proposed"}' }
 ```
 
@@ -616,8 +625,8 @@ Backtest {
   sharpe_rolling: 0.68            ← 2-year period only; differs from 36M rolling
   sortino_rolling: 1.14
   calmar_rolling: 1.8             ← above threshold 1.5
-  max_drawdown: -6.8
-  total_return: 12.9
+  max_drawdown: -0.068
+  total_return: 0.129
   currency: "USD"
   source: "mechanical"            ← Python computed; agent proposed the strategy
   status: "integrated"
@@ -629,7 +638,7 @@ Backtest {
 Strategy#stagflation-custom-v2 -[TESTED_IN is_primary:true]->
   Backtest#bt-stagflation-custom-2021-2022
 
-Backtest#bt-stagflation-custom-2021-2022 -[IN_REGIME overlap_pct:0.91]->
+Backtest#bt-stagflation-custom-2021-2022 -[IN_REGIME overlap_pct:91]->
   Regime#stagflation-2021-03-01
   -- IN_REGIME points to the specific historical instance, not the type
 
@@ -637,7 +646,7 @@ Backtest#bt-stagflation-custom-2021-2022 -[IN_REGIME overlap_pct:0.91]->
 -- (aggregated across all 8 historical periods, not equal to this single backtest):
 RegimeType#falling-growth-rising-inflation
   -[FAVORS sharpe_rolling:0.65, sortino_rolling:1.09,
-    calmar_rolling:1.7, max_drawdown:-7.2,
+    calmar_rolling:1.7, max_drawdown:-0.072,
     n_periods:8, last_updated:2026-05-11]-> Strategy#stagflation-custom-v2
 ```
 
@@ -706,11 +715,11 @@ portfolio_weekly_snapshot {
   allocation: {VTI:30, TIP:15, GLD:7.5, TLT:15, cash:32.5}
   rank: 1
   sharpe_rolling: 0.74, sortino_rolling: 1.22, calmar_rolling: 1.5
-  max_drawdown: -7.8
-  return_3m: +2.9, return_6m: +5.7, return_1y: +11.8,
-  return_3y: +25.4, return_5y: +40.1
+  max_drawdown: -0.078
+  return_3m: 0.029, return_6m: 0.057, return_1y: 0.118,
+  return_3y: 0.254, return_5y: 0.401
   gap_to_defender: {sharpe_delta:+0.03, sortino_delta:+0.04, calmar_delta:-0.4,
-                    max_drawdown_delta:-3.7}
+                    max_drawdown_delta:-0.037}
   recommendation: "paper-test"
   market_context: {framework:"4seasons", regime_type_id:"falling-growth-rising-inflation",
                    confidence:78, global_liquidity:"tightening"}
@@ -725,9 +734,9 @@ portfolio_weekly_snapshot {
   allocation: {GLD:20, TIP:30, DJP:15, cash:15, SPY:20}
   rank: 2
   sharpe_rolling: 0.71, sortino_rolling: 1.18, calmar_rolling: 1.9
-  max_drawdown: -4.1
-  return_3m: +3.5, return_6m: +6.9, return_1y: +14.0,
-  return_3y: +31.8, return_5y: +48.3
+  max_drawdown: -0.041
+  return_3m: 0.035, return_6m: 0.069, return_1y: 0.140,
+  return_3y: 0.318, return_5y: 0.483
   gap_to_defender: null
   recommendation: "monitor"
   market_context: {framework:"4seasons", regime_type_id:"falling-growth-rising-inflation",
@@ -756,7 +765,7 @@ Proposal {
   challenger_rank: 1
   gap: {
     sharpe_delta: +0.03, sortino_delta: +0.04, calmar_delta: -0.4,
-    max_drawdown_delta: -3.7,
+    max_drawdown_delta: -0.037,
     allocation_diff: {TLT:+15, GLD:-12.5, TIP:-15, VTI:+30, SPY:-20, DJP:-15,
                       cash:+12.5}
   }
@@ -765,8 +774,10 @@ Proposal {
     confidence: 78, global_liquidity: "tightening"
   }
   reasoning: "portfolio-4seasons edges past defender on Sortino (1.22 vs 1.18)
-              and Sharpe (0.74 vs 0.71). Calmar lower (1.5 vs 1.9) — still
-              above threshold 1.5. Standard 4 Seasons benefits from TLT
+              and Sharpe (0.74 vs 0.71). Calmar lower (1.5 vs 1.9) but at the
+              1.5 absolute threshold — gate passes (the gate compares the
+              challenger's Calmar to the threshold, not to the defender's).
+              Standard 4 Seasons benefits from TLT
               re-entry as rate expectations moderate.
               Recommend paper-test: monitor for 4 weeks before any manual switch."
   user_response: "pending"
@@ -824,9 +835,9 @@ Portfolio {
   max_single_asset_pct: 40.0
   fx_usd_exposure: 55
   sharpe_rolling: 0.74, sortino_rolling: 1.22, calmar_rolling: 1.5
-  max_drawdown: -7.8, volatility: 0.10
-  return_3m: +2.9, return_6m: +5.7, return_1y: +11.8,
-  return_3y: +25.4, return_5y: +40.1
+  max_drawdown: -0.078, volatility: 0.10
+  return_3m: 0.029, return_6m: 0.057, return_1y: 0.118,
+  return_3y: 0.254, return_5y: 0.401
   date_revised: 2026-05-26
   trace: "User accepted paper-test and manually rebalanced to 4 Seasons standard.
           Custom gold overlay suspended pending GLD recovery."
@@ -834,8 +845,9 @@ Portfolio {
 }
 
 Portfolio#a -[HOLDS primary:true weight:1.0 since:2026-05-26]-> Strategy#4seasons
-Portfolio#a -[DESIGNED_FOR rationale:"4 Seasons neutral framework allocation"]->
-              RegimeType#falling-growth-rising-inflation
+-- The previous DESIGNED_FOR edge to RegimeType#falling-growth-rising-inflation
+-- is REMOVED: the portfolio now executes the framework-neutral 4seasons
+-- strategy, and framework-neutral portfolios carry no DESIGNED_FOR edge.
 ```
 
 ---
@@ -875,7 +887,6 @@ Passage#pass-dalio-tips-142 -[SUPPORTS strength:0.90
 
 | Entity | Instances | Role in this cycle |
 |--------|-----------|-------------------|
-| Signal | 0 | Reserved for qualitative events with no TS analogue — none this cycle |
 | RegimeType | 1 | Static type — hosts FAVORS and DESIGNED_FOR |
 | Regime | 2 | Current (2026-05-01) + historical (2021-03-01) via IN_REGIME |
 | MarketData TS | 3 rows | CPI, PMI, global liquidity — level/speed/accel |
@@ -894,12 +905,12 @@ Passage#pass-dalio-tips-142 -[SUPPORTS strength:0.90
 **Three distinct indicator contexts — never to be confused:**
 - FAVORS edge: aggregated across n_periods historical regime instances (strategy-level)
 - Backtest vertex: single historical episode (fixed date range)
-- portfolio_weekly_snapshot: current rolling window (252d / 36M) — portfolio-level
+- portfolio_weekly_snapshot: current rolling window (36M / 756 trading days) — portfolio-level
 
-**Edges active:** GENERATES (MarketData→Evaluation), UPDATES,
-FAVORS (RegimeType→Strategy), HAS_SCENARIO, BACKED_BY, TESTED_IN,
-IN_REGIME (→Regime), HOLDS, DESIGNED_FOR (→RegimeType), CONTAINS, SUPPORTS.
-**Unused:** MODIFIES (V2 only), IMPLIES (no Signal vertices this cycle).
+**Edges active:** UPDATES, FAVORS (RegimeType→Strategy), HAS_SCENARIO,
+BACKED_BY, TESTED_IN, IN_REGIME (→Regime), HOLDS,
+DESIGNED_FOR (→RegimeType), CONTAINS, SUPPORTS.
+**Unused:** MODIFIES (V2 only).
 
 **Note:** Adaptation vertex is V2-only. V1 paper-mode uses Proposal.
 Scenario A (no Proposal) and Scenario B (Proposal) cover the two distinct UC8 outcomes.

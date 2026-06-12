@@ -45,7 +45,7 @@ PLANNER (Qwen3-8B, OpenRouter, thinking mode)
   Call 1b       : LLM receives raw DB results, returns PlannerContext
   Call 2        : async, post-Worker, knowledge extraction
 
-WORKER (Sonnet 4, Anthropic API)
+WORKER (Sonnet 4.6, Anthropic API)
   System prompt : investment expert Phase 1 accumulation
   Markdown Skills : strategy evaluation, ranking, indicator interpretation,
                     defender comparison
@@ -58,16 +58,24 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
   One-time
     UC0    seed → DB bootstrap (CLI command, not cron)
   Daily
-    02:00  inbox processor → CorpusIngester
+    02:00  inbox parser → Document/Passage vertices + SUPPORTS edges
+           (parse + chunk + embed only — invariant curation is weekly UC4)
     06:30  fetch market data + level/speed/acceleration → MarketData TS
     06:35  Sharpe/Sortino/Calmar (rolling) → PortfolioNAV TS
     06:45  Scenario probabilities + 7-day shifts → ScenarioProbability TS
+           (numeric triggers only; qualitative triggers are Worker-interpreted
+            weekly — see IMPROVEMENTS I-22)
     06:50  regime detection (4 Seasons) → Regime vertex (is_current)
-  Weekly (Monday)
-    08:00  Portfolio valuations recalculated → portfolio_weekly_snapshot
-    08:15  Invariant weights recalculated
-    08:30  V2 only: learn_from_adaptations
-    09:00  Worker decision cycle (Planner Pre → Worker → Planner Post)
+  Weekly (Monday — canonical timeline, see USE_CASES.md)
+    08:00  UC2 market valuation → MarketEvent
+    08:10  UC3 knowledge search → inbox
+    08:20  UC4 knowledge curation (LLM) → KnowledgeEvent
+    08:30  Backtests recalculated → FAVORS edges (RegimeType → Strategy)
+    08:40  Invariant weights recalculated
+    08:45  UC6 portfolio valuations → Portfolio vertices + ValuationEvent
+    08:50  UC7 ranking → portfolio_weekly_snapshot rows
+    08:55  V2 only: learn_from_adaptations
+    09:00  UC8 Worker decision cycle (Planner Pre → Worker → Planner Post)
     09:30  Weekly digest → Telegram user
   Event-driven
     Invariant weights after each Backtest or Evaluation
@@ -83,7 +91,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | DB path         | `/data/investment/arcade_db/investment.db`                    |
 | LLM Framework   | PydanticAI V1 (model-agnostic)                                |
 | Planner LLM     | `qwen/qwen3-8b` via OpenRouter, thinking mode                 |
-| Worker LLM      | `claude-sonnet-4-20250514` via Anthropic                      |
+| Worker LLM      | `claude-sonnet-4-6` via Anthropic                             |
 | Market data     | Yahoo Finance + FRED + GLOBAL_LIQUIDITY composite             |
 | Risk-free rate  | 3-Month T-Bill (^IRX) via Yahoo Finance — USD                 |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
@@ -128,7 +136,9 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
 - `market_score = confirmation_count / (confirmation_count + infirmation_count)`
   (use 1.0 until first confrontation)
 - Event-driven update after each Backtest or Evaluation.
-- `source=agent-discovery` + `status=proposed` → Telegram BEFORE commit.
+- `source=agent-discovery` → Event TS append → vertex committed with
+  `status=proposed` → Telegram notification in the same cycle. Never
+  `integrated` without `user_validated=True`.
 
 ### Curation vs Innovation
 - **Curation** (autonomous): update weight, add confirmations, add SUPPORTS
@@ -179,7 +189,7 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
 - Deflation = dynamic tag on Regime instances, never a RegimeType.
 - Detection uses `level`, `speed`, `acceleration` on MarketData TS.
 - FAVORS and DESIGNED_FOR point to RegimeType (type-level, multi-period).
-- IMPLIES and IN_REGIME point to Regime (instance-level).
+- IN_REGIME points to Regime (instance-level).
 
 ### FX
 - `Portfolio.fx_usd_exposure` tracked, informational only.
@@ -187,21 +197,22 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
 
 ---
 
-## ArcadeDB Entities (14 vertices, 13 edges, 4 time-series — see DATA_MODELS.md)
+## ArcadeDB Entities (13 vertices, 11 edges, 4 time-series — see DATA_MODELS.md)
 
 ```
-VERTEX : Framework, RegimeType, Signal (under review — V2 may replace with Event),
-         Regime, Invariant, Strategy, Scenario,
+VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,
          Evaluation, Backtest, Adaptation (V2-only), Proposal,
          Portfolio, Document, Passage
+         (Signal vertex dropped from V1 — see IMPROVEMENTS I-19)
 
-EDGES  : IMPLIES (Signal → Regime instance — rare in V1),
-         GENERATES (MarketData/Signal → Evaluation), UPDATES,
+EDGES  : UPDATES,
          FAVORS (RegimeType → Strategy, multi-period aggregated, strategy-level),
          HAS_SCENARIO, BACKED_BY, TESTED_IN,
          IN_REGIME (Backtest → Regime instance),
          MODIFIES (V2), HOLDS (Portfolio → Strategy, primary BOOLEAN),
          DESIGNED_FOR (Portfolio → RegimeType), CONTAINS, SUPPORTS
+         (IMPLIES and GENERATES dropped from V1 — see IMPROVEMENTS I-19;
+          Evaluation records its triggering observations in `events`)
 
 TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
               PortfolioNAV, Event
@@ -225,7 +236,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 
 ## Definition of Done
 
-1. UC0 seed produces 14 vertex types, 13 edge types, 4 time-series, seed data,
+1. UC0 seed produces 13 vertex types, 11 edge types, 4 time-series, seed data,
    and the first `portfolio_weekly_snapshot` row.
 2. `update_ratios_daily()` populates PortfolioNAV TS daily (USD).
 3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`
@@ -233,7 +244,8 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 4. After Dalio corpus ingestion: 10+ Passage + Invariant vertices with weights.
 5. Full weekly cycle: MarketData/Event ingestion → Worker → Evaluation →
    Scenario update → Proposal (if gate passed).
-6. `source=agent-discovery` Invariant triggers Telegram notification before commit.
+6. `source=agent-discovery` Invariant is persisted as `status=proposed` and
+   triggers a Telegram notification in the same cycle.
 7. `weight_effective` of an agent-discovery invariant grows after market confirmations.
 8. `learn_from_adaptations()` (V2) propagates `performance_3m` to BACKED_BY invariants.
 9. Every Event TS append precedes its corresponding ArcadeDB vertex/edge commit.

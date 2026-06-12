@@ -40,7 +40,7 @@ Filesystem
 
 ## Planner / Worker Asymmetry
 
-| | Planner (Qwen3-8B, OpenRouter) | Worker (Sonnet 4, Anthropic) |
+| | Planner (Qwen3-8B, OpenRouter) | Worker (Sonnet 4.6, Anthropic) |
 |--|--------------------------------|------------------------------|
 | DB access | Direct Python asyncio | tool_call via bridged functions |
 | `_db` | direct, in-process | never — closure only |
@@ -203,7 +203,11 @@ Strategy "4 Seasons" — example
   Scenario base (45%)  triggers: CPI 2.5-3.5% AND Fed pause
   Scenario bear (20%)  triggers: VIX>25 OR (CPI>4% AND PMI<48)
 
-Weekly Worker cycle reviews probabilities.
+Probability mechanics in V1: the daily 06:45 mechanical job evaluates
+**numeric triggers only** (e.g. "CPI<2.5", "VIX>25") against MarketData TS
+and computes shift_d7; qualitative triggers ("Fed dovish") are interpreted
+exclusively by the weekly Worker cycle, which reviews and may adjust
+probabilities. Formal trigger grammar deferred — see IMPROVEMENTS I-22.
 V1 uses shifts as context for proposals.
 V2 may use shift thresholds for auto-adaptive execution.
 ```
@@ -263,11 +267,16 @@ Daily (mechanical only)
   06:45  Scenario probabilities → ScenarioProbability TS
   06:50  regime detection → Regime vertex
 
-Weekly (Monday)
-  08:00  Backtests → FAVORS edges (Regime → Strategy)
-  08:15  Invariant weights
-  08:30  V2 only: learn_from_adaptations
-  09:00  Planner Pre → Worker → Planner Post → Writeback
+Weekly (Monday — canonical timeline, identical in CLAUDE.md / USE_CASES.md)
+  08:00  UC2 market valuation → MarketEvent
+  08:10  UC3 knowledge search → inbox
+  08:20  UC4 knowledge curation → KnowledgeEvent
+  08:30  Backtests → FAVORS edges (RegimeType → Strategy)
+  08:40  Invariant weights
+  08:45  UC6 portfolio valuations → Portfolio vertices
+  08:50  UC7 ranking → portfolio_weekly_snapshot
+  08:55  V2 only: learn_from_adaptations
+  09:00  UC8: Planner Pre → Worker → Planner Post → Writeback
   09:30  Weekly digest → Telegram
 ```
 
@@ -289,8 +298,8 @@ No hedging in Phase 1. See IMPROVEMENTS.md I-15.
 ```
 Worker discovers new pattern
   → ImprovementProposal in WorkerResult.innovations_proposed
-  → Invariant source:agent-discovery status:proposed
-  → Telegram notification BEFORE commit
+  → Event TS append → Invariant source:agent-discovery status:proposed
+  → Telegram notification in the same cycle
         ↓
   User validates → status:integrated
   User rejects   → status:rejected (reason persisted as trace)
@@ -367,9 +376,11 @@ Writeback commits — Event TS append first, then vertices, then edges.
 ```
 06:30   Daily mechanical jobs complete (regime, ratios, scenarios)
 
-08:00   Weekly mechanical pre-processing
+08:00   Weekly pre-processing (UC2 → UC3 → UC4, then mechanical)
+          → Market valuation (MarketEvent), knowledge search + curation
           → Backtests recalculated → FAVORS edges
           → Invariant weights updated
+          → Portfolio valuations + ranking → portfolio_weekly_snapshot rows
           → V2 only: learn_from_adaptations
 
 09:00   Worker cycle
@@ -380,7 +391,8 @@ Writeback commits — Event TS append first, then vertices, then edges.
   09:00:10  asyncio.create_task() → PlannerPost + Writeback
               Call 2 + commits (Event TS first)
               Proposal vertex (V1) if gate met
-              portfolio_weekly_snapshot rows written
+              snapshot `recommendation` columns updated
+              (rows themselves written by UC7 at 08:50)
 
 09:30   Weekly Telegram digest
           → regime + ranking + defender row + challenger gap

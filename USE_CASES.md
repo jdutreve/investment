@@ -26,6 +26,7 @@ Weekly (Monday — run in sequence)
   UC6  Portfolio Valuation  → ValuationEvent
   UC7  Portfolio Ranking    → RankingEvent + portfolio_weekly_snapshot
   UC8  Proposal Detection   → ProposalEvent + Proposal vertex (or nothing)
+  —    Weekly digest        → Telegram (09:30 — renders UC7/UC8 output; always sent)
 
 On demand
   UC9  Chatbot              → UserDecisionEvent → may re-trigger UC8
@@ -35,8 +36,9 @@ On demand
 
 ## Event Time-Series
 
-All UCs append Events to the Event TS. **Every Event TS append must precede the
-corresponding vertex/edge commit.** UC8 reads this TS weekly to detect proposals.
+All UCs except UC1 (pure TS write, no Event) append Events to the Event TS.
+**Every Event TS append must precede the corresponding vertex/edge commit.**
+UC8 reads this TS weekly to detect proposals.
 
 ---
 
@@ -101,7 +103,7 @@ corresponding vertex/edge commit.** UC8 reads this TS weekly to detect proposals
     - barbell-defensive
     - momentum-macro-rotation
     + HOLDS edges (primary=true to main strategy)
-    + DESIGNED_FOR edges to Regime (nullable for framework-neutral portfolios)
+    + DESIGNED_FOR edges to RegimeType (nullable for framework-neutral portfolios)
 
 9.  MarketData TS backfill:
     - 5y history for all allowed_tickers from Yahoo Finance + FRED
@@ -159,8 +161,9 @@ MarketData TS. Includes ^IRX (3M T-Bill risk-free rate) and the
 **Trigger:** Weekly cron (Monday 08:00).
 **What it does:** Reads MarketData TS. Produces structured market snapshot:
 current regime (4 Seasons), benchmark performance, macro indicators with
-level/speed/acceleration, global liquidity state. Updates Regime vertex
-(`is_current`).
+level/speed/acceleration, global liquidity state. The Regime vertex itself
+(`is_current`) is owned and maintained by the daily 06:50 `detect_regime()`
+job — UC2 reads it, it does not update it.
 **Output:** MarketEvent → Event TS.
 
 ```json
@@ -197,7 +200,10 @@ In V1: RSS + user deposits only. YouTube/X/podcasts deferred (IMPROVEMENTS I-9).
 
 ## UC4 — Knowledge Curation
 **Trigger:** Weekly cron (Monday, after UC3).
-**What it does:** Processes everything in `inbox/`.
+**What it does:** Processes Documents/Passages ingested since the last cycle.
+Raw inbox parsing (parse + chunk + embed → Document/Passage vertices +
+similarity-based SUPPORTS edges) runs nightly at 02:00 with no LLM; UC4 is
+the weekly LLM step that turns new passages into invariant updates.
 
 **Curation (autonomous):** updating confirmation counts, enriching
 description/example, adding SUPPORTS edges, recalculating `weight_effective`
@@ -205,7 +211,8 @@ on existing integrated Invariants. No user validation required.
 
 **Innovation (requires user validation):** creating a new Invariant
 (`source=agent-discovery`, `status=proposed`), proposing a new metric or
-schema element. Always generates a Telegram notification **before** commit.
+schema element. Persisted as `status=proposed`, with a Telegram notification
+in the same cycle; never `integrated` without user validation.
 
 **Output:** KnowledgeEvent → Event TS.
 **User action:** Validation required for proposed innovations.
@@ -287,9 +294,15 @@ context. Every ranked portfolio includes its concrete allocation.
 ## UC8 — Proposal Detection
 **Trigger:** Weekly Worker cycle (Monday 09:00).
 **What it does:** Compares the defender with top challengers. V1 never
-auto-applies. It may emit a Proposal vertex when a challenger meets the gate
-(better Sortino + better Calmar or lower drawdown + concentration constraints
-pass + meaningful allocation change).
+auto-applies. It may emit a Proposal vertex when a challenger meets the gate:
+1. challenger outranks the defender in `portfolio_weekly_snapshot`;
+2. `sortino_rolling` gap ≥ `proposal_sortino_gap_min` (system_thresholds, 0.02);
+3. challenger `calmar_rolling` ≥ 1.5 (Calmar selection threshold);
+4. concentration constraints pass (`max_single_asset_pct`);
+5. meaningful allocation change vs the defender.
+A challenger may pass with a worse Calmar or drawdown than the defender as
+long as it stays above the absolute Calmar threshold — the digest must then
+flag the weaker downside profile (see EXAMPLE.md Step 8B).
 
 Inputs:
 ```

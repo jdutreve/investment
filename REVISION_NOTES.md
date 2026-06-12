@@ -24,9 +24,11 @@ learning from real allocations are deferred to V2 (see IMPROVEMENTS.md).
 All `Portfolio` rows with `enabled=true` are ranked together. The current regime
 and global liquidity state are **context**, not filters. The defender
 (`defender=true`) is ranked alongside challengers, never excluded, never privileged.
-Primary sort: `sortino_rolling` DESC; tie-break: `calmar_rolling` DESC; final
-tie-break: `max_drawdown` (less negative wins). Portfolios with
-`calmar_rolling < 1.0` are demoted to the bottom.
+Primary sort: `sortino_rolling` DESC; tie-break (within 0.02): `calmar_rolling`
+DESC; final tie-break: `max_drawdown` (less negative wins). Portfolios with
+`calmar_rolling < 1.0` are demoted to the bottom. A portfolio whose
+`max_drawdown` breaches the user rule (-15%) stays in the ranking but is
+excluded from the defender role and from proposal candidacy.
 
 ## Mandatory indicators
 
@@ -34,6 +36,9 @@ USD `sharpe_rolling`, `sortino_rolling`, `calmar_rolling` (36M window),
 `max_drawdown`, `volatility`, plus cumulative `return_3m / 6m / 1y / 3y / 5y`,
 plus defender-vs-challenger gap. Every ranked portfolio must expose its concrete
 allocation. Indicator (never "ratio") is the canonical generic term.
+Drawdown/volatility/return values are stored as decimal fractions
+(-0.062 = -6.2%); percent formatting happens only at display
+(see DATA_MODELS.md units convention).
 
 ## Global liquidity
 

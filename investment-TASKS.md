@@ -34,7 +34,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV + Event       |
 | LLM Framework   | PydanticAI (V1, model-agnostic)                               |
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
-| Worker          | Sonnet 4 via Anthropic                                        |
+| Worker          | Sonnet 4.6 via Anthropic                                      |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
 | Veille          | RSS feeds + user deposits                                     |
 | Market data     | Yahoo Finance prices + FRED macro + GLOBAL_LIQUIDITY composite |
@@ -44,7 +44,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Notification    | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Deployment      | systemd service on Hetzner CAX21 ARM                          |
 
-**Out of scope (see IMPROVEMENTS.md):** I-1, I-2, I-3 through I-18.
+**Out of scope (see IMPROVEMENTS.md):** I-0 through I-26.
 
 ---
 
@@ -108,7 +108,7 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 PLANNER_MODEL=qwen/qwen3-8b
 PLANNER_THINKING_BUDGET_PRE=512
 PLANNER_THINKING_BUDGET_POST=1024
-WORKER_MODEL=claude-sonnet-4-20250514
+WORKER_MODEL=claude-sonnet-4-6
 OLLAMA_BASE_URL=http://localhost:11434
 
 # ArcadeDB
@@ -119,7 +119,7 @@ INBOX_PATH=/data/investment/inbox
 SOURCES_PATH=/data/investment/sources/corpus
 
 # Market data
-YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,IEF,CHFUSD=X,^IRX,^VIX
+YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,VTI,QQQ,EFA,EEM,IEF,SHY,BIL,DBC,CHFUSD=X,^IRX,^VIX
 FRED_SERIES=CPIAUCSL,T10Y2Y,VIXCLS,UMCSENT,UNRATE
 GLOBAL_LIQUIDITY_COMPONENTS=M2SL,WALCL,ECBASSETSW,BOJ_ASSETS
 
@@ -402,7 +402,10 @@ SYSTEM_THRESHOLDS = {
     "min_backtest_periods": 3.0,
     "vector_similarity_min": 0.35,
     "auto_validation_hours": 48.0,
-    "calmar_window_days": 756.0,
+    "rolling_window_days": 756.0,        # 36M window for ALL *_rolling indicators
+    "proposal_sortino_gap_min": 0.02,    # UC8 gate: min challenger Sortino gap
+    "proposal_calmar_min": 1.5,          # UC8 gate: absolute Calmar threshold
+    "ranking_tiebreak_window": 0.02,     # Sortino tie-break window in ranking
     "recency_half_life_days": 365.0,
     "regime_cpi_stagflation": 2.5,
     "regime_pmi_contraction": 48.0,
@@ -419,8 +422,8 @@ INVARIANT_AUTHOR_CONFIG = [
      "initial_weight_min": 0.80, "initial_weight_max": 0.90},
     {"author": "marks",  "floor_weight": 0.35,
      "initial_weight_min": 0.75, "initial_weight_max": 0.85},
-    {"author": None,     "floor_weight": 0.20,
-     "initial_weight_min": 0.40, "initial_weight_max": 0.70},  # other corpus
+    {"author": "other",  "floor_weight": 0.20,                 # SQL sentinel for
+     "initial_weight_min": 0.40, "initial_weight_max": 0.70},  # Invariant.author=null
     {"author": "system", "floor_weight": 0.05,
      "initial_weight_min": 0.15, "initial_weight_max": 0.25},  # agent-discovery
 ]
@@ -433,6 +436,13 @@ ALLOWED_TICKERS = [
     {"ticker": "GLD",      "asset_class": "GOLD",             "currency": "USD"},
     {"ticker": "DJP",      "asset_class": "COMMODITIES",      "currency": "USD"},
     {"ticker": "SPY",      "asset_class": "US_EQUITY",        "currency": "USD"},
+    {"ticker": "VTI",      "asset_class": "US_EQUITY",        "currency": "USD"},
+    {"ticker": "QQQ",      "asset_class": "US_EQUITY",        "currency": "USD"},
+    {"ticker": "EFA",      "asset_class": "INTL_EQUITY",      "currency": "USD"},
+    {"ticker": "EEM",      "asset_class": "EM_EQUITY",        "currency": "USD"},
+    {"ticker": "SHY",      "asset_class": "US_TREASURY_1_3",  "currency": "USD"},
+    {"ticker": "BIL",      "asset_class": "US_TBILL",         "currency": "USD"},
+    {"ticker": "DBC",      "asset_class": "COMMODITIES",      "currency": "USD"},
     {"ticker": "^IRX",     "asset_class": "RISK_FREE",        "currency": "USD"},
     {"ticker": "^VIX",     "asset_class": "VOLATILITY",       "currency": "USD"},
     {"ticker": "CHFUSD=X", "asset_class": "FX",               "currency": "USD"},
@@ -782,12 +792,16 @@ class MarketFetcher:
         "^IRX": "3M T-Bill (risk-free)", "^VIX": "VIX market stress",
     }
     FRED_SERIES = {
-        "CPIAUCSL": "CPI US YoY",
+        "CPIAUCSL": "CPI US (index level; YoY computed in derivatives.py)",
         "T10Y2Y": "Yield curve 10y-2y",
         "VIXCLS": "VIX",
         "UMCSENT": "Consumer sentiment",
         "UNRATE": "Unemployment rate",
     }
+    # ⚠️ PMI GAP: regime detection requires PMI but FRED has no free ISM PMI
+    # series (license withdrawn; NAPM discontinued). Decide a source before
+    # Phase 2: DBnomics ISM mirror, S&P Global US PMI (manual pull), or a
+    # growth-axis composite from INDPRO YoY + UNRATE delta. See IMPROVEMENTS I-20.
     LIQUIDITY_COMPONENTS = {
         "M2SL": "US M2 money supply",
         "WALCL": "Fed balance sheet",
@@ -904,7 +918,7 @@ for proposal in post_result.proposals:
     if self._violates_concentration(p["allocation"], p["max_single_asset_pct"]):
         await self.telegram.send(f"⛔ Proposal blocked: concentration violated\n{proposal.reasoning}")
         continue
-    await db.append_ts("Event", now(), {"type": "ProposalEmitted", ...})
+    await db.append_ts("Event", now(), {"type": "ProposalEvent", ...})
     pid = await db.create_vertex("Proposal", {
         **proposal.dict(), "user_response": "pending"
     })
@@ -971,7 +985,7 @@ async def test_concentration_block():
 
 async def test_agent_innovation():
     # Worker emits Invariant source=agent-discovery
-    # status=proposed, Telegram notification BEFORE commit
+    # status=proposed persisted, Telegram notification in the same cycle
 
 async def test_event_ts_precedes_commit():
     # For every MarketData/Proposal/Invariant/Regime change, Event TS row exists
@@ -988,7 +1002,8 @@ async def test_event_ts_precedes_commit():
 4. **Mandatory trace** — every `create_vertex` with empty `trace` raises `ValueError`.
 5. **Event TS first** — every Event TS append must precede vertex/edge commit.
 6. **Risk-free rate** — fetch ^IRX daily; use in Sharpe/Sortino.
-7. **Calmar window** — 756 trading days (36M). From `system_thresholds`.
+7. **Rolling window** — 756 trading days (36M) for ALL `*_rolling` indicators
+   (Sharpe, Sortino, Calmar). From `system_thresholds.rolling_window_days`.
 8. **Currency** — USD for indicators. CHFUSD=X for user display only.
 9. **Rolling suffix** — `sharpe_rolling`/`sortino_rolling`/`calmar_rolling`
    everywhere (Portfolio, Backtest, FAVORS, PortfolioNAV). Cumulative

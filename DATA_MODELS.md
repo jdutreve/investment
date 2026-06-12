@@ -14,6 +14,15 @@ with `ValueError`.
 **Event TS ordering rule:** every Event TS append must precede the
 corresponding vertex/edge commit in ArcadeDB.
 
+**Units convention:**
+- Performance indicator fields (`max_drawdown`, `drawdown`, `volatility`,
+  `daily_return`, `return_*`, `total_return`, `vs_benchmark`, and their
+  `*_delta` gap counterparts) are **decimal fractions**: `-0.062` = -6.2%.
+- Fields suffixed `_pct` or `_rule`, plus `fx_usd_exposure` and `confidence`,
+  are **percent points** on a 0–100 scale (`max_drawdown_rule: -15.0` = -15%).
+- `allocation` MAPs are percent weights summing to 100.
+- Percent formatting happens only at the Telegram display layer.
+
 See IMPROVEMENTS.md for deferred schema elements (Benchmark, Hypothesis,
 multi-tier recency, per-invariant floor override).
 
@@ -68,7 +77,7 @@ only a dynamic tag on Regime instances (when CPI YoY < 0).
 
 ### Regime
 *A concrete occurrence of a RegimeType, bounded in time. Created/updated by the
-daily mechanical job (06:50). IMPLIES and IN_REGIME edges point here.*
+daily mechanical job (06:50). IN_REGIME edges point here.*
 
 ```
 Regime {
@@ -174,7 +183,9 @@ and benchmarking is a Portfolio concern.
 ---
 
 ### Scenario
-*Probabilities of bull/base/bear must always sum to 100 per Strategy.*
+*Probabilities of bull/base/bear must always sum to 100 per Strategy.
+The owning Strategy is reached via the HAS_SCENARIO edge — no `strategy_id`
+scalar on the vertex (the seed dicts carry one only to build the edge).*
 
 ```
 Scenario {
@@ -200,6 +211,11 @@ Evaluation {
   date             : DATE
   verdict          : STRING  -- 'confirms' | 'weakens' | 'invalidates' | 'neutral'
   conviction_delta : FLOAT
+  events           : STRING[] -- triggering observations, same convention as
+                              --   Regime.events (ex: "CPI level 3.1 (speed +0.30)")
+                              --   replaces the former GENERATES edge: MarketData
+                              --   is a TS, not a vertex, so it cannot be an edge
+                              --   source
   reasoning        : STRING
   trace            : STRING  -- MANDATORY
   created_at       : DATETIME
@@ -216,7 +232,7 @@ Backtest {
   period          : STRING  -- ex: "2021-2022"
   date_start      : DATE
   date_end        : DATE
-  sharpe_rolling  : FLOAT   -- USD, rolling 252d, rf = ^IRX
+  sharpe_rolling  : FLOAT   -- USD, rolling 36M (756 trading days), rf = ^IRX
   sortino_rolling : FLOAT
   calmar_rolling  : FLOAT   -- annualized return / |max_drawdown|; window = 36M
   max_drawdown    : FLOAT
@@ -402,7 +418,7 @@ Strategy -[TESTED_IN]-> Backtest
   is_primary : BOOLEAN
 
 Backtest -[IN_REGIME]-> Regime
-  overlap_pct : FLOAT
+  overlap_pct : FLOAT  -- percent points, 0-100 (units convention)
 
 Adaptation -[MODIFIES]-> Portfolio
   -- V2 only; not used in V1
@@ -469,7 +485,7 @@ CREATE TIME SERIES TYPE PortfolioNAV IF NOT EXISTS (
   currency        STRING,    -- 'USD'; CHF computed on read via CHFUSD=X
   nav             FLOAT,
   daily_return    FLOAT,
-  sharpe_rolling  FLOAT,     -- rolling 252d, rf = ^IRX
+  sharpe_rolling  FLOAT,     -- rolling 36M (756 trading days), rf = ^IRX
   sortino_rolling FLOAT,
   calmar_rolling  FLOAT,     -- rolling 36M (756 trading days)
   drawdown        FLOAT,
@@ -515,8 +531,11 @@ CREATE TABLE user_profile (
   updated_at              DATE
 );
 
-CREATE TABLE invariant_source_config (
-  source              VARCHAR(50) PRIMARY KEY,
+CREATE TABLE invariant_author_config (
+  author              VARCHAR(50) PRIMARY KEY,  -- 'dalio' | 'marks' | 'other' | 'system'
+                                                -- ('other' is the sentinel for
+                                                --  Invariant.author = null; a SQL
+                                                --  PK cannot be NULL)
   floor_weight        FLOAT,
   initial_weight_min  FLOAT,
   initial_weight_max  FLOAT,
@@ -537,8 +556,9 @@ CREATE TABLE system_thresholds (
   description TEXT,
   updated_at  DATE
 );
--- Seed includes regime thresholds, calmar window, recency half-life,
--- vector similarity floor, etc. (See investment-TASKS.md seed.)
+-- Seed includes regime thresholds, rolling window (756d, all *_rolling
+-- indicators), recency half-life, vector similarity floor, proposal gate
+-- thresholds, etc. (See investment-TASKS.md seed.)
 
 CREATE TABLE schema_extensions (
   id               UUID DEFAULT gen_random_uuid(),
@@ -627,7 +647,9 @@ CREATE TABLE portfolio_weekly_snapshot (
   return_5y         FLOAT,
   gap_to_defender   JSONB,
   market_context    JSONB,
-  recommendation    TEXT,
+  recommendation    TEXT,   -- written as 'maintain'/'monitor' by UC7 (mechanical);
+                            --   upgraded to 'paper-test' by Writeback after the
+                            --   UC8 Worker cycle when the proposal gate is met
   trace             TEXT,
   PRIMARY KEY (date, portfolio_id)
 );
@@ -660,6 +682,7 @@ class ImprovementProposal(BaseModel):
     rationale      : str
     spec           : dict
     source         : str = "agent-discovery"
+    author         : str = "system"   # drives the floor tier, like Invariant.author
     status         : str = "proposed"
     weight_initial : float
     floor_weight   : float
@@ -677,7 +700,7 @@ class ImprovementProposal(BaseModel):
 
 ```
 Invariant    → Event TS → vertex → edges → FTS + vector → invariant_weights SQL
-Evaluation   → Event TS → vertex → GENERATES + UPDATES → FTS
+Evaluation   → Event TS → vertex (events[] filled) → UPDATES → FTS
 Scenario     → Event TS → vertex update → ScenarioProbability TS
 Proposal V1  → concentration check → Event TS → Proposal vertex
               → portfolio_weekly_snapshot row → Telegram
