@@ -1,0 +1,5 @@
+All UCs except UC1 (pure TS write, no Event) append Events to the Event TS. ???
+4seasons, permanent, barbell, momentum-macro : en quoi 4seasons est une strategie? et les 3 autres reliés a 4saisons?
+Knowledge Curation peut il servir a seed UC0?
+UC8 et pourquoi ne pas proposer de changer les allocations?
+UC5 est valid pour n importe qu elle UCx
