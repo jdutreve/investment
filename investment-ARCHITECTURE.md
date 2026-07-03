@@ -108,7 +108,7 @@ V2 LEARNS Adaptation × performance_3m → BACKED_BY invariant weights
 ## Entities — Overview
 
 ```
-GRAPH VERTICES (14)
+GRAPH VERTICES (13 in V1 — V2 adds Adaptation)
   Framework       lens for market interpretation; seeded '4seasons'
   RegimeType      static regime definition per framework
   Regime          detected macro regime instance; id <alias>-<start_date>
@@ -120,7 +120,6 @@ GRAPH VERTICES (14)
   Scenario        bull/base/bear per strategy (weekly shift detection)
   Evaluation      MarketData × Strategy crossing → weekly verdict
   Backtest        Strategy × Regime instance historical performance
-  Adaptation      V2-only allocation decision (reserved vertex)
   Proposal        V1 paper-mode recommendation (switch | reallocation)
   Portfolio       concrete ETF allocation; ranking unit; defender=true
   Document        corpus source
@@ -128,7 +127,7 @@ GRAPH VERTICES (14)
   EventLog        append-only audit log (no edges) — APPEND BEFORE any
                   vertex/edge commit; replaces the former Event TS
 
-GRAPH EDGES (11)
+GRAPH EDGES (10 in V1 — V2 adds Adaptation → MODIFIES → Portfolio)
   Evaluation → UPDATES       → Strategy
   RegimeType → FAVORS        → Strategy (strategy-level rolling indicators,
                                 aggregated across n_periods historical instances)
@@ -136,7 +135,6 @@ GRAPH EDGES (11)
   Strategy   → BACKED_BY     → Invariant
   Strategy   → TESTED_IN     → Backtest
   Backtest   → IN_REGIME     → Regime instance
-  Adaptation → MODIFIES      → Portfolio (V2 only)
   Portfolio  → HOLDS         → Strategy (primary BOOLEAN, weight, since)
   Portfolio  → DESIGNED_FOR  → RegimeType (nullable)
   Document   → CONTAINS      → Passage
@@ -152,11 +150,12 @@ TIME-SERIES (3)
   PortfolioNAV        rolling indicators per day (USD)
 
 DOCUMENT TYPES      user_profile, allowed_tickers, system_thresholds,
-                    invariant_author_config, schema_extensions,
-                    strategy_performance, invariant_weights, regime_history,
-                    invariant_confrontations, portfolio_weekly_snapshot,
+                    invariant_author_config, invariant_confrontations,
+                    portfolio_weekly_snapshot,
                     scenario_calibration (weekly calibration scores),
                     replay_report (Phase 9 shadow replay / go-live gate)
+                    — weight/history/performance data live on the graph
+                    vertices and FAVORS edges, never duplicated in docs
 ```
 
 Benchmark vertex and hypotheses document type are deferred — see IMPROVEMENTS.md.
@@ -192,9 +191,8 @@ monthly observations of each axis**. Both axes are monthly series
 be trivially satisfied between prints, so confirmation counts new prints,
 not calendar days. Until confirmed, `is_current` stays on the previous
 instance and the candidate is tracked in memory. On commit: previous Regime gets
-`end_date`, new Regime vertex created (`<alias>-<start_date>`),
-`regime_history.followed_by` updated. Exactly one `is_current=true` per
-framework — enforced in the same transaction.
+`end_date`, new Regime vertex created (`<alias>-<start_date>`). Exactly one
+`is_current=true` per framework — enforced in the same transaction.
 
 **Confidence (0-100):**
 
@@ -278,7 +276,7 @@ measure current performance → PROPOSE → user gate (where required)
 | Proposal (switch)   | Writeback gates   | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
 | Proposal (realloc)  | Worker            | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
 | Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
-| Strategy (new/revision) | Worker        | FAVORS + strategy_performance after activation | strategy_probation_weeks (12) | ProbationEvent verdict: keep / propose closure  |
+| Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
 | Scenario probabilities | daily job + Worker | calibration: dominant scenario vs realized  | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
 | Thresholds          | Phase 9 replay    | walk-forward calibration                      | 15y calibrate / 10y validate | user-confirmed write to system_thresholds        |
 
@@ -296,7 +294,7 @@ evaluate_proposals():
     incumbent_return = defender allocation as of Proposal.date, held
     outcome = {proposed_return, incumbent_return,
                verdict: 'won' if proposed > incumbent else 'lost'}
-    → ProposalOutcomeEvent → Proposal.outcome + evaluated_at
+    → OutcomeEvent (kind=proposal) → Proposal.outcome + evaluated_at
     → invariant confrontations source='proposal' (rule above)
   Accepted paper-tests (paper_started set) are additionally tracked EVERY
   week from paper_started and rendered in the digest scoreboard.
@@ -305,12 +303,12 @@ score_scenarios():
   For each Strategy, at +scenario_calibration_weeks: was the realized
   regime/quadrant the scenario that held the dominant probability?
   → scenario_calibration doc row (strategy_id, date, brier-style score)
-  → CalibrationEvent (batch)
+  → OutcomeEvent (kind=calibration, batch)
 
 strategy_probation_check():
   For each Strategy activated (new or revision) strategy_probation_weeks
-  ago: compare its FAVORS/strategy_performance percentile in the current
-  regime type vs the median → ProbationEvent verdict 'keep' | 'review'
+  ago: compare its FAVORS percentile in the current regime type vs the
+  median → OutcomeEvent (kind=probation) verdict 'keep' | 'review'
   ('review' → Telegram: propose closure, user decides)
 ```
 
@@ -355,11 +353,13 @@ Strategy "4 Seasons" — example
   Scenario base (45%)  triggers: CPI_YOY 2.5-3.5 AND "Fed pause" (qualitative)
   Scenario bear (20%)  triggers: ^VIX > 25 OR (CPI_YOY > 4 AND GROWTH_COMPOSITE < 98)
 
-Probability mechanics in V1: the daily 06:45 mechanical job evaluates
-**numeric triggers only** (e.g. "CPI<2.5", "VIX>25") against MarketData TS
-and computes shift_d7; qualitative triggers ("Fed dovish") are interpreted
-exclusively by the weekly Worker cycle, which reviews and may adjust
-probabilities. Formal trigger grammar deferred — see IMPROVEMENTS I-22.
+Probability mechanics in V1: the weekly Monday 08:35 mechanical job
+evaluates **numeric triggers only** (e.g. "CPI<2.5", "VIX>25") against
+MarketData TS and computes shift_d7 (weekly, not daily — probability values
+only change via the weekly Worker cycle); qualitative triggers ("Fed
+dovish") are interpreted exclusively by the Worker, which reviews and may
+adjust probabilities. Formal trigger grammar deferred — see IMPROVEMENTS
+I-22.
 V1 uses shifts as context for proposals.
 V2 may use shift thresholds for auto-adaptive execution.
 ```
@@ -426,8 +426,8 @@ Daily (mechanical only)
   02:00  inbox → CorpusIngester
   06:30  MarketData TS + level/speed/acceleration
   06:35  rolling indicators → PortfolioNAV TS
-  06:45  Scenario probabilities → ScenarioProbability TS
   06:50  regime detection → Regime vertex
+  (scenario probabilities moved to the weekly chain — Monday 08:35)
 
 Weekly (Monday — canonical timeline, identical in CLAUDE.md / USE_CASES.md)
   08:00  UC2 market valuation → MarketEvent
@@ -466,9 +466,10 @@ Worker discovers new pattern (type=new_invariant)
   User validates → status:integrated
   User rejects   → status:rejected (reason persisted as trace)
 
-Schema extensions (new vertex/edge type):
-  → require explicit user validation before CREATE
-  → stored in the schema_extensions document type
+Schema self-extension (new vertex/edge/property types): DEFERRED TO V2
+(IMPROVEMENTS I-27) — a schema element without code to use it is dead
+weight. V1 innovations are new_invariant / new_strategy /
+strategy_revision / process / data.
 ```
 
 **New Strategy (type=new_strategy)** — the Worker (or the curation runner)
@@ -587,12 +588,10 @@ class WorkerResult(BaseModel):
     ranking_commentary    : str                       # explains, never re-ranks
     scenario_adjustments  : list[ScenarioAdjustment]  # qualitative triggers only
     evaluations           : list[EvaluationDraft]
-    switch_commentary     : Optional[str]             # annotates the mechanical
-                                                      #   gate outcome (reasoning
-                                                      #   for the Proposal vertex)
     reallocation_proposed : Optional[ReallocationProposal]  # see DATA_MODELS.md
     innovations_proposed  : list[ImprovementProposal]       # empty list if none
-    reasoning             : str
+    reasoning             : str   # also serves as the Proposal vertex's
+                                  #   reasoning (switch commentary folded here)
 ```
 
 ### CALL 2 — Knowledge Extractor (async post-Worker)
@@ -615,11 +614,12 @@ failure: ErrorEvent → EventLog + Telegram alert, chain aborts (no ranking on
 stale data). Timezone Europe/Zurich.
 
 ```
-06:30   Daily mechanical jobs complete (regime, ratios, scenarios)
+06:30   Daily mechanical jobs complete (regime, ratios)
 
 08:00   Weekly pre-processing (UC2 → UC3 → UC4, then mechanical)
           → Market valuation (MarketEvent), knowledge search + curation
           → Backtests recalculated → FAVORS edges
+          → Scenario numeric triggers + shift_d7 → ScenarioProbability TS
           → Invariant weights updated (incl. mechanical confrontations)
           → Portfolio valuations + ranking → portfolio_weekly_snapshot rows
           → Proposal outcomes + scenario calibration + strategy probation

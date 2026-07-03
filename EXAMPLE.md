@@ -411,7 +411,7 @@ Portfolio#4s-balanced-defender -[HOLDS primary:true weight:1.0 since:2026-01-15]
 
 ## Step 5 — Scenarios and Evaluation
 
-Daily 06:45 job: numeric triggers only (`^VIX > 25` hit on 2026-05-08) +
+Weekly 08:35 job: numeric triggers only (`^VIX > 25` hit on 2026-05-08) +
 `shift_d7` recorded in ScenarioProbability TS. Probability VALUES are changed
 by the Worker (weekly), which also interprets qualitative triggers.
 
@@ -493,7 +493,7 @@ WorkerResult {
 
   evaluations: [ EvaluationDraft → eval-20260511 above ]
 
-  switch_commentary: null      # defender rank 1 → no switch this week
+  # defender rank 1 → no switch this week (commentary folded into reasoning)
 
   reallocation_proposed: ReallocationProposal {
     proposed_allocation: {TIP:25, TLT:22.5, GLD:15, DJP:10, SPY:22.5, cash:5}
@@ -813,10 +813,10 @@ switch Proposal (`prop-20260526`) aged ≥ `proposal_outcome_weeks` (12) and
 measures it — same NAV conventions, net of `replay_cost_bps` × turnover:
 
 ```
-EventLog { id:"01K2...", ts:2026-08-24T08:52, type:"ProposalOutcomeEvent",
+EventLog { id:"01K2...", ts:2026-08-24T08:52, type:"OutcomeEvent",
            source_uc:"system", source_id:"prop-20260526",
-           payload:'{"proposed_return":0.041,"incumbent_return":0.028,
-                     "verdict":"won"}' }
+           payload:'{"kind":"proposal","proposed_return":0.041,
+                     "incumbent_return":0.028,"verdict":"won"}' }
 
 Proposal#prop-20260526 {
   outcome: {proposed_return: 0.041, incumbent_return: 0.028, verdict: "won"}
@@ -893,7 +893,7 @@ Passage#pass-dalio-tips-142 -[SUPPORTS strength:0.90
 **Edges active:** UPDATES, FAVORS (RegimeType→Strategy), HAS_SCENARIO,
 BACKED_BY, TESTED_IN, IN_REGIME (→Regime), HOLDS,
 DESIGNED_FOR (→RegimeType), CONTAINS, SUPPORTS.
-**Unused:** MODIFIES (V2 only).
+**V2 additions (not in the V1 schema):** Adaptation vertex, MODIFIES edge.
 
 **Note:** Adaptation vertex is V2-only. V1 paper-mode uses Proposal.
 Scenario A (reallocation) and Scenario B (switch) cover the two UC8 outcomes;

@@ -297,10 +297,11 @@ and the Worker shows pattern recognition over the current library.
 falling-growth" requires reliable transition matrices, which need years of
 data.
 
-**Trigger to add:** when the `regime_history` table contains ≥20 transitions.
+**Trigger to add:** when the Regime instance history contains ≥20 transitions.
 
 **Spec:**
-- Compute P(next_regime | current_regime) from `regime_history.followed_by`.
+- Compute P(next_regime | current_regime) from the Regime vertices ordered
+  by `start_date`.
 - Surface in PlannerContext as `regime_transition_probabilities`.
 - Worker may anticipate transitions, but never proposes before a regime change
   is confirmed (V1 is explicitly reactive).
@@ -421,11 +422,11 @@ REVISION_NOTES.md is not computable without it.
 
 ## I-22 — Mechanical scenario-probability algorithm
 
-**Why deferred:** The daily 06:45 job needs a defined algorithm; scenario
+**Why deferred:** The weekly 08:35 job needs a defined algorithm; scenario
 triggers mix numeric conditions ("CPI < 2.5") with qualitative ones
 ("Fed dovish") that no mechanical job can evaluate.
 
-**V1 behavior (interim):** the daily job evaluates **numeric triggers only**
+**V1 behavior (interim):** the weekly job evaluates **numeric triggers only**
 against MarketData TS and computes `shift_d7`; qualitative triggers are
 interpreted exclusively by the weekly Worker cycle, which may adjust
 probabilities in its WorkerResult.
@@ -490,6 +491,26 @@ refutation should outweigh many mild confirmations.
 - `rss_sources` document type with `tier` and rolling signal-quality score
   (how often a source's items end up cited in Evaluations/Invariants).
 - UC3 prioritizes by tier; low-tier items summarized, not fully curated.
+
+---
+
+## I-27 — Schema self-extension (moved out of V1)
+
+**Why deferred:** a proposed vertex/edge/property type is dead weight until
+someone writes the code that reads and writes it — in V1 the agent cannot
+ship code, so a validated schema extension could never become functional.
+V1 innovations are `new_invariant` / `new_strategy` / `strategy_revision` /
+`process` / `data`.
+
+**Trigger to add:** V2, when innovations can be paired with deployable
+behavior changes.
+
+**Spec (restore what V1 removed):**
+- `schema_extensions` document type (id ULID, improvement_type, name,
+  spec MAP, status, proposed_at, validated_at, rationale).
+- `ImprovementType` members `schema_vertex` / `schema_edge` /
+  `schema_property`.
+- Explicit user validation before any CREATE; CREATE executed by Writeback.
 
 ---
 

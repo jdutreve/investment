@@ -72,9 +72,6 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
     06:30  fetch market data + level/speed/acceleration → MarketData TS
            (pure TS write — no EventLog append, see USE_CASES.md)
     06:35  Sharpe/Sortino/Calmar (rolling) → PortfolioNAV TS (pure TS write)
-    06:45  Scenario probabilities + 7-day shifts → ScenarioProbability TS
-           (numeric triggers only; qualitative triggers are Worker-interpreted
-            weekly — see IMPROVEMENTS I-22)
     06:50  regime detection (4 Seasons) → Regime vertex (is_current)
            → RegimeEvent (only when regime or tags change)
   Weekly (Monday — one sequential chain; times are indicative, each step
@@ -84,6 +81,9 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
     08:10  UC3 knowledge search → inbox
     08:20  UC4 knowledge curation (LLM) → KnowledgeEvent
     08:30  Backtests recalculated → FAVORS edges (RegimeType → Strategy)
+    08:35  Scenario probabilities + 7-day shifts → ScenarioProbability TS
+           (numeric triggers only, weekly — probability values only change
+            via the Worker; qualitative triggers Worker-interpreted, I-22)
     08:40  Invariant weights recalculated (incl. mechanical confrontations —
            see ARCHITECTURE "Invariant confrontation rule")
     08:45  UC6 portfolio valuations → Portfolio vertices + ValuationEvent
@@ -140,7 +140,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 Event time-series (a TS cannot carry a JSON STRING payload — TS FIELDS are
 numeric). **Every UC side-effect must be appended to EventLog BEFORE being
 committed elsewhere in ArcadeDB.** Architectural invariant for auditability
-and replay. Exemption: pure TS writes (UC1 market feed, daily NAV/scenario
+and replay. Exemption: pure TS writes (UC1 market feed, daily NAV, weekly scenario
 jobs) append no EventLog row — they create no vertex/edge.
 
 ### Decision cycle
@@ -179,9 +179,10 @@ jobs) append no EventLog row — they create no vertex/edge.
 - **Curation** (autonomous): update weight, add confirmations, add SUPPORTS
   edges, enrich description/example on **existing integrated** Invariants.
 - **Innovation** (user validation required): create a new Invariant, new
-  Strategy (`type=new_strategy`, `enabled=false` until validated — lifecycle
-  in ARCHITECTURE "System Evolution"), new vertex/edge type, new metric.
-  `status=proposed` until `user_validated=True`.
+  or revised Strategy (`type=new_strategy` / `strategy_revision`,
+  `enabled=false` until validated — lifecycle in ARCHITECTURE "System
+  Evolution"), new metric. `status=proposed` until `user_validated=True`.
+  Schema self-extension (new vertex/edge types) is V2 — IMPROVEMENTS I-27.
 - **Author tier of new Invariants**: extracted from a corpus document →
   `author = Document.author` tier (dalio/marks/null — floor 0.40/0.35/0.20);
   discovered from market patterns (backtests, rankings) →
@@ -276,32 +277,36 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ---
 
-## ArcadeDB Entities (14 vertices, 11 edges, 3 time-series — see DATA_MODELS.md)
+## ArcadeDB Entities (13 vertices, 10 edges, 3 time-series — see DATA_MODELS.md;
+## V2 adds Adaptation + MODIFIES)
 
 ```
 VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,
-         Evaluation, Backtest, Adaptation (V2-only), Proposal,
+         Evaluation, Backtest, Proposal,
          Portfolio, Document, Passage,
          EventLog (append-only audit log, no edges — replaces the former
                    Event time-series)
-         (Signal vertex dropped from V1 — see IMPROVEMENTS I-19)
+         (Signal vertex dropped from V1 — see IMPROVEMENTS I-19;
+          Adaptation is V2-only and NOT created at UC0)
 
 EDGES  : UPDATES,
          FAVORS (RegimeType → Strategy, multi-period aggregated, strategy-level),
          HAS_SCENARIO, BACKED_BY, TESTED_IN,
          IN_REGIME (Backtest → Regime instance),
-         MODIFIES (V2), HOLDS (Portfolio → Strategy, primary BOOLEAN),
+         HOLDS (Portfolio → Strategy, primary BOOLEAN),
          DESIGNED_FOR (Portfolio → RegimeType), CONTAINS, SUPPORTS
+         (MODIFIES is V2-only, created with Adaptation)
          (IMPLIES and GENERATES dropped from V1 — see IMPROVEMENTS I-19;
           Evaluation records its triggering observations in `events`)
 
 TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
               PortfolioNAV
 DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
-              system_thresholds, schema_extensions, strategy_performance,
-              invariant_weights, regime_history, invariant_confrontations,
+              system_thresholds, invariant_confrontations,
               portfolio_weekly_snapshot, scenario_calibration, replay_report
-              (former "SQL tables" — ArcadeDB document types, single engine)
+              (ArcadeDB document types, single engine — weight/history/
+               performance data live on vertices and FAVORS edges, never
+               duplicated in docs)
 ```
 
 See DATA_MODELS.md for the complete schema and properties.
@@ -322,7 +327,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 
 ## Definition of Done
 
-1. UC0 seed produces 14 vertex types, 11 edge types, 3 time-series, the
+1. UC0 seed produces 13 vertex types, 10 edge types, 3 time-series, the
    document types, historical Regime instances from the 25y backfill, seed
    data, and the first `portfolio_weekly_snapshot` row.
 2. `update_ratios_daily()` populates PortfolioNAV TS daily (USD).

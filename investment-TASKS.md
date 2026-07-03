@@ -31,7 +31,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Component       | Detail                                                        |
 |-----------------|---------------------------------------------------------------|
 | DB              | ArcadeDB embedded in-process (single engine: graph + vector + FTS + TS + documents) |
-| Graph           | 14 vertex types (incl. EventLog), 11 edge types               |
+| Graph           | 13 vertex types (incl. EventLog), 10 edge types               |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
@@ -189,8 +189,8 @@ not root scripts — no path ambiguity.
 │       ├── models/
 │       │   ├── entities.py       ← Pydantic: Framework, RegimeType, Regime,
 │       │   │                       Invariant, Strategy, Scenario, Evaluation,
-│       │   │                       Backtest, Adaptation, Proposal, Portfolio,
-│       │   │                       Document, Passage, EventLog
+│       │   │                       Backtest, Proposal, Portfolio,
+│       │   │                       Document, Passage, EventLog (V2: Adaptation)
 │       │   ├── command.py        ← PlannerContext, QueryStrategies
 │       │   └── result.py         ← WorkerResult, ReallocationProposal,
 │       │                           ImprovementProposal, PostPlannerResult
@@ -293,7 +293,8 @@ alias feed-url='f() { ssh -i $VPS_KEY $VPS_USER@$VPS_IP "echo $1 > $VPS_INBOX/$(
 
 ```python
 SCHEMA_SQL = """
--- VERTEX TYPES (14)
+-- VERTEX TYPES (13) — V2 adds Adaptation (documented in DATA_MODELS.md,
+-- created only when V2 lands; IF NOT EXISTS makes that trivial)
 CREATE VERTEX TYPE Framework  IF NOT EXISTS;
 CREATE VERTEX TYPE RegimeType IF NOT EXISTS;
 CREATE VERTEX TYPE Regime     IF NOT EXISTS;
@@ -302,21 +303,19 @@ CREATE VERTEX TYPE Strategy   IF NOT EXISTS;
 CREATE VERTEX TYPE Scenario   IF NOT EXISTS;
 CREATE VERTEX TYPE Evaluation IF NOT EXISTS;
 CREATE VERTEX TYPE Backtest   IF NOT EXISTS;
-CREATE VERTEX TYPE Adaptation IF NOT EXISTS;   -- V2 only, reserved
 CREATE VERTEX TYPE Proposal   IF NOT EXISTS;   -- V1 paper-mode (switch|reallocation)
 CREATE VERTEX TYPE Portfolio  IF NOT EXISTS;
 CREATE VERTEX TYPE Document   IF NOT EXISTS;
 CREATE VERTEX TYPE Passage    IF NOT EXISTS;
 CREATE VERTEX TYPE EventLog   IF NOT EXISTS;   -- append-only audit log, no edges
 
--- EDGE TYPES (11)
+-- EDGE TYPES (10) — V2 adds MODIFIES (with Adaptation)
 CREATE EDGE TYPE UPDATES       IF NOT EXISTS;
 CREATE EDGE TYPE FAVORS        IF NOT EXISTS;  -- RegimeType → Strategy
 CREATE EDGE TYPE HAS_SCENARIO  IF NOT EXISTS;
 CREATE EDGE TYPE BACKED_BY     IF NOT EXISTS;
 CREATE EDGE TYPE TESTED_IN     IF NOT EXISTS;
 CREATE EDGE TYPE IN_REGIME     IF NOT EXISTS;  -- Backtest → Regime instance
-CREATE EDGE TYPE MODIFIES      IF NOT EXISTS;  -- V2 only
 CREATE EDGE TYPE HOLDS         IF NOT EXISTS;  -- Portfolio → Strategy (primary BOOLEAN)
 CREATE EDGE TYPE DESIGNED_FOR  IF NOT EXISTS;  -- Portfolio → RegimeType (nullable)
 CREATE EDGE TYPE CONTAINS      IF NOT EXISTS;
@@ -327,10 +326,6 @@ CREATE DOCUMENT TYPE user_profile             IF NOT EXISTS;
 CREATE DOCUMENT TYPE invariant_author_config  IF NOT EXISTS;
 CREATE DOCUMENT TYPE allowed_tickers          IF NOT EXISTS;
 CREATE DOCUMENT TYPE system_thresholds        IF NOT EXISTS;
-CREATE DOCUMENT TYPE schema_extensions        IF NOT EXISTS;
-CREATE DOCUMENT TYPE strategy_performance     IF NOT EXISTS;
-CREATE DOCUMENT TYPE invariant_weights        IF NOT EXISTS;
-CREATE DOCUMENT TYPE regime_history           IF NOT EXISTS;
 CREATE DOCUMENT TYPE invariant_confrontations IF NOT EXISTS;
 CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
 CREATE DOCUMENT TYPE scenario_calibration     IF NOT EXISTS;  -- outcomes.py
@@ -367,15 +362,9 @@ CREATE TIMESERIES TYPE PortfolioNAV IF NOT EXISTS
           sharpe_rolling DOUBLE, sortino_rolling DOUBLE,
           calmar_rolling DOUBLE, drawdown DOUBLE, vs_benchmark DOUBLE);
 
--- DOWNSAMPLING POLICIES
-ALTER TIMESERIES TYPE MarketData ADD DOWNSAMPLING POLICY
-  AFTER 30 DAYS GRANULARITY 1 DAYS
-  AFTER 365 DAYS GRANULARITY 1 WEEKS;
-ALTER TIMESERIES TYPE ScenarioProbability ADD DOWNSAMPLING POLICY
-  AFTER 7 DAYS  GRANULARITY 1 DAYS
-  AFTER 30 DAYS GRANULARITY 1 WEEKS;
-ALTER TIMESERIES TYPE PortfolioNAV ADD DOWNSAMPLING POLICY
-  AFTER 90 DAYS GRANULARITY 1 WEEKS;
+-- NO DOWNSAMPLING POLICIES: the 756-trading-day rolling windows and the
+-- 25y Phase 9 replay require full daily granularity end to end; total
+-- volume (~30 series × 25y daily) is trivial for the embedded engine.
 """
 
 # VECTOR INDEXES — the audit log is a vertex (EventLog), NOT a TS, because
@@ -393,8 +382,8 @@ ALTER TIMESERIES TYPE PortfolioNAV ADD DOWNSAMPLING POLICY
 # installed arcadedb-embedded version before use; do not guess syntax.
 ```
 
-**Done when:** schema created without error; 14 vertex + 11 edge + 3 TS +
-10 document types present; both vector indexes queryable via `vector.neighbors`.
+**Done when:** schema created without error; 13 vertex + 10 edge + 3 TS +
+8 document types present; both vector indexes queryable via `vector.neighbors`.
 
 ---
 
@@ -793,8 +782,8 @@ SCENARIOS = [
     # ... 9 more for permanent-browne, barbell-taleb, momentum-macro
 ]
 # Numeric triggers follow the grammar "<TICKER|ALIAS> <op> <number>" and are
-# evaluated by the daily 06:45 job; free-text triggers ("Fed dovish") are
-# Worker-interpreted weekly (IMPROVEMENTS I-22).
+# evaluated by the weekly Monday 08:35 job; free-text triggers ("Fed dovish")
+# are Worker-interpreted weekly (IMPROVEMENTS I-22).
 ```
 
 ### Task 1ter.6 — Portfolio seed (7 portfolios, exactly one defender=true)
@@ -896,8 +885,7 @@ DESIGNED_FOR_EDGES = [
 # 2. HISTORICAL REGIME MATERIALIZATION: run RegimeDetector over the full
 #    25y macro backfill. One Regime vertex per episode (is_current=false,
 #    end_date set, confidence from the formula, events filled from the
-#    triggering rows). Fill regime_history (incl. followed_by). Set
-#    is_current=true on the ongoing final instance.
+#    triggering rows). Set is_current=true on the ongoing final instance.
 #    → This is what makes IN_REGIME edges and FAVORS n_periods meaningful.
 #
 # 3. Backtests: for each (Strategy × RegimeType) cell with >=
@@ -905,7 +893,7 @@ DESIGNED_FOR_EDGES = [
 #    strategy's prescribed allocation over each instance (NAV conventions of
 #    DATA_MODELS.md) → Backtest vertex + TESTED_IN + IN_REGIME edges;
 #    aggregate into RegimeType -[FAVORS]-> Strategy (mean of per-instance
-#    indicators, n_periods = instance count) + strategy_performance docs.
+#    indicators, n_periods = instance count).
 #
 # 4. PortfolioNAV TS: synthetic NAV per portfolio from the date all
 #    constituents exist — constant weights, MONTHLY rebalancing, cash accrues
@@ -1130,7 +1118,7 @@ Skill files (each: purpose, inputs, method, output contract):
 - `skill-rank-portfolios.md` — EXPLAIN the mechanical ranking (never re-rank);
   flag calmar demotions and drawdown-rule exclusions.
 - `skill-compare-vs-defender.md` — challenger gaps, downside-profile flags,
-  switch_commentary for the Proposal reasoning.
+  switch commentary folded into `reasoning` (used as Proposal reasoning).
 - `skill-propose-reallocation.md` — WHEN active-scenario probability shifted
   > scenario_shift_trigger OR allocation drift vs blend target > 5pts:
   build proposed_allocation = current + 0.4×scenario_delta + 0.6×favors_delta,
@@ -1202,13 +1190,14 @@ existing invariant from a new fixture passage without touching its weight.
 - `ratios.py` (daily 06:35) — NAV update per pinned conventions (constant
   weights, monthly rebalance, cash at ^IRX) + all `*_rolling` indicators →
   PortfolioNAV TS. Weekly (UC6): update Portfolio vertices + ValuationEvent.
-- `scenarios.py` (daily 06:45) — evaluate NUMERIC triggers only (grammar
-  `<TICKER|ALIAS> <op> <number>`; unparseable → skipped, Worker-only);
-  append current probabilities + `shift_d7` to ScenarioProbability TS.
-  Probability VALUES change only via Worker `scenario_adjustments` (weekly).
+- `scenarios.py` (weekly Monday 08:35) — evaluate NUMERIC triggers only
+  (grammar `<TICKER|ALIAS> <op> <number>`; unparseable → skipped,
+  Worker-only); append current probabilities + `shift_d7` to
+  ScenarioProbability TS. Weekly, not daily: probability VALUES change only
+  via Worker `scenario_adjustments` (weekly) — daily appends would repeat
+  identical rows 6 days out of 7.
 - `backtests.py` (weekly 08:30) — synthetic backtests per (Strategy ×
-  RegimeType) over historical Regime instances; refresh FAVORS aggregates +
-  strategy_performance docs.
+  RegimeType) over historical Regime instances; refresh FAVORS aggregates.
 - `invariants.py` (weekly 08:40 + event-driven) — implements the mechanical
   confrontation rule (ARCHITECTURE): FAVORS-vs-median for the current regime
   type + Evaluation verdict propagation → invariant_confrontations →
@@ -1219,13 +1208,13 @@ existing invariant from a new fixture passage without touching its weight.
   snapshot rows + RankingEvent.
 - `outcomes.py` (weekly 08:52) — the unified improvement cycle's measuring
   arm (full spec in ARCHITECTURE): `evaluate_proposals()` (outcome verdicts
-  at +proposal_outcome_weeks, net of replay_cost_bps, → ProposalOutcomeEvent
-  → Proposal.outcome + confrontations source='proposal'; weekly paper-test
-  tracking from paper_started), `score_scenarios()` (calibration at
-  +scenario_calibration_weeks → scenario_calibration docs +
-  CalibrationEvent), `strategy_probation_check()` (FAVORS percentile at
-  +strategy_probation_weeks → ProbationEvent 'keep'|'review'; 'review' →
-  Telegram closure proposal).
+  at +proposal_outcome_weeks, net of replay_cost_bps, → OutcomeEvent
+  kind=proposal → Proposal.outcome + confrontations source='proposal';
+  weekly paper-test tracking from paper_started), `score_scenarios()`
+  (calibration at +scenario_calibration_weeks → scenario_calibration docs +
+  OutcomeEvent kind=calibration), `strategy_probation_check()` (FAVORS
+  percentile at +strategy_probation_weeks → OutcomeEvent kind=probation,
+  verdict 'keep'|'review'; 'review' → Telegram closure proposal).
 - `learning.py` — V2 stub raising NotImplementedError.
 
 **Done when:** the full Monday pre-processing chain (08:00→08:55 steps) runs
@@ -1255,7 +1244,7 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #   AND max(challenger allocation) <= binding single-asset cap
 #   AND max per-asset |challenger − defender| >= proposal_min_allocation_change_pts
 #   → Proposal(proposal_type='switch', recommendation='paper-test'|'monitor',
-#              reasoning=WorkerResult.switch_commentary)
+#              reasoning=WorkerResult.reasoning)
 
 # B — reallocation gate (from WorkerResult.reallocation_proposed):
 #   sum(proposed_allocation) == 100 ± 0.1
@@ -1338,10 +1327,10 @@ async def main():
         raise RuntimeError("Seed not run. Execute `uv run python -m investment.seed` first.")
 
     scheduler = AsyncIOScheduler(timezone="Europe/Zurich")
-    # Daily: 02:00 ingest, 06:30 market, 06:35 ratios, 06:45 scenarios,
-    #        06:50 regime, 03:00 backup, hourly proposal-expiry sweep.
+    # Daily: 02:00 ingest, 06:30 market, 06:35 ratios, 06:50 regime,
+    #        03:00 backup, 03:30 proposal-expiry sweep.
     # Weekly: ONE job Monday 08:00 = monday_chain() — runs UC2 → UC3 → UC4 →
-    #   backtests → invariant weights → UC6 → UC7 → outcomes.py →
+    #   backtests → scenarios.py → invariant weights → UC6 → UC7 → outcomes.py →
     #   (V2 learning) → UC8 → digest SEQUENTIALLY. Each step awaited; on exception: ErrorEvent →
     #   Telegram alert → abort remaining steps (never rank on stale data).
     # Retries: fetchers 3× exponential backoff; LLM calls per Phase 1bis policy.
@@ -1358,7 +1347,7 @@ Backup (daily 03:00): ArcadeDB backup (or cold file copy of
 
 ```python
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
-async def test_schema_complete():            # 14 vertex + 11 edge + 3 TS + 12 doc types
+async def test_schema_complete():            # 13 vertex + 10 edge + 3 TS + 8 doc types
 async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
@@ -1397,7 +1386,8 @@ async def test_proposal_cooldown():          # same challenger re-gated within 4
 async def test_scenario_calibration():       # dominant scenario vs realized quadrant
                                              # → scenario_calibration row + score
 async def test_strategy_probation():         # strategy below median FAVORS at +12w →
-                                             # ProbationEvent 'review' + Telegram
+                                             # OutcomeEvent kind=probation
+                                             # verdict 'review' + Telegram
 async def test_nightly_curation_trigger():   # new Document at 02:00 → curation runs
                                              # at 02:15 → InvariantCandidate with
                                              # author = document author tier +

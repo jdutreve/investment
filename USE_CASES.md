@@ -31,11 +31,9 @@ sends a Telegram alert. Times in CLAUDE.md are indicative.)
   UC5  Knowledge Storage    → DB updated (transverse mechanism, see below)
   UC6  Portfolio Valuation  → ValuationEvent
   UC7  Portfolio Ranking    → RankingEvent + portfolio_weekly_snapshot
-  —    Outcome evaluation   → ProposalOutcomeEvent + CalibrationEvent +
-                              ProbationEvent (mechanical/outcomes.py —
-                              proposal verdicts, scenario calibration,
-                              strategy probation; see ARCHITECTURE
-                              "Unified improvement cycle")
+  —    Outcome evaluation   → OutcomeEvent (kind: proposal | calibration |
+                              probation — mechanical/outcomes.py; see
+                              ARCHITECTURE "Unified improvement cycle")
   UC8  Proposal Detection   → ProposalEvent + Proposal vertex
                               (switch or reallocation), or nothing
   —    Weekly digest        → Telegram (09:30 — renders UC7/UC8 output; always sent)
@@ -51,7 +49,8 @@ On demand
 
 Every UC that commits a vertex or edge appends to `EventLog` FIRST.
 **Every EventLog append must precede the corresponding vertex/edge commit.**
-Exemption: pure TS writes (UC1 market feed, daily NAV and scenario jobs) —
+Exemption: pure TS writes (UC1 market feed, daily NAV job, weekly
+scenario-probability append) —
 they create no vertex/edge, so no ordering constraint applies.
 Daily jobs that DO touch vertices emit events: the 06:50 regime detector
 emits `RegimeEvent` (only when the regime or its tags change) and the 02:00
@@ -157,7 +156,7 @@ UC8 reads EventLog weekly to assemble its inputs.
 10. Historical Regime materialization (NEW — prerequisite for backtests):
     - Run the regime detector over the FULL macro backfill (25y)
     - Create one Regime vertex per detected historical episode
-      (is_current=false, end_date set), fill regime_history documents
+      (is_current=false, end_date set)
     - Set is_current=true on the final (ongoing) instance
 
 11. Initial Backtests:
@@ -273,10 +272,11 @@ description/example, adding SUPPORTS edges, recalculating `weight_effective`
 on existing integrated Invariants. No user validation required.
 
 **Innovation (requires user validation):** creating a new Invariant
-(`status=proposed`), a new Strategy (`type=new_strategy`, persisted
-`status=proposed`, `enabled=false` — complete spec and validation lifecycle
-in investment-ARCHITECTURE.md "System Evolution"), or proposing a new metric
-or schema element. Persisted as `status=proposed`, with a Telegram
+(`status=proposed`), a new or revised Strategy (`type=new_strategy` /
+`strategy_revision`, persisted `status=proposed`, `enabled=false` — complete
+spec and validation lifecycle in investment-ARCHITECTURE.md "System
+Evolution"), or proposing a new metric (schema self-extension is V2 —
+IMPROVEMENTS I-27). Persisted as `status=proposed`, with a Telegram
 notification in the same cycle; never `integrated`/`active` without user
 validation. New invariants extracted from corpus
 documents carry `author = Document.author` tier (dalio → floor 0.40, etc.);

@@ -34,7 +34,7 @@ multi-tier recency, per-invariant floor override).
 
 ---
 
-## Graph Schema — VERTEX types (14)
+## Graph Schema — VERTEX types (13 in V1 — V2 adds Adaptation)
 
 ### Framework
 *Lens used to interpret markets and design/refine strategies and portfolios.*
@@ -339,9 +339,11 @@ edge can be added in V2 when traversal becomes useful.
 
 ---
 
-### Adaptation — V2 only
+### Adaptation — V2 only (NOT created at UC0; documented here for V2)
 
-In V1, this vertex is reserved but unused. V1 proposals live in `Proposal`.
+Created together with the MODIFIES edge and the `adaptation_quality`
+document type when V2 lands (`IF NOT EXISTS` makes the addition trivial).
+V1 proposals live in `Proposal`.
 
 ```
 Adaptation {
@@ -477,9 +479,8 @@ EventLog {
                         --  IngestionEvent (nightly inbox parser, per batch) |
                         --  ErrorEvent (failed job in the Monday chain) |
                         --  ReplayEvent (Phase 9 shadow replay run) |
-                        --  ProposalOutcomeEvent (weekly outcome verdicts) |
-                        --  CalibrationEvent (scenario calibration batch) |
-                        --  ProbationEvent (strategy probation verdict)
+                        --  OutcomeEvent (weekly outcomes.py — payload.kind:
+                        --    'proposal' | 'calibration' | 'probation')
   source_uc  : STRING   -- 'UC0'..'UC9' | 'daily-regime' | 'daily-inbox' | 'system'
   source_id  : STRING   -- id of the entity or run that produced the event
   payload    : STRING   -- JSON (may reference older DOMAIN dates — that is
@@ -506,7 +507,7 @@ never by timestamp comparison.
 
 ---
 
-## Graph Schema — EDGE types (11)
+## Graph Schema — EDGE types (10 in V1 — V2 adds MODIFIES)
 
 Creation order: vertices first, edges second.
 
@@ -541,7 +542,7 @@ Backtest -[IN_REGIME]-> Regime
   overlap_pct : FLOAT  -- percent points, 0-100 (units convention)
 
 Adaptation -[MODIFIES]-> Portfolio
-  -- V2 only; not used in V1
+  -- V2 only; NOT created at UC0 (created with Adaptation when V2 lands)
   delta            : MAP
   drawdown_before  : FLOAT
   validated_at     : DATE
@@ -582,17 +583,13 @@ CREATE TIMESERIES TYPE MarketData IF NOT EXISTS
   TIMESTAMP ts
   TAGS   (ticker STRING, asset_class STRING, currency STRING)
   FIELDS (level DOUBLE, speed DOUBLE, acceleration DOUBLE);
-ALTER TIMESERIES TYPE MarketData ADD DOWNSAMPLING POLICY
-  AFTER 30 DAYS  GRANULARITY 1 DAYS
-  AFTER 365 DAYS GRANULARITY 1 WEEKS;
 
 CREATE TIMESERIES TYPE ScenarioProbability IF NOT EXISTS
   TIMESTAMP ts
   TAGS   (strategy_id STRING, scenario STRING)
   FIELDS (probability DOUBLE, shift_d7 DOUBLE);
-ALTER TIMESERIES TYPE ScenarioProbability ADD DOWNSAMPLING POLICY
-  AFTER 7 DAYS  GRANULARITY 1 DAYS
-  AFTER 30 DAYS GRANULARITY 1 WEEKS;
+-- Appended WEEKLY (Monday 08:35), not daily: probability values only change
+-- via the weekly Worker cycle.
 
 CREATE TIMESERIES TYPE PortfolioNAV IF NOT EXISTS
   TIMESTAMP ts
@@ -600,9 +597,11 @@ CREATE TIMESERIES TYPE PortfolioNAV IF NOT EXISTS
   FIELDS (nav DOUBLE, daily_return DOUBLE,
           sharpe_rolling DOUBLE, sortino_rolling DOUBLE,
           calmar_rolling DOUBLE, drawdown DOUBLE, vs_benchmark DOUBLE);
-ALTER TIMESERIES TYPE PortfolioNAV ADD DOWNSAMPLING POLICY
-  AFTER 90 DAYS GRANULARITY 1 WEEKS;
 ```
+
+**No downsampling policies** — the 756-trading-day rolling windows and the
+25y Phase 9 replay require full daily granularity end to end; total volume
+(~30 series × 25y daily) is trivial for the embedded engine.
 
 `close`, `volume`, `regime_id` were removed from MarketData: `level` already
 carries the canonical numeric reading; volume is not used in any rule; the
@@ -715,32 +714,18 @@ CREATE DOCUMENT TYPE system_thresholds IF NOT EXISTS;
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
 -- proposal_expiry_days. (See investment-TASKS.md seed.)
 
-CREATE DOCUMENT TYPE schema_extensions IF NOT EXISTS;
--- id STRING (PK, ULID), improvement_type STRING, name STRING, spec MAP,
--- status STRING, proposed_at DATE, validated_at DATE, rationale STRING
 ```
+
+Removed as redundant duplicates (single-engine rule — the graph vertex IS
+the record): `invariant_weights` (all weight fields live on `Invariant`),
+`regime_history` (all fields live on / are derivable from `Regime`
+instances), `strategy_performance` (per-period numbers live on `Backtest`,
+aggregates on `FAVORS`), `schema_extensions` (schema self-extension deferred
+to V2 — IMPROVEMENTS I-27).
 
 ### Analytical
 
 ```sql
-CREATE DOCUMENT TYPE strategy_performance IF NOT EXISTS;
--- strategy_id STRING, regime_type_id STRING, currency STRING,
--- period_start DATE, period_end DATE,
--- sharpe_rolling FLOAT, sortino_rolling FLOAT, calmar_rolling FLOAT,
--- max_drawdown FLOAT, total_return FLOAT, n_periods INTEGER
--- Unique index on (strategy_id, regime_type_id, period_start, currency)
-
-CREATE DOCUMENT TYPE invariant_weights IF NOT EXISTS;
--- invariant_id STRING (PK), weight_initial FLOAT, floor_weight FLOAT,
--- weight_effective FLOAT, market_score FLOAT, recency_factor FLOAT,
--- confirmation_count INTEGER, infirmation_count INTEGER,
--- updated_at DATE (last confrontation; drives recency_factor)
-
-CREATE DOCUMENT TYPE regime_history IF NOT EXISTS;
--- regime_id STRING (PK), regime_type_id STRING (denormalized),
--- start_date DATE, end_date DATE, confidence FLOAT,
--- duration_days INTEGER, followed_by STRING (regime_id of next instance)
-
 CREATE DOCUMENT TYPE invariant_confrontations IF NOT EXISTS;
 -- id STRING (PK, ULID), invariant_id STRING, regime STRING, date DATE,
 -- verdict STRING ('confirmed'|'refuted'), severity FLOAT,
@@ -808,11 +793,11 @@ class ImprovementType(str, Enum):
                                         #   + supersedes:<strategy_id>; on
                                         #   validation the old version is closed
                                         #   (date_revised set) — ARCHITECTURE
-    schema_vertex   = "schema_vertex"
-    schema_edge     = "schema_edge"
-    schema_property = "schema_property"
     process         = "process"
     data            = "data"            # new metric / threshold proposals
+    # schema self-extension (new vertex/edge/property types) deferred to V2
+    # — IMPROVEMENTS I-27: a schema element without code to use it is dead
+    # weight.
 
 class ImprovementProposal(BaseModel):
     type           : ImprovementType
@@ -852,19 +837,17 @@ class ReallocationProposal(BaseModel):
 append always precedes vertex/edge commit.*
 
 ```
-Invariant    → EventLog → vertex → edges (SUPPORTS from passages; BACKED_BY
-              from suggested_backed_by at user validation) → FTS + vector
-              → invariant_weights doc
+Invariant    → EventLog → vertex (all weight fields live here) → edges
+              (SUPPORTS from passages; BACKED_BY from suggested_backed_by
+              at user validation) → FTS + vector
 Evaluation   → EventLog → vertex (events[] filled) → UPDATES → FTS
-Scenario     → EventLog → vertex update → ScenarioProbability TS
+Scenario     → EventLog → vertex update → ScenarioProbability TS (weekly)
 Proposal V1  → mechanical gates (switch or reallocation) → EventLog
               → Proposal vertex → snapshot `recommendation` upgrade → Telegram
 Adaptation V2 → concentration check → EventLog → vertex → Telegram timer
 Portfolio    → vertex → HOLDS + DESIGNED_FOR edges → PortfolioNAV TS
 Backtest     → EventLog → vertex → TESTED_IN + IN_REGIME → FAVORS
-              → strategy_performance doc
 Regime       → EventLog (RegimeEvent, on change) → vertex (is_current updated)
-              → regime_history doc
 Framework    → EventLog → vertex (seed only in V1)
 ImprovementProposal → EventLog → vertex (status:proposed) → Telegram
 Document/Passage (nightly) → EventLog (IngestionEvent, per batch)
@@ -885,7 +868,8 @@ Graph + Vector (JVector HNSW index on FLOAT[768] properties)
   buildTypeIndex(...).withLSMVectorType().withDimensions(768)); the Python
   bindings expose an equivalent helper. Do NOT guess SQL syntax.
 
-Time-Series — native automatic tiering via DOWNSAMPLING POLICY
+Time-Series — full daily granularity, NO downsampling (rolling windows +
+25y replay need daily rows)
 Nightly backup — see investment-TASKS.md Phase 7 (arcadedb backup + rsync)
 ```
 
