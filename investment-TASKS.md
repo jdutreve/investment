@@ -42,7 +42,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Backfill        | 25y macro; ETFs from inception                                |
 | Risk-free rate  | 3-Month T-Bill (^IRX) — USD                                   |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
-| Ingestion       | Telegram bot + local drop → inbox/ (nightly job 02:00)               |
+| Ingestion       | Telegram bot + local drop → inbox/ (watcher, ~5 min)          |
 | Notification    | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Timezone        | Europe/Zurich (APScheduler)                                   |
 | Deployment      | local MacBook Pro M5 24 GB, launchd (ADR-002)                          |
@@ -57,7 +57,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 The system runs locally on the user's MacBook (see DECISIONS.md ADR-002).
 Implications handled below: launchd instead of systemd, local inbox instead
 of SCP, and **laptop sleep** — scheduled jobs must survive a closed lid
-(Task 0.7 / Phase 7 misfire policy).
+(Task 0.7 / Phase 7 due-on-start policy).
 
 ### Task 0.1 — System prerequisites
 
@@ -220,7 +220,8 @@ not root scripts — no path ambiguity.
 │       ├── writeback/
 │       │   └── writeback.py      ← gates + persistence executor
 │       ├── corpus/
-│       │   ├── ingester.py       ← single pipeline (nightly job AND UC0 seed)
+│       │   ├── ingester.py       ← single pipeline (watcher AND UC0 seed)
+│       │   ├── watcher.py        ← inbox poll 60s + 5-min quiet period
 │       │   └── embedding.py      ← InProcessEmbedder (sentence-transformers)
 │       ├── market/
 │       │   ├── fetcher.py
@@ -272,12 +273,17 @@ launchctl load ~/Library/LaunchAgents/com.jp.investment-agent.plist
 # launchd has no EnvironmentFile equivalent.
 ```
 
-**Laptop sleep policy (binding for Phase 7):** a MacBook sleeps with the lid
-closed, so cron times are *earliest* times, not guaranteed times. Every
-APScheduler job runs with `coalesce=True` and `misfire_grace_time=6h`
-(daily) / `24h` (weekly chain): on wake, each missed job fires ONCE, in
-order; the Monday chain remains strictly sequential. No caffeinate hack —
-correctness must not depend on the lid.
+**Laptop sleep policy (binding for Phase 7 — ADR-002):** the Mac sleeps at
+night and may be off at Monday 08:00, so there is NO nightly cron and no
+reliance on cron firing at all. Two mechanisms only:
+1. **Event-driven ingestion** — inbox watcher (60s poll; 5-min quiet
+   period) → ingestion batch → curation. Runs whenever the Mac is awake;
+   on start, the watcher's first scan drains anything deposited while off.
+2. **DUE-ON-START weekly chain** — `run_if_due()` at app launch, on wake,
+   and Monday 08:00 while running: if the last successful chain predates
+   the most recent Monday 08:00 → run the chain now, exactly once
+   (guarded by a `last_chain_success` row in system_thresholds).
+No caffeinate hack — correctness must not depend on the lid.
 
 ---
 
@@ -454,6 +460,7 @@ SYSTEM_THRESHOLDS = {
     "proposal_min_allocation_change_pts": 5.0,   # switch gate 5 + realloc gate 3
     "proposal_max_turnover_pct": 30.0,   # realloc gate 4: Σ|delta|/2
     "proposal_expiry_days": 14.0,        # pending → expired
+    "inbox_quiet_seconds": 300.0,        # watcher: quiet period before a batch
     "proposal_outcome_weeks": 12.0,      # maturation before outcome verdict
     "proposal_cooldown_weeks": 4.0,      # anti-repetition after user rejection
     "proposal_invariant_weight_min": 0.10,  # realloc gate 6: cited-invariant floor
@@ -980,7 +987,7 @@ window, produces byte-identical Regime state to a hypothetical daily run.
 ## Phase 3 — Corpus Parser + Knowledge Search
 *Estimated: 1 day*
 
-### Task 3.1 — `corpus/ingester.py` (single pipeline: nightly job AND UC0 seed)
+### Task 3.1 — `corpus/ingester.py` + `corpus/watcher.py` (single pipeline: watcher AND UC0 seed)
 
 ```python
 class CorpusIngester:
@@ -997,16 +1004,20 @@ class CorpusIngester:
         excerpt=first 100 chars)."""
 ```
 
-Nightly 02:00 job: scan `INBOX_PATH`, ingest, move processed files to
-`SOURCES_PATH`. Failures move the file to `inbox/failed/` + ErrorEvent
-(never crash the loop).
+**`corpus/watcher.py`** — event-driven, no nightly cron (ADR-002): asyncio
+task polling `INBOX_PATH` every 60s. When new files appear AND the newest
+mtime is ≥ `inbox_quiet_seconds` (300) old — the quiet period lets a batch
+of drops finish — ingest the batch, move processed files to `SOURCES_PATH`,
+then invoke the curation runner if ≥1 new Document was created. First scan
+at app start drains deposits made while the Mac was off. Failures move the
+file to `inbox/failed/` + ErrorEvent (never crash the loop).
 
 ### Task 3.2 — UC3 knowledge search (V1: user deposits only)
 
 RSS auto-veille is OUT of V1 (curation of chosen sources is the essence;
 a feed vacuum produces news noise, not Dalio-grade invariants — see
 IMPROVEMENTS I-9/I-26 for reactivation with source tiering). The weekly
-UC3 step reduces to: verify the inbox is drained by the nightly ingester,
+UC3 step reduces to: verify the inbox is drained by the watcher,
 count the week's user deposits, emit KnowledgeSearchEvent → EventLog.
 
 **Done when:** a Dalio PDF produces Document + Passages with embeddings, and
@@ -1151,8 +1162,8 @@ mechanically): new Passages since last run + their SUPPORTS-linked invariants
 + top invariants by weight. Skill: `skill-curate-knowledge.md`.
 
 **Three callers, one runner:**
-1. nightly 02:15, event-driven — only when the 02:00 ingester created new
-   Documents (a deposited book yields candidates the next morning);
+1. event-driven — right after a watcher ingestion batch that created new
+   Documents (a deposited book yields candidates within minutes);
 2. weekly Monday 08:20 — sweep + re-curation of existing invariants;
 3. UC0 seed batch (step 4b, default) — whole corpus, interactive CLI
    validation.
@@ -1327,7 +1338,7 @@ python-telegram-bot application:
   always preceded by the UC1 catch-up prelude; `/refresh` = prelude alone.
 - Commands: `/status`, `/ranking`, `/disable <strategy_id>`,
   `/enable <strategy_id>`, `/drawdown <pct>` (updates user_profile — binding).
-- Document/URL messages are saved to `INBOX_PATH` (feeds the nightly ingester).
+- Document/URL messages are saved to `INBOX_PATH` (picked up by the ingester).
 
 **Done when:** digest renders from a seeded snapshot; buttons mutate state
 via Writeback with EventLog-first ordering; `/drawdown -10` updates
@@ -1348,12 +1359,15 @@ async def main():
         raise RuntimeError("Seed not run. Execute `uv run python -m investment.seed` first.")
 
     scheduler = AsyncIOScheduler(timezone="Europe/Zurich")
-    # Laptop sleep policy (ADR-002): every job registered with coalesce=True
-    # and misfire_grace_time (6h daily / 24h weekly) — cron times are
-    # earliest times; on wake, missed jobs fire once, in order.
-    # Nightly (the only daily jobs): 02:00 ingest, 02:15 curation
-    #   (event-driven on new docs), 03:00 backup.
-    # Weekly: ONE job Monday 08:00 = monday_chain() — runs UC2 → UC3 → UC4 →
+    # NO nightly cron (ADR-002 — the Mac sleeps at night). Two mechanisms:
+    # 1. inbox watcher task (corpus/watcher.py): 60s poll, 5-min quiet
+    #    period → ingestion batch → curation runner (only on new docs).
+    # 2. Weekly chain, DUE-ON-START: run_if_due() called at startup, on
+    #    wake (macOS wake notification or a 5-min heartbeat comparing
+    #    monotonic vs wall clock), and by the Monday 08:00 cron while
+    #    running — runs monday_chain() once if last success predates the
+    #    most recent Monday 08:00.
+    # monday_chain() — runs UC2 → UC3 → UC4 →
     #   catch-up (fetcher → regime day-by-day → ratios → expiry sweep) →
     #   backtests → scenarios.py → invariant weights → UC6 → UC7 → outcomes.py →
     #   (V2 learning) → UC8 → digest SEQUENTIALLY. Each step awaited; on exception: ErrorEvent →
@@ -1361,8 +1375,11 @@ async def main():
     # Retries: fetchers 3× exponential backoff; LLM calls per Phase 1bis policy.
 ```
 
-Backup (daily 03:00): `sqlite3 .backup` (online, WAL-safe) →
-`~/data/investment/backups/investment-<date>.db`, keep 14 days.
+Backup: `sqlite3 .backup` (online, WAL-safe) →
+`~/data/investment/backups/investment-<date>.db` after every successful
+Monday chain and every ingestion batch; keep 14 files. No clock-based
+backup — data only changes through those two paths (plus UC9 decisions,
+which ride the next backup).
 
 ---
 
@@ -1412,11 +1429,14 @@ async def test_scenario_calibration():       # dominant scenario vs realized qua
 async def test_strategy_probation():         # strategy below median FAVORS at +12w →
                                              # OutcomeEvent kind=probation
                                              # verdict 'review' + Telegram
-async def test_nightly_curation_trigger():   # new Document at 02:00 → curation runs
-                                             # at 02:15 → InvariantCandidate with
+async def test_watcher_curation_trigger():  # deposit → batch after 5-min quiet →
+                                             # curation runs → InvariantCandidate with
                                              # author = document author tier +
                                              # suggested_backed_by; no new Document
                                              # → runner not invoked
+async def test_due_on_start():               # app starts Wednesday, last chain 9 days
+                                             # old → chain runs ONCE at startup;
+                                             # restart same day → no second run
 async def test_eventlog_event_date_query():  # backfilled event sortable by event_date
                                              # independently of append order
 async def test_eventlog_precedes_commit():   # for every audited change, the EventLog

@@ -218,7 +218,7 @@ or the user identifies specific sources with consistent Tier-1 signal.
 
 **Spec:**
 - RSS: feedparser over a curated feed list, dedupe by URL hash → inbox
-  (nightly ingester picks up); REQUIRES I-26 tiering from day one.
+  (watcher picks up); REQUIRES I-26 tiering from day one.
 - yt-dlp for YouTube transcript extraction.
 - whisper-cpp or yt-dlp audio→text for podcasts.
 - X via Nitter scraping or official API (rate limits).
@@ -543,6 +543,6 @@ If/when adding from this list, prioritize by dependency and impact:
 - Anything that increases *scheduled autonomous* LLM decision-making beyond
   the weekly cycle (mechanical jobs can run as often as needed;
   user-initiated UC9 chats and their capped ad-hoc UC8 re-run — max 1/day —
-  are explicitly allowed, being user-triggered; the nightly 02:15 curation
+  are explicitly allowed, being user-triggered; the event-driven curation
   runner is also allowed because it only extracts knowledge into
   user-gated `status=proposed` candidates — it never decides anything).

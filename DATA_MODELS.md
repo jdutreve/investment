@@ -485,12 +485,12 @@ EventLog {
                         --  KnowledgeEvent | ValuationEvent | RankingEvent |
                         --  ProposalEvent | InnovationEvent | UserDecisionEvent |
                         --  RegimeEvent (catch-up detector, on change only) |
-                        --  IngestionEvent (nightly inbox parser, per batch) |
+                        --  IngestionEvent (inbox watcher, per batch) |
                         --  ErrorEvent (failed job in the Monday chain) |
                         --  ReplayEvent (Phase 9 shadow replay run) |
                         --  OutcomeEvent (weekly outcomes.py — payload.kind:
                         --    'proposal' | 'calibration' | 'probation')
-  source_uc  : STRING   -- 'UC0'..'UC9' | 'catch-up' | 'nightly-inbox' | 'system'
+  source_uc  : STRING   -- 'UC0'..'UC9' | 'catch-up' | 'inbox-watcher' | 'system'
   source_id  : STRING   -- id of the entity or run that produced the event
   payload    : STRING   -- JSON (may reference older DOMAIN dates — that is
                         --   normal and does not affect ordering)
@@ -874,7 +874,7 @@ Backtest     → EventLog → vertex → TESTED_IN + IN_REGIME → FAVORS
 Regime       → EventLog (RegimeEvent, on change) → vertex (is_current updated)
 Framework    → EventLog → vertex (seed only in V1)
 ImprovementProposal → EventLog → vertex (status:proposed) → Telegram
-Document/Passage (nightly) → EventLog (IngestionEvent, per batch)
+Document/Passage (watcher) → EventLog (IngestionEvent, per batch)
               → vertices → CONTAINS + SUPPORTS
 ```
 
@@ -892,7 +892,7 @@ startup into an in-RAM numpy matrix (~15 MB at 10k passages); similarity =
 brute-force cosine (<10 ms at this scale). No vector index, no FTS in V1
 (FTS5 available natively if ever needed).
 
-Nightly backup — sqlite3 .backup (online, WAL-safe); see investment-TASKS.md Phase 7
+Backup after every chain/ingestion batch — sqlite3 .backup (WAL-safe); see investment-TASKS.md Phase 7
 ```
 
 ---

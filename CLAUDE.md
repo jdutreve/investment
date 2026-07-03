@@ -64,19 +64,23 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
   Timezone: Europe/Zurich for all cron times.
   One-time
     UC0    seed → DB bootstrap (CLI command, not cron)
-  Daily
-    02:00  inbox parser → Document/Passage vertices + SUPPORTS edges
-           (parse + chunk + embed, no LLM)
-           → IngestionEvent per processed batch
-    02:15  curation runner (LLM) — ONLY when 02:00 ingested new Documents:
-           invariant candidates (author = document author tier) → Telegram
-           validation next morning. Knowledge extraction, never decisions.
-    03:00  backup (sqlite3 .backup → ~/data/investment/backups, keep 14d)
-    (nothing else daily — decision cadence is weekly; market data and
-     regime move to the Monday catch-up below)
-  Weekly (Monday — one sequential chain; times are indicative, each step
-          starts only after the previous one succeeds; on failure the chain
-          aborts and a Telegram error alert is sent — see Phase 7)
+  Event-driven — NO nightly cron (the Mac sleeps at night — ADR-002)
+    inbox watcher (60s poll on inbox/): new file(s) + 5-min quiet period
+           → CorpusIngester batch (parse + chunk + embed, no LLM)
+           → IngestionEvent per batch
+           → curation runner (LLM) — ONLY when the batch created new
+             Documents: invariant candidates (author = document author
+             tier) → Telegram validation within minutes of the deposit.
+             Knowledge extraction, never decisions.
+    backup (sqlite3 .backup, keep 14d) after every Monday chain and
+           every ingestion batch — no clock-based backup
+  Weekly (Monday 08:00 Europe/Zurich when the process is running, plus
+          DUE-ON-START: at every app launch and wake, if the last
+          successful chain predates the most recent Monday 08:00, the
+          chain runs immediately. One sequential chain; times are
+          indicative, each step starts only after the previous one
+          succeeds; on failure the chain aborts and a Telegram error
+          alert is sent — see Phase 7)
     08:00  CATCH-UP (mechanical, also the prelude to any ad-hoc UC9 UC8
            re-run): market fetch for all days since last run → MarketData
            TS; regime detector run DAY-BY-DAY over the fetched days (same
@@ -124,14 +128,14 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Risk-free rate  | 3-Month T-Bill (^IRX) via Yahoo Finance — USD                 |
 | Timezone        | Europe/Zurich (APScheduler + all cron times)                  |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
-| Ingestion       | Telegram bot + local drop → inbox/ (nightly job 02:00)        |
+| Ingestion       | Telegram bot + local drop → inbox/ (watcher, ~5 min)          |
 | Embeddings      | sentence-transformers in-process, 384 dims (no daemon)        |
 | Veille          | user deposits only (RSS deferred — I-9/I-26)                  |
 | Notifications   | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Process         | APScheduler, single Python process                            |
 | Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
-| Service         | launchd LaunchAgent `com.jp.investment-agent`; jobs use       |
-|                 | coalesce + misfire_grace (laptop sleep — TASKS Task 0.7)      |
+| Service         | launchd LaunchAgent `com.jp.investment-agent`; weekly chain   |
+|                 | DUE-ON-START at launch/wake (laptop sleep — TASKS Task 0.7)   |
 
 ---
 
@@ -154,8 +158,9 @@ and replay. Exemption: pure TS writes (UC1 market feed, weekly NAV catch-up and 
 jobs) append no EventLog row — they create no vertex/edge.
 
 ### Decision cycle
-- **Daily** = mechanical, with ONE LLM exception: the 02:15 curation runner
-  (knowledge extraction from newly ingested documents — its outputs are
+- **Event-driven ingestion** = mechanical, with ONE LLM exception: the
+  curation runner (fires minutes after a deposit; knowledge extraction
+  from newly ingested documents — its outputs are
   `status=proposed` candidates gated by user validation, never decisions).
 - **Weekly (Monday 09:00)** = sole *scheduled* decision cycle. Worker +
   Planner Post. UC9 (user-initiated chat) may trigger one ad-hoc UC8 re-run
@@ -199,8 +204,8 @@ jobs) append no EventLog row — they create no vertex/edge.
   `author='system'` (floor 0.05). `source` always records the real
   provenance in free text. The UC0 initial curation pass (USE_CASES step 4b,
   DEFAULT — skip with `--no-curate`) lets a deposited book yield validated
-  invariants at install time; later deposits are curated the night of their
-  ingestion (02:15 runner).
+  invariants at install time; later deposits are curated within minutes
+  (watcher → ingestion batch → curation runner).
 
 ### Worker
 - Never mention Writeback/Planner/storage in Worker prompts.

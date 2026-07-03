@@ -423,10 +423,10 @@ update invariants based on that — without needing real executions.
 Once at install (UC0)
   Manual CLI  →  full DB bootstrap + first snapshot
 
-Nightly (the only daily jobs)
-  02:00  inbox → CorpusIngester
-  02:15  curation runner (LLM — only when 02:00 ingested new Documents)
-  03:00  backup
+Event-driven (no nightly cron — the Mac sleeps, ADR-002)
+  inbox watcher (60s poll, 5-min quiet) → CorpusIngester batch
+    → curation runner (LLM — only when the batch created new Documents)
+  backup after every Monday chain and every ingestion batch
   (market fetch, regime detection, NAV, scenario probabilities: all in
    the Monday chain — decision cadence is weekly)
 
@@ -620,7 +620,8 @@ failure: ErrorEvent → EventLog + Telegram alert, chain aborts (no ranking on
 stale data). Timezone Europe/Zurich.
 
 ```
-(nightly jobs: 02:00 ingest / 02:15 curation / 03:00 backup)
+(event-driven: inbox watcher → ingestion + curation; backup after
+         chain/batches; weekly chain is DUE-ON-START at launch/wake)
 
 08:00   Weekly pre-processing (catch-up → UC2 → UC3 → UC4, then mechanical)
           → CATCH-UP: market fetch (all days since last run) → regime

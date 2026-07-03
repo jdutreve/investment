@@ -844,7 +844,7 @@ insight decays toward its floor and (below
 
 ## Appendix — Corpus path: Document → Passage → SUPPORTS → Invariant
 
-Populated by the nightly ingestion job (02:00) — the same `CorpusIngester`
+Populated by the inbox watcher (~5 min after the deposit) — the same `CorpusIngester`
 the UC0 seed uses. IngestionEvent precedes the vertex batch.
 
 ```

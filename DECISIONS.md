@@ -56,11 +56,13 @@ ARM64, 24 GB RAM): launchd LaunchAgent instead of systemd, local `cp` into
 `~/data/investment/...` and `~/projets/investment-agent/`.
 
 **Consequences.**
-- **Laptop sleep is the structural trade-off**: cron times become *earliest*
-  times. Binding policy (TASKS Task 0.7 / Phase 7): every APScheduler job
-  runs with `coalesce=True` and `misfire_grace_time` (6h daily / 24h weekly);
-  on wake, missed jobs fire once, in order; the Monday chain stays strictly
-  sequential. Correctness must never depend on the lid being open.
+- **Laptop sleep is the structural trade-off** — resolved (2026-07 rev.) by
+  removing clock-based jobs entirely: NO nightly cron. Ingestion is
+  event-driven (inbox watcher, 60s poll, 5-min quiet period → batch →
+  curation); the weekly chain is DUE-ON-START (run at launch/wake/Monday
+  cron if the last success predates the most recent Monday 08:00, exactly
+  once); backup follows every chain and ingestion batch. Correctness never
+  depends on the lid being open or the Mac being on at any given time.
 - Backups stay local (`~/data/investment/backups`) — an off-machine copy
   (iCloud/rsync) is recommended but not part of V1 scope.
 - If 24/7 autonomy is ever needed (V2 auto-execution), revisit toward an

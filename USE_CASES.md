@@ -19,13 +19,15 @@ One-time (manual)
                               gates go-live, re-runnable after threshold
                               changes)
 
-Nightly (the ONLY daily jobs)
-  02:00 inbox ingestion; 02:15 curation runner (LLM, only on new
-  Documents); 03:00 backup
+Event-driven — no nightly cron (the Mac sleeps at night)
+  inbox watcher: deposit + 5-min quiet → ingestion batch → curation
+  runner (LLM, only on new Documents) → Telegram candidates;
+  backup after every Monday chain and every ingestion batch
 
-Weekly (Monday — one sequential chain: each step starts only after the
-previous one succeeds; on failure the chain aborts, emits an ErrorEvent and
-sends a Telegram alert. Times in CLAUDE.md are indicative.)
+Weekly (Monday 08:00 when running + DUE-ON-START at launch/wake — one
+sequential chain: each step starts only after the previous one succeeds;
+on failure the chain aborts, emits an ErrorEvent and sends a Telegram
+alert. Times in CLAUDE.md are indicative.)
   UC1  Market Feed (CATCH-UP) → MarketData TS for all days since last
                               run + regime detector day-by-day + NAV
                               catch-up + expiry sweep (also runs on-demand
@@ -58,7 +60,7 @@ Exemption: pure TS writes (UC1 market feed, weekly NAV catch-up and
 scenario-probability appends) —
 they create no vertex/edge, so no ordering constraint applies.
 The catch-up regime detector emits `RegimeEvent` (only when the regime or
-its tags change) and the nightly 02:00 inbox parser emits `IngestionEvent`
+its tags change) and the inbox watcher's ingestion emits `IngestionEvent`
 (one per processed batch).
 UC8 reads EventLog weekly to assemble its inputs.
 
@@ -100,7 +102,7 @@ UC8 reads EventLog weekly to assemble its inputs.
                    'liquidity-easing', 'market-stress'
 
 4.  Corpus seed (optional, if PDFs are in ~/data/investment/sources/corpus):
-    - Calls the SAME `CorpusIngester` used by the nightly 02:00 job
+    - Calls the SAME `CorpusIngester` used by the inbox watcher
       (single pipeline: parse + chunk + embed → Document + Passage vertices)
     - SUPPORTS edges built from passage-invariant matches above similarity floor
 
@@ -251,7 +253,8 @@ UC2 reads it, it does not update it.
 ## UC3 — Knowledge Search
 **Trigger:** Weekly cron (Monday, after UC2).
 **What it does:** V1 = **user deposits only** (Telegram + local drop → inbox,
-processed nightly). The weekly step verifies the inbox is drained and counts
+processed by the watcher within minutes). The weekly step verifies the
+inbox is drained and counts
 the week's deposits. RSS auto-veille is deferred with source tiering
 (IMPROVEMENTS I-9/I-26); YouTube/X/podcasts likewise (I-9).
 **Output:** KnowledgeSearchEvent → EventLog (deposit counts).
@@ -261,17 +264,19 @@ the week's deposits. RSS auto-veille is deferred with source tiering
 
 ## UC4 — Knowledge Curation
 **Triggers (same runner, three callers):**
-1. **Nightly, event-driven (02:15):** whenever the 02:00 inbox parser
-   ingested ≥1 new Document, the curation runner processes it immediately —
-   a deposited book yields its invariant candidates the next morning, not
-   the next Monday. Knowledge extraction only — never decisions.
+1. **Event-driven:** ~5 minutes after a deposit (watcher quiet period),
+   whenever the ingestion batch created ≥1 new Document, the curation
+   runner processes it immediately — a deposited book yields its invariant
+   candidates within minutes, not the next Monday. Knowledge extraction
+   only — never decisions.
 2. **Weekly cron (Monday, after UC3):** sweep over anything not yet curated
    + re-curation opportunities on existing invariants.
 3. **UC0 seed batch** (step 4b, default): initial pass over the whole corpus.
 
 **What it does:** Processes Documents/Passages ingested since the last run.
 Raw inbox parsing (parse + chunk + embed → Document/Passage vertices +
-similarity-based SUPPORTS edges) runs nightly at 02:00 with no LLM; the
+similarity-based SUPPORTS edges) is done by the watcher batch with no LLM;
+the
 curation runner is the LLM step that turns new passages into invariant
 updates and candidates (CurationResult — see investment-TASKS.md Task 5.3).
 
