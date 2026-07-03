@@ -268,9 +268,12 @@ description/example, adding SUPPORTS edges, recalculating `weight_effective`
 on existing integrated Invariants. No user validation required.
 
 **Innovation (requires user validation):** creating a new Invariant
-(`status=proposed`), proposing a new metric or schema element. Persisted as
-`status=proposed`, with a Telegram notification in the same cycle; never
-`integrated` without user validation. New invariants extracted from corpus
+(`status=proposed`), a new Strategy (`type=new_strategy`, persisted
+`status=proposed`, `enabled=false` — complete spec and validation lifecycle
+in investment-ARCHITECTURE.md "System Evolution"), or proposing a new metric
+or schema element. Persisted as `status=proposed`, with a Telegram
+notification in the same cycle; never `integrated`/`active` without user
+validation. New invariants extracted from corpus
 documents carry `author = Document.author` tier (dalio → floor 0.40, etc.);
 `author='system'` is reserved for market-pattern discoveries. `source` is
 always the real free-text provenance (document+page, backtest run).
@@ -466,8 +469,8 @@ Pending proposals auto-expire after `proposal_expiry_days` (14).
 - Execute an allocation change in V1. V1 only ranks, digests, and proposes
   paper-mode switches and reallocations via Proposal vertices — application
   is always manual.
-- Create a new Invariant `source=agent-discovery` without prior Telegram
-  notification.
+- Create a new Invariant or Strategy `source=agent-discovery` without prior
+  Telegram notification — and never activate one without user validation.
 - Change user rules (drawdown limit, concentration limit, strategy enabled)
   without UC9.
 - Persist a schema extension without explicit user validation.

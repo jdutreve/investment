@@ -198,6 +198,12 @@ Strategy is implicitly bounded by the regime it serves, the alias-first ID makes
 the base lineage obvious, the revision condition is the inverse of `conditions`,
 and benchmarking is a Portfolio concern.
 
+Agent-discovered strategies enter via
+`ImprovementProposal(type=new_strategy)` as `status='proposed'`,
+`enabled=false`; user validation activates them and creates their 3 Scenario
+vertices and BACKED_BY edges in one transaction — full lifecycle in
+investment-ARCHITECTURE.md "System Evolution".
+
 ---
 
 ### Scenario
@@ -764,22 +770,28 @@ is the single source of truth. `adaptation_quality` removed from V1 (V2-only).
 
 ```python
 class ImprovementType(str, Enum):
+    new_invariant   = "new_invariant"   # the canonical V1 innovation (EXAMPLE Step 6)
+    new_strategy    = "new_strategy"    # complete strategy spec — see ARCHITECTURE
+                                        #   "System Evolution" for the required
+                                        #   spec fields and validation lifecycle
     schema_vertex   = "schema_vertex"
     schema_edge     = "schema_edge"
     schema_property = "schema_property"
     process         = "process"
-    data            = "data"
+    data            = "data"            # new metric / threshold proposals
 
 class ImprovementProposal(BaseModel):
     type           : ImprovementType
     title          : str
     rationale      : str
-    spec           : dict
+    spec           : dict             # new_invariant: InvariantCandidate fields;
+                                      #   new_strategy: full strategy spec incl.
+                                      #   the 3 scenario definitions (ARCHITECTURE)
     source         : str = "agent-discovery"
     author         : str = "system"   # drives the floor tier, like Invariant.author
     status         : str = "proposed"
-    weight_initial : float
-    floor_weight   : float
+    weight_initial : float            # new_invariant only; ignored otherwise
+    floor_weight   : float            # new_invariant only; ignored otherwise
     trace          : str
 
 class ReallocationProposal(BaseModel):

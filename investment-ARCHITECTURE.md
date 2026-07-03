@@ -184,10 +184,13 @@ inflation_dir = 'rising'  if CPI_YOY.speed > +regime_cpi_noise (0.05)
 candidate = quadrant(growth_dir, inflation_dir)   -- 'uncertain' if any axis flat
 ```
 
-**Hysteresis:** a regime CHANGE is committed only after
-`regime_confirm_days` (10 trading days) of consistent candidate
-classification; until then `is_current` stays on the previous instance and
-the candidate is tracked in memory. On commit: previous Regime gets
+**Hysteresis:** a regime CHANGE is committed only after the same candidate
+quadrant has been produced by `regime_confirm_prints` (2) **consecutive
+monthly observations of each axis**. Both axes are monthly series
+(GROWTH_COMPOSITE from INDPRO/UNRATE, CPI YoY) — a trading-day window would
+be trivially satisfied between prints, so confirmation counts new prints,
+not calendar days. Until confirmed, `is_current` stays on the previous
+instance and the candidate is tracked in memory. On commit: previous Regime gets
 `end_date`, new Regime vertex created (`<alias>-<start_date>`),
 `regime_history.followed_by` updated. Exactly one `is_current=true` per
 framework — enforced in the same transaction.
@@ -386,7 +389,7 @@ No hedging in Phase 1. See IMPROVEMENTS.md I-15.
 ## System Evolution — Supervised Self-Extensible
 
 ```
-Worker discovers new pattern
+Worker discovers new pattern (type=new_invariant)
   → ImprovementProposal in WorkerResult.innovations_proposed
   → EventLog append → Invariant source:agent-discovery status:proposed
   → Telegram notification in the same cycle
@@ -397,6 +400,42 @@ Worker discovers new pattern
 Schema extensions (new vertex/edge type):
   → require explicit user validation before CREATE
   → stored in the schema_extensions document type
+```
+
+**New Strategy (type=new_strategy)** — the Worker (or the curation runner)
+may propose an entire agent-discovered strategy. The proposal `spec` must be
+complete:
+
+```
+spec = {
+  id             : <regimeType.alias>-<name>-<vN> for regime-specific
+                   strategies (ex: 'stagflation-custom-v2'); never a
+                   Framework id
+  title, description, regime_type_id, framework_id
+  conditions     : ≥1 orthogonal computable indicator (manual check at
+                   validation in V1 — IMPROVEMENTS I-12)
+  backed_by      : invariant ids (existing, integrated)
+  scenarios      : the 3 bull/base/bear definitions — triggers,
+                   target_allocation (sums to 100, complies with the binding
+                   user caps), initial probabilities (sum to 100)
+}
+
+Flow:
+  → EventLog append (InnovationEvent) → Strategy vertex
+    source:agent-discovery, status:proposed, enabled:false
+  → Telegram notification in the same cycle
+        ↓
+  User validates → in ONE Writeback transaction:
+    status:active, enabled:true
+    3 Scenario vertices + HAS_SCENARIO edges
+    BACKED_BY edges to the cited invariants
+  → the next weekly cycle picks it up mechanically: Backtests over
+    historical Regime instances (coverage permitting) → FAVORS edges →
+    eligible as structural anchor for reallocation deltas
+  User rejects → status:closed, enabled stays false (reason as trace)
+
+A new Strategy affects the ranking only when a Portfolio HOLDS it —
+creating or modifying Portfolios remains a user action (UC9) in V1.
 ```
 
 ---

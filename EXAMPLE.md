@@ -95,8 +95,10 @@ RegimeType {
 
 Detection: CPI level 3.1 > 2.5 with speed +0.30 > noise → inflation rising;
 GROWTH_COMPOSITE speed −0.90 < −0.15 → growth falling → candidate =
-`falling-growth-rising-inflation`. Candidate held ≥ 10 trading days
-(hysteresis regime_confirm_days) → committed 2026-05-01.
+`falling-growth-rising-inflation`. Candidate produced by 2 consecutive
+monthly prints of both axes — the March and April observations (hysteresis
+`regime_confirm_prints` = 2; both axes are monthly series, so confirmation
+counts prints, not days) → committed 2026-05-01.
 Confidence = 50 + 20×min(1, 0.30/0.3) + 20×min(1, 0.90/1.0) + 10 (accel
 aligned on both axes) = 50 + 20 + 18 + 10 = **78**.
 
@@ -123,7 +125,7 @@ Regime {
     "global liquidity tightening (level 98.4, speed -0.80, accel -0.40)"
   ]
   trace: "Acceleration on both axes confirms regime, not a transient blip.
-          Committed after 10-day hysteresis window."
+          Committed after 2 consecutive confirming monthly prints."
   created_at: 2026-05-01
   updated_at: 2026-05-11    ← as_of
 }
@@ -514,7 +516,7 @@ WorkerResult {
 
   innovations_proposed: [
     ImprovementProposal {
-      type: "data"
+      type: "new_invariant"
       title: "Calmar > 1.5 as strategy selection criterion — optimal threshold"
       rationale: "Backtests 2008/2020/2022: Calmar > 1.5 → max_drawdown < 10%
                   vs < 20% for Calmar < 1."

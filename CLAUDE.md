@@ -175,7 +175,9 @@ jobs) append no EventLog row — they create no vertex/edge.
 - **Curation** (autonomous): update weight, add confirmations, add SUPPORTS
   edges, enrich description/example on **existing integrated** Invariants.
 - **Innovation** (user validation required): create a new Invariant, new
-  vertex/edge type, new metric. `status=proposed` until `user_validated=True`.
+  Strategy (`type=new_strategy`, `enabled=false` until validated — lifecycle
+  in ARCHITECTURE "System Evolution"), new vertex/edge type, new metric.
+  `status=proposed` until `user_validated=True`.
 - **Author tier of new Invariants**: extracted from a corpus document →
   `author = Document.author` tier (dalio/marks/null — floor 0.40/0.35/0.20);
   discovered from market patterns (backtests, rankings) →

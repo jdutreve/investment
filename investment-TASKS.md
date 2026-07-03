@@ -471,13 +471,15 @@ SYSTEM_THRESHOLDS = {
     "regime_growth_noise": 0.15,
     "regime_growth_speed_scale": 1.0,
     "regime_vix_stress": 25.0,
-    "regime_confirm_days": 10.0,         # hysteresis (trading days)
+    "regime_confirm_prints": 2.0,        # hysteresis: consecutive monthly
+                                         #   observations per axis (both axes
+                                         #   are monthly series — days would
+                                         #   be trivially satisfied)
     # scenarios / misc
     "scenario_shift_trigger": 10.0,
     "min_backtest_periods": 3.0,
     "auto_validation_hours": 48.0,
     "derivative_lookback_short": 30.0,
-    "derivative_lookback_long": 90.0,
     # shadow replay (Phase 9 — go-live gate)
     "replay_cost_bps": 10.0,             # per side, applied to turnover
     "replay_confirmation_weeks": 2.0,    # acceptance policy in the replay
@@ -961,7 +963,7 @@ def compute_global_liquidity(components: dict[str, pd.Series]) -> pd.Series:
 
 **`regime.py`** — implements the formal algorithm in
 investment-ARCHITECTURE.md (axis classification, hysteresis
-`regime_confirm_days`, confidence formula, tag derivation, is_current
+`regime_confirm_prints`, confidence formula, tag derivation, is_current
 uniqueness in one transaction). Emits **RegimeEvent → EventLog BEFORE**
 touching the Regime vertex, and only when regime/confidence-band/tags change.
 Also exposes `materialize_history(db, start, end)` used by UC0 step 2.
@@ -1168,7 +1170,8 @@ class CurationResult(BaseModel):
     invariant_candidates: list[InvariantCandidate]  # → status=proposed;
                               #   weight_initial/floor from
                               #   invariant_author_config[author]
-    innovations_proposed: list[ImprovementProposal] # schema/metric proposals
+    innovations_proposed: list[ImprovementProposal] # new_invariant /
+                              #   new_strategy / schema / metric proposals
 ```
 
 Persisted via Writeback (KnowledgeEvent → EventLog first). Curation vs
@@ -1246,7 +1249,12 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 # On pass: ProposalEvent → Proposal vertex → snapshot recommendation upgrade
 #          → telegram.send_proposal(...)
 # On block: ⛔ Telegram note with the failed gate + Worker reasoning; no vertex.
-# Innovations: InnovationEvent → Invariant(status=proposed) → Telegram [YES][NO].
+# Innovations: InnovationEvent → vertex(status=proposed) → Telegram [YES][NO].
+#   type=new_invariant → Invariant vertex.
+#   type=new_strategy  → Strategy vertex (enabled=false); on user YES, ONE
+#     transaction creates status=active + 3 Scenarios + HAS_SCENARIO +
+#     BACKED_BY edges (spec fields in ARCHITECTURE "System Evolution");
+#     Backtests/FAVORS follow mechanically at the next weekly cycle.
 # Expiry: daily sweep sets user_response='expired' after proposal_expiry_days.
 ```
 
@@ -1327,7 +1335,8 @@ async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fi
                                              # 3-asset fixture == pinned golden numbers
 async def test_corpus_ingestion():           # PDF → Document + Passages; vector search works
 async def test_regime_detection_hysteresis():# flip-flop input does not switch before
-                                             # regime_confirm_days
+                                             # regime_confirm_prints consecutive
+                                             # concordant monthly prints per axis
 async def test_portfolio_ranking():          # all enabled ranked; calmar<1 demoted;
                                              # gap_to_defender null only for defender
 async def test_favors_targets_strategy():    # RegimeType -[FAVORS]-> Strategy only
@@ -1340,6 +1349,10 @@ async def test_reallocation_gate_turnover(): # Σ|delta|/2 > 30 → blocked
 async def test_invariant_confrontation():    # FAVORS above median → confirmation row +
                                              # weight_effective recomputed
 async def test_agent_innovation():           # status=proposed + Telegram in same cycle
+async def test_new_strategy_innovation():    # validated new_strategy → Strategy(active)
+                                             # + 3 Scenarios + BACKED_BY in one tx;
+                                             # rejected → status=closed, enabled=false;
+                                             # next weekly cycle produces its FAVORS
 async def test_nightly_curation_trigger():   # new Document at 02:00 → curation runs
                                              # at 02:15 → InvariantCandidate with
                                              # author = document author tier +
