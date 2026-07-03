@@ -850,7 +850,7 @@ Document {
   title: "Principles for Navigating Big Debt Crises"
   author: "dalio"
   source_type: "pdf"
-  source_path: "/data/investment/sources/corpus/dalio-big-debt-crises.pdf"
+  source_path: "~/data/investment/sources/corpus/dalio-big-debt-crises.pdf"
   ingested_at: 2026-01-15, chunk_count: 312
   trace: "Primary corpus source for inflation and debt-cycle invariants"
 }

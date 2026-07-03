@@ -207,7 +207,7 @@ questions).
 
 ## I-9 — Multi-channel veille (YouTube, X, podcasts)
 
-**Why deferred:** RSS feeds + user deposits (Telegram/SCP) capture Tier-1
+**Why deferred:** RSS feeds + user deposits (Telegram/local drop) capture Tier-1
 signals without transcription complexity. YouTube transcription via yt-dlp +
 podcast audio processing add infrastructure overhead with diminishing signal
 value (most Tier-1 macro signals appear in RSS within hours).

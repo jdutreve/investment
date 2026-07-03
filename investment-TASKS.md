@@ -42,51 +42,43 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Backfill        | 25y macro; ETFs from inception                                |
 | Risk-free rate  | 3-Month T-Bill (^IRX) — USD                                   |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
-| Ingestion       | Telegram bot + SCP → inbox/ (nightly job 02:00)               |
+| Ingestion       | Telegram bot + local drop → inbox/ (nightly job 02:00)               |
 | Notification    | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Timezone        | Europe/Zurich (APScheduler)                                   |
-| Deployment      | systemd service on Hetzner CAX21 ARM                          |
+| Deployment      | local MacBook Pro M5 24 GB, launchd (ADR-002)                          |
 
 **Out of scope (see IMPROVEMENTS.md):** I-0 through I-26.
 
 ---
 
-## Phase 0 — VM Installation (Hetzner CAX21 ARM)
-*Estimated: 0.5 day*
+## Phase 0 — Local installation (macOS ARM64 — MacBook Pro M5, 24 GB)
+*Estimated: 1.5 days (incl. the 1-day Task 0.5 spike — the GO/NO-GO gate)*
+
+The system runs locally on the user's MacBook (see DECISIONS.md ADR-002).
+Implications handled below: launchd instead of systemd, local inbox instead
+of SCP, and **laptop sleep** — scheduled jobs must survive a closed lid
+(Task 0.7 / Phase 7 misfire policy).
 
 ### Task 0.1 — System prerequisites
 
 ```bash
-ssh root@<hetzner-ip>
-apt update && apt upgrade -y
-apt install -y \
-  python3.12 python3.12-venv python3.12-dev \
-  build-essential git curl wget tmux
-
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source ~/.bashrc
-
-ollama list
+# Homebrew assumed present
+brew install python@3.12 uv git gh tmux ollama
+brew services start ollama
 ollama pull nomic-embed-text  # if missing
 
-# GitHub CLI
-apt install gh -y
 gh auth login
-
-git config --global user.email "jp@..."
-git config --global user.name "JP"
-git clone https://github.com/jp/investment-agent.git /opt/investment-agent
+git clone https://github.com/jp/investment-agent.git ~/projets/investment-agent
 ```
 
-**Done when:** python3.12, uv, ollama (with nomic-embed-text), gh, tmux OK.
+**Done when:** python3.12, uv, ollama (with nomic-embed-text), gh OK.
 
 ---
 
-### Task 0.2 — Project directories
+### Task 0.2 — Data directories
 
 ```bash
-mkdir -p /data/investment/{inbox,sources/corpus,sources/kindle,arcade_db,backups,logs}
-chown -R ubuntu:ubuntu /opt/investment-agent /data/investment
+mkdir -p ~/data/investment/{inbox,sources/corpus,sources/kindle,arcade_db,backups,logs}
 ```
 
 ---
@@ -94,7 +86,7 @@ chown -R ubuntu:ubuntu /opt/investment-agent /data/investment
 ### Task 0.3 — Environment variables
 
 ```bash
-cat > /opt/investment-agent/.env << 'EOF'
+cat > ~/projets/investment-agent/.env << 'EOF'
 # LLMs
 ANTHROPIC_API_KEY=sk-ant-...
 OPENROUTER_API_KEY=sk-or-...
@@ -105,15 +97,15 @@ PLANNER_THINKING_BUDGET_POST=1024
 WORKER_MODEL=claude-sonnet-4-6
 OLLAMA_BASE_URL=http://localhost:11434
 
-# ArcadeDB
-ARCADE_DB_PATH=/data/investment/arcade_db/investment.db
+# ArcadeDB ($HOME expanded by config.py)
+ARCADE_DB_PATH=$HOME/data/investment/arcade_db/investment.db
 
 # Scheduling
 TZ=Europe/Zurich
 
 # Ingestion
-INBOX_PATH=/data/investment/inbox
-SOURCES_PATH=/data/investment/sources/corpus
+INBOX_PATH=$HOME/data/investment/inbox
+SOURCES_PATH=$HOME/data/investment/sources/corpus
 
 # Market data
 MARKET_BACKFILL_YEARS=25
@@ -137,7 +129,7 @@ USER_BENCHMARK=60/40-USD
 USER_PHASE=accumulation
 USER_AUTO_VALIDATION_HOURS=48
 EOF
-chmod 600 /opt/investment-agent/.env
+chmod 600 ~/projets/investment-agent/.env
 ```
 
 Notes: VIX comes from Yahoo `^VIX` only (VIXCLS dropped — single source).
@@ -148,7 +140,7 @@ Notes: VIX comes from Yahoo `^VIX` only (VIXCLS dropped — single source).
 ### Task 0.4 — Python setup
 
 ```bash
-cd /opt/investment-agent
+cd ~/projets/investment-agent
 uv init --package investment-agent   # src layout
 cd investment-agent
 
@@ -166,13 +158,66 @@ uv run python -c "import arcadedb_embedded; print('ArcadeDB OK')"
 
 ---
 
-### Task 0.5 — Project structure
+### Task 0.5 — ArcadeDB spike (GO/NO-GO gate — see DECISIONS.md ADR-001)
+
+**Purpose:** the whole persistence design bets on one library. This spike
+verifies every capability the specs assume, on the real target (macOS
+ARM64), BEFORE Phase 1. No other code is written until it passes or a
+fallback is chosen. Throwaway script `spike_arcadedb.py`, not production code.
+
+**Acceptance checklist (each item pass/fail, recorded in the spike's
+output):**
+
+```
+1. Open embedded DB; create the 13 vertex types + 10 edge types +
+   8 document types (SCHEMA_SQL from Task 1.1). Reopen; types persist.
+2. CREATE TIMESERIES TYPE exactly as written in DATA_MODELS.md.
+   If the dialect differs → record the WORKING syntax and update
+   DATA_MODELS.md + Task 1.1. If TS types are absent from the installed
+   version → FALLBACK F1.
+3. Vector index: build the HNSW/LSM index on a FLOAT[768] property via the
+   Python bindings' API; insert 1 000 random embeddings; query
+   `vector.neighbors` k=20; REOPEN the DB and verify the index persists
+   and returns identical results. Failure → FALLBACK F2.
+4. Full-text index on a STRING property; create + query. Failure → F2-bis.
+5. Throughput sanity: append ~200 000 TS rows (25y × 30 series, batched
+   in transactions); time a 756-row range query per (ticker). Target:
+   backfill < 10 min, range query < 100 ms. Miss → tune batch/commit
+   sizes before concluding.
+6. asyncio harness: all DB calls from one event loop via
+   run_in_executor (single-writer path); no deadlock over 10 000 mixed
+   read/writes. Measure process RSS with arcadedb.maxPageRAM=2g —
+   comfortable on 24 GB.
+```
+
+**Fallback ladder (decided in advance — each is a syntax adaptation, not a
+redesign; see ADR-001):**
+
+- **F1 — no TS types:** store the 3 time-series as plain document types
+  `(ts DATETIME, <tags…>, <fields…>)` with an index on (ticker/portfolio_id,
+  ts). Same queries, same volumes; no downsampling was assumed anyway.
+- **F2 — no usable vector index:** keep `embedding FLOAT[]` as a plain
+  property; brute-force cosine in numpy at query time (a few thousand
+  Passages × 768 dims = milliseconds at this scale). HNSW is a luxury here.
+- **F2-bis — no usable FTS:** LIKE-based fallback or in-Python token match
+  over titles/descriptions (small corpus).
+- **F3 — embedded engine itself unusable (JPype/ARM64 instability, memory):**
+  the ONLY expensive path — DuckDB for TS/analytics + graph flattened into
+  tables. The spike exists to surface this on day one, not in Phase 4.
+
+**Done when:** the checklist is fully recorded; DATA_MODELS.md "verify, do
+not guess" notes are replaced by verified syntax (or the chosen fallbacks);
+ADR-001 status updated with the outcome.
+
+---
+
+### Task 0.6 — Project structure
 
 Everything lives under `src/` (uv package layout). Entry points are modules,
 not root scripts — no path ambiguity.
 
 ```
-/opt/investment-agent/investment-agent/
+~/projets/investment-agent/investment-agent/
 ├── pyproject.toml
 ├── src/
 │   ├── metis/
@@ -239,47 +284,49 @@ tests/
 
 ---
 
-### Task 0.6 — systemd service
+### Task 0.7 — launchd LaunchAgent (replaces systemd)
 
 ```bash
-cat > /etc/systemd/system/investment-agent.service << 'EOF'
-[Unit]
-Description=Investment Agent
-After=network.target ollama.service
-Requires=ollama.service
-
-[Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/investment-agent/investment-agent
-EnvironmentFile=/opt/investment-agent/.env
-ExecStart=/opt/investment-agent/investment-agent/.venv/bin/python -m investment.main
-Restart=on-failure
-RestartSec=10
-StandardOutput=append:/data/investment/logs/agent.log
-StandardError=append:/data/investment/logs/agent.error.log
-
-[Install]
-WantedBy=multi-user.target
+cat > ~/Library/LaunchAgents/com.jp.investment-agent.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.jp.investment-agent</string>
+  <key>ProgramArguments</key><array>
+    <string>/Users/jp/projets/investment-agent/investment-agent/.venv/bin/python</string>
+    <string>-m</string><string>investment.main</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/jp/projets/investment-agent/investment-agent</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key>
+  <string>/Users/jp/data/investment/logs/agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/jp/data/investment/logs/agent.error.log</string>
+</dict></plist>
 EOF
-
-systemctl daemon-reload
-systemctl enable investment-agent
-# Start after UC0 seed completes
+launchctl load ~/Library/LaunchAgents/com.jp.investment-agent.plist
+# Load after UC0 seed completes. .env is read by config.py (python-dotenv);
+# launchd has no EnvironmentFile equivalent.
 ```
+
+**Laptop sleep policy (binding for Phase 7):** a MacBook sleeps with the lid
+closed, so cron times are *earliest* times, not guaranteed times. Every
+APScheduler job runs with `coalesce=True` and `misfire_grace_time=6h`
+(daily) / `24h` (weekly chain): on wake, each missed job fires ONCE, in
+order; the Monday chain remains strictly sequential. No caffeinate hack —
+correctness must not depend on the lid.
 
 ---
 
-### Task 0.7 — Laptop SCP aliases
+### Task 0.8 — Local inbox aliases (replaces SCP)
 
 ```bash
-VPS_IP="<hetzner-ip>"
-VPS_USER="ubuntu"
-VPS_KEY="~/.ssh/hetzner"
-VPS_INBOX="/data/investment/inbox"
-
-alias feed-pdf='f() { scp -i $VPS_KEY "$1" $VPS_USER@$VPS_IP:$VPS_INBOX/; }; f'
-alias feed-url='f() { ssh -i $VPS_KEY $VPS_USER@$VPS_IP "echo $1 > $VPS_INBOX/$(date +%s).url"; }; f'
+INBOX=~/data/investment/inbox
+alias feed-pdf='f() { cp "$1" $INBOX/; }; f'
+alias feed-url='f() { echo "$1" > $INBOX/$(date +%s).url; }; f'
 ```
 
 ---
@@ -508,12 +555,13 @@ ALLOWED_TICKERS = [
     {"ticker": "^IRX", "asset_class": "RISK_FREE",        "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^VIX", "asset_class": "VOLATILITY",       "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "CHFUSD=X", "asset_class": "FX",           "currency": "USD", "source": "yahoo", "transform": "none"},
-    # FRED macro (transforms per DATA_MODELS.md "MarketData semantics")
-    {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
-    {"ticker": "T10Y2Y",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none"},
-    {"ticker": "UNRATE",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none"},
-    {"ticker": "INDPRO",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
-    {"ticker": "UMCSENT",  "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none"},
+    # FRED macro (transforms per DATA_MODELS.md "MarketData semantics";
+    # availability_lag_days = publication lag, ADR-003 — yahoo rows: 0)
+    {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct", "availability_lag_days": 13},
+    {"ticker": "T10Y2Y",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none",    "availability_lag_days": 1},
+    {"ticker": "UNRATE",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none",    "availability_lag_days": 7},
+    {"ticker": "INDPRO",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct", "availability_lag_days": 16},
+    {"ticker": "UMCSENT",  "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none",    "availability_lag_days": 3},
     # Composites (computed in Python — see market/growth.py, market/liquidity.py)
     {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO",            "currency": "USD", "source": "composite", "transform": "composite"},
     {"ticker": "GLOBAL_LIQUIDITY", "asset_class": "GLOBAL_LIQUIDITY", "currency": "USD", "source": "composite", "transform": "composite"},
@@ -918,11 +966,21 @@ edges have n_periods ≥ 1; first snapshot row visible; SeedEvent in EventLog.
 ### Task 2.1 — Market fetcher
 
 **`src/investment/market/fetcher.py`** — Yahoo Finance + FRED, driven by the
-`allowed_tickers` documents (source + transform columns). 25y backfill + daily
-incremental. `time.sleep(0.5)` between Yahoo tickers (rate limit). Retry 3×
-with exponential backoff (60s base); on final failure → ErrorEvent + Telegram
-alert, and the affected series keeps its last value (forward-fill ≤ 5 trading
-days per the missing-data convention).
+`allowed_tickers` documents (source + transform + availability_lag_days
+columns). 25y backfill + daily incremental. `time.sleep(0.5)` between Yahoo
+tickers (rate limit). Retry 3× with exponential backoff (60s base); on final
+failure → ErrorEvent + Telegram alert, and the affected series keeps its
+last value (forward-fill ≤ 5 trading days per the missing-data convention).
+
+**As-known-at-ts dating (ADR-003):** the backfill fetches ALFRED
+**first-release** vintages for the revised series (INDPRO; CPIAUCSL, UNRATE)
+via `fetch_alfred_first_release(series)` (same FRED API,
+`realtime_start/realtime_end` parameters), and indexes every macro
+observation at its publication date (`realtime_start`; fallback
+`reference_date + availability_lag_days`). The daily incremental path needs
+no special handling — what it fetches at publication IS the first release.
+Composites (GROWTH_COMPOSITE, GLOBAL_LIQUIDITY) are computed from these
+as-known rows.
 
 ### Task 2.2 — Derivatives + composites
 
@@ -1326,6 +1384,9 @@ async def main():
         raise RuntimeError("Seed not run. Execute `uv run python -m investment.seed` first.")
 
     scheduler = AsyncIOScheduler(timezone="Europe/Zurich")
+    # Laptop sleep policy (ADR-002): every job registered with coalesce=True
+    # and misfire_grace_time (6h daily / 24h weekly) — cron times are
+    # earliest times; on wake, missed jobs fire once, in order.
     # Daily: 02:00 ingest, 06:30 market, 06:35 ratios, 06:50 regime,
     #        03:00 backup, 03:30 proposal-expiry sweep.
     # Weekly: ONE job Monday 08:00 = monday_chain() — runs UC2 → UC3 → UC4 →
@@ -1336,8 +1397,8 @@ async def main():
 ```
 
 Backup (daily 03:00): ArcadeDB backup (or cold file copy of
-`/data/investment/arcade_db/` after a checkpoint) →
-`/data/investment/backups/`, keep 14 days.
+`~/data/investment/arcade_db/` after a checkpoint) →
+`~/data/investment/backups/`, keep 14 days.
 
 ---
 
@@ -1426,7 +1487,10 @@ async def shadow_replay(db, start: date, end: date,
     """Replay the mechanical Monday pipeline for every Monday in [start, end].
 
     POINT-IN-TIME DISCIPLINE (non-negotiable — a leak invalidates everything):
-      - MarketData/derivatives: only rows with ts <= t.
+      - MarketData/derivatives: only rows with ts <= t. Rows are PIT by
+        construction (as-known-at-ts rule, ADR-003: first-release vintages,
+        publication-dated). Record replay_report.vintage_mode='first_release';
+        a verdict obtained on revised data is not valid go-live evidence.
       - Regime state as-of t: the historical instances are PIT by construction
         (materialize_history runs the detector forward chronologically with
         hysteresis); assert no instance with start_date > t is visible.

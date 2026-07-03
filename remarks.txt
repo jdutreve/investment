@@ -1,5 +1,14 @@
-All UCs except UC1 (pure TS write, no Event) append Events to the Event TS. ???
-4seasons, permanent, barbell, momentum-macro : en quoi 4seasons est une strategie? et les 3 autres reliés a 4saisons?
-Knowledge Curation peut il servir a seed UC0?
-UC8 et pourquoi ne pas proposer de changer les allocations?
-UC5 est valid pour n importe qu elle UCx
+1. Le pari arcadedb-embedded. Les specs elles-mêmes disent deux fois « do not guess syntax » pour les index vectoriels et les types TimeSeries. Si les bindings Python ne tiennent pas leurs promesses (TS + HNSW + docs dans un moteur embarqué ARM64), la correction rayonnera dans tous les documents. C'est le premier truc à dé-risquer : un spike d'une journée qui crée les 3 TS, un index vectoriel et un doc type sur la vraie lib, avant la Phase 1.
+
+2. Le point-in-time du replay est plus fragile qu'annoncé. INDPRO (et dans une moindre mesure CPI) sont des séries révisées — FRED sert les valeurs actuelles, pas les vintages. Un replay 25 ans sur données révisées surestime la qualité de détection de régime historique. Soit utiliser ALFRED (vintages), soit documenter le biais et le traiter comme optimiste. En l'état, l'assertion « zero PIT violations » est vraie techniquement (pas de lookahead sur les timestamps) mais pas épistémiquement.
+
+3. La puissance statistique est faible. ~8 épisodes de stagflaesuré à +12 semaines, des portefeuilles défensifs très prochesles uns des autres, et un gap Sortino minimal de 0.02 qui est largement sous l'erreur d'estimation d'un Sortino sur 36 mois. Le grid search de la Task 9.2
+peut calibrer du bruit même en walk-forward. Conséquence proba (acceptable), soit des switches sur du bruit (le cooldown et la maturation de 12 semaines aident). Attendez-vous à ce que le replay dise « peu de valeur ajoutée nette » — et c'est une réponse utile, pas un échec.
+
+4. Un trou de pertinence : les apports d'argent. Phase 1 = accumulation, mais le modèle NAV n'a aucun flux entrant — pas de contributions mensuelles, pas
+de logique de routage des dépôts (DCA vers quoi ? le défenseurré ?). Pour un accumulateur sur 15-20 ans, la cadence et leroutage des versements pèsent souvent plus que l'arbitrage entre quatre variantes défensives. C'est à mon sens le prochain vrai manque fonctionnel des
+specs.
+
+5. Le paradoxe du profil de risque. Le système optimise Sortinown binding à -15%. Sur un horizon de 15-20 ans, c'est trèsconservateur : historiquement, un accumulateur qui verse régulièrement est payé pour tolérer des drawdowns plus profonds (il achète les creux). C'est votre choix de tolérance et le système le respecte correctement — maon objectif choisie coûte du patrimoine terminal espéré enéchange de sérénité. Ça mériterait d'être écrit noir sur blanc dans REVISION_NOTES comme un arbitrage assumé.                                 
+
+6. Le rapport valeur/complexité de la couche LLM. En V1, tout ce qui décide est mécanique ; le graphe de connaissances (invariants, curation, confrontations) influence les rendements de façon indirecte (cne version purement mécanique livrerait peut-être 80% de lavaleur financière à 30% de la complexité. Mais je ne recommande pas de couper : la couche connaissance est la partie intellectuellement distinctive, celle qui apprend, et celle qui rend le digest intelligent plutôt qu juger sur son vrai produit — la qualité de l'explication etl'accumulation d'insights confrontés — pas sur l'alpha.

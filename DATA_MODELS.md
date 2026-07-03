@@ -608,6 +608,19 @@ The `level`/`speed`/`acceleration` columns are how the regime detector spots
 early shifts: a value crossing a threshold *and* accelerating is a stronger
 signal than the same level reached while decelerating.
 
+### As-known-at-ts rule (ADR-003)
+
+A MarketData row's `ts` is **the date the value became knowable**, and its
+`level` is **the value as first known**: macro observations are indexed at
+their publication date (ALFRED `realtime_start`; fallback `reference_date +
+availability_lag_days`), and the 25y backfill stores ALFRED **first-release**
+values for revised series (INDPRO first; CPIAUCSL, UNRATE second).
+Composites and z-scores are computed from these as-known rows. The live
+daily fetcher appends whatever is current at fetch time — identical
+semantics; post-append revisions are ignored (the 2-print hysteresis absorbs
+revision noise). This makes `materialize_history` and the Phase 9 replay
+point-in-time by construction: they simply read `ts ≤ t`.
+
 ### MarketData semantics — what `level` contains per series
 
 | ticker              | asset_class      | level =                                | speed / acceleration lookback |
@@ -699,7 +712,11 @@ CREATE DOCUMENT TYPE invariant_author_config IF NOT EXISTS;
 CREATE DOCUMENT TYPE allowed_tickers IF NOT EXISTS;
 -- ticker STRING (PK), asset_class STRING, currency STRING,
 -- source STRING ('yahoo'|'fred'|'composite'), transform STRING
---   ('none'|'yoy_pct'|'composite'), description STRING, active BOOLEAN
+--   ('none'|'yoy_pct'|'composite'),
+-- availability_lag_days INTEGER (0 for market prices; publication lag for
+--   monthly macro series — fallback dating when ALFRED realtime_start is
+--   unavailable, see ADR-003),
+-- description STRING, active BOOLEAN
 -- Includes macro series and composites so market_fetch can expose them
 --   to the Worker.
 
@@ -757,6 +774,8 @@ CREATE DOCUMENT TYPE replay_report IF NOT EXISTS;
 --   (each: cagr, sortino, calmar, max_drawdown — decimal fractions),
 -- n_switches INTEGER, avg_turnover FLOAT, hit_rate_12w FLOAT,
 -- false_signal_rate FLOAT, cost_bps FLOAT, pit_assertions_passed BOOLEAN,
+-- vintage_mode STRING ('first_release' expected — a go-live verdict obtained
+--   on revised data is not valid evidence, ADR-003),
 -- notes STRING
 -- Written by the Phase 9 shadow replay; read by the main.py go-live gate.
 ```
@@ -855,8 +874,8 @@ Document/Passage (nightly) → EventLog (IngestionEvent, per batch)
 
 ```
 Graph + Vector (JVector HNSW index on FLOAT[768] properties)
-  /data/investment/arcade_db/
-  LRU page cache: arcadedb.maxPageRAM=512m (CAX21 4GB RAM)
+  ~/data/investment/arcade_db/
+  LRU page cache: arcadedb.maxPageRAM=2g (local MacBook Pro M5, 24 GB)
   Vector queries: SELECT expand(`vector.neighbors`('Passage[embedding]', :vec, 20))
   NOTE — index DDL: verify the exact CREATE INDEX syntax for the LSM vector
   index against the installed arcadedb-embedded version (Java API:

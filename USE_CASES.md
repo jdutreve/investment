@@ -94,7 +94,7 @@ UC8 reads EventLog weekly to assemble its inputs.
     Tags reserved on instances: 'deflation', 'liquidity-tightening',
                    'liquidity-easing', 'market-stress'
 
-4.  Corpus seed (optional, if PDFs are in /data/investment/sources/corpus):
+4.  Corpus seed (optional, if PDFs are in ~/data/investment/sources/corpus):
     - Calls the SAME `CorpusIngester` used by the nightly 02:00 job
       (single pipeline: parse + chunk + embed → Document + Passage vertices)
     - SUPPORTS edges built from passage-invariant matches above similarity floor
@@ -149,6 +149,8 @@ UC8 reads EventLog weekly to assemble its inputs.
 9.  MarketData TS backfill:
     - 25y history for macro/FRED series; ETFs from inception
       (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, BIL 2007, ...)
+    - As-known-at-ts (ADR-003): first-release ALFRED vintages for revised
+      series, every macro observation indexed at its publication date
     - Computed columns: level, speed (1st derivative), acceleration (2nd),
       per-series transforms per DATA_MODELS.md "MarketData semantics"
     - GROWTH_COMPOSITE and GLOBAL_LIQUIDITY composites computed and stored

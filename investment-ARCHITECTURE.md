@@ -32,7 +32,7 @@ arcadedb-embedded (Apache 2.0)
   → Single Python process = sole writer = no contention
 
 Filesystem
-  → Binary sources only (PDF, Kindle CSV) at /data/investment/sources/
+  → Binary sources only (PDF, Kindle CSV) at ~/data/investment/sources/
   → Referenced via Document.source_path
 ```
 
@@ -678,7 +678,7 @@ Swap model: change `.env` only.
 
 ```
 Seeds      → runs UC0 once at install
-Feeds      → uploads PDFs, URLs (SCP or Telegram)
+Feeds      → uploads PDFs, URLs (local drop or Telegram)
 Challenges → questions theses via UC9 (Telegram chat)
 Arbitrates → validates/rejects Proposals and innovations
 Defines    → drawdown rule, single-asset concentration, strategy enabled flag

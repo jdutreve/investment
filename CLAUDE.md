@@ -5,7 +5,8 @@ See REVISION_NOTES.md for V1 scope, core concepts, ranking rule, and stagflation
 Read this file before any action. Implement in the order defined in
 investment-TASKS.md. Also read investment-ARCHITECTURE.md and DATA_MODELS.md
 before writing any code. See IMPROVEMENTS.md for deferred features and when
-to add them.
+to add them, and DECISIONS.md for the ADRs (engine spike gate, local macOS
+target, vintage discipline) — never contradict an accepted ADR silently.
 
 ---
 
@@ -107,20 +108,23 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Component       | Value                                                         |
 |-----------------|---------------------------------------------------------------|
 | DB              | `arcadedb-embedded` (Apache 2.0) in-process, ARM64           |
-| DB path         | `/data/investment/arcade_db/investment.db`                    |
+| DB path         | `~/data/investment/arcade_db/investment.db`                   |
 | LLM Framework   | PydanticAI V1 (model-agnostic)                                |
 | Planner LLM     | `qwen/qwen3-8b` via OpenRouter, thinking mode                 |
 | Worker LLM      | `claude-sonnet-4-6` via Anthropic                             |
 | Market data     | Yahoo Finance + FRED + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY    |
-| Backfill        | 25 years for macro series; ETFs limited by inception date     |
+| Backfill        | 25y macro (ALFRED first-release vintages, publication-dated   |
+|                 | — ADR-003); ETFs limited by inception date                    |
 | Risk-free rate  | 3-Month T-Bill (^IRX) via Yahoo Finance — USD                 |
 | Timezone        | Europe/Zurich (APScheduler + all cron times)                  |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
-| Ingestion       | Telegram bot + SCP → inbox/ (nightly job 02:00)               |
+| Ingestion       | Telegram bot + local drop → inbox/ (nightly job 02:00)        |
 | Veille          | RSS feeds + user deposits                                     |
 | Notifications   | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Process         | APScheduler, single Python process                            |
-| Service         | systemd `investment-agent.service`                            |
+| Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
+| Service         | launchd LaunchAgent `com.jp.investment-agent`; jobs use       |
+|                 | coalesce + misfire_grace (laptop sleep — TASKS Task 0.7)      |
 
 ---
 
