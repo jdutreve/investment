@@ -42,7 +42,7 @@ REVISION_NOTES.md, measured by I-23).
   as absolute return.
 - Learning from real adaptations updates BACKED_BY invariants
   (`learn_from_adaptations`, Adaptation vertex, MODIFIES edge,
-  `adaptation_quality` SQL table).
+  `adaptation_quality` document type).
 - Add Proposal→Portfolio edges (replacing the scalar
   `defender_id`/`challenger_id`) when graph traversal becomes useful.
 
@@ -104,24 +104,18 @@ invariants and we want to filter out post-hoc rationalizations.
 
 **Spec:**
 ```sql
-CREATE TABLE hypotheses (
-  id           VARCHAR(50) PRIMARY KEY,
-  invariant_id VARCHAR(50),
-  prediction   TEXT,
-  conditions   TEXT,
-  emitted_at   DATE,
-  expiry       DATE,
-  outcome      VARCHAR(20) DEFAULT 'pending',
-  actual_data  JSONB,
-  trace        TEXT
-);
+-- ArcadeDB document type (same convention as DATA_MODELS.md):
+CREATE DOCUMENT TYPE hypotheses IF NOT EXISTS;
+-- id STRING (PK, ULID), invariant_id STRING, prediction STRING,
+-- conditions STRING, emitted_at DATE, expiry DATE,
+-- outcome STRING (default 'pending'), actual_data MAP, trace STRING
 ```
 - Worker emits `hypotheses_proposed: list[Hypothesis]` in WorkerResult
   (add alongside `innovations_proposed`; empty list until this item lands).
 - Monthly job `evaluate_hypotheses()` runs at expiry, sets outcome, updates
   invariant confirmation/infirmation counts with `source='hypothesis'`.
 - Add to Worker prompt: `skill-emit-hypothesis.md`.
-- Event TS types: `HypothesisProposed`, `HypothesisEvaluated`.
+- EventLog types: `HypothesisProposed`, `HypothesisEvaluated`.
 
 ---
 
@@ -155,7 +149,8 @@ half-life (drop below their natural confidence after 1y of market silence).
 - Structural invariants (author dalio/marks/other): `half_life = 730 days`
 - Market invariants (author system, and I-10 user tiers): `half_life = 180 days`
 - Store in `invariant_author_config.half_life_days`.
-- `recency_factor = max(0.5, 0.5 + 0.5 × exp(-days_since / half_life))`
+- `recency_factor = 0.5 + 0.5 × exp(-days_since / half_life)` (asymptotic
+  floor 0.5)
 
 ---
 
@@ -272,7 +267,7 @@ definition.
 
 **Spec:**
 - On any new Strategy creation, parse the `conditions` string.
-- Extract referenced indicators (CPI, PMI, VIX, yield curve, etc.).
+- Extract referenced indicators (CPI, GROWTH_COMPOSITE, VIX, yield curve, etc.).
 - Compare against the regime detection thresholds (in `system_thresholds`).
 - If `conditions` references ONLY indicators that the regime already defines,
   reject with "circular condition — add at least one orthogonal dimension".
@@ -371,11 +366,11 @@ formulations.
 - Skills stored in ArcadeDB as `Skill` vertex with `version` and `active`
   flags.
 - Worker loads only `active=true` versions.
-- Changes traceable via Event TS.
+- Changes traceable via EventLog.
 
 ---
 
-## I-19 — Signal/Event vertex
+## I-19 — Signal vertex (qualitative market events)
 
 **Why deferred:** Dropped from V1 (with the IMPLIES and GENERATES edges).
 MarketData is a time-series, so it can never be a graph edge source; and
@@ -386,23 +381,24 @@ qualitative events are rare enough in V1 to live as strings.
 **Spec:**
 - V1: qualitative market events ("Greenspan nomination", communiqué shifts)
   live in the `Regime.events` / `Evaluation.events` STRING[] arrays.
-- V2: promote to a proper `Event` vertex with edges (IMPLIES → Regime,
+- V2: promote to a proper `Signal` vertex with edges (IMPLIES → Regime,
   GENERATES → Evaluation) if traversal over qualitative events becomes a
-  Worker need.
+  Worker need. **Naming:** call it `Signal`, NOT `Event` — the `EventLog`
+  audit vertex already exists (DATA_MODELS.md) and must not be confused
+  with market signals.
 
 ---
 
-## I-20 — PMI data source
+## I-20 — PMI data source — ✅ RESOLVED
 
-**Why deferred:** Not deferred by choice — FRED carries no free ISM PMI series
-(license withdrawn; NAPM discontinued). **Must be resolved before regime
-detection goes live (Phase 2)** — the 4 Seasons growth axis depends on it.
+**Decision (2026-07):** the growth axis uses **GROWTH_COMPOSITE** —
+z(INDPRO YoY) − z(UNRATE Δ3m), rebased to index 100 — fully free, FRED-native,
+automatic and perennial (no license risk, no manual pulls). Formula in
+DATA_MODELS.md; detection algorithm in investment-ARCHITECTURE.md.
 
-**Spec (candidates):**
-- DBnomics ISM mirror.
-- S&P Global US PMI (manual pull).
-- Growth-axis composite from INDPRO YoY + UNRATE delta (fully free,
-  FRED-native).
+Rejected candidates: DBnomics ISM mirror (third-party availability risk),
+S&P Global US PMI (manual pull). Revisit only if GROWTH_COMPOSITE visibly
+lags actual growth turns vs published PMI prints.
 
 ---
 
@@ -417,6 +413,9 @@ REVISION_NOTES.md is not computable without it.
 - Explicit cost assumptions per asset (spread + commission, bps).
 - UC8 gate gains a turnover term: expected gain must exceed switching cost.
 - `system_thresholds`: `cost_bps_default`, `proposal_min_net_gain`.
+- Interim: the Phase 9 shadow replay already applies a flat
+  `replay_cost_bps` (10 bps/side) — this item refines it per asset when
+  the V2 boundary is evaluated.
 
 ---
 
@@ -443,6 +442,10 @@ probabilities in its WorkerResult.
 
 **Why deferred:** V1 records data but does not learn; V2 learning requires
 real executions. This is the cheap intermediate.
+**Relationship to Phase 9:** the shadow replay (investment-TASKS.md Phase 9)
+covers the HISTORICAL evidence at install time; I-23 is the FORWARD-looking
+measurement on real weekly snapshots. Both feed the V2 boundary; neither
+replaces the other.
 
 **Trigger to add:** after ~12 weeks of `portfolio_weekly_snapshot` history.
 
@@ -488,7 +491,7 @@ refutation should outweigh many mild confirmations.
 **Trigger to add:** when noisy feeds visibly pollute UC4 curation.
 
 **Spec:**
-- `rss_sources` SQL table with `tier` and rolling signal-quality score
+- `rss_sources` document type with `tier` and rolling signal-quality score
   (how often a source's items end up cited in Evaluations/Invariants).
 - UC3 prioritizes by tier; low-tier items summarized, not fully curated.
 
@@ -498,7 +501,7 @@ refutation should outweigh many mild confirmations.
 
 If/when adding from this list, prioritize by dependency and impact:
 
-1. **I-20** (PMI source) — blocking for Phase 2 regime detection, not optional.
+1. ~~I-20 (PMI source)~~ — **resolved**: GROWTH_COMPOSITE shipped in V1.
 2. **I-23** (retrospective learning) — the V2-boundary measurement; start the
    clock early.
 3. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
@@ -515,7 +518,11 @@ If/when adding from this list, prioritize by dependency and impact:
 
 - Anything that would create a side-channel around user validation
   (e.g. "auto-integrate innovations without notification" — never).
-- Anything that bypasses Event TS append-before-commit ordering.
+- Anything that bypasses EventLog append-before-commit ordering.
 - Anything that gives Worker direct DB write access.
-- Anything that increases LLM call frequency beyond the weekly cycle for
-  decision-making (mechanical jobs can run as often as needed).
+- Anything that increases *scheduled autonomous* LLM decision-making beyond
+  the weekly cycle (mechanical jobs can run as often as needed;
+  user-initiated UC9 chats and their capped ad-hoc UC8 re-run — max 1/day —
+  are explicitly allowed, being user-triggered; the nightly 02:15 curation
+  runner is also allowed because it only extracts knowledge into
+  user-gated `status=proposed` candidates — it never decides anything).

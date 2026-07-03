@@ -18,7 +18,8 @@ allocation changes.
 
 V1 mechanisms:
 1. Detect the current 4 Seasons regime from market/macro data, using level,
-   speed, and acceleration to anticipate regime shifts.
+   speed, and acceleration to anticipate regime shifts. Growth axis =
+   `GROWTH_COMPOSITE` (FRED-native, automatic — see ARCHITECTURE).
 2. Include global liquidity as a first-class MarketData family
    (`asset_class=GLOBAL_LIQUIDITY`) and combine it with 4 Seasons interpretation.
 3. Rank all enabled `Portfolio` rows, including the defender, using USD
@@ -27,7 +28,10 @@ V1 mechanisms:
    (never "ratio") is the canonical generic term.
 4. Explain the ranking through frameworks, regimes, strategies, invariants,
    and market context.
-5. Produce a weekly Telegram digest and optional paper-mode `Proposal`.
+5. Produce a weekly Telegram digest and optional paper-mode `Proposal` —
+   either a **switch** (defender → challenger portfolio) or a
+   **reallocation** (Worker-proposed adjustment of the defender's own
+   allocation, mechanically validated by Writeback).
 
 V2 adds auto-application, 48h auto-validation, and automatic learning from
 real `performance_3m`.
@@ -55,27 +59,38 @@ WORKER (Sonnet 4.6, Anthropic API)
   Unaware of    : Planner, Writeback, internal structure
 
 MECHANICAL JOBS (APScheduler, pure Python, no LLM)
+  Timezone: Europe/Zurich for all cron times.
   One-time
     UC0    seed → DB bootstrap (CLI command, not cron)
   Daily
     02:00  inbox parser → Document/Passage vertices + SUPPORTS edges
-           (parse + chunk + embed only — invariant curation is weekly UC4)
+           (parse + chunk + embed, no LLM)
+           → IngestionEvent per processed batch
+    02:15  curation runner (LLM) — ONLY when 02:00 ingested new Documents:
+           invariant candidates (author = document author tier) → Telegram
+           validation next morning. Knowledge extraction, never decisions.
     06:30  fetch market data + level/speed/acceleration → MarketData TS
-    06:35  Sharpe/Sortino/Calmar (rolling) → PortfolioNAV TS
+           (pure TS write — no EventLog append, see USE_CASES.md)
+    06:35  Sharpe/Sortino/Calmar (rolling) → PortfolioNAV TS (pure TS write)
     06:45  Scenario probabilities + 7-day shifts → ScenarioProbability TS
            (numeric triggers only; qualitative triggers are Worker-interpreted
             weekly — see IMPROVEMENTS I-22)
     06:50  regime detection (4 Seasons) → Regime vertex (is_current)
-  Weekly (Monday — canonical timeline, see USE_CASES.md)
+           → RegimeEvent (only when regime or tags change)
+  Weekly (Monday — one sequential chain; times are indicative, each step
+          starts only after the previous one succeeds; on failure the chain
+          aborts and a Telegram error alert is sent — see Phase 7)
     08:00  UC2 market valuation → MarketEvent
     08:10  UC3 knowledge search → inbox
     08:20  UC4 knowledge curation (LLM) → KnowledgeEvent
     08:30  Backtests recalculated → FAVORS edges (RegimeType → Strategy)
-    08:40  Invariant weights recalculated
+    08:40  Invariant weights recalculated (incl. mechanical confrontations —
+           see ARCHITECTURE "Invariant confrontation rule")
     08:45  UC6 portfolio valuations → Portfolio vertices + ValuationEvent
     08:50  UC7 ranking → portfolio_weekly_snapshot rows
     08:55  V2 only: learn_from_adaptations
-    09:00  UC8 Worker decision cycle (Planner Pre → Worker → Planner Post)
+    09:00  UC8 Worker decision cycle (Planner Pre → Worker → Planner Post →
+           Writeback runs the mechanical proposal gates)
     09:30  Weekly digest → Telegram user
   Event-driven
     Invariant weights after each Backtest or Evaluation
@@ -92,8 +107,10 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | LLM Framework   | PydanticAI V1 (model-agnostic)                                |
 | Planner LLM     | `qwen/qwen3-8b` via OpenRouter, thinking mode                 |
 | Worker LLM      | `claude-sonnet-4-6` via Anthropic                             |
-| Market data     | Yahoo Finance + FRED + GLOBAL_LIQUIDITY composite             |
+| Market data     | Yahoo Finance + FRED + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY    |
+| Backfill        | 25 years for macro series; ETFs limited by inception date     |
 | Risk-free rate  | 3-Month T-Bill (^IRX) via Yahoo Finance — USD                 |
+| Timezone        | Europe/Zurich (APScheduler + all cron times)                  |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
 | Ingestion       | Telegram bot + SCP → inbox/ (nightly job 02:00)               |
 | Veille          | RSS feeds + user deposits                                     |
@@ -106,19 +123,32 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 ## Non-negotiable Rules
 
 ### ArcadeDB
-- Agent = sole writer. Writes serialized via asyncio (single process).
+- Agent = sole writer. Writes serialized via asyncio (single process),
+  always inside explicit transactions (`db.transaction()`).
 - `trace` mandatory on every vertex — `ValueError` if empty.
+  Exemptions (`TRACE_EXEMPT`): `Passage` (inherits from Document),
+  `RegimeType` (static seed, narrative in `description`), `EventLog`
+  (the payload IS the trace).
 - DB opened once in `main.py`, injected everywhere.
 
-### Event Time-Series — source of truth for UC8
-**Every UC side-effect must be appended to the Event TS BEFORE being committed
-elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
+### EventLog — source of truth for UC8
+`EventLog` is an **append-only vertex type** (no edges), replacing the former
+Event time-series (a TS cannot carry a JSON STRING payload — TS FIELDS are
+numeric). **Every UC side-effect must be appended to EventLog BEFORE being
+committed elsewhere in ArcadeDB.** Architectural invariant for auditability
+and replay. Exemption: pure TS writes (UC1 market feed, daily NAV/scenario
+jobs) append no EventLog row — they create no vertex/edge.
 
 ### Decision cycle
-- **Daily** = mechanical only. No LLM.
-- **Weekly (Monday 09:00)** = sole decision cycle. Worker + Planner Post.
-- V1 proposals → Telegram digest + `Proposal` vertex only.
-  No automatic application. V2 = auto-validation and auto-application.
+- **Daily** = mechanical, with ONE LLM exception: the 02:15 curation runner
+  (knowledge extraction from newly ingested documents — its outputs are
+  `status=proposed` candidates gated by user validation, never decisions).
+- **Weekly (Monday 09:00)** = sole *scheduled* decision cycle. Worker +
+  Planner Post. UC9 (user-initiated chat) may trigger one ad-hoc UC8 re-run
+  per day — user-initiated, so it does not break the autonomy rule.
+- V1 proposals (switch or reallocation) → Telegram digest + `Proposal`
+  vertex only. No automatic application. V2 = auto-validation and
+  auto-application.
 
 ### Invariants — weight model
 - `source` is now a free-text real provenance (document+page, backtest run,
@@ -132,20 +162,28 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
 - `recency_factor` (single half-life in V1):
   - `days_since = (today - updated_at).days`   ← updated_at = last confrontation
   - `half_life = 365 days`
-  - `recency_factor = max(0.5, 0.5 + 0.5 × exp(-days_since / half_life))`
+  - `recency_factor = 0.5 + 0.5 × exp(-days_since / half_life)`
+    (decays from 1.0 toward an asymptotic floor of 0.5 — no clamp needed)
 - `market_score = confirmation_count / (confirmation_count + infirmation_count)`
   (use 1.0 until first confrontation)
 - Event-driven update after each Backtest or Evaluation.
-- `source=agent-discovery` → Event TS append → vertex committed with
+- `source=agent-discovery` → EventLog append → vertex committed with
   `status=proposed` → Telegram notification in the same cycle. Never
   `integrated` without `user_validated=True`.
 
 ### Curation vs Innovation
 - **Curation** (autonomous): update weight, add confirmations, add SUPPORTS
   edges, enrich description/example on **existing integrated** Invariants.
-- **Innovation** (user validation required): create a new Invariant
-  (`source=agent-discovery`), new vertex/edge type, new metric. `status=proposed`
-  until `user_validated=True`.
+- **Innovation** (user validation required): create a new Invariant, new
+  vertex/edge type, new metric. `status=proposed` until `user_validated=True`.
+- **Author tier of new Invariants**: extracted from a corpus document →
+  `author = Document.author` tier (dalio/marks/null — floor 0.40/0.35/0.20);
+  discovered from market patterns (backtests, rankings) →
+  `author='system'` (floor 0.05). `source` always records the real
+  provenance in free text. The UC0 initial curation pass (USE_CASES step 4b,
+  DEFAULT — skip with `--no-curate`) lets a deposited book yield validated
+  invariants at install time; later deposits are curated the night of their
+  ingestion (02:15 runner).
 
 ### Worker
 - Never mention Writeback/Planner/storage in Worker prompts.
@@ -156,7 +194,19 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
   - `market_fetch` : ALLOWED_TICKERS only, max 30 rows
   - `portfolio_check` : ID format validation, limited exposed fields
 - `WorkerResult` must include `innovations_proposed: list[ImprovementProposal]`
-  (empty list if none).
+  (empty list if none) and `reallocation_proposed:
+  Optional[ReallocationProposal]` (see DATA_MODELS.md).
+
+### UC8 — Worker proposes, Writeback disposes
+- The 5 **switch gates** (rank, Sortino gap, Calmar floor, concentration,
+  meaningful change) are deterministic and run **mechanically in Writeback**.
+- The Worker contributes: `reasoning`, interpretation of qualitative scenario
+  triggers, Evaluations, innovations, and optionally a **reallocation
+  proposal** for the defender (delta blend 0.4 × scenario + 0.6 × FAVORS).
+- Reallocation gates (also mechanical, in Writeback): user caps on the
+  proposed allocation, min meaningful change
+  (`proposal_min_allocation_change_pts`), turnover cap
+  (`proposal_max_turnover_pct`). See USE_CASES.md UC8.
 
 ### Mechanical calculations
 - Sharpe/Sortino/Calmar: pure Python (numpy/pandas), no LLM.
@@ -168,13 +218,21 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
   Portfolio/Backtest/FAVORS.
 - CHFUSD=X applied only for user-facing display.
 - `portfolio_weekly_snapshot` updated after each weekly valuation.
+- All formulas pinned in DATA_MODELS.md "Calculation conventions"
+  (annualization 252d, Sortino MAR = rf, NAV monthly rebalancing, cash
+  accruing at ^IRX). Two implementations must produce the same numbers.
 
-### Concentration limit
-- `Portfolio.max_single_asset_pct` (default 40%): no single asset above this.
-- Proposal blocked by Writeback if the implied challenger allocation violates.
+### Concentration & drawdown limits
+- `user_profile.max_single_asset_pct` (default 40%) and
+  `user_profile.max_drawdown_pct` (-15%) are **binding** for the defender
+  role and all proposal candidacy (switch and reallocation).
+- Per-portfolio `max_single_asset_pct` / `max_drawdown_rule` may only be
+  stricter, never looser. Writeback enforces the stricter of the two.
+- Proposal blocked by Writeback if the implied allocation violates.
 
 ### Strategies
-- 4 strategies seeded: 4seasons, permanent, barbell, momentum-macro.
+- 4 strategies seeded: four-seasons-rp, permanent-browne, barbell-taleb,
+  momentum-macro (ids distinct from Framework ids — no name collision).
 - `Strategy.enabled` (BOOLEAN, default true). User can disable via UC9.
 - Conditions must include ≥1 indicator orthogonal to regime definition
   (manual check at seed time in V1 — see IMPROVEMENTS I-12).
@@ -197,12 +255,14 @@ elsewhere in ArcadeDB.** Architectural invariant for auditability and replay.
 
 ---
 
-## ArcadeDB Entities (13 vertices, 11 edges, 4 time-series — see DATA_MODELS.md)
+## ArcadeDB Entities (14 vertices, 11 edges, 3 time-series — see DATA_MODELS.md)
 
 ```
 VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,
          Evaluation, Backtest, Adaptation (V2-only), Proposal,
-         Portfolio, Document, Passage
+         Portfolio, Document, Passage,
+         EventLog (append-only audit log, no edges — replaces the former
+                   Event time-series)
          (Signal vertex dropped from V1 — see IMPROVEMENTS I-19)
 
 EDGES  : UPDATES,
@@ -215,7 +275,12 @@ EDGES  : UPDATES,
           Evaluation records its triggering observations in `events`)
 
 TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
-              PortfolioNAV, Event
+              PortfolioNAV
+DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
+              system_thresholds, schema_extensions, strategy_performance,
+              invariant_weights, regime_history, invariant_confrontations,
+              portfolio_weekly_snapshot, replay_report (former "SQL tables" —
+              ArcadeDB document types, single engine)
 ```
 
 See DATA_MODELS.md for the complete schema and properties.
@@ -236,18 +301,29 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 
 ## Definition of Done
 
-1. UC0 seed produces 13 vertex types, 11 edge types, 4 time-series, seed data,
-   and the first `portfolio_weekly_snapshot` row.
+1. UC0 seed produces 14 vertex types, 11 edge types, 3 time-series, the
+   document types, historical Regime instances from the 25y backfill, seed
+   data, and the first `portfolio_weekly_snapshot` row.
 2. `update_ratios_daily()` populates PortfolioNAV TS daily (USD).
 3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`
-   using level/speed/acceleration.
-4. After Dalio corpus ingestion: 10+ Passage + Invariant vertices with weights.
-5. Full weekly cycle: MarketData/Event ingestion → Worker → Evaluation →
+   using level/speed/acceleration, with hysteresis and a computed confidence.
+4. After Dalio corpus ingestion + `--curate` batch validation: 10+ Passage
+   vertices, and extracted Invariants carrying `author='dalio'` (floor 0.40)
+   with weights, linked by SUPPORTS edges.
+5. Full weekly cycle: MarketData/EventLog ingestion → Worker → Evaluation →
    Scenario update → Proposal (if gate passed).
 6. `source=agent-discovery` Invariant is persisted as `status=proposed` and
    triggers a Telegram notification in the same cycle.
-7. `weight_effective` of an agent-discovery invariant grows after market confirmations.
+7. `weight_effective` of an agent-discovery invariant grows after mechanical
+   market confirmations (ARCHITECTURE "Invariant confrontation rule").
 8. `learn_from_adaptations()` (V2) propagates `performance_3m` to BACKED_BY invariants.
-9. Every Event TS append precedes its corresponding ArcadeDB vertex/edge commit.
-10. Concentration limit blocks a Proposal whose challenger allocation would
-    violate `max_single_asset_pct`.
+9. Every EventLog append precedes its corresponding ArcadeDB vertex/edge commit.
+10. Writeback blocks any Proposal (switch or reallocation) whose implied
+    allocation violates the binding user caps.
+11. The Worker can emit a reallocation Proposal for the defender that passes
+    the mechanical gates and renders in the digest with old vs new
+    allocation and reasoning.
+12. The Phase 9 shadow replay produces a 25y `replay_report` with zero
+    point-in-time violations, and `main.py` refuses to enable the weekly
+    proposal cycle when the report shows no net value-add on the validation
+    window (override `--force-live`).
