@@ -2,7 +2,7 @@
 
 Full trace of a real V1 cycle: events → regime → portfolio ranking
 → Worker cycle → innovation → proposals to user.
-Each ArcadeDB entity is instantiated with its actual properties.
+Each entity is instantiated with its actual properties.
 **Every entity below exists in the UC0 seed** (investment-TASKS.md Phase 1ter)
 — this example is V1-conformant end to end.
 

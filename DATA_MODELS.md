@@ -4,10 +4,21 @@ See REVISION_NOTES.md for V1 scope, core concepts, and ranking rule.
 
 ## Persistence principle
 
-ArcadeDB embedded in-process (`arcadedb-embedded`, Apache 2.0). The agent is the
-sole writer — writes serialized via asyncio, **always inside explicit
-transactions** (`db.transaction()`, required by the embedded engine). Binary
-sources (PDF, Kindle CSV) on filesystem, referenced via `Document.source_path`.
+SQLite, single file (`~/data/investment/investment.db`), stdlib `sqlite3` —
+see DECISIONS.md ADR-004. `journal_mode=WAL`, `synchronous=NORMAL`,
+`foreign_keys=ON`, ONE connection. The agent is the sole writer — all calls
+serialized via one asyncio executor path, writes **always inside explicit
+transactions**. Binary sources (PDF, Kindle CSV) on filesystem, referenced
+via `Document.source_path`.
+
+**Conceptual → physical mapping (ADR-004):** the model below remains a
+conceptual graph — entities ("vertices") and typed relations ("edges") —
+because that is the right vocabulary for the domain. Physically, every
+entity and every relation is a SQLite **table** (relations = association
+tables `from_id, to_id, <properties>`; every relation in this system is a
+1-hop FK). Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1),
+DATE/DATETIME→TEXT ISO-8601, FLOAT[768]→BLOB (float32). Table names are
+snake_case (`RegimeType` → `regime_type`).
 
 **Mandatory rule:** any vertex with empty `trace` is rejected with `ValueError`.
 Exemptions (`TRACE_EXEMPT = {"Passage", "RegimeType", "EventLog"}`):
@@ -16,7 +27,7 @@ seed data whose narrative lives in `description`; EventLog's payload IS the
 trace.
 
 **EventLog ordering rule:** every EventLog append must precede the
-corresponding vertex/edge commit in ArcadeDB. Pure TS writes (MarketData,
+corresponding entity/relation commit. Pure TS writes (MarketData,
 PortfolioNAV, ScenarioProbability daily jobs) are exempt — they commit no
 vertex/edge.
 
@@ -449,9 +460,8 @@ Passage {
 ---
 
 ### EventLog
-*Append-only audit spine. Replaces the former "Event" time-series: a TS cannot
-carry a JSON STRING payload (TS FIELDS are numeric). No edges ever. No trace
-(TRACE_EXEMPT) — the payload IS the trace. Indexed on (type), (ts) and
+*Append-only audit spine (table `event_log`). No relations ever. No trace
+(TRACE_EXEMPT) — the payload IS the trace. Indexed on (type) and
 (event_date).*
 
 ```
@@ -568,31 +578,29 @@ Passage -[SUPPORTS]-> Invariant
 
 ## Time-Series types (3)
 
-ArcadeDB TimeSeries syntax: `TIMESTAMP` column, **TAGS** (indexed STRING
-dimensions), **FIELDS** (numeric measurements). String payloads do not fit —
-that is why the audit log is the `EventLog` vertex, not a TS.
+Plain SQLite tables, full daily granularity, composite PK on
+(series id, ts). Ranges are read into pandas; ALL window math happens in
+numpy — the engine only stores and serves rows.
 
 ```sql
--- Market data + macro + FX + risk-free rate + composites.
--- What `level` contains per series is defined in "MarketData semantics" below.
-CREATE TIMESERIES TYPE MarketData IF NOT EXISTS
-  TIMESTAMP ts
-  TAGS   (ticker STRING, asset_class STRING, currency STRING)
-  FIELDS (level DOUBLE, speed DOUBLE, acceleration DOUBLE);
+CREATE TABLE IF NOT EXISTS market_data (
+  ticker TEXT NOT NULL, asset_class TEXT NOT NULL, currency TEXT NOT NULL,
+  ts TEXT NOT NULL,                -- as-known-at date (ADR-003)
+  level REAL, speed REAL, acceleration REAL,
+  PRIMARY KEY (ticker, ts));
 
-CREATE TIMESERIES TYPE ScenarioProbability IF NOT EXISTS
-  TIMESTAMP ts
-  TAGS   (strategy_id STRING, scenario STRING)
-  FIELDS (probability DOUBLE, shift_d7 DOUBLE);
+CREATE TABLE IF NOT EXISTS scenario_probability (
+  strategy_id TEXT NOT NULL, scenario TEXT NOT NULL, ts TEXT NOT NULL,
+  probability REAL, shift_d7 REAL,
+  PRIMARY KEY (strategy_id, scenario, ts));
 -- Appended WEEKLY (Monday 08:35), not daily: probability values only change
 -- via the weekly Worker cycle.
 
-CREATE TIMESERIES TYPE PortfolioNAV IF NOT EXISTS
-  TIMESTAMP ts
-  TAGS   (portfolio_id STRING, currency STRING)
-  FIELDS (nav DOUBLE, daily_return DOUBLE,
-          sharpe_rolling DOUBLE, sortino_rolling DOUBLE,
-          calmar_rolling DOUBLE, drawdown DOUBLE, vs_benchmark DOUBLE);
+CREATE TABLE IF NOT EXISTS portfolio_nav (
+  portfolio_id TEXT NOT NULL, currency TEXT NOT NULL, ts TEXT NOT NULL,
+  nav REAL, daily_return REAL, sharpe_rolling REAL, sortino_rolling REAL,
+  calmar_rolling REAL, drawdown REAL, vs_benchmark REAL,
+  PRIMARY KEY (portfolio_id, ts));
 ```
 
 **No downsampling policies** — the 756-trading-day rolling windows and the
@@ -690,13 +698,13 @@ Tags derived for Regime instances: `liquidity-tightening` when
 
 ## Document types
 
-ArcadeDB document types — single engine, plain ArcadeDB SQL. Ids are
-generated in Python as ULIDs; structured values use embedded `MAP`.
+Plain tables. Ids are generated in Python as ULIDs; structured values are
+JSON columns (SQLite JSON1).
 
 ### Static
 
 ```sql
-CREATE DOCUMENT TYPE user_profile IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS user_profile (...);
 -- user_id STRING (PK, unique index), currency STRING, benchmark STRING,
 -- max_drawdown_pct FLOAT (BINDING for defender role + proposal candidacy),
 -- max_single_asset_pct FLOAT (BINDING),
@@ -704,12 +712,12 @@ CREATE DOCUMENT TYPE user_profile IF NOT EXISTS;
 -- auto_validation_hours INTEGER (default 48 — V2 auto-validation timer),
 -- telegram_chat_id STRING, created_at DATE, updated_at DATE
 
-CREATE DOCUMENT TYPE invariant_author_config IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS invariant_author_config (...);
 -- author STRING (PK: 'dalio'|'marks'|'other'|'system'; 'other' is the sentinel
 --   for Invariant.author = null), floor_weight FLOAT,
 -- initial_weight_min FLOAT, initial_weight_max FLOAT, description STRING
 
-CREATE DOCUMENT TYPE allowed_tickers IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS allowed_tickers (...);
 -- ticker STRING (PK), asset_class STRING, currency STRING,
 -- source STRING ('yahoo'|'fred'|'composite'), transform STRING
 --   ('none'|'yoy_pct'|'composite'),
@@ -720,7 +728,7 @@ CREATE DOCUMENT TYPE allowed_tickers IF NOT EXISTS;
 -- Includes macro series and composites so market_fetch can expose them
 --   to the Worker.
 
-CREATE DOCUMENT TYPE system_thresholds IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS system_thresholds (...);
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
 -- Seed includes regime thresholds, rolling window (756d), recency half-life,
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
@@ -738,13 +746,13 @@ to V2 — IMPROVEMENTS I-27).
 ### Analytical
 
 ```sql
-CREATE DOCUMENT TYPE invariant_confrontations IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
 -- id STRING (PK, ULID), invariant_id STRING, regime STRING, date DATE,
 -- verdict STRING ('confirmed'|'refuted'), severity FLOAT,
 -- source STRING ('backtest'|'evaluation'|'proposal'|'adaptation' (V2)),
 -- source_id STRING
 
-CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 -- date DATE, portfolio_id STRING (unique index on (date, portfolio_id)),
 -- defender BOOLEAN, framework_id STRING,
 -- designed_regime_type_id STRING (denormalized from DESIGNED_FOR),
@@ -760,14 +768,14 @@ CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
 --                         --   UC8 cycle when a proposal gate is met
 -- trace STRING
 
-CREATE DOCUMENT TYPE scenario_calibration IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS scenario_calibration (...);
 -- id STRING (PK, ULID), strategy_id STRING, date DATE,
 -- dominant_scenario STRING, realized STRING ('bull'|'base'|'bear' mapped
 --   from the realized regime/quadrant), score FLOAT (Brier-style)
 -- Written weekly by score_scenarios() at +scenario_calibration_weeks;
 -- summarized into the Worker context and the digest scoreboard.
 
-CREATE DOCUMENT TYPE replay_report IF NOT EXISTS;
+CREATE TABLE IF NOT EXISTS replay_report (...);
 -- id STRING (PK, ULID), run_at DATETIME, window_start DATE, window_end DATE,
 -- thresholds MAP (the set replayed), acceptance_policy STRING,
 -- nav_agent_follow MAP, nav_hold_defender MAP, nav_benchmark MAP
@@ -873,18 +881,16 @@ Document/Passage (nightly) → EventLog (IngestionEvent, per batch)
 ## Storage
 
 ```
-Graph + Vector (JVector HNSW index on FLOAT[768] properties)
-  ~/data/investment/arcade_db/
-  LRU page cache: arcadedb.maxPageRAM=2g (local MacBook Pro M5, 24 GB)
-  Vector queries: SELECT expand(`vector.neighbors`('Passage[embedding]', :vec, 20))
-  NOTE — index DDL: verify the exact CREATE INDEX syntax for the LSM vector
-  index against the installed arcadedb-embedded version (Java API:
-  buildTypeIndex(...).withLSMVectorType().withDimensions(768)); the Python
-  bindings expose an equivalent helper. Do NOT guess SQL syntax.
+One SQLite file: ~/data/investment/investment.db (WAL sidecar files
+alongside). Dataset ≈ 100 MB — lives in the OS page cache after first read,
+so reads are effectively in-memory.
 
-Time-Series — full daily granularity, NO downsampling (rolling windows +
-25y replay need daily rows)
-Nightly backup — see investment-TASKS.md Phase 7 (arcadedb backup + rsync)
+Embeddings: float32×768 BLOBs on invariant/passage rows, loaded ONCE at
+startup into an in-RAM numpy matrix (~30 MB at 10k passages); similarity =
+brute-force cosine (<10 ms at this scale). No vector index, no FTS in V1
+(FTS5 available natively if ever needed).
+
+Nightly backup — sqlite3 .backup (online, WAL-safe); see investment-TASKS.md Phase 7
 ```
 
 ---

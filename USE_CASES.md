@@ -67,7 +67,7 @@ UC8 reads EventLog weekly to assemble its inputs.
 **What it does:**
 
 ```
-1.  Document-type bootstrap (ArcadeDB document types, see DATA_MODELS.md):
+1.  Reference-table bootstrap (see DATA_MODELS.md):
     - user_profile (currency, BINDING drawdown rule, BINDING concentration cap)
     - allowed_tickers (ETFs + FRED macro series + composites, with
       source and transform columns — TIP, TLT, GLD, DJP, SPY, IEF,
@@ -295,7 +295,7 @@ always the real free-text provenance (document+page, backtest run).
 any UC that has data to persist. Planner Post decides what to persist;
 Writeback executes.
 **Order:** EventLog append → graph vertex → edges → FTS → vector → documents.
-**Output:** ArcadeDB updated.
+**Output:** DB updated.
 **User action:** None.
 
 ---

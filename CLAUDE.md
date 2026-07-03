@@ -56,7 +56,7 @@ WORKER (Sonnet 4.6, Anthropic API)
                     defender comparison
   DB access     : via tool_call ONLY (ToolContextWrapper, DI)
   3 tools       : db_query | market_fetch | portfolio_check
-  Indicators    : already in ArcadeDB — Worker interprets, does NOT calculate
+  Indicators    : already in the DB — Worker interprets, does NOT calculate
   Unaware of    : Planner, Writeback, internal structure
 
 MECHANICAL JOBS (APScheduler, pure Python, no LLM)
@@ -107,8 +107,8 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 
 | Component       | Value                                                         |
 |-----------------|---------------------------------------------------------------|
-| DB              | `arcadedb-embedded` (Apache 2.0) in-process, ARM64           |
-| DB path         | `~/data/investment/arcade_db/investment.db`                   |
+| DB              | SQLite (stdlib), WAL, single file — ADR-004                  |
+| DB path         | `~/data/investment/investment.db`                             |
 | LLM Framework   | PydanticAI V1 (model-agnostic)                                |
 | Planner LLM     | `qwen/qwen3-8b` via OpenRouter, thinking mode                 |
 | Worker LLM      | `claude-sonnet-4-6` via Anthropic                             |
@@ -130,7 +130,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 
 ## Non-negotiable Rules
 
-### ArcadeDB
+### SQLite (ADR-004)
 - Agent = sole writer. Writes serialized via asyncio (single process),
   always inside explicit transactions (`db.transaction()`).
 - `trace` mandatory on every vertex — `ValueError` if empty.
@@ -140,10 +140,9 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 - DB opened once in `main.py`, injected everywhere.
 
 ### EventLog — source of truth for UC8
-`EventLog` is an **append-only vertex type** (no edges), replacing the former
-Event time-series (a TS cannot carry a JSON STRING payload — TS FIELDS are
-numeric). **Every UC side-effect must be appended to EventLog BEFORE being
-committed elsewhere in ArcadeDB.** Architectural invariant for auditability
+`EventLog` is an **append-only table** (entity with no relations; monotonic
+ULID id = canonical append order). **Every UC side-effect must be appended to EventLog BEFORE being
+committed elsewhere in the DB.** Architectural invariant for auditability
 and replay. Exemption: pure TS writes (UC1 market feed, daily NAV, weekly scenario
 jobs) append no EventLog row — they create no vertex/edge.
 
@@ -281,7 +280,7 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ---
 
-## ArcadeDB Entities (13 vertices, 10 edges, 3 time-series — V2 adds Adaptation + MODIFIES; see DATA_MODELS.md)
+## Entities (conceptual graph: 13 entities, 10 relations, 3 time-series — V2 adds Adaptation + MODIFIES; physically SQLite tables, see DATA_MODELS.md mapping)
 
 ```
 VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,
@@ -306,7 +305,7 @@ TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
 DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
               system_thresholds, invariant_confrontations,
               portfolio_weekly_snapshot, scenario_calibration, replay_report
-              (ArcadeDB document types, single engine — weight/history/
+              (plain tables, single engine — weight/history/
                performance data live on vertices and FAVORS edges, never
                duplicated in docs)
 ```
@@ -345,7 +344,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 7. `weight_effective` of an agent-discovery invariant grows after mechanical
    market confirmations (ARCHITECTURE "Invariant confrontation rule").
 8. `learn_from_adaptations()` (V2) propagates `performance_3m` to BACKED_BY invariants.
-9. Every EventLog append precedes its corresponding ArcadeDB vertex/edge commit.
+9. Every EventLog append precedes its corresponding entity/relation commit.
 10. Writeback blocks any Proposal (switch or reallocation) whose implied
     allocation violates the binding user caps.
 11. The Worker can emit a reallocation Proposal for the defender that passes

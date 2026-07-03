@@ -26,7 +26,7 @@ See IMPROVEMENTS.md for deferred features.
 ## DB Stack
 
 ```
-arcadedb-embedded (Apache 2.0)
+SQLite single file (ADR-004)
   → in-process, ARM64 supported
   → Graph + Vector + FTS + SQL + Time-Series in one engine
   → Single Python process = sole writer = no contention
@@ -46,11 +46,11 @@ Filesystem
 | `_db` | direct, in-process | never — closure only |
 | LLM calls | 3 fixed (1a, 1b, 2) | variable (1-8 tool calls) |
 | DB writes | forbidden | forbidden (Writeback handles) |
-| Scope | full ArcadeDB read | 3 bridged functions only |
+| Scope | full DB read | 3 bridged functions only |
 
 ```python
 # Bridged functions (Worker only):
-db_query(cypher_or_sql, lang)   # READ only, max 20 rows
+db_query(sql)                   # READ only, max 20 rows
 market_fetch(tickers, period)   # ALLOWED_TICKERS only, max 30 rows
 portfolio_check(portfolio_id)   # ID validation, limited fields
 # _db captured by closure in PlannerPre.run() — invisible to Worker
@@ -77,7 +77,7 @@ WORKER system prompt:
    Use the Skills provided and the data in your context.
    You are unaware of the Planner, Writeback, and internal storage.
    Three tools: db_query, market_fetch, portfolio_check.
-   Sharpe/Sortino/Calmar are pre-calculated indicators in USD in ArcadeDB;
+   Sharpe/Sortino/Calmar are pre-calculated indicators in USD in the DB;
    the suffix is _rolling. Interpret them — do not recalculate.
    Rolling window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
    WorkerResult must include innovations_proposed (empty list if none)
@@ -538,7 +538,7 @@ tool_use output — QueryStrategies:
 ### PYTHON — DB Execution (no LLM)
 ```
 1. embedding = await embedding_service.encode(semantic_query)
-2. asyncio.gather (6 parallel ArcadeDB queries):
+2. asyncio.gather (6 DB queries):
    ① Passages vector search
    ② Current Regime + global liquidity
    ③ Ranked enabled portfolios from portfolio_weekly_snapshot

@@ -30,7 +30,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 
 | Component       | Detail                                                        |
 |-----------------|---------------------------------------------------------------|
-| DB              | ArcadeDB embedded in-process (single engine: graph + vector + FTS + TS + documents) |
+| DB              | SQLite (stdlib), WAL, single file (single engine — ADR-004: graph + vector + FTS + TS + documents) |
 | Graph           | 13 vertex types (incl. EventLog), 10 edge types               |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
@@ -78,7 +78,7 @@ git clone https://github.com/jp/investment-agent.git ~/projets/investment-agent
 ### Task 0.2 — Data directories
 
 ```bash
-mkdir -p ~/data/investment/{inbox,sources/corpus,sources/kindle,arcade_db,backups,logs}
+mkdir -p ~/data/investment/{inbox,sources/corpus,sources/kindle,backups,logs}
 ```
 
 ---
@@ -97,8 +97,8 @@ PLANNER_THINKING_BUDGET_POST=1024
 WORKER_MODEL=claude-sonnet-4-6
 OLLAMA_BASE_URL=http://localhost:11434
 
-# ArcadeDB ($HOME expanded by config.py)
-ARCADE_DB_PATH=$HOME/data/investment/arcade_db/investment.db
+# SQLite ($HOME expanded by config.py)
+DB_PATH=$HOME/data/investment/investment.db
 
 # Scheduling
 TZ=Europe/Zurich
@@ -144,7 +144,7 @@ cd ~/projets/investment-agent
 uv init --package investment-agent   # src layout
 cd investment-agent
 
-uv add arcadedb-embedded pydantic-ai anthropic openai \
+uv add pydantic-ai anthropic openai \
        apscheduler pydantic pydantic-settings python-dotenv \
        python-telegram-bot python-ulid
 
@@ -153,61 +153,34 @@ uv add yfinance pandas-datareader pandas numpy scipy \
 
 uv add --dev pytest pytest-asyncio httpx
 
-uv run python -c "import arcadedb_embedded; print('ArcadeDB OK')"
+uv run python -c "import sqlite3; print(sqlite3.sqlite_version)"
 ```
 
 ---
 
-### Task 0.5 — ArcadeDB spike (GO/NO-GO gate — see DECISIONS.md ADR-001)
+### Task 0.5 — SQLite smoke test (~1 hour — ADR-004)
 
-**Purpose:** the whole persistence design bets on one library. This spike
-verifies every capability the specs assume, on the real target (macOS
-ARM64), BEFORE Phase 1. No other code is written until it passes or a
-fallback is chosen. Throwaway script `spike_arcadedb.py`, not production code.
-
-**Acceptance checklist (each item pass/fail, recorded in the spike's
-output):**
+The former ArcadeDB GO/NO-GO spike (ADR-001) is superseded: SQLite is in the
+Python stdlib, its capabilities are not in question. What remains is a short
+sanity script `spike_sqlite.py` (throwaway):
 
 ```
-1. Open embedded DB; create the 13 vertex types + 10 edge types +
-   8 document types (SCHEMA_SQL from Task 1.1). Reopen; types persist.
-2. CREATE TIMESERIES TYPE exactly as written in DATA_MODELS.md.
-   If the dialect differs → record the WORKING syntax and update
-   DATA_MODELS.md + Task 1.1. If TS types are absent from the installed
-   version → FALLBACK F1.
-3. Vector index: build the HNSW/LSM index on a FLOAT[768] property via the
-   Python bindings' API; insert 1 000 random embeddings; query
-   `vector.neighbors` k=20; REOPEN the DB and verify the index persists
-   and returns identical results. Failure → FALLBACK F2.
-4. Full-text index on a STRING property; create + query. Failure → F2-bis.
-5. Throughput sanity: append ~200 000 TS rows (25y × 30 series, batched
-   in transactions); time a 756-row range query per (ticker). Target:
-   backfill < 10 min, range query < 100 ms. Miss → tune batch/commit
-   sizes before concluding.
-6. asyncio harness: all DB calls from one event loop via
-   run_in_executor (single-writer path); no deadlock over 10 000 mixed
-   read/writes. Measure process RSS with arcadedb.maxPageRAM=2g —
-   comfortable on 24 GB.
+1. Open ~/data/investment/investment.db with journal_mode=WAL,
+   synchronous=NORMAL, foreign_keys=ON; create the full schema (Task 1.1).
+2. Transaction test: event_log append + entity insert in ONE transaction;
+   force a failure between the two → verify full rollback (the
+   append-before-commit invariant is atomic).
+3. Throughput: insert ~200 000 market_data rows in batched transactions;
+   read a 756-row range per ticker into pandas. Targets: backfill < 2 min,
+   range read < 50 ms.
+4. Embeddings: write 1 000 float32×768 BLOBs; load into a numpy matrix;
+   brute-force cosine top-20 < 10 ms.
+5. asyncio harness: all calls via run_in_executor on ONE connection;
+   10 000 mixed read/writes without deadlock.
 ```
 
-**Fallback ladder (decided in advance — each is a syntax adaptation, not a
-redesign; see ADR-001):**
-
-- **F1 — no TS types:** store the 3 time-series as plain document types
-  `(ts DATETIME, <tags…>, <fields…>)` with an index on (ticker/portfolio_id,
-  ts). Same queries, same volumes; no downsampling was assumed anyway.
-- **F2 — no usable vector index:** keep `embedding FLOAT[]` as a plain
-  property; brute-force cosine in numpy at query time (a few thousand
-  Passages × 768 dims = milliseconds at this scale). HNSW is a luxury here.
-- **F2-bis — no usable FTS:** LIKE-based fallback or in-Python token match
-  over titles/descriptions (small corpus).
-- **F3 — embedded engine itself unusable (JPype/ARM64 instability, memory):**
-  the ONLY expensive path — DuckDB for TS/analytics + graph flattened into
-  tables. The spike exists to surface this on day one, not in Phase 4.
-
-**Done when:** the checklist is fully recorded; DATA_MODELS.md "verify, do
-not guess" notes are replaced by verified syntax (or the chosen fallbacks);
-ADR-001 status updated with the outcome.
+**Done when:** all five pass (expected: trivially); numbers recorded in the
+commit message.
 
 ---
 
@@ -240,7 +213,7 @@ not root scripts — no path ambiguity.
 │       │   └── result.py         ← WorkerResult, ReallocationProposal,
 │       │                           ImprovementProposal, PostPlannerResult
 │       ├── db/
-│       │   ├── arcade.py
+│       │   ├── sqlite.py
 │       │   ├── schema.py
 │       │   ├── seed_data.py      ← seed constants (this file's Phase 1ter)
 │       │   └── queries.py
@@ -331,7 +304,7 @@ alias feed-url='f() { echo "$1" > $INBOX/$(date +%s).url; }; f'
 
 ---
 
-## Phase 1 — ArcadeDB Schema
+## Phase 1 — SQLite Schema
 *Estimated: 1 day*
 
 ### Task 1.1 — Schema creation
@@ -340,117 +313,115 @@ alias feed-url='f() { echo "$1" > $INBOX/$(date +%s).url; }; f'
 
 ```python
 SCHEMA_SQL = """
--- VERTEX TYPES (13) — V2 adds Adaptation (documented in DATA_MODELS.md,
--- created only when V2 lands; IF NOT EXISTS makes that trivial)
-CREATE VERTEX TYPE Framework  IF NOT EXISTS;
-CREATE VERTEX TYPE RegimeType IF NOT EXISTS;
-CREATE VERTEX TYPE Regime     IF NOT EXISTS;
-CREATE VERTEX TYPE Invariant  IF NOT EXISTS;
-CREATE VERTEX TYPE Strategy   IF NOT EXISTS;
-CREATE VERTEX TYPE Scenario   IF NOT EXISTS;
-CREATE VERTEX TYPE Evaluation IF NOT EXISTS;
-CREATE VERTEX TYPE Backtest   IF NOT EXISTS;
-CREATE VERTEX TYPE Proposal   IF NOT EXISTS;   -- V1 paper-mode (switch|reallocation)
-CREATE VERTEX TYPE Portfolio  IF NOT EXISTS;
-CREATE VERTEX TYPE Document   IF NOT EXISTS;
-CREATE VERTEX TYPE Passage    IF NOT EXISTS;
-CREATE VERTEX TYPE EventLog   IF NOT EXISTS;   -- append-only audit log, no edges
+-- Conceptual model unchanged (13 entities, 10 relations — see DATA_MODELS.md).
+-- Physical mapping (ADR-004): entity → table, relation → association table
+-- (they are all 1-hop FKs with properties), snake_case names.
+-- Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1), DATE/DATETIME→TEXT ISO-8601,
+-- FLOAT[768]→BLOB. V2 adds adaptation + modifies.
 
--- EDGE TYPES (10) — V2 adds MODIFIES (with Adaptation)
-CREATE EDGE TYPE UPDATES       IF NOT EXISTS;
-CREATE EDGE TYPE FAVORS        IF NOT EXISTS;  -- RegimeType → Strategy
-CREATE EDGE TYPE HAS_SCENARIO  IF NOT EXISTS;
-CREATE EDGE TYPE BACKED_BY     IF NOT EXISTS;
-CREATE EDGE TYPE TESTED_IN     IF NOT EXISTS;
-CREATE EDGE TYPE IN_REGIME     IF NOT EXISTS;  -- Backtest → Regime instance
-CREATE EDGE TYPE HOLDS         IF NOT EXISTS;  -- Portfolio → Strategy (primary BOOLEAN)
-CREATE EDGE TYPE DESIGNED_FOR  IF NOT EXISTS;  -- Portfolio → RegimeType (nullable)
-CREATE EDGE TYPE CONTAINS      IF NOT EXISTS;
-CREATE EDGE TYPE SUPPORTS      IF NOT EXISTS;
+-- ENTITY TABLES (13)
+CREATE TABLE IF NOT EXISTS framework    (...);
+CREATE TABLE IF NOT EXISTS regime_type  (...);
+CREATE TABLE IF NOT EXISTS regime       (...);
+CREATE TABLE IF NOT EXISTS invariant    (...);
+CREATE TABLE IF NOT EXISTS strategy     (...);
+CREATE TABLE IF NOT EXISTS scenario     (...);
+CREATE TABLE IF NOT EXISTS evaluation   (...);
+CREATE TABLE IF NOT EXISTS backtest     (...);
+CREATE TABLE IF NOT EXISTS proposal     (...);   -- V1 paper-mode (switch|reallocation)
+CREATE TABLE IF NOT EXISTS portfolio    (...);
+CREATE TABLE IF NOT EXISTS document     (...);
+CREATE TABLE IF NOT EXISTS passage      (...);
+CREATE TABLE IF NOT EXISTS event_log    (       -- append-only audit spine
+  id TEXT PRIMARY KEY,                          --   monotonic ULID = append order
+  ts TEXT NOT NULL, event_date TEXT NOT NULL,
+  type TEXT NOT NULL, source_uc TEXT NOT NULL,
+  source_id TEXT, payload TEXT NOT NULL);       --   payload = JSON
 
--- DOCUMENT TYPES (see DATA_MODELS.md for columns)
-CREATE DOCUMENT TYPE user_profile             IF NOT EXISTS;
-CREATE DOCUMENT TYPE invariant_author_config  IF NOT EXISTS;
-CREATE DOCUMENT TYPE allowed_tickers          IF NOT EXISTS;
-CREATE DOCUMENT TYPE system_thresholds        IF NOT EXISTS;
-CREATE DOCUMENT TYPE invariant_confrontations IF NOT EXISTS;
-CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
-CREATE DOCUMENT TYPE scenario_calibration     IF NOT EXISTS;  -- outcomes.py
-CREATE DOCUMENT TYPE replay_report            IF NOT EXISTS;  -- Phase 9
+-- RELATION TABLES (10) — columns: from_id, to_id (FK), + edge properties
+CREATE TABLE IF NOT EXISTS updates      (...);  -- evaluation → strategy
+CREATE TABLE IF NOT EXISTS favors       (...);  -- regime_type → strategy
+CREATE TABLE IF NOT EXISTS has_scenario (...);  -- strategy → scenario
+CREATE TABLE IF NOT EXISTS backed_by    (...);  -- strategy → invariant
+CREATE TABLE IF NOT EXISTS tested_in    (...);  -- strategy → backtest
+CREATE TABLE IF NOT EXISTS in_regime    (...);  -- backtest → regime instance
+CREATE TABLE IF NOT EXISTS holds        (...);  -- portfolio → strategy (primary flag)
+CREATE TABLE IF NOT EXISTS designed_for (...);  -- portfolio → regime_type
+CREATE TABLE IF NOT EXISTS contains     (...);  -- document → passage
+CREATE TABLE IF NOT EXISTS supports     (...);  -- passage → invariant
+
+-- DOCUMENT TABLES (see DATA_MODELS.md for columns)
+CREATE TABLE IF NOT EXISTS user_profile              (...);
+CREATE TABLE IF NOT EXISTS invariant_author_config   (...);
+CREATE TABLE IF NOT EXISTS allowed_tickers           (...);
+CREATE TABLE IF NOT EXISTS system_thresholds         (...);
+CREATE TABLE IF NOT EXISTS invariant_confrontations  (...);
+CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
+CREATE TABLE IF NOT EXISTS scenario_calibration      (...);  -- outcomes.py
+CREATE TABLE IF NOT EXISTS replay_report             (...);  -- Phase 9
+
+-- TIME-SERIES TABLES (3) — full daily granularity, no downsampling
+CREATE TABLE IF NOT EXISTS market_data (
+  ticker TEXT NOT NULL, asset_class TEXT NOT NULL, currency TEXT NOT NULL,
+  ts TEXT NOT NULL, level REAL, speed REAL, acceleration REAL,
+  PRIMARY KEY (ticker, ts));
+CREATE TABLE IF NOT EXISTS scenario_probability (
+  strategy_id TEXT NOT NULL, scenario TEXT NOT NULL, ts TEXT NOT NULL,
+  probability REAL, shift_d7 REAL, PRIMARY KEY (strategy_id, scenario, ts));
+CREATE TABLE IF NOT EXISTS portfolio_nav (
+  portfolio_id TEXT NOT NULL, currency TEXT NOT NULL, ts TEXT NOT NULL,
+  nav REAL, daily_return REAL, sharpe_rolling REAL, sortino_rolling REAL,
+  calmar_rolling REAL, drawdown REAL, vs_benchmark REAL,
+  PRIMARY KEY (portfolio_id, ts));
 
 -- INDEXES
-CREATE INDEX ON Framework (enabled)           IF NOT EXISTS;
-CREATE INDEX ON Regime (is_current)           IF NOT EXISTS;
-CREATE INDEX ON Invariant (status)            IF NOT EXISTS;
-CREATE INDEX ON Strategy (status)             IF NOT EXISTS;
-CREATE INDEX ON Strategy (enabled)            IF NOT EXISTS;
-CREATE INDEX ON Portfolio (defender)          IF NOT EXISTS;
-CREATE INDEX ON Portfolio (enabled)           IF NOT EXISTS;
-CREATE INDEX ON Proposal (date)               IF NOT EXISTS;
-CREATE INDEX ON Proposal (user_response)      IF NOT EXISTS;
-CREATE INDEX ON EventLog (type)               IF NOT EXISTS;
-CREATE INDEX ON EventLog (ts)                 IF NOT EXISTS;
-CREATE INDEX ON EventLog (event_date)         IF NOT EXISTS;
-CREATE INDEX ON portfolio_weekly_snapshot (date) IF NOT EXISTS;
-
--- TIME-SERIES (3) — correct ArcadeDB syntax: TIMESTAMP + TAGS + FIELDS
-CREATE TIMESERIES TYPE MarketData IF NOT EXISTS
-  TIMESTAMP ts
-  TAGS   (ticker STRING, asset_class STRING, currency STRING)
-  FIELDS (level DOUBLE, speed DOUBLE, acceleration DOUBLE);
-CREATE TIMESERIES TYPE ScenarioProbability IF NOT EXISTS
-  TIMESTAMP ts
-  TAGS   (strategy_id STRING, scenario STRING)
-  FIELDS (probability DOUBLE, shift_d7 DOUBLE);
-CREATE TIMESERIES TYPE PortfolioNAV IF NOT EXISTS
-  TIMESTAMP ts
-  TAGS   (portfolio_id STRING, currency STRING)
-  FIELDS (nav DOUBLE, daily_return DOUBLE,
-          sharpe_rolling DOUBLE, sortino_rolling DOUBLE,
-          calmar_rolling DOUBLE, drawdown DOUBLE, vs_benchmark DOUBLE);
-
--- NO DOWNSAMPLING POLICIES: the 756-trading-day rolling windows and the
--- 25y Phase 9 replay require full daily granularity end to end; total
--- volume (~30 series × 25y daily) is trivial for the embedded engine.
+CREATE INDEX IF NOT EXISTS ix_regime_current    ON regime (is_current);
+CREATE INDEX IF NOT EXISTS ix_invariant_status  ON invariant (status);
+CREATE INDEX IF NOT EXISTS ix_strategy_status   ON strategy (status);
+CREATE INDEX IF NOT EXISTS ix_strategy_enabled  ON strategy (enabled);
+CREATE INDEX IF NOT EXISTS ix_portfolio_defender ON portfolio (defender);
+CREATE INDEX IF NOT EXISTS ix_portfolio_enabled ON portfolio (enabled);
+CREATE INDEX IF NOT EXISTS ix_proposal_date     ON proposal (date);
+CREATE INDEX IF NOT EXISTS ix_proposal_response ON proposal (user_response);
+CREATE INDEX IF NOT EXISTS ix_eventlog_type     ON event_log (type);
+CREATE INDEX IF NOT EXISTS ix_eventlog_edate    ON event_log (event_date);
+CREATE INDEX IF NOT EXISTS ix_snapshot_date     ON portfolio_weekly_snapshot (date);
 """
 
-# VECTOR INDEXES — the audit log is a vertex (EventLog), NOT a TS, because
-# TS FIELDS are numeric only.
-# ⚠️ Do not guess vector-index SQL. Create the two HNSW indexes (Passage.embedding,
-# Invariant.embedding, 768 dims, cosine) via the API exposed by the installed
-# arcadedb-embedded version (Java: buildTypeIndex(...).withLSMVectorType()
-# .withDimensions(768); the Python bindings expose the equivalent — check
-# bindings/python examples 03_vector_search.py). Queries then use:
-#   SELECT expand(`vector.neighbors`('Passage[embedding]', :vec, 20))
+# Embeddings (ADR-004): invariant.embedding / passage.embedding are BLOBs
+# (float32 × 768). Loaded ONCE at startup into an in-RAM numpy matrix
+# (~30 MB at 10k passages); similarity = brute-force cosine (<10 ms).
+# No vector index, no FTS in V1 (FTS5 is available natively if ever needed).
 
-# FULL-TEXT INDEXES (persistence routing "FTS" step):
-#   Passage.content, Invariant (title + description).
-# ⚠️ Same caution as vector indexes: verify the FTS index DDL/API against the
-# installed arcadedb-embedded version before use; do not guess syntax.
+# PRAGMAs at connection open:
+#   journal_mode=WAL, synchronous=NORMAL, foreign_keys=ON
 ```
 
-**Done when:** schema created without error; 13 vertex + 10 edge + 3 TS +
-8 document types present; both vector indexes queryable via `vector.neighbors`.
+**Done when:** schema created without error; 13 entity + 10 relation + 3 TS +
+8 document tables present; a cosine query over seeded embeddings returns
+ranked passages.
 
 ---
 
-### Task 1.2 — ArcadeDB client wrapper
+### Task 1.2 — SQLite client wrapper
 
-**`src/investment/db/arcade.py`**
+**`src/investment/db/sqlite.py`**
 
 ```python
-import arcadedb_embedded as arcadedb
+import sqlite3
 from ulid import ULID
 
-TRACE_EXEMPT = {"Passage", "RegimeType", "EventLog"}
+TRACE_EXEMPT = {"passage", "regime_type", "event_log"}
 
 class InvestmentDB:
-    """ArcadeDB wrapper — agent sole writer, asyncio sequential.
-    ALL writes run inside explicit transactions (db.transaction())."""
+    """SQLite wrapper — agent sole writer, ONE connection, all calls
+    serialized through asyncio run_in_executor. Explicit transactions."""
 
     def __init__(self, db_path: str):
-        self._db = arcadedb.create_database(db_path)  # or open_database if exists
-        self._db.__enter__()
+        self._con = sqlite3.connect(db_path)
+        for pragma in ("journal_mode=WAL", "synchronous=NORMAL",
+                       "foreign_keys=ON"):
+            self._con.execute(f"PRAGMA {pragma}")
 
     async def query(self, lang: str, stmt: str, **params) -> list[dict]: ...
     async def command(self, lang: str, stmt: str, **params) -> None:
@@ -1040,7 +1011,7 @@ class CorpusIngester:
         (+ CONTAINS) → SUPPORTS edges."""
 
     async def link_supports(self, passage) -> None:
-        """vector.neighbors on Invariant embeddings; similarity >=
+        """cosine over the in-RAM invariant embedding matrix; similarity >=
         vector_similarity_min (0.35) → SUPPORTS edge (strength=similarity,
         excerpt=first 100 chars)."""
 ```
@@ -1076,7 +1047,7 @@ class PlannerPre:
         #   semantic_query, portfolio_filter, invariant_topics,
         #   regime_focus, proposal_limit
         # PYTHON — embedding + asyncio.gather (6 queries):
-        #   ① Passages vector search (vector.neighbors)
+        #   ① Passages vector search (numpy cosine over the matrix)
         #   ② Current Regime + global liquidity latest row
         #   ③ Ranked snapshot rows (today)
         #   ④ Scenarios + shift_d7 (ScenarioProbability TS)
@@ -1103,22 +1074,24 @@ class PlannerContext(BaseModel):
 ```
 
 Key queries (fixed):
-```cypher
+```sql
 -- FAVORS for the current regime:
-MATCH (r:Regime {is_current:true})
-MATCH (rt:RegimeType {id: r.regime_type_id})-[f:FAVORS]->(s:Strategy)
-WHERE s.enabled=true
-RETURN s, f.sortino_rolling, f.sharpe_rolling, f.calmar_rolling
-ORDER BY f.sortino_rolling DESC
+SELECT s.*, f.sortino_rolling, f.sharpe_rolling, f.calmar_rolling
+FROM regime r
+JOIN favors f    ON f.from_id = r.regime_type_id
+JOIN strategy s  ON s.id = f.to_id
+WHERE r.is_current = 1 AND s.enabled = 1
+ORDER BY f.sortino_rolling DESC;
 
 -- Defender:
-MATCH (p:Portfolio {defender:true, enabled:true})
-OPTIONAL MATCH (p)-[h:HOLDS {primary:true}]->(s:Strategy)
-OPTIONAL MATCH (p)-[:DESIGNED_FOR]->(rt:RegimeType)
-RETURN p, s.id AS primary_strategy, rt.id AS designed_regime_type
+SELECT p.*, h.to_id AS primary_strategy, d.to_id AS designed_regime_type
+FROM portfolio p
+LEFT JOIN holds h        ON h.from_id = p.id AND h."primary" = 1
+LEFT JOIN designed_for d ON d.from_id = p.id
+WHERE p.defender = 1 AND p.enabled = 1;
 
--- Ranking (document type):
-SELECT FROM portfolio_weekly_snapshot WHERE date = :today ORDER BY rank ASC
+-- Ranking:
+SELECT * FROM portfolio_weekly_snapshot WHERE date = :today ORDER BY rank ASC;
 ```
 
 ### Task 4.2 — `planner/post.py`
@@ -1151,9 +1124,9 @@ PORTFOLIO_EXPOSED_FIELDS = [
     "return_3m", "return_6m", "return_1y", "return_3y", "return_5y",
 ]
 
-async def db_query(stmt: str, lang: str) -> list[dict]:
-    """lang in {'sql','cypher'}; READ only (keyword blacklist); LIMIT
-    enforced/injected at 20 rows."""
+async def db_query(stmt: str) -> list[dict]:
+    """SQLite SQL, READ only (keyword blacklist); LIMIT enforced/injected
+    at 20 rows."""
 
 async def market_fetch(tickers: list[str], period: str) -> list[dict]:
     """tickers ⊆ allowed_tickers(active=true) — macro & composites included;
@@ -1378,9 +1351,9 @@ user_profile and is reflected in the next gate evaluation.
 # src/investment/main.py — UC1 onwards. UC0 runs via `python -m investment.seed`.
 
 async def main():
-    db = InvestmentDB(settings.arcade_db_path)
+    db = InvestmentDB(settings.db_path)
     await db.init_schema()
-    if not await db.query("cypher", "MATCH (f:Framework {id:'4seasons'}) RETURN f"):
+    if not await db.query("SELECT 1 FROM framework WHERE id='4seasons'"):
         raise RuntimeError("Seed not run. Execute `uv run python -m investment.seed` first.")
 
     scheduler = AsyncIOScheduler(timezone="Europe/Zurich")
@@ -1396,9 +1369,8 @@ async def main():
     # Retries: fetchers 3× exponential backoff; LLM calls per Phase 1bis policy.
 ```
 
-Backup (daily 03:00): ArcadeDB backup (or cold file copy of
-`~/data/investment/arcade_db/` after a checkpoint) →
-`~/data/investment/backups/`, keep 14 days.
+Backup (daily 03:00): `sqlite3 .backup` (online, WAL-safe) →
+`~/data/investment/backups/investment-<date>.db`, keep 14 days.
 
 ---
 
@@ -1558,19 +1530,19 @@ async def test_replay_go_live_gate():    # value-destroying fixture → main.py
 
 ## Notes for Claude Code
 
-1. **arcadedb-embedded ARM64** — wheel since 26.1.1.post3. Writes require
-   explicit transactions.
+1. **SQLite single file** (ADR-004) — WAL, synchronous=NORMAL,
+   foreign_keys=ON; ONE connection; writes in explicit transactions.
 2. **Entry points** — `python -m investment.main` (service) and
    `python -m investment.seed` (UC0). No root-level scripts.
-3. **Sequential writes** — all ArcadeDB writes in the same asyncio thread.
+3. **Sequential writes** — all DB calls through one asyncio executor path.
 4. **Mandatory trace** — `create_vertex` raises ValueError on empty trace,
    EXCEPT `TRACE_EXEMPT = {Passage, RegimeType, EventLog}`.
-5. **EventLog first** — every EventLog append precedes vertex/edge commit.
-   EventLog is a VERTEX (append-only), not a TS.
-6. **TimeSeries syntax** — `CREATE TIMESERIES TYPE x TIMESTAMP ts TAGS (...)
-   FIELDS (...)`; FIELDS are numeric only.
-7. **Vector indexes** — do NOT guess SQL DDL; use the bindings' API
-   (LSM vector, 768 dims, cosine) and `vector.neighbors()` for queries.
+5. **EventLog first** — every event_log append precedes the related
+   entity/relation commit, in the same transaction path.
+6. **Time-series** — plain tables, full daily granularity, PK (ticker, ts);
+   ranges read into pandas (all window math in numpy).
+7. **Embeddings** — float32 BLOBs → in-RAM numpy matrix at startup;
+   brute-force cosine. No vector index, no FTS in V1.
 8. **Risk-free rate** — fetch ^IRX daily; use in Sharpe/Sortino
    (`rf_daily = (1+IRX/100)^(1/252)−1`).
 9. **Rolling window** — 756 trading days (36M) for ALL `*_rolling`

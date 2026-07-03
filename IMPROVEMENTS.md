@@ -104,8 +104,8 @@ invariants and we want to filter out post-hoc rationalizations.
 
 **Spec:**
 ```sql
--- ArcadeDB document type (same convention as DATA_MODELS.md):
-CREATE DOCUMENT TYPE hypotheses IF NOT EXISTS;
+-- Plain table (same convention as DATA_MODELS.md):
+CREATE TABLE IF NOT EXISTS hypotheses (...);
 -- id STRING (PK, ULID), invariant_id STRING, prediction STRING,
 -- conditions STRING, emitted_at DATE, expiry DATE,
 -- outcome STRING (default 'pending'), actual_data MAP, trace STRING
@@ -364,7 +364,7 @@ evolve through agent self-improvement.
 formulations.
 
 **Spec:**
-- Skills stored in ArcadeDB as `Skill` vertex with `version` and `active`
+- Skills stored in the DB as a `Skill` entity with `version` and `active`
   flags.
 - Worker loads only `active=true` versions.
 - Changes traceable via EventLog.
