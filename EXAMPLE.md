@@ -39,11 +39,12 @@ directly in the MarketData TS rows below.
 
 ## Step 2 — Regime detection
 
-Regime detection is **mechanical** (daily job 06:50, formal algorithm in
-investment-ARCHITECTURE.md). It reads `level`, `speed`, and `acceleration`
-from the MarketData TS.
+Regime detection is **mechanical** (Monday 08:00 catch-up — the detector
+runs day-by-day over the fetched days, formal algorithm in
+investment-ARCHITECTURE.md; start_dates come from the data, not the run
+date). It reads `level`, `speed`, and `acceleration` from the MarketData TS.
 
-### 2a — MarketData TS rows (daily mechanical job 06:30)
+### 2a — MarketData TS rows (Monday catch-up fetch)
 
 ```
 MarketData { ticker:"CPIAUCSL", asset_class:"MACRO", currency:"USD"
@@ -73,7 +74,7 @@ MarketData { ticker:"GLOBAL_LIQUIDITY", asset_class:"GLOBAL_LIQUIDITY"
 `global_liquidity: "tightening"` in Proposal.market_context is derived from
 this row: `level < 100 AND speed < 0`.
 
-### 2b — RegimeType (seeded once at UC0) and Regime instance (daily job)
+### 2b — RegimeType (seeded once at UC0) and Regime instance (catch-up detector)
 
 `RegimeType` is seeded at UC0 and never mutated (TRACE_EXEMPT — narrative in
 description). `Regime` is a concrete occurrence created/updated by
@@ -105,8 +106,10 @@ aligned on both axes) = 50 + 20 + 18 + 10 = **78**.
 EventLog append precedes the vertex commit:
 
 ```
-EventLog { id:"01JX...", ts:2026-05-01T06:50, type:"RegimeEvent",
-           source_uc:"daily-regime", source_id:"stagflation-2026-05-01",
+EventLog { id:"01JX...", ts:2026-05-04T08:00, type:"RegimeEvent",
+           source_uc:"catch-up", source_id:"stagflation-2026-05-01",
+           -- committed Monday May 4; start_date 2026-05-01 (Friday) comes
+           -- from the DATA, not the run date
            payload:'{"from":"rising-growth-rising-inflation",
                      "to":"falling-growth-rising-inflation","confidence":78}' }
 ```
@@ -117,7 +120,7 @@ Regime {
   regime_type_id: "falling-growth-rising-inflation"
   tags: ["stagflation", "inflation-rising", "growth-falling",
          "liquidity-tightening"]
-  start_date: 2026-05-01, end_date: null
+  start_date: 2026-05-01, end_date: null   ← from the data (Friday)
   is_current: true, confidence: 78
   events: [
     "CPI YoY 3.1 (speed +0.30, accel +0.15)",
@@ -126,7 +129,7 @@ Regime {
   ]
   trace: "Acceleration on both axes confirms regime, not a transient blip.
           Committed after 2 consecutive confirming monthly prints."
-  created_at: 2026-05-01
+  created_at: 2026-05-04                   ← commit date (Monday catch-up)
   updated_at: 2026-05-11    ← as_of
 }
 ```
@@ -196,7 +199,7 @@ Invariant {
   market_score: 1.0               ← 3/(3+0)
   recency_factor: 0.992           ← 0.5+0.5×exp(-6/365); 6d since last confrontation
   weight_effective: 0.248         ← max(0.25 × 1.0 × 0.992, 0.05)
-  embedding: [768 floats]         ← encode(title + "\n" + description)
+  embedding: [384 floats]         ← encode(title + "\n" + description)
   trace: "Discovered analyzing stagflation 2021-2022. Confirmed mechanically:
           Oct 2024, Mar 2026, May 2026 (FAVORS-vs-median rule)."
   created_at: 2026-03-01
@@ -230,7 +233,7 @@ Invariant {
   market_score: 0.667             ← 2/(2+1)
   recency_factor: 0.920           ← 0.5+0.5×exp(-63/365); 63d since last confrontation
   weight_effective: 0.123         ← max(0.20 × 0.667 × 0.920, 0.05)
-  embedding: [768 floats]
+  embedding: [384 floats]
   trace: "One refutation: 2023 bull run where high-Sharpe strategies
           outperformed. This invariant motivates the calmar<1.0 ranking
           demotion and the 1.5 proposal gate."
@@ -265,7 +268,7 @@ Invariant {
   market_score: 0.889             ← 8/(8+1)
   recency_factor: 0.992
   weight_effective: 0.750         ← max(0.85 × 0.889 × 0.992, 0.40)
-  embedding: [768 floats]
+  embedding: [384 floats]
   trace: "Dalio All Weather principle. Only refutation: 2020 deflation
           (extreme case out of scope)."
   created_at: 2026-01-15
@@ -860,7 +863,7 @@ Document -[CONTAINS position:87 page:142]-> Passage {
   content: "TIPS have provided reliable inflation protection in every
             inflationary episode since their introduction in 1997..."
   page: 142, chunk_id: "dalio-big-debt-87"
-  embedding: [768 floats]
+  embedding: [384 floats]
   created_at: 2026-01-15
   -- no trace: TRACE_EXEMPT, inherits from parent Document
 }

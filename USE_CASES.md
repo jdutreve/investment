@@ -19,12 +19,17 @@ One-time (manual)
                               gates go-live, re-runnable after threshold
                               changes)
 
-Daily (mechanical only — no LLM)
-  UC1  Market Feed          → MarketData TS (+ level/speed/acceleration)
+Nightly (the ONLY daily jobs)
+  02:00 inbox ingestion; 02:15 curation runner (LLM, only on new
+  Documents); 03:00 backup
 
 Weekly (Monday — one sequential chain: each step starts only after the
 previous one succeeds; on failure the chain aborts, emits an ErrorEvent and
 sends a Telegram alert. Times in CLAUDE.md are indicative.)
+  UC1  Market Feed (CATCH-UP) → MarketData TS for all days since last
+                              run + regime detector day-by-day + NAV
+                              catch-up + expiry sweep (also runs on-demand
+                              as the prelude to an ad-hoc UC9 UC8 re-run)
   UC2  Market Valuation     → MarketEvent
   UC3  Knowledge Search     → KnowledgeSearchEvent
   UC4  Knowledge Curation   → KnowledgeEvent
@@ -49,12 +54,12 @@ On demand
 
 Every UC that commits a vertex or edge appends to `EventLog` FIRST.
 **Every EventLog append must precede the corresponding vertex/edge commit.**
-Exemption: pure TS writes (UC1 market feed, daily NAV job, weekly
-scenario-probability append) —
+Exemption: pure TS writes (UC1 market feed, weekly NAV catch-up and
+scenario-probability appends) —
 they create no vertex/edge, so no ordering constraint applies.
-Daily jobs that DO touch vertices emit events: the 06:50 regime detector
-emits `RegimeEvent` (only when the regime or its tags change) and the 02:00
-inbox parser emits `IngestionEvent` (one per processed batch).
+The catch-up regime detector emits `RegimeEvent` (only when the regime or
+its tags change) and the nightly 02:00 inbox parser emits `IngestionEvent`
+(one per processed batch).
 UC8 reads EventLog weekly to assemble its inputs.
 
 ---
@@ -71,7 +76,7 @@ UC8 reads EventLog weekly to assemble its inputs.
     - user_profile (currency, BINDING drawdown rule, BINDING concentration cap)
     - allowed_tickers (ETFs + FRED macro series + composites, with
       source and transform columns — TIP, TLT, GLD, DJP, SPY, IEF,
-      CHFUSD=X, ^IRX, ^VIX, CPIAUCSL, T10Y2Y, UNRATE, INDPRO, UMCSENT,
+      CHFUSD=X, ^IRX, ^VIX, CPIAUCSL, T10Y2Y, UNRATE, INDPRO,
       GROWTH_COMPOSITE, GLOBAL_LIQUIDITY, ...)
     - system_thresholds (regime thresholds, calmar window 756d,
       recency half-life 365d, vector similarity 0.35, proposal gates for
@@ -200,7 +205,8 @@ data, and the digest renders a non-empty defender row.
 ---
 
 ## UC1 — Market Feed
-**Trigger:** Daily cron (06:30).
+**Trigger:** Monday chain 08:00 (catch-up of all days since last run) —
+also invoked on-demand as the prelude to an ad-hoc UC9 UC8 re-run.
 **What it does:** Fetches prices from Yahoo Finance and macro series from FRED.
 Applies per-series transforms (DATA_MODELS.md "MarketData semantics") and
 computes `level`, `speed`, `acceleration` for each series. Appends to
@@ -217,8 +223,8 @@ committed, so the ordering invariant does not apply).
 **What it does:** Reads MarketData TS. Produces structured market snapshot:
 current regime (4 Seasons), benchmark performance, macro indicators with
 level/speed/acceleration, global liquidity state. The Regime vertex itself
-(`is_current`) is owned and maintained by the daily 06:50 `detect_regime()`
-job — UC2 reads it, it does not update it.
+(`is_current`) is owned and maintained by the catch-up detector step —
+UC2 reads it, it does not update it.
 **Output:** MarketEvent → EventLog.
 
 ```json
@@ -244,11 +250,11 @@ job — UC2 reads it, it does not update it.
 
 ## UC3 — Knowledge Search
 **Trigger:** Weekly cron (Monday, after UC2).
-**What it does:** Reads RSS feeds + user deposits from the previous 7 days.
-Deposits raw content in `inbox/`.
-**Output:** KnowledgeSearchEvent → EventLog.
-
-In V1: RSS + user deposits only. YouTube/X/podcasts deferred (IMPROVEMENTS I-9).
+**What it does:** V1 = **user deposits only** (Telegram + local drop → inbox,
+processed nightly). The weekly step verifies the inbox is drained and counts
+the week's deposits. RSS auto-veille is deferred with source tiering
+(IMPROVEMENTS I-9/I-26); YouTube/X/podcasts likewise (I-9).
+**Output:** KnowledgeSearchEvent → EventLog (deposit counts).
 **User action:** None. User can deposit documents anytime.
 
 ---
@@ -306,8 +312,8 @@ Writeback executes.
 `calmar_rolling`, `max_drawdown`, `volatility`, plus cumulative
 `return_3m / 6m / 1y / 3y / 5y` for all enabled portfolios, including the
 defender. Risk-free rate = 3M T-Bill. Rolling indicator window = 36M.
-Updates each `Portfolio` vertex. (PortfolioNAV TS is written by the daily
-06:35 job only — UC6 reads it, it does not append.)
+Updates each `Portfolio` vertex. (PortfolioNAV TS is written by the Monday
+08:00 catch-up job only — UC6 reads it, it does not append.)
 **Output:** ValuationEvent → EventLog.
 
 ```json
@@ -446,7 +452,10 @@ read-only tools (`db_query`, `market_fetch`, `portfolio_check`) and the same
 Worker system prompt plus a chat skill. It never writes directly — decisions
 go through Planner Post → Writeback like any UC (UC5 path). This is
 user-initiated, so it does not violate the "weekly = sole scheduled decision
-cycle" rule; it may trigger at most **one ad-hoc UC8 re-run per day**.
+cycle" rule; it may trigger at most **one ad-hoc UC8 re-run per day** —
+which always starts with the UC1 catch-up prelude (fetch + regime + NAV,
+mechanical, seconds) so the Worker never reasons on stale data. `/status`
+mid-week offers `/refresh` (same prelude, no UC8).
 **What it does:** Conversational interface. Any decision stored via UC5.
 Rule changes ("reduce max drawdown") update `user_profile` (binding rules);
 strategy toggles update `Strategy.enabled`. Can trigger a new UC8 cycle if
@@ -478,7 +487,7 @@ switch cooldown rule). Pending proposals auto-expire after
 | #  | UC                  | Trigger             | Output                                | Frequency        |
 |----|---------------------|---------------------|---------------------------------------|------------------|
 | 0  | Seed                | Manual CLI          | SeedEvent + full DB bootstrap         | Once at install  |
-| 1  | Market Feed         | Daily cron          | MarketData TS                         | Daily            |
+| 1  | Market Feed         | Monday catch-up + on-demand | MarketData TS                         | Daily            |
 | 2  | Market Valuation    | Weekly cron         | MarketEvent                           | Weekly           |
 | 3  | Knowledge Search    | Weekly cron         | KnowledgeSearchEvent                  | Weekly           |
 | 4  | Knowledge Curation  | Weekly cron         | KnowledgeEvent                        | Weekly           |

@@ -37,7 +37,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
 | Worker          | Sonnet 4.6 via Anthropic                                      |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
-| Veille          | RSS feeds + user deposits                                     |
+| Veille          | user deposits only (RSS deferred — I-9/I-26)                  |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
 | Backfill        | 25y macro; ETFs from inception                                |
 | Risk-free rate  | 3-Month T-Bill (^IRX) — USD                                   |
@@ -52,7 +52,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 ---
 
 ## Phase 0 — Local installation (macOS ARM64 — MacBook Pro M5, 24 GB)
-*Estimated: 1.5 days (incl. the 1-day Task 0.5 spike — the GO/NO-GO gate)*
+*Estimated: 0.5 day (incl. the ~1h Task 0.5 SQLite smoke test)*
 
 The system runs locally on the user's MacBook (see DECISIONS.md ADR-002).
 Implications handled below: launchd instead of systemd, local inbox instead
@@ -63,15 +63,13 @@ of SCP, and **laptop sleep** — scheduled jobs must survive a closed lid
 
 ```bash
 # Homebrew assumed present
-brew install python@3.12 uv git gh tmux ollama
-brew services start ollama
-ollama pull nomic-embed-text  # if missing
+brew install python@3.12 uv git gh tmux
 
 gh auth login
 git clone https://github.com/jp/investment-agent.git ~/projets/investment-agent
 ```
 
-**Done when:** python3.12, uv, ollama (with nomic-embed-text), gh OK.
+**Done when:** python3.12, uv, gh OK.
 
 ---
 
@@ -95,7 +93,7 @@ PLANNER_MODEL=qwen/qwen3-8b
 PLANNER_THINKING_BUDGET_PRE=512
 PLANNER_THINKING_BUDGET_POST=1024
 WORKER_MODEL=claude-sonnet-4-6
-OLLAMA_BASE_URL=http://localhost:11434
+EMBEDDING_MODEL=all-MiniLM-L6-v2   # sentence-transformers, in-process, 384 dims
 
 # SQLite ($HOME expanded by config.py)
 DB_PATH=$HOME/data/investment/investment.db
@@ -110,16 +108,13 @@ SOURCES_PATH=$HOME/data/investment/sources/corpus
 # Market data
 MARKET_BACKFILL_YEARS=25
 YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,VTI,QQQ,EFA,EEM,IEF,SHY,BIL,DBC,CHFUSD=X,^IRX,^VIX
-FRED_SERIES=CPIAUCSL,T10Y2Y,UMCSENT,UNRATE,INDPRO
+FRED_SERIES=CPIAUCSL,T10Y2Y,UNRATE,INDPRO
 GROWTH_COMPOSITE_COMPONENTS=INDPRO,UNRATE
 GLOBAL_LIQUIDITY_COMPONENTS=M2SL,WALCL,ECBASSETSW,JPNASSETS
 
 # Telegram
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
-
-# Veille
-RSS_FEEDS_TIER1=https://feeds.bloomberg.com/markets/news.rss,...
 
 # User profile defaults (BINDING rules — see REVISION_NOTES.md)
 USER_CURRENCY=CHF
@@ -149,7 +144,7 @@ uv add pydantic-ai anthropic openai \
        python-telegram-bot python-ulid
 
 uv add yfinance pandas-datareader pandas numpy scipy \
-       pypdf aiofiles aiohttp feedparser
+       sentence-transformers pypdf aiofiles aiohttp
 
 uv add --dev pytest pytest-asyncio httpx
 
@@ -173,7 +168,7 @@ sanity script `spike_sqlite.py` (throwaway):
 3. Throughput: insert ~200 000 market_data rows in batched transactions;
    read a 756-row range per ticker into pandas. Targets: backfill < 2 min,
    range read < 50 ms.
-4. Embeddings: write 1 000 float32×768 BLOBs; load into a numpy matrix;
+4. Embeddings: write 1 000 float32×384 BLOBs; load into a numpy matrix;
    brute-force cosine top-20 < 10 ms.
 5. asyncio harness: all calls via run_in_executor on ONE connection;
    10 000 mixed read/writes without deadlock.
@@ -193,13 +188,6 @@ not root scripts — no path ambiguity.
 ~/projets/investment-agent/investment-agent/
 ├── pyproject.toml
 ├── src/
-│   ├── metis/
-│   │   └── base/
-│   │       ├── embedding.py
-│   │       ├── llm.py
-│   │       ├── llm_clients.py
-│   │       ├── llm_factory.py
-│   │       └── tool_wrapper.py
 │   └── investment/
 │       ├── main.py               ← APScheduler entry: python -m investment.main
 │       ├── seed.py               ← UC0 CLI entry:     python -m investment.seed
@@ -232,7 +220,8 @@ not root scripts — no path ambiguity.
 │       ├── writeback/
 │       │   └── writeback.py      ← gates + persistence executor
 │       ├── corpus/
-│       │   └── ingester.py       ← single pipeline (nightly job AND UC0 seed)
+│       │   ├── ingester.py       ← single pipeline (nightly job AND UC0 seed)
+│       │   └── embedding.py      ← InProcessEmbedder (sentence-transformers)
 │       ├── market/
 │       │   ├── fetcher.py
 │       │   ├── derivatives.py    ← level/speed/acceleration + transforms
@@ -247,8 +236,6 @@ not root scripts — no path ambiguity.
 │       │   ├── snapshots.py      ← portfolio_weekly_snapshot writer
 │       │   ├── replay.py         ← Phase 9 shadow replay (go-live gate)
 │       │   └── learning.py       ← V2 only (stub)
-│       ├── veille/
-│       │   └── rss.py            ← UC3
 │       └── telegram/
 │           ├── digest.py         ← weekly digest renderer
 │           └── bot.py            ← UC9 chat + proposal/innovation callbacks
@@ -317,7 +304,7 @@ SCHEMA_SQL = """
 -- Physical mapping (ADR-004): entity → table, relation → association table
 -- (they are all 1-hop FKs with properties), snake_case names.
 -- Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1), DATE/DATETIME→TEXT ISO-8601,
--- FLOAT[768]→BLOB. V2 adds adaptation + modifies.
+-- FLOAT[dim]→BLOB (384, from EMBEDDING_MODEL). V2 adds adaptation + modifies.
 
 -- ENTITY TABLES (13)
 CREATE TABLE IF NOT EXISTS framework    (...);
@@ -389,8 +376,8 @@ CREATE INDEX IF NOT EXISTS ix_snapshot_date     ON portfolio_weekly_snapshot (da
 """
 
 # Embeddings (ADR-004): invariant.embedding / passage.embedding are BLOBs
-# (float32 × 768). Loaded ONCE at startup into an in-RAM numpy matrix
-# (~30 MB at 10k passages); similarity = brute-force cosine (<10 ms).
+# (float32 × 384, InProcessEmbedder). Loaded ONCE at startup into an in-RAM
+# numpy matrix (~15 MB at 10k passages); similarity = brute-force cosine.
 # No vector index, no FTS in V1 (FTS5 is available natively if ever needed).
 
 # PRAGMAs at connection open:
@@ -532,7 +519,6 @@ ALLOWED_TICKERS = [
     {"ticker": "T10Y2Y",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none",    "availability_lag_days": 1},
     {"ticker": "UNRATE",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none",    "availability_lag_days": 7},
     {"ticker": "INDPRO",   "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct", "availability_lag_days": 16},
-    {"ticker": "UMCSENT",  "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none",    "availability_lag_days": 3},
     # Composites (computed in Python — see market/growth.py, market/liquidity.py)
     {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO",            "currency": "USD", "source": "composite", "transform": "composite"},
     {"ticker": "GLOBAL_LIQUIDITY", "asset_class": "GLOBAL_LIQUIDITY", "currency": "USD", "source": "composite", "transform": "composite"},
@@ -543,49 +529,39 @@ ALLOWED_TICKERS = [
 
 ---
 
-## Phase 1bis — LLM Abstraction
-*Estimated: 0.5 day*
+## Phase 1bis — LLM runtime + embeddings (thin — no homemade abstraction)
+*Estimated: 0.25 day*
 
-### Task 1bis.1 — `src/metis/base/llm.py`
+**PydanticAI IS the abstraction** (stack table): no `BaseLLMClient` ABC, no
+client factory, no wrapper layer. Two `pydantic_ai.Agent` instances
+configured from `.env`:
 
-```python
-class LLMToolCall(BaseModel):
-    id: str
-    name: str
-    arguments: dict
+- **Planner agent** — `PLANNER_MODEL` via OpenRouter (OpenAI-compatible
+  provider), thinking budgets per call; structured outputs
+  (`QueryStrategies`, `PlannerContext`, `PostPlannerResult`).
+- **Worker agent** — `WORKER_MODEL` via Anthropic; output_type=`WorkerResult`;
+  the 3 bridged tools registered as PydanticAI tools with deps injection
+  (`_db` lives in deps, never exposed — same least-privilege guarantees).
 
-class LLMResponse(BaseModel):
-    content: Optional[str]
-    tool_calls: list[LLMToolCall]
-    stop_reason: str         # "end_turn" | "tool_use"
-    thinking: Optional[str]
+**Robustness policy (small-model reality, referenced as "Phase 1bis policy"):**
+every structured output is Pydantic-validated; on validation error retry
+once with the error message appended; on second failure raise
+`PlannerOutputError` → chain aborts with ErrorEvent — never silently
+continue.
 
-class BaseLLMClient(ABC):
-    @abstractmethod
-    async def complete(self, messages, system=None, tools=None,
-                       tool_choice="auto", thinking_budget=None) -> LLMResponse: ...
-```
+### Task 1bis.1 — `corpus/embedding.py` (in-process, no daemon)
 
-### Task 1bis.2 — `llm_clients.py`
+`InProcessEmbedder.encode(texts) -> np.ndarray` — `sentence-transformers`,
+model pinned in `.env` (`EMBEDDING_MODEL`, default `all-MiniLM-L6-v2`,
+**384 dims**; swap for a multilingual variant if French deposits dominate —
+dimension is read from the model, stored in `system_thresholds` at seed and
+asserted at startup). Invariant embedding input = `title + "\n" +
+description`. Replaces the former Ollama service — one moving part less
+(no daemon to run, nothing to be dead after a laptop wake).
 
-- `AnthropicClient` — Anthropic SDK, native tool use, maps to `LLMResponse`.
-- `OpenAICompatibleClient` — OpenRouter chat completions; thinking via the
-  provider's reasoning parameter; tool_choice forced for Calls 1a/1b/2.
-- **Robustness (small-model reality):** every structured output is validated
-  with Pydantic; on validation error retry once with the error message
-  appended; on second failure raise `PlannerOutputError` (chain aborts with
-  ErrorEvent — never silently continue).
-
-### Task 1bis.3 — `llm_factory.py` + `embedding.py`
-
-- Factory reads `.env` (`PLANNER_MODEL`, `WORKER_MODEL`); business code only
-  sees `BaseLLMClient`.
-- `OllamaEmbeddingService.encode(text) -> list[float]` — nomic-embed-text,
-  768 dims, HTTP to `OLLAMA_BASE_URL`. Invariant embedding input =
-  `title + "\n" + description`.
-
-**Done when:** a round-trip tool_use test passes against both providers
-(recorded fixtures for CI), and a 768-dim embedding is returned.
+**Done when:** Worker agent round-trip with a recorded fixture returns a
+valid `WorkerResult`; `encode()` returns a 384-dim vector; cosine floor
+`vector_similarity_min` re-calibrated on a 20-pair sanity set at seed.
 
 ---
 
@@ -931,14 +907,15 @@ edges have n_periods ≥ 1; first snapshot row visible; SeedEvent in EventLog.
 
 ---
 
-## Phase 2 — Market Data (daily)
+## Phase 2 — Market Data (catch-up)
 *Estimated: 1 day*
 
 ### Task 2.1 — Market fetcher
 
 **`src/investment/market/fetcher.py`** — Yahoo Finance + FRED, driven by the
 `allowed_tickers` documents (source + transform + availability_lag_days
-columns). 25y backfill + daily incremental. `time.sleep(0.5)` between Yahoo
+columns). 25y backfill + catch-up incremental (all days since last run —
+Monday chain 08:00, and on-demand as the UC9 prelude). `time.sleep(0.5)` between Yahoo
 tickers (rate limit). Retry 3× with exponential backoff (60s base); on final
 failure → ErrorEvent + Telegram alert, and the affected series keeps its
 last value (forward-fill ≤ 5 trading days per the missing-data convention).
@@ -948,7 +925,7 @@ last value (forward-fill ≤ 5 trading days per the missing-data convention).
 via `fetch_alfred_first_release(series)` (same FRED API,
 `realtime_start/realtime_end` parameters), and indexes every macro
 observation at its publication date (`realtime_start`; fallback
-`reference_date + availability_lag_days`). The daily incremental path needs
+`reference_date + availability_lag_days`). The incremental catch-up path needs
 no special handling — what it fetches at publication IS the first release.
 Composites (GROWTH_COMPOSITE, GLOBAL_LIQUIDITY) are computed from these
 as-known rows.
@@ -988,15 +965,19 @@ investment-ARCHITECTURE.md (axis classification, hysteresis
 `regime_confirm_prints`, confidence formula, tag derivation, is_current
 uniqueness in one transaction). Emits **RegimeEvent → EventLog BEFORE**
 touching the Regime vertex, and only when regime/confidence-band/tags change.
-Also exposes `materialize_history(db, start, end)` used by UC0 step 2.
+ONE forward code path `run_forward(db, start, end)` (day-by-day, PIT by
+construction) with FOUR callers: UC0 25y materialization, the Monday 08:00
+catch-up (last 7 days), the Phase 9 replay, and the on-demand UC9 prelude.
+`materialize_history` and the weekly detection are the same function.
 
 **Done when:** `detector.detect(db)` creates/updates a Regime vertex with
 `is_current=true`, hysteresis verified on synthetic flip-flop data, and
-`materialize_history` yields ≥ 10 episodes on the 25y backfill.
+`run_forward` yields ≥ 10 episodes on the 25y backfill and, on a 7-day
+window, produces byte-identical Regime state to a hypothetical daily run.
 
 ---
 
-## Phase 3 — Corpus Parser + Veille
+## Phase 3 — Corpus Parser + Knowledge Search
 *Estimated: 1 day*
 
 ### Task 3.1 — `corpus/ingester.py` (single pipeline: nightly job AND UC0 seed)
@@ -1006,7 +987,7 @@ class CorpusIngester:
     async def ingest_file(self, path: Path) -> Document:
         """Dispatch by extension: .pdf (pypdf), .txt/.md, .url (fetch + strip
         boilerplate), kindle .csv. Chunking: ~1000 chars, 150 overlap,
-        page-tracked. Embeddings via OllamaEmbeddingService (768).
+        page-tracked. Embeddings via InProcessEmbedder (384).
         Order per batch: IngestionEvent → Document vertex → Passage vertices
         (+ CONTAINS) → SUPPORTS edges."""
 
@@ -1020,16 +1001,17 @@ Nightly 02:00 job: scan `INBOX_PATH`, ingest, move processed files to
 `SOURCES_PATH`. Failures move the file to `inbox/failed/` + ErrorEvent
 (never crash the loop).
 
-### Task 3.2 — `veille/rss.py` (UC3, weekly)
+### Task 3.2 — UC3 knowledge search (V1: user deposits only)
 
-feedparser over `RSS_FEEDS_TIER1`; items from the last 7 days; dedupe by URL
-hash against already-ingested Documents; write raw items to `inbox/` (they are
-picked up by the nightly ingester). KnowledgeSearchEvent → EventLog with
-counts.
+RSS auto-veille is OUT of V1 (curation of chosen sources is the essence;
+a feed vacuum produces news noise, not Dalio-grade invariants — see
+IMPROVEMENTS I-9/I-26 for reactivation with source tiering). The weekly
+UC3 step reduces to: verify the inbox is drained by the nightly ingester,
+count the week's user deposits, emit KnowledgeSearchEvent → EventLog.
 
 **Done when:** a Dalio PDF produces Document + Passages with embeddings, and
-≥1 SUPPORTS edge lands on a seeded invariant; an RSS run deposits items in
-inbox and logs the event.
+≥1 SUPPORTS edge lands on a seeded invariant; KnowledgeSearchEvent carries
+the deposit count.
 
 ---
 
@@ -1043,16 +1025,21 @@ Implements the 4 steps of ARCHITECTURE "Detailed Planner Steps":
 ```python
 class PlannerPre:
     async def run(self, trigger: str, history: list) -> tuple[PlannerContext, dict]:
-        # CALL 1a — Qwen3-8B, forced tool_use "QueryStrategies":
-        #   semantic_query, portfolio_filter, invariant_topics,
-        #   regime_focus, proposal_limit
-        # PYTHON — embedding + asyncio.gather (6 queries):
-        #   ① Passages vector search (numpy cosine over the matrix)
-        #   ② Current Regime + global liquidity latest row
-        #   ③ Ranked snapshot rows (today)
-        #   ④ Scenarios + shift_d7 (ScenarioProbability TS)
-        #   ⑤ Top invariants by weight_effective (integrated only)
-        #   ⑥ Last 3 Proposals (any status)
+        # PYTHON — BASELINE (mechanical, no LLM): asyncio.gather (5 queries):
+        #   ① Current Regime + global liquidity latest row
+        #   ② Ranked snapshot rows (today)
+        #   ③ Scenarios + shift_d7 (ScenarioProbability TS)
+        #   ④ Top invariants by weight_effective (integrated only)
+        #   ⑤ Last 3 Proposals (any status, incl. outcomes/rejections)
+        # CALL 1a — Qwen3-8B sees baseline SUMMARY, forced tool_use
+        #   "QueryStrategies" — the VARIABLE margin only:
+        #   corpus_queries: list[str] (≤3)  — what to search in the corpus
+        #     THIS week (regime shift? refuted invariant? rejected proposal?)
+        #   zooms: list[Zoom] (≤3, whitelisted enum — never raw SQL):
+        #     strategy_history(id) | invariant_confrontations(id) |
+        #     regime_history(window) | proposal_thread(id)
+        # PYTHON — embed corpus_queries → numpy cosine → passages;
+        #   execute whitelisted zooms
         # CALL 1b — assemble_context tool → PlannerContext
         # Bridged tool closures built HERE (_db captured — never given to Worker);
         # returns (PlannerContext, tool_registry)
@@ -1217,9 +1204,11 @@ existing invariant from a new fixture passage without touching its weight.
 ## Phase 5bis — Mechanical Jobs
 *Estimated: 1.5 days*
 
-- `ratios.py` (daily 06:35) — NAV update per pinned conventions (constant
-  weights, monthly rebalance, cash at ^IRX) + all `*_rolling` indicators →
-  PortfolioNAV TS. Weekly (UC6): update Portfolio vertices + ValuationEvent.
+- `ratios.py` (Monday 08:00 catch-up) — NAV per pinned conventions
+  (constant weights, monthly rebalance, cash at ^IRX) + all `*_rolling`
+  indicators for EVERY day since the last run → PortfolioNAV TS (same
+  numbers as a daily job, by construction — the conventions are
+  deterministic). UC6 (08:45): update Portfolio vertices + ValuationEvent.
 - `scenarios.py` (weekly Monday 08:35) — evaluate NUMERIC triggers only
   (grammar `<TICKER|ALIAS> <op> <number>`; unparseable → skipped,
   Worker-only); append current probabilities + `shift_d7` to
@@ -1301,7 +1290,8 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #     date_revised=today; HOLDS repointing stays a user action (UC9).
 #   Every activated strategy (new or revision) enters probation
 #     (strategy_probation_weeks — outcomes.py).
-# Expiry: daily sweep sets user_response='expired' after proposal_expiry_days.
+# Expiry: catch-up sweep (Monday 08:00) sets user_response='expired' after
+#   proposal_expiry_days.
 ```
 
 V2 adaptation flow (auto-validation timer) remains documented but inactive.
@@ -1333,7 +1323,8 @@ python-telegram-bot application:
   an optional one-line rejection_reason); `[YES]/[NO]` →
   Invariant status integrated/rejected (+ validated_at).
 - Chat handler: Worker model + same 3 bridged tools + chat skill; decisions
-  persist via Planner Post → Writeback; max ONE ad-hoc UC8 re-run per day.
+  persist via Planner Post → Writeback; max ONE ad-hoc UC8 re-run per day,
+  always preceded by the UC1 catch-up prelude; `/refresh` = prelude alone.
 - Commands: `/status`, `/ranking`, `/disable <strategy_id>`,
   `/enable <strategy_id>`, `/drawdown <pct>` (updates user_profile — binding).
 - Document/URL messages are saved to `INBOX_PATH` (feeds the nightly ingester).
@@ -1360,9 +1351,10 @@ async def main():
     # Laptop sleep policy (ADR-002): every job registered with coalesce=True
     # and misfire_grace_time (6h daily / 24h weekly) — cron times are
     # earliest times; on wake, missed jobs fire once, in order.
-    # Daily: 02:00 ingest, 06:30 market, 06:35 ratios, 06:50 regime,
-    #        03:00 backup, 03:30 proposal-expiry sweep.
+    # Nightly (the only daily jobs): 02:00 ingest, 02:15 curation
+    #   (event-driven on new docs), 03:00 backup.
     # Weekly: ONE job Monday 08:00 = monday_chain() — runs UC2 → UC3 → UC4 →
+    #   catch-up (fetcher → regime day-by-day → ratios → expiry sweep) →
     #   backtests → scenarios.py → invariant weights → UC6 → UC7 → outcomes.py →
     #   (V2 learning) → UC8 → digest SEQUENTIALLY. Each step awaited; on exception: ErrorEvent →
     #   Telegram alert → abort remaining steps (never rank on stale data).

@@ -167,7 +167,9 @@ Thresholds loaded from `system_thresholds` — not hardcoded. Growth axis =
 `GROWTH_COMPOSITE` (z(INDPRO YoY) − z(UNRATE Δ3m), rebased 100 — see
 DATA_MODELS.md); inflation axis = CPI YoY (CPIAUCSL transformed).
 
-**Axis classification (daily 06:50, on latest MarketData rows):**
+**Axis classification (run day-by-day over new MarketData rows — ONE
+forward code path, four callers: UC0 25y materialization, Monday 08:00
+catch-up, Phase 9 replay, on-demand UC9 prelude):**
 
 ```
 growth_dir    = 'rising'  if GROWTH_COMPOSITE.speed > +regime_growth_noise (0.15)
@@ -276,7 +278,7 @@ measure current performance → PROPOSE → user gate (where required)
 | Proposal (realloc)  | Worker            | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
 | Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
 | Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
-| Scenario probabilities | daily job + Worker | calibration: dominant scenario vs realized  | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
+| Scenario probabilities | weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
 | Thresholds          | Phase 9 replay    | walk-forward calibration                      | 15y calibrate / 10y validate | user-confirmed write to system_thresholds        |
 
 **`mechanical/outcomes.py` — weekly 08:52 (after ranking, before UC8):**
@@ -421,12 +423,12 @@ update invariants based on that — without needing real executions.
 Once at install (UC0)
   Manual CLI  →  full DB bootstrap + first snapshot
 
-Daily (mechanical only)
+Nightly (the only daily jobs)
   02:00  inbox → CorpusIngester
-  06:30  MarketData TS + level/speed/acceleration
-  06:35  rolling indicators → PortfolioNAV TS
-  06:50  regime detection → Regime vertex
-  (scenario probabilities moved to the weekly chain — Monday 08:35)
+  02:15  curation runner (LLM — only when 02:00 ingested new Documents)
+  03:00  backup
+  (market fetch, regime detection, NAV, scenario probabilities: all in
+   the Monday chain — decision cadence is weekly)
 
 Weekly (Monday — canonical timeline, identical in CLAUDE.md / USE_CASES.md)
   08:00  UC2 market valuation → MarketEvent
@@ -522,29 +524,34 @@ probation like any new strategy (see "Unified improvement cycle").
 
 ## Detailed Planner Steps
 
-### CALL 1a — Query Strategist (LLM → JSON parameters)
+### PYTHON — Baseline (mechanical, no LLM)
 ```
-Input  : raw trigger + conversation_history
+asyncio.gather (5 fixed queries — no judgment involved, so no LLM):
+  ① Current Regime + global liquidity
+  ② Ranked enabled portfolios from portfolio_weekly_snapshot
+  ③ Scenarios with d7 shift
+  ④ Top invariants by weight_effective
+  ⑤ Last 3 Proposals (incl. outcome verdicts, rejection reasons)
+```
+
+### CALL 1a — Query Strategist (LLM → the VARIABLE margin only)
+```
+Input  : raw trigger + baseline SUMMARY
 LLM    : Qwen3-8B via OpenRouter, thinking=512 tokens
 
-tool_use output — QueryStrategies:
-  semantic_query     → text for embedding search
-  portfolio_filter   → filter for enabled portfolios
-  invariant_topics   → topics to filter Invariants
-  regime_focus       → regime for comparative Backtests
-  proposal_limit     → number of recent proposals to load
+tool_use output — QueryStrategies (bounded; never raw SQL):
+  corpus_queries : list[str] (≤3) — what to search in the corpus THIS
+                   week (regime shift? refuted invariant? rejected
+                   proposal?) — the genuinely variable judgment
+  zooms          : list[Zoom] (≤3, whitelisted enum):
+                   strategy_history(id) | invariant_confrontations(id) |
+                   regime_history(window) | proposal_thread(id)
 ```
 
-### PYTHON — DB Execution (no LLM)
+### PYTHON — Variable execution (no LLM)
 ```
-1. embedding = await embedding_service.encode(semantic_query)
-2. asyncio.gather (6 DB queries):
-   ① Passages vector search
-   ② Current Regime + global liquidity
-   ③ Ranked enabled portfolios from portfolio_weekly_snapshot
-   ④ Scenarios with d7 shift
-   ⑤ Top invariants by weight_effective
-   ⑥ Last 3 Proposals (status=any) for context
+embed corpus_queries → numpy cosine over the passage matrix;
+execute whitelisted zooms.
 ```
 
 ### CALL 1b — Context Builder (LLM → PlannerContext)
@@ -553,10 +560,10 @@ LLM filters, orders, selects, builds.
 Output PlannerContext via assemble_context tool.
 ```
 
-### PYTHON — Bridged closures + ToolContextWrapper
+### PYTHON — Bridged tools (PydanticAI deps injection)
 ```
-_db captured by closure — Worker never sees it.
-ToolContextWrapper wraps each function via DI.
+_db lives in the agent deps — Worker never sees it.
+The 3 bridged functions are PydanticAI tools.
 PlannerPre returns PlannerContext + tool_registry.
 ```
 
@@ -613,10 +620,13 @@ failure: ErrorEvent → EventLog + Telegram alert, chain aborts (no ranking on
 stale data). Timezone Europe/Zurich.
 
 ```
-06:30   Daily mechanical jobs complete (regime, ratios)
+(nightly jobs: 02:00 ingest / 02:15 curation / 03:00 backup)
 
-08:00   Weekly pre-processing (UC2 → UC3 → UC4, then mechanical)
-          → Market valuation (MarketEvent), knowledge search + curation
+08:00   Weekly pre-processing (catch-up → UC2 → UC3 → UC4, then mechanical)
+          → CATCH-UP: market fetch (all days since last run) → regime
+            detector day-by-day → NAV/ratios → proposal-expiry sweep
+          → Market valuation (MarketEvent), knowledge search (deposits)
+            + curation
           → Backtests recalculated → FAVORS edges
           → Scenario numeric triggers + shift_d7 → ScenarioProbability TS
           → Invariant weights updated (incl. mechanical confrontations)
@@ -650,27 +660,12 @@ stale data). Timezone Europe/Zurich.
 
 ---
 
-## LLM Abstraction — Model-Agnostic
+## LLM Runtime — PydanticAI, no homemade abstraction
 
-Business code calls `BaseLLMClient.complete()`. Model and provider in `.env`.
-
-```python
-class LLMResponse(BaseModel):
-    content: Optional[str]
-    tool_calls: list[LLMToolCall]
-    stop_reason: str         # "end_turn" | "tool_use"
-    thinking: Optional[str]
-
-class BaseLLMClient(ABC):
-    @abstractmethod
-    async def complete(
-        self, messages, system=None, tools=None,
-        tool_choice="auto", thinking_budget=None
-    ) -> LLMResponse: ...
-```
-
-Two implementations: `OpenAICompatibleClient` (OpenRouter) and `AnthropicClient`.
-Swap model: change `.env` only.
+PydanticAI IS the model-agnostic layer (TASKS Phase 1bis): two Agent
+instances (Planner via OpenRouter provider, Worker via Anthropic), models
+in `.env`, structured outputs Pydantic-validated with the one-retry policy.
+Swap model: change `.env` only. No `BaseLLMClient`, no factory, no wrapper.
 
 ---
 

@@ -205,17 +205,20 @@ questions).
 
 ---
 
-## I-9 — Multi-channel veille (YouTube, X, podcasts)
+## I-9 — Auto-veille channels (RSS, YouTube, X, podcasts)
 
-**Why deferred:** RSS feeds + user deposits (Telegram/local drop) capture Tier-1
-signals without transcription complexity. YouTube transcription via yt-dlp +
-podcast audio processing add infrastructure overhead with diminishing signal
-value (most Tier-1 macro signals appear in RSS within hours).
+**Why deferred (RSS included — moved out of V1, 2026-07):** curation of
+CHOSEN sources is the essence; a feed vacuum produces news noise, not
+Dalio-grade invariants. V1 = user deposits only (Telegram/local drop).
+Reactivate RSS together with I-26 source tiering; YouTube/X/podcasts add
+transcription overhead on top.
 
-**Trigger to add:** when the user identifies specific YouTube channels or
-podcasts that consistently provide Tier-1 signals not in RSS.
+**Trigger to add:** when weekly deposits alone visibly starve UC4 curation,
+or the user identifies specific sources with consistent Tier-1 signal.
 
 **Spec:**
+- RSS: feedparser over a curated feed list, dedupe by URL hash → inbox
+  (nightly ingester picks up); REQUIRES I-26 tiering from day one.
 - yt-dlp for YouTube transcript extraction.
 - whisper-cpp or yt-dlp audio→text for podcasts.
 - X via Nitter scraping or official API (rate limits).
@@ -435,7 +438,7 @@ probabilities in its WorkerResult.
 - Formal trigger grammar (indicator, operator, threshold) stored as
   structured data instead of free text.
 - Probability update rule (e.g. logistic blend of trigger hit-rate) defined
-  and backtested, or the daily job demoted to shift detection only.
+  and backtested, or the weekly job demoted to shift detection only.
 
 ---
 

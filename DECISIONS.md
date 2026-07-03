@@ -129,7 +129,7 @@ benefit.
 `synchronous=NORMAL`, `foreign_keys=ON`, ONE connection serialized through
 asyncio — which is literally the spec's own write model ("agent = sole
 writer"). Mapping: entity → table, relation → association table
-(`from_id, to_id, properties`), MAP → JSON1 TEXT, FLOAT[768] → float32
+(`from_id, to_id, properties`), MAP → JSON1 TEXT, embeddings → float32
 BLOB loaded once into an in-RAM numpy matrix, EventLog → append-only table
 with monotonic ULID PK (append order = PK order), FTS5 native if ever
 needed. Backup = `sqlite3 .backup` (online, WAL-safe).

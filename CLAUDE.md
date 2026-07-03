@@ -45,16 +45,17 @@ real `performance_3m`.
 PLANNER (Qwen3-8B, OpenRouter, thinking mode)
   System prompt : meta-cognitive strategy
   DB access     : direct Python asyncio — NO tool_call
-  Call 1a       : LLM returns JSON parameters (tool_use)
-                  PYTHON CODE executes DB queries with those parameters
-  Call 1b       : LLM receives raw DB results, returns PlannerContext
-  Call 2        : async, post-Worker, knowledge extraction
+  Baseline      : fixed queries run MECHANICALLY (no LLM)
+  Call 1a       : LLM chooses only the VARIABLE margin — corpus search
+                  queries + ≤3 whitelisted zooms (never raw SQL)
+  Call 1b       : LLM receives baseline + zoom results, returns PlannerContext
+  Call 2        : async, post-Worker, knowledge extraction (guardrail)
 
 WORKER (Sonnet 4.6, Anthropic API)
   System prompt : investment expert Phase 1 accumulation
   Markdown Skills : strategy evaluation, ranking, indicator interpretation,
                     defender comparison
-  DB access     : via tool_call ONLY (ToolContextWrapper, DI)
+  DB access     : via tool_call ONLY (PydanticAI tools + deps injection)
   3 tools       : db_query | market_fetch | portfolio_check
   Indicators    : already in the DB — Worker interprets, does NOT calculate
   Unaware of    : Planner, Writeback, internal structure
@@ -70,16 +71,21 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
     02:15  curation runner (LLM) — ONLY when 02:00 ingested new Documents:
            invariant candidates (author = document author tier) → Telegram
            validation next morning. Knowledge extraction, never decisions.
-    06:30  fetch market data + level/speed/acceleration → MarketData TS
-           (pure TS write — no EventLog append, see USE_CASES.md)
-    06:35  Sharpe/Sortino/Calmar (rolling) → PortfolioNAV TS (pure TS write)
-    06:50  regime detection (4 Seasons) → Regime vertex (is_current)
-           → RegimeEvent (only when regime or tags change)
+    03:00  backup (sqlite3 .backup → ~/data/investment/backups, keep 14d)
+    (nothing else daily — decision cadence is weekly; market data and
+     regime move to the Monday catch-up below)
   Weekly (Monday — one sequential chain; times are indicative, each step
           starts only after the previous one succeeds; on failure the chain
           aborts and a Telegram error alert is sent — see Phase 7)
-    08:00  UC2 market valuation → MarketEvent
-    08:10  UC3 knowledge search → inbox
+    08:00  CATCH-UP (mechanical, also the prelude to any ad-hoc UC9 UC8
+           re-run): market fetch for all days since last run → MarketData
+           TS; regime detector run DAY-BY-DAY over the fetched days (same
+           forward code path as UC0 materialization and the replay —
+           start_dates come from the data, so weekly cadence changes
+           nothing) → Regime vertex + RegimeEvent (on change only);
+           NAV/ratios catch-up → PortfolioNAV TS; proposal-expiry sweep
+    08:10  UC2 market valuation → MarketEvent
+    08:15  UC3 knowledge search (user deposits only — RSS deferred I-9/I-26)
     08:20  UC4 knowledge curation (LLM) → KnowledgeEvent
     08:30  Backtests recalculated → FAVORS edges (RegimeType → Strategy)
     08:35  Scenario probabilities + 7-day shifts → ScenarioProbability TS
@@ -119,7 +125,8 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Timezone        | Europe/Zurich (APScheduler + all cron times)                  |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
 | Ingestion       | Telegram bot + local drop → inbox/ (nightly job 02:00)        |
-| Veille          | RSS feeds + user deposits                                     |
+| Embeddings      | sentence-transformers in-process, 384 dims (no daemon)        |
+| Veille          | user deposits only (RSS deferred — I-9/I-26)                  |
 | Notifications   | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Process         | APScheduler, single Python process                            |
 | Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
@@ -143,7 +150,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 `EventLog` is an **append-only table** (entity with no relations; monotonic
 ULID id = canonical append order). **Every UC side-effect must be appended to EventLog BEFORE being
 committed elsewhere in the DB.** Architectural invariant for auditability
-and replay. Exemption: pure TS writes (UC1 market feed, daily NAV, weekly scenario
+and replay. Exemption: pure TS writes (UC1 market feed, weekly NAV catch-up and scenario
 jobs) append no EventLog row — they create no vertex/edge.
 
 ### Decision cycle
@@ -331,7 +338,8 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 1. UC0 seed produces 13 vertex types, 10 edge types, 3 time-series, the
    document types, historical Regime instances from the 25y backfill, seed
    data, and the first `portfolio_weekly_snapshot` row.
-2. `update_ratios_daily()` populates PortfolioNAV TS daily (USD).
+2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
+   every trading day (USD).
 3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`
    using level/speed/acceleration, with hysteresis and a computed confidence.
 4. After Dalio corpus ingestion + `--curate` batch validation: 10+ Passage

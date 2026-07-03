@@ -17,7 +17,8 @@ because that is the right vocabulary for the domain. Physically, every
 entity and every relation is a SQLite **table** (relations = association
 tables `from_id, to_id, <properties>`; every relation in this system is a
 1-hop FK). Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1),
-DATE/DATETIME→TEXT ISO-8601, FLOAT[768]→BLOB (float32). Table names are
+DATE/DATETIME→TEXT ISO-8601, FLOAT[dim]→BLOB (float32, 384 dims — see
+TASKS Phase 1bis). Table names are
 snake_case (`RegimeType` → `regime_type`).
 
 **Mandatory rule:** any vertex with empty `trace` is rejected with `ValueError`.
@@ -28,7 +29,7 @@ trace.
 
 **EventLog ordering rule:** every EventLog append must precede the
 corresponding entity/relation commit. Pure TS writes (MarketData,
-PortfolioNAV, ScenarioProbability daily jobs) are exempt — they commit no
+PortfolioNAV catch-up, ScenarioProbability weekly appends) are exempt — they commit no
 vertex/edge.
 
 **Units convention:**
@@ -95,8 +96,9 @@ only a dynamic tag on Regime instances (when CPI YoY < 0).
 
 ### Regime
 *A concrete occurrence of a RegimeType, bounded in time. Created/updated by the
-daily mechanical job (06:50) — and by the UC0 historical materialization pass
-over the 25y backfill. IN_REGIME edges point here.*
+regime detector's forward day-by-day pass — ONE code path, four callers:
+UC0 25y materialization, the Monday catch-up (last 7 days), the Phase 9
+replay, and the on-demand UC9 prelude. IN_REGIME edges point here.*
 
 ```
 Regime {
@@ -143,8 +145,9 @@ Invariant {
                                     --   'asset-class:fixed-income', 'phase:accumulation',
                                     --   'regime:<regime_type_id>' (drives mechanical
                                     --   confrontation — see ARCHITECTURE)
-  embedding     : FLOAT[768]        -- embedded text = title + "\n" + description
-                                    --   (nomic-embed-text, 768 dims)
+  embedding     : FLOAT[384]        -- embedded text = title + "\n" + description
+                                    --   (sentence-transformers, in-process,
+                                    --    model pinned in .env)
 
   weight_initial   : FLOAT
   floor_weight     : FLOAT
@@ -451,7 +454,7 @@ Passage {
   content    : STRING
   page       : INT
   chunk_id   : STRING
-  embedding  : FLOAT[768]
+  embedding  : FLOAT[384]
   created_at : DATETIME
   -- trace not required (TRACE_EXEMPT): inherits from parent Document
 }
@@ -481,13 +484,13 @@ EventLog {
   type       : STRING   -- SeedEvent | MarketEvent | KnowledgeSearchEvent |
                         --  KnowledgeEvent | ValuationEvent | RankingEvent |
                         --  ProposalEvent | InnovationEvent | UserDecisionEvent |
-                        --  RegimeEvent (daily detector, on change only) |
+                        --  RegimeEvent (catch-up detector, on change only) |
                         --  IngestionEvent (nightly inbox parser, per batch) |
                         --  ErrorEvent (failed job in the Monday chain) |
                         --  ReplayEvent (Phase 9 shadow replay run) |
                         --  OutcomeEvent (weekly outcomes.py — payload.kind:
                         --    'proposal' | 'calibration' | 'probation')
-  source_uc  : STRING   -- 'UC0'..'UC9' | 'daily-regime' | 'daily-inbox' | 'system'
+  source_uc  : STRING   -- 'UC0'..'UC9' | 'catch-up' | 'nightly-inbox' | 'system'
   source_id  : STRING   -- id of the entity or run that produced the event
   payload    : STRING   -- JSON (may reference older DOMAIN dates — that is
                         --   normal and does not affect ordering)
@@ -624,8 +627,8 @@ their publication date (ALFRED `realtime_start`; fallback `reference_date +
 availability_lag_days`), and the 25y backfill stores ALFRED **first-release**
 values for revised series (INDPRO first; CPIAUCSL, UNRATE second).
 Composites and z-scores are computed from these as-known rows. The live
-daily fetcher appends whatever is current at fetch time — identical
-semantics; post-append revisions are ignored (the 2-print hysteresis absorbs
+fetcher (Monday catch-up / on-demand) appends whatever is current at fetch
+time — identical semantics; post-append revisions are ignored (the 2-print hysteresis absorbs
 revision noise). This makes `materialize_history` and the Phase 9 replay
 point-in-time by construction: they simply read `ts ≤ t`.
 
@@ -641,7 +644,6 @@ point-in-time by construction: they simply read `ts ≤ t`.
 | T10Y2Y              | MACRO            | raw spread, percent points             | 30d                           |
 | UNRATE              | MACRO            | raw rate, percent points               | 1 obs (monthly)               |
 | INDPRO              | MACRO            | **YoY %** of the index                 | 1 obs (monthly)               |
-| UMCSENT             | MACRO            | raw index                              | 1 obs (monthly)               |
 | GROWTH_COMPOSITE    | MACRO            | composite index (see below)            | 1 obs (monthly)               |
 | GLOBAL_LIQUIDITY    | GLOBAL_LIQUIDITY | composite index (see below)            | 7d (weekly components)        |
 
@@ -885,8 +887,8 @@ One SQLite file: ~/data/investment/investment.db (WAL sidecar files
 alongside). Dataset ≈ 100 MB — lives in the OS page cache after first read,
 so reads are effectively in-memory.
 
-Embeddings: float32×768 BLOBs on invariant/passage rows, loaded ONCE at
-startup into an in-RAM numpy matrix (~30 MB at 10k passages); similarity =
+Embeddings: float32×384 BLOBs on invariant/passage rows, loaded ONCE at
+startup into an in-RAM numpy matrix (~15 MB at 10k passages); similarity =
 brute-force cosine (<10 ms at this scale). No vector index, no FTS in V1
 (FTS5 available natively if ever needed).
 
