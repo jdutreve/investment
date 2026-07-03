@@ -88,6 +88,10 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
            see ARCHITECTURE "Invariant confrontation rule")
     08:45  UC6 portfolio valuations → Portfolio vertices + ValuationEvent
     08:50  UC7 ranking → portfolio_weekly_snapshot rows
+    08:52  Outcome evaluation (mechanical/outcomes.py): proposal verdicts
+           at +12w → confrontations source='proposal'; scenario
+           calibration; strategy probation — see ARCHITECTURE
+           "Unified improvement cycle"
     08:55  V2 only: learn_from_adaptations
     09:00  UC8 Worker decision cycle (Planner Pre → Worker → Planner Post →
            Writeback runs the mechanical proposal gates)
@@ -199,16 +203,31 @@ jobs) append no EventLog row — they create no vertex/edge.
   (empty list if none) and `reallocation_proposed:
   Optional[ReallocationProposal]` (see DATA_MODELS.md).
 
+### Unified improvement cycle — proposal → measure → adoption
+- Applies to ALL improvable resources (Proposal, Invariant, Strategy,
+  scenario probabilities, thresholds): measure current performance →
+  propose → user gate where required → mechanical maturation window →
+  adopt or reject. Nothing stays "proposed" forever and nothing is adopted
+  without measurement. Table + job spec in ARCHITECTURE.
+- Weekly 08:52 `outcomes.py`: every Proposal gets an `outcome.verdict`
+  (won/lost) at +`proposal_outcome_weeks` (12), feeding invariant
+  confrontations `source='proposal'`; accepted paper-tests tracked weekly;
+  activated strategies run `strategy_probation_weeks` (12); scenario
+  probabilities are calibration-scored. Digest renders the scoreboard.
+
 ### UC8 — Worker proposes, Writeback disposes
 - The 5 **switch gates** (rank, Sortino gap, Calmar floor, concentration,
-  meaningful change) are deterministic and run **mechanically in Writeback**.
+  meaningful change) are deterministic and run **mechanically in Writeback**
+  — plus an anti-repetition pre-gate (`proposal_cooldown_weeks`, 4).
 - The Worker contributes: `reasoning`, interpretation of qualitative scenario
   triggers, Evaluations, innovations, and optionally a **reallocation
   proposal** for the defender (delta blend 0.4 × scenario + 0.6 × FAVORS).
 - Reallocation gates (also mechanical, in Writeback): user caps on the
   proposed allocation, min meaningful change
   (`proposal_min_allocation_change_pts`), turnover cap
-  (`proposal_max_turnover_pct`). See USE_CASES.md UC8.
+  (`proposal_max_turnover_pct`), and cited-invariant eligibility
+  (`status=integrated` AND `weight_effective ≥
+  proposal_invariant_weight_min`). See USE_CASES.md UC8.
 
 ### Mechanical calculations
 - Sharpe/Sortino/Calmar: pure Python (numpy/pandas), no LLM.
@@ -281,8 +300,8 @@ TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
 DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
               system_thresholds, schema_extensions, strategy_performance,
               invariant_weights, regime_history, invariant_confrontations,
-              portfolio_weekly_snapshot, replay_report (former "SQL tables" —
-              ArcadeDB document types, single engine)
+              portfolio_weekly_snapshot, scenario_calibration, replay_report
+              (former "SQL tables" — ArcadeDB document types, single engine)
 ```
 
 See DATA_MODELS.md for the complete schema and properties.
@@ -329,3 +348,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
     point-in-time violations, and `main.py` refuses to enable the weekly
     proposal cycle when the report shows no net value-add on the validation
     window (override `--force-live`).
+13. A Proposal older than `proposal_outcome_weeks` carries an
+    `outcome.verdict` (won/lost), its cited invariants show a matching
+    `invariant_confrontations` row with `source='proposal'`, and the digest
+    renders the scoreboard (hit-rate, paper-tests, probations).

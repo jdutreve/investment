@@ -806,6 +806,39 @@ user confirms the rebalance via UC9.)
 
 ---
 
+## Step 10 — Twelve weeks later: outcome verdict (unified improvement cycle)
+
+On Monday 2026-08-24 the weekly `outcomes.py` job (08:52) finds the Step 8B
+switch Proposal (`prop-20260526`) aged ≥ `proposal_outcome_weeks` (12) and
+measures it — same NAV conventions, net of `replay_cost_bps` × turnover:
+
+```
+EventLog { id:"01K2...", ts:2026-08-24T08:52, type:"ProposalOutcomeEvent",
+           source_uc:"system", source_id:"prop-20260526",
+           payload:'{"proposed_return":0.041,"incumbent_return":0.028,
+                     "verdict":"won"}' }
+
+Proposal#prop-20260526 {
+  outcome: {proposed_return: 0.041, incumbent_return: 0.028, verdict: "won"}
+  evaluated_at: 2026-08-24
+}
+```
+
+(As an accepted paper-test — `paper_started: 2026-05-26`, Step 9 — it was
+already tracked in every intervening digest's scoreboard; the +12w verdict
+is the maturation point that turns tracking into confrontations.)
+
+The verdict confronts the invariants that backed the challenger
+(`source='proposal'`, confirmation, severity 1.0) — their
+`confirmation_count`, `updated_at` and `weight_effective` move, closing the
+loop: the insight that argued for the proposal is now credited by reality.
+The digest scoreboard shows: `Proposals hit-rate: 1/1 (100%) at +12w`.
+A 'lost' verdict would instead append infirmations — a repeatedly wrong
+insight decays toward its floor and (below
+`proposal_invariant_weight_min`) can no longer justify a reallocation.
+
+---
+
 ## Appendix — Corpus path: Document → Passage → SUPPORTS → Invariant
 
 Populated by the nightly ingestion job (02:00) — the same `CorpusIngester`

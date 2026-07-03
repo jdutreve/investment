@@ -31,6 +31,11 @@ sends a Telegram alert. Times in CLAUDE.md are indicative.)
   UC5  Knowledge Storage    → DB updated (transverse mechanism, see below)
   UC6  Portfolio Valuation  → ValuationEvent
   UC7  Portfolio Ranking    → RankingEvent + portfolio_weekly_snapshot
+  —    Outcome evaluation   → ProposalOutcomeEvent + CalibrationEvent +
+                              ProbationEvent (mechanical/outcomes.py —
+                              proposal verdicts, scenario calibration,
+                              strategy probation; see ARCHITECTURE
+                              "Unified improvement cycle")
   UC8  Proposal Detection   → ProposalEvent + Proposal vertex
                               (switch or reallocation), or nothing
   —    Weekly digest        → Telegram (09:30 — renders UC7/UC8 output; always sent)
@@ -373,6 +378,9 @@ innovations, reallocation proposals). V1 never auto-applies.
    stricter);
 5. meaningful allocation change vs the defender: at least one asset differs
    by ≥ `proposal_min_allocation_change_pts` (5.0 percent points).
+Pre-gate (anti-repetition): a challenger rejected by the user within the
+last `proposal_cooldown_weeks` (4) is skipped, unless the regime type has
+changed since the rejection.
 A challenger may pass with a worse Calmar or drawdown than the defender as
 long as it stays above the absolute Calmar threshold — the digest must then
 flag the weaker downside profile (see EXAMPLE.md Step 8B).
@@ -389,7 +397,10 @@ Writeback validates mechanically:
 2. binding concentration caps pass on the proposed allocation;
 3. max per-asset change ≥ `proposal_min_allocation_change_pts` (5.0);
 4. turnover `Σ|delta|/2` ≤ `proposal_max_turnover_pct` (30.0);
-5. every proposed ticker is in `allowed_tickers` (active, non-macro).
+5. every proposed ticker is in `allowed_tickers` (active, non-macro);
+6. every cited invariant (`supporting_invariants`) is `status='integrated'`
+   with `weight_effective` ≥ `proposal_invariant_weight_min` (0.10) — a
+   refuted insight cannot justify a reallocation.
 On pass: Proposal vertex (`proposal_type='reallocation'`,
 `recommendation='paper-test'`), rendered in the digest with old vs new
 allocation and the Worker's argued reasoning.
@@ -411,6 +422,16 @@ If a Proposal is warranted (either kind):
 
 If not warranted:
 - Snapshot recommendation stays 'maintain'; no Proposal vertex created.
+
+**C — Outcome measurement (mechanical — closes the loop):**
+Every Proposal is measured at `proposal_outcome_weeks` (12) by
+`evaluate_proposals()` (weekly 08:52): synthetic NAV of the proposed
+allocation vs the incumbent defender allocation since `Proposal.date`, net
+of costs → `outcome.verdict` 'won'/'lost' → invariant confrontations
+`source='proposal'`. Accepted paper-tests are tracked weekly from
+`paper_started`. The digest scoreboard renders cumulative hit-rate —
+the live continuation of the Phase 9 replay metric. Full spec in
+ARCHITECTURE "Unified improvement cycle".
 
 **Output:** ProposalEvent → EventLog + Proposal vertex, or nothing.
 
@@ -440,7 +461,10 @@ Examples:
 Proposal buttons ([ACCEPT PAPER-TEST]/[REJECT], [YES]/[NO] for innovations)
 are handled by the same bot: callbacks set `Proposal.user_response` /
 `Invariant.status` via Writeback, with a UserDecisionEvent appended first.
-Pending proposals auto-expire after `proposal_expiry_days` (14).
+On [REJECT] the bot prompts for an optional one-line reason →
+`Proposal.rejection_reason` (fed back into the Worker's context and the
+switch cooldown rule). Pending proposals auto-expire after
+`proposal_expiry_days` (14).
 
 **Output:** UserDecisionEvent → EventLog.
 **User action:** This IS the user action UC.

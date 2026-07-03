@@ -438,24 +438,20 @@ probabilities in its WorkerResult.
 
 ---
 
-## I-23 — V1.5 retrospective learning job
+## I-23 — Retrospective learning job — ✅ PROMOTED TO V1
 
-**Why deferred:** V1 records data but does not learn; V2 learning requires
-real executions. This is the cheap intermediate.
-**Relationship to Phase 9:** the shadow replay (investment-TASKS.md Phase 9)
-covers the HISTORICAL evidence at install time; I-23 is the FORWARD-looking
-measurement on real weekly snapshots. Both feed the V2 boundary; neither
-replaces the other.
-
-**Trigger to add:** after ~12 weeks of `portfolio_weekly_snapshot` history.
-
-**Spec:**
-- Weekly job: "did the top challenger 12 weeks ago outperform the defender
-  since then?" using snapshot history only — no real executions needed.
-- Updates BACKED_BY invariant confirmation/infirmation counts
-  (`invariant_confrontations.source='proposal'`).
-- This is the measurement that decides the V2 boundary (REVISION_NOTES.md)
-  and the I-0 trigger.
+**Decision (2026-07):** promoted into V1 core as `mechanical/outcomes.py`
+(weekly 08:52 — see investment-ARCHITECTURE.md "Unified improvement cycle").
+Every Proposal (switch AND reallocation) receives an `outcome.verdict`
+(won/lost) at +`proposal_outcome_weeks` (12), feeding
+`invariant_confrontations.source='proposal'`; accepted paper-tests are
+tracked weekly; the digest renders the cumulative hit-rate scoreboard —
+the live continuation of the Phase 9 replay's `hit_rate_12w`. Naturally
+silent during the first 12 weeks (no aged proposals yet), but specified and
+tested from day one.
+**Relationship to Phase 9:** the shadow replay covers the HISTORICAL
+evidence at install time; outcomes.py is the FORWARD-looking measurement.
+Both feed the V2 boundary; neither replaces the other.
 
 ---
 
@@ -502,8 +498,8 @@ refutation should outweigh many mild confirmations.
 If/when adding from this list, prioritize by dependency and impact:
 
 1. ~~I-20 (PMI source)~~ — **resolved**: GROWTH_COMPOSITE shipped in V1.
-2. **I-23** (retrospective learning) — the V2-boundary measurement; start the
-   clock early.
+2. ~~I-23 (retrospective learning)~~ — **promoted**: shipped in V1 as
+   `outcomes.py` (unified improvement cycle).
 3. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
 4. **I-3 + I-11** (Hypothesis) — closes the epistemic loop, prevents post-hoc bias.
 5. **I-5** (two-tier half-life) — small change, real fairness gain for Dalio-grade.

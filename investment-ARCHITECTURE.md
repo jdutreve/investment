@@ -155,6 +155,7 @@ DOCUMENT TYPES      user_profile, allowed_tickers, system_thresholds,
                     invariant_author_config, schema_extensions,
                     strategy_performance, invariant_weights, regime_history,
                     invariant_confrontations, portfolio_weekly_snapshot,
+                    scenario_calibration (weekly calibration scores),
                     replay_report (Phase 9 shadow replay / go-live gate)
 ```
 
@@ -245,11 +246,79 @@ FROM EVALUATIONS (source='evaluation'):
   verdict='invalidates'  → infirmation (severity=1.0)
   'weakens' | 'neutral'  → no count change
 
+FROM PROPOSALS (source='proposal') — closes the loop on emitted proposals:
+  Run by evaluate_proposals() (weekly 08:52 — see "Unified improvement
+  cycle" below). When a Proposal reaches proposal_outcome_weeks (12) of age:
+  verdict='won'  → confirmation for each cited invariant
+                   (reallocation: supporting_invariants; switch: the
+                    challenger's BACKED_BY invariants), severity=1.0
+  verdict='lost' → infirmation, severity=1.0
+
 Each confrontation: append invariant_confrontations doc → update counts →
 update_invariant_weights() (weight_effective formula in CLAUDE.md) →
 Invariant.updated_at = today (drives recency_factor).
 Severity is recorded but unused in market_score in V1 (IMPROVEMENTS I-24).
 ```
+
+---
+
+## Unified improvement cycle (ALL resources)
+
+Every improvable resource follows the SAME lifecycle — this is the system's
+core loop, and each stage is mechanical except the proposal itself:
+
+```
+measure current performance → PROPOSE → user gate (where required)
+  → MATURATION (mechanical measurement over a fixed window)
+  → ADOPT (validated principle — no longer a proposal) | REJECT
+```
+
+| Resource            | Proposer          | Measure (mechanical)                          | Maturation window            | Adopt / Reject                                  |
+|---------------------|-------------------|-----------------------------------------------|------------------------------|--------------------------------------------------|
+| Proposal (switch)   | Writeback gates   | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
+| Proposal (realloc)  | Worker            | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
+| Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
+| Strategy (new/revision) | Worker        | FAVORS + strategy_performance after activation | strategy_probation_weeks (12) | ProbationEvent verdict: keep / propose closure  |
+| Scenario probabilities | daily job + Worker | calibration: dominant scenario vs realized  | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
+| Thresholds          | Phase 9 replay    | walk-forward calibration                      | 15y calibrate / 10y validate | user-confirmed write to system_thresholds        |
+
+**`mechanical/outcomes.py` — weekly 08:52 (after ranking, before UC8):**
+
+```
+evaluate_proposals():
+  For each Proposal with outcome.verdict='pending' and
+      age >= proposal_outcome_weeks:
+    proposed_return  = synthetic NAV return of the proposed allocation
+                       (switch: challenger allocation; realloc:
+                        proposed_allocation) since Proposal.date,
+                       per the pinned NAV conventions, net of
+                       replay_cost_bps × turnover
+    incumbent_return = defender allocation as of Proposal.date, held
+    outcome = {proposed_return, incumbent_return,
+               verdict: 'won' if proposed > incumbent else 'lost'}
+    → ProposalOutcomeEvent → Proposal.outcome + evaluated_at
+    → invariant confrontations source='proposal' (rule above)
+  Accepted paper-tests (paper_started set) are additionally tracked EVERY
+  week from paper_started and rendered in the digest scoreboard.
+
+score_scenarios():
+  For each Strategy, at +scenario_calibration_weeks: was the realized
+  regime/quadrant the scenario that held the dominant probability?
+  → scenario_calibration doc row (strategy_id, date, brier-style score)
+  → CalibrationEvent (batch)
+
+strategy_probation_check():
+  For each Strategy activated (new or revision) strategy_probation_weeks
+  ago: compare its FAVORS/strategy_performance percentile in the current
+  regime type vs the median → ProbationEvent verdict 'keep' | 'review'
+  ('review' → Telegram: propose closure, user decides)
+```
+
+The digest renders a **scoreboard**: cumulative proposal hit-rate (the live
+continuation of the Phase 9 replay's hit_rate_12w), paper-tests in progress
+(proposed vs incumbent to date), strategies in probation, scenario
+calibration flags. The system's week-over-week improvement is measured
+here — not asserted.
 
 ---
 
@@ -438,6 +507,17 @@ A new Strategy affects the ranking only when a Portfolio HOLDS it —
 creating or modifying Portfolios remains a user action (UC9) in V1.
 ```
 
+**Strategy revision (type=strategy_revision)** — the "better strategy" path:
+same spec fields as new_strategy plus `supersedes: <strategy_id>`. On user
+validation, in ONE transaction: new vertex id `-v(N+1)` created active (with
+its 3 Scenarios and BACKED_BY edges), the superseded vertex gets
+`status='closed'`, `enabled=false`, `date_revised=today`, and the new
+vertex's `trace` records the lineage ("supersedes <id>: <what changed and
+why>"). HOLDS edges are NOT migrated automatically — repointing a Portfolio
+to the new version is a user action (UC9). Backtests/FAVORS for the new
+version are computed at the next weekly cycle; the revision then enters
+probation like any new strategy (see "Unified improvement cycle").
+
 ---
 
 ## Detailed Planner Steps
@@ -542,6 +622,8 @@ stale data). Timezone Europe/Zurich.
           → Backtests recalculated → FAVORS edges
           → Invariant weights updated (incl. mechanical confrontations)
           → Portfolio valuations + ranking → portfolio_weekly_snapshot rows
+          → Proposal outcomes + scenario calibration + strategy probation
+            (mechanical/outcomes.py — see "Unified improvement cycle")
           → V2 only: learn_from_adaptations
 
 09:00   Worker cycle
@@ -562,6 +644,8 @@ stale data). Timezone Europe/Zurich.
           → cumulative returns (3m/6m/1y/3y/5y) displayed alongside indicators
           → V1 paper-mode Proposal payload if any (switch: old vs new
             portfolio; reallocation: old vs new allocation + blend reasoning)
+          → scoreboard: proposal hit-rate, paper-tests in progress,
+            strategies in probation, scenario calibration flags
           → proposed innovations (user validation required)
 ```
 

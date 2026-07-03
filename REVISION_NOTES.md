@@ -15,6 +15,19 @@ V1 emits two kinds of paper-mode proposals (see USE_CASES.md UC8):
   from the scenario/FAVORS delta blend, mechanically validated by Writeback).
 Both are recommendations only; the user applies changes manually in V1.
 
+## Unified improvement cycle
+
+Every improvable resource (Proposal, Invariant, Strategy, scenario
+probabilities, thresholds) follows the same loop: **measure current
+performance → propose → user gate where required → mechanical maturation
+window → adopt or reject**. Proposals get an outcome verdict at +12 weeks
+(won/lost vs the incumbent, feeding invariant confrontations
+`source='proposal'`); new/revised strategies run a 12-week probation;
+scenario probabilities are calibration-scored; thresholds are calibrated by
+the Phase 9 walk-forward replay. The weekly digest scoreboard renders these
+measurements — week-over-week improvement is measured, not asserted. Spec
+in investment-ARCHITECTURE.md "Unified improvement cycle".
+
 ## Core concepts
 
 - **Framework** — lens used to interpret markets and design/refine strategies and

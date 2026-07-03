@@ -202,7 +202,13 @@ Agent-discovered strategies enter via
 `ImprovementProposal(type=new_strategy)` as `status='proposed'`,
 `enabled=false`; user validation activates them and creates their 3 Scenario
 vertices and BACKED_BY edges in one transaction — full lifecycle in
-investment-ARCHITECTURE.md "System Evolution".
+investment-ARCHITECTURE.md "System Evolution". Revisions
+(`type=strategy_revision`, spec + `supersedes`) close the old version
+(`status='closed'`, `enabled=false`, `date_revised` set) and open `-v(N+1)`;
+HOLDS edges are repointed only by the user (UC9). Every activated strategy
+(new or revision) then runs a probation window
+(`strategy_probation_weeks`, 12) measured mechanically — see ARCHITECTURE
+"Unified improvement cycle".
 
 ---
 
@@ -308,11 +314,25 @@ Proposal {
   user_response       : STRING  -- 'pending' | 'accepted' | 'rejected' | 'expired'
                                 --   auto-set to 'expired' after
                                 --   proposal_expiry_days (system_thresholds, 14)
+  rejection_reason    : STRING  -- optional free text captured by the bot on
+                                --   [REJECT]; fed back into
+                                --   PlannerContext.recent_proposals
   paper_started       : DATE    -- set when user accepts a paper-test
+  outcome             : MAP     -- {proposed_return, incumbent_return,
+                                --   verdict: 'won'|'lost'|'pending'} — written
+                                --   by evaluate_proposals() at
+                                --   proposal_outcome_weeks (12); drives
+                                --   confrontations source='proposal'
+                                --   (ARCHITECTURE "Unified improvement cycle")
+  evaluated_at        : DATE    -- when outcome verdict was computed
   trace               : STRING  -- MANDATORY
   created_at          : DATETIME
 }
 ```
+
+Anti-repetition: Writeback refuses a new switch Proposal naming the same
+challenger within `proposal_cooldown_weeks` (4) of a rejection, unless the
+regime type changed in between.
 
 No edge to Portfolio in V1 — `defender_id` and `challenger_id` as scalars. An
 edge can be added in V2 when traversal becomes useful.
@@ -456,7 +476,10 @@ EventLog {
                         --  RegimeEvent (daily detector, on change only) |
                         --  IngestionEvent (nightly inbox parser, per batch) |
                         --  ErrorEvent (failed job in the Monday chain) |
-                        --  ReplayEvent (Phase 9 shadow replay run)
+                        --  ReplayEvent (Phase 9 shadow replay run) |
+                        --  ProposalOutcomeEvent (weekly outcome verdicts) |
+                        --  CalibrationEvent (scenario calibration batch) |
+                        --  ProbationEvent (strategy probation verdict)
   source_uc  : STRING   -- 'UC0'..'UC9' | 'daily-regime' | 'daily-inbox' | 'system'
   source_id  : STRING   -- id of the entity or run that produced the event
   payload    : STRING   -- JSON (may reference older DOMAIN dates — that is
@@ -740,6 +763,13 @@ CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
 --                         --   UC8 cycle when a proposal gate is met
 -- trace STRING
 
+CREATE DOCUMENT TYPE scenario_calibration IF NOT EXISTS;
+-- id STRING (PK, ULID), strategy_id STRING, date DATE,
+-- dominant_scenario STRING, realized STRING ('bull'|'base'|'bear' mapped
+--   from the realized regime/quadrant), score FLOAT (Brier-style)
+-- Written weekly by score_scenarios() at +scenario_calibration_weeks;
+-- summarized into the Worker context and the digest scoreboard.
+
 CREATE DOCUMENT TYPE replay_report IF NOT EXISTS;
 -- id STRING (PK, ULID), run_at DATETIME, window_start DATE, window_end DATE,
 -- thresholds MAP (the set replayed), acceptance_policy STRING,
@@ -774,6 +804,10 @@ class ImprovementType(str, Enum):
     new_strategy    = "new_strategy"    # complete strategy spec — see ARCHITECTURE
                                         #   "System Evolution" for the required
                                         #   spec fields and validation lifecycle
+    strategy_revision = "strategy_revision"  # "better strategy": new_strategy spec
+                                        #   + supersedes:<strategy_id>; on
+                                        #   validation the old version is closed
+                                        #   (date_revised set) — ARCHITECTURE
     schema_vertex   = "schema_vertex"
     schema_edge     = "schema_edge"
     schema_property = "schema_property"

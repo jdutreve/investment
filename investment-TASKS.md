@@ -333,6 +333,7 @@ CREATE DOCUMENT TYPE invariant_weights        IF NOT EXISTS;
 CREATE DOCUMENT TYPE regime_history           IF NOT EXISTS;
 CREATE DOCUMENT TYPE invariant_confrontations IF NOT EXISTS;
 CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
+CREATE DOCUMENT TYPE scenario_calibration     IF NOT EXISTS;  -- outcomes.py
 CREATE DOCUMENT TYPE replay_report            IF NOT EXISTS;  -- Phase 9
 
 -- INDEXES
@@ -459,6 +460,11 @@ SYSTEM_THRESHOLDS = {
     "proposal_min_allocation_change_pts": 5.0,   # switch gate 5 + realloc gate 3
     "proposal_max_turnover_pct": 30.0,   # realloc gate 4: Σ|delta|/2
     "proposal_expiry_days": 14.0,        # pending → expired
+    "proposal_outcome_weeks": 12.0,      # maturation before outcome verdict
+    "proposal_cooldown_weeks": 4.0,      # anti-repetition after user rejection
+    "proposal_invariant_weight_min": 0.10,  # realloc gate 6: cited-invariant floor
+    "strategy_probation_weeks": 12.0,    # new/revised strategy probation window
+    "scenario_calibration_weeks": 4.0,   # scenario probability scoring horizon
     # invariants
     "recency_half_life_days": 365.0,
     "confrontation_margin": 0.10,        # FAVORS-vs-median infirmation margin
@@ -1043,7 +1049,10 @@ class PlannerContext(BaseModel):
     ranking: list[dict]           # snapshot rows incl. allocations
     scenarios: list[dict]         # per strategy, with shift_d7
     top_invariants: list[dict]    # id, title, weight_effective, tags, author
-    recent_proposals: list[dict]
+    recent_proposals: list[dict]  # incl. outcome verdicts and
+                              #   rejection_reason — the Worker sees how its
+                              #   past proposals fared and why rejections
+                              #   happened
     passages: list[dict]          # id, excerpt, similarity
     notes: str                    # Call 1b free-text framing
 ```
@@ -1208,6 +1217,15 @@ existing invariant from a new fixture passage without touching its weight.
   (sortino DESC, calmar tie-break 0.02, max_drawdown final; calmar<1.0
   demoted; user-drawdown breach = defender/proposal exclusion flag) →
   snapshot rows + RankingEvent.
+- `outcomes.py` (weekly 08:52) — the unified improvement cycle's measuring
+  arm (full spec in ARCHITECTURE): `evaluate_proposals()` (outcome verdicts
+  at +proposal_outcome_weeks, net of replay_cost_bps, → ProposalOutcomeEvent
+  → Proposal.outcome + confrontations source='proposal'; weekly paper-test
+  tracking from paper_started), `score_scenarios()` (calibration at
+  +scenario_calibration_weeks → scenario_calibration docs +
+  CalibrationEvent), `strategy_probation_check()` (FAVORS percentile at
+  +strategy_probation_weeks → ProbationEvent 'keep'|'review'; 'review' →
+  Telegram closure proposal).
 - `learning.py` — V2 stub raising NotImplementedError.
 
 **Done when:** the full Monday pre-processing chain (08:00→08:55 steps) runs
@@ -1228,6 +1246,8 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
             max(user.max_drawdown_pct, p.max_drawdown_rule))  # both negative
 
 # A — switch gate (from snapshot rows, after Worker cycle):
+#   PRE-GATE: challenger not user-rejected within proposal_cooldown_weeks
+#     (unless regime type changed since the rejection)
 #   challenger rank < defender rank
 #   AND sortino gap >= proposal_sortino_gap_min
 #   AND challenger calmar_rolling >= proposal_calmar_min
@@ -1243,6 +1263,8 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #   AND max(proposed_allocation) <= binding single-asset cap
 #   AND max per-asset |delta| >= proposal_min_allocation_change_pts
 #   AND Σ|delta|/2 <= proposal_max_turnover_pct
+#   AND every supporting_invariant is status='integrated' with
+#       weight_effective >= proposal_invariant_weight_min  (gate 6)
 #   → Proposal(proposal_type='reallocation', recommendation='paper-test',
 #              proposed_allocation=..., reasoning=ReallocationProposal.reasoning)
 
@@ -1255,6 +1277,11 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #     transaction creates status=active + 3 Scenarios + HAS_SCENARIO +
 #     BACKED_BY edges (spec fields in ARCHITECTURE "System Evolution");
 #     Backtests/FAVORS follow mechanically at the next weekly cycle.
+#   type=strategy_revision → same as new_strategy + in the SAME transaction
+#     the superseded vertex gets status='closed', enabled=false,
+#     date_revised=today; HOLDS repointing stays a user action (UC9).
+#   Every activated strategy (new or revision) enters probation
+#     (strategy_probation_weeks — outcomes.py).
 # Expiry: daily sweep sets user_response='expired' after proposal_expiry_days.
 ```
 
@@ -1274,14 +1301,17 @@ Renders the Monday 09:30 digest from snapshot rows + Proposal + innovations
 (templates in EXAMPLE.md Steps 8A/8B): regime header, ranked table with
 Sortino/Calmar, defender star, key invariants with weights, proposal block
 (switch: both portfolios + gaps; reallocation: old vs new allocation table +
-blend reasoning), cumulative returns line. Percent formatting happens HERE
-only (decimal fractions everywhere else).
+blend reasoning), **scoreboard block** (cumulative proposal hit-rate,
+paper-tests in progress with proposed-vs-incumbent to date, strategies in
+probation, scenario calibration flags), cumulative returns line. Percent
+formatting happens HERE only (decimal fractions everywhere else).
 
 ### Task 6bis.2 — `telegram/bot.py` (UC9)
 
 python-telegram-bot application:
 - Callbacks: `[ACCEPT PAPER-TEST]/[REJECT]` → UserDecisionEvent →
-  Proposal.user_response (+ paper_started on accept); `[YES]/[NO]` →
+  Proposal.user_response (+ paper_started on accept; on reject, prompt for
+  an optional one-line rejection_reason); `[YES]/[NO]` →
   Invariant status integrated/rejected (+ validated_at).
 - Chat handler: Worker model + same 3 bridged tools + chat skill; decisions
   persist via Planner Post → Writeback; max ONE ad-hoc UC8 re-run per day.
@@ -1311,8 +1341,8 @@ async def main():
     # Daily: 02:00 ingest, 06:30 market, 06:35 ratios, 06:45 scenarios,
     #        06:50 regime, 03:00 backup, hourly proposal-expiry sweep.
     # Weekly: ONE job Monday 08:00 = monday_chain() — runs UC2 → UC3 → UC4 →
-    #   backtests → invariant weights → UC6 → UC7 → (V2 learning) → UC8 →
-    #   digest SEQUENTIALLY. Each step awaited; on exception: ErrorEvent →
+    #   backtests → invariant weights → UC6 → UC7 → outcomes.py →
+    #   (V2 learning) → UC8 → digest SEQUENTIALLY. Each step awaited; on exception: ErrorEvent →
     #   Telegram alert → abort remaining steps (never rank on stale data).
     # Retries: fetchers 3× exponential backoff; LLM calls per Phase 1bis policy.
 ```
@@ -1328,7 +1358,7 @@ Backup (daily 03:00): ArcadeDB backup (or cold file copy of
 
 ```python
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
-async def test_schema_complete():            # 14 vertex + 11 edge + 3 TS + 10 doc types
+async def test_schema_complete():            # 14 vertex + 11 edge + 3 TS + 12 doc types
 async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
@@ -1353,6 +1383,21 @@ async def test_new_strategy_innovation():    # validated new_strategy → Strate
                                              # + 3 Scenarios + BACKED_BY in one tx;
                                              # rejected → status=closed, enabled=false;
                                              # next weekly cycle produces its FAVORS
+async def test_strategy_revision():          # validated revision → -v(N+1) active AND
+                                             # superseded closed + date_revised in one
+                                             # tx; HOLDS untouched; probation starts
+async def test_proposal_outcome():           # Proposal aged 12w → outcome.verdict set,
+                                             # confrontation rows source='proposal' for
+                                             # cited invariants; younger → still pending
+async def test_realloc_gate_invariant_weight(): # cited invariant weight_effective <
+                                             # threshold (or not integrated) → blocked
+async def test_proposal_cooldown():          # same challenger re-gated within 4 weeks
+                                             # of rejection → skipped, unless regime
+                                             # type changed
+async def test_scenario_calibration():       # dominant scenario vs realized quadrant
+                                             # → scenario_calibration row + score
+async def test_strategy_probation():         # strategy below median FAVORS at +12w →
+                                             # ProbationEvent 'review' + Telegram
 async def test_nightly_curation_trigger():   # new Document at 02:00 → curation runs
                                              # at 02:15 → InvariantCandidate with
                                              # author = document author tier +
