@@ -125,7 +125,7 @@ GRAPH VERTICES (13 in V1 — V2 adds Adaptation)
   Document        corpus source
   Passage         RAG unit (chunk + embedding)
   EventLog        append-only audit log (no edges) — APPEND BEFORE any
-                  vertex/edge commit; replaces the former Event TS
+                  vertex/edge commit
 
 GRAPH EDGES (10 in V1 — V2 adds Adaptation → MODIFIES → Portfolio)
   Evaluation → UPDATES       → Strategy
@@ -143,10 +143,9 @@ GRAPH EDGES (10 in V1 — V2 adds Adaptation → MODIFIES → Portfolio)
 TIME-SERIES (3)
   MarketData          level/speed/acceleration per (ticker, asset_class).
                       Growth axis = GROWTH_COMPOSITE; global liquidity =
-                      asset_class=GLOBAL_LIQUIDITY. `close`, `volume`,
-                      `regime_id` removed — `level` is the canonical value;
-                      regime membership reached via date lookup.
-  ScenarioProbability bull/base/bear probabilities per Strategy
+                      asset_class=GLOBAL_LIQUIDITY. `level` is the canonical
+                      value; regime membership via date lookup on Regime.
+  ScenarioProbability bull/base/bear probabilities per Strategy (weekly)
   PortfolioNAV        rolling indicators per day (USD)
 
 DOCUMENT TYPES      user_profile, allowed_tickers, system_thresholds,

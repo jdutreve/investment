@@ -321,7 +321,7 @@ CREATE EDGE TYPE DESIGNED_FOR  IF NOT EXISTS;  -- Portfolio → RegimeType (null
 CREATE EDGE TYPE CONTAINS      IF NOT EXISTS;
 CREATE EDGE TYPE SUPPORTS      IF NOT EXISTS;
 
--- DOCUMENT TYPES (former "SQL tables" — see DATA_MODELS.md for columns)
+-- DOCUMENT TYPES (see DATA_MODELS.md for columns)
 CREATE DOCUMENT TYPE user_profile             IF NOT EXISTS;
 CREATE DOCUMENT TYPE invariant_author_config  IF NOT EXISTS;
 CREATE DOCUMENT TYPE allowed_tickers          IF NOT EXISTS;
@@ -473,7 +473,6 @@ SYSTEM_THRESHOLDS = {
     # scenarios / misc
     "scenario_shift_trigger": 10.0,
     "min_backtest_periods": 3.0,
-    "auto_validation_hours": 48.0,
     "derivative_lookback_short": 30.0,
     # shadow replay (Phase 9 — go-live gate)
     "replay_cost_bps": 10.0,             # per side, applied to turnover

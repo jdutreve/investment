@@ -15,7 +15,7 @@ adding.
 ## When to revisit this file
 
 - MVP has been running for **≥3 months** with no architectural changes needed.
-- `learn_from_adaptations` (V2) — or the I-23 retrospective job in V1 — has
+- `learn_from_adaptations` (V2) — or the V1 `outcomes.py` job (ex-I-23) — has
   produced ≥10 invariant weight updates from real performance.
 - At least one user observation suggests a specific limitation that maps to an
   item below.
@@ -32,7 +32,7 @@ is validated.
 
 **Trigger to add:** when the V1 paper-mode proposal history shows stable
 value-add versus the defender over at least 3 months (the V2 boundary in
-REVISION_NOTES.md, measured by I-23).
+REVISION_NOTES.md, measured by the `outcomes.py` scoreboard — ex-I-23).
 
 **Spec:**
 - 48h auto-validation can be enabled explicitly.
@@ -55,7 +55,7 @@ regimes well enough for Phase 1 accumulation. V1 seeds `permanent` and
 `liquidity-cycle` Framework vertices as metadata (`enabled=false`).
 Full multi-framework graph traversal adds edge types and arbitration complexity.
 
-**Trigger to add:** if learning (I-23 / V2) consistently shows that 4 Seasons
+**Trigger to add:** if learning (outcomes.py / V2) consistently shows that 4 Seasons
 mispredicts regimes during liquidity cycles (e.g. 2020 QE event), activate
 `liquidity-cycle` as a second framework.
 

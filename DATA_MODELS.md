@@ -193,10 +193,7 @@ Strategy {
 }
 ```
 
-`horizon`, `base_strategy`, `revision_if` and `benchmark` have been removed: a
-Strategy is implicitly bounded by the regime it serves, the alias-first ID makes
-the base lineage obvious, the revision condition is the inverse of `conditions`,
-and benchmarking is a Portfolio concern.
+Benchmarking is a Portfolio concern, not a Strategy one.
 
 Agent-discovered strategies enter via
 `ImprovementProposal(type=new_strategy)` as `status='proposed'`,
@@ -243,9 +240,8 @@ Evaluation {
   conviction_delta : FLOAT
   events           : STRING[] -- triggering observations, same convention as
                               --   Regime.events (ex: "CPI level 3.1 (speed +0.30)")
-                              --   replaces the former GENERATES edge: MarketData
-                              --   is a TS, not a vertex, so it cannot be an edge
-                              --   source
+                              --   — an array, not edges: MarketData is a TS,
+                              --   not a vertex, so it cannot be an edge source
   reasoning        : STRING
   trace            : STRING  -- MANDATORY
   created_at       : DATETIME
@@ -603,10 +599,10 @@ CREATE TIMESERIES TYPE PortfolioNAV IF NOT EXISTS
 25y Phase 9 replay require full daily granularity end to end; total volume
 (~30 series × 25y daily) is trivial for the embedded engine.
 
-`close`, `volume`, `regime_id` were removed from MarketData: `level` already
-carries the canonical numeric reading; volume is not used in any rule; the
-regime an observation belongs to is reached via date lookup on Regime
-(start_date/end_date).
+`level` carries the canonical numeric reading (no separate close/volume
+columns — volume is not used in any rule); the regime an observation belongs
+to is reached via date lookup on Regime (start_date/end_date), never stored
+per row.
 
 The `level`/`speed`/`acceleration` columns are how the regime detector spots
 early shifts: a value crossing a threshold *and* accelerating is a stronger
@@ -618,7 +614,7 @@ signal than the same level reached while decelerating.
 |---------------------|------------------|----------------------------------------|-------------------------------|
 | ETFs (TIP, TLT, …)  | per ticker       | adjusted close (USD)                   | `derivative_lookback_short` (30d) |
 | ^IRX                | RISK_FREE        | annualized yield, percent points       | 30d                           |
-| ^VIX                | VOLATILITY       | index close (sole VIX source — VIXCLS dropped) | 30d                   |
+| ^VIX                | VOLATILITY       | index close (sole VIX source)          | 30d                           |
 | CHFUSD=X            | FX               | spot rate                              | 30d                           |
 | CPIAUCSL            | MACRO            | **CPI YoY %** (computed from the index in derivatives.py) | 1 observation (monthly series): speed = Δ1m of YoY, accel = Δ of speed |
 | T10Y2Y              | MACRO            | raw spread, percent points             | 30d                           |
@@ -679,11 +675,10 @@ Tags derived for Regime instances: `liquidity-tightening` when
 
 ---
 
-## Document types (former "SQL tables")
+## Document types
 
-ArcadeDB document types — single engine, plain ArcadeDB SQL. No JSONB
-(use embedded `MAP`), no `gen_random_uuid()` (ids generated in Python as
-ULIDs), `TEXT`/`VARCHAR` → `STRING`.
+ArcadeDB document types — single engine, plain ArcadeDB SQL. Ids are
+generated in Python as ULIDs; structured values use embedded `MAP`.
 
 ### Static
 
@@ -693,7 +688,7 @@ CREATE DOCUMENT TYPE user_profile IF NOT EXISTS;
 -- max_drawdown_pct FLOAT (BINDING for defender role + proposal candidacy),
 -- max_single_asset_pct FLOAT (BINDING),
 -- phase STRING, horizon_years INTEGER, risk_tolerance STRING,
--- rebalance_threshold FLOAT, auto_validation_hours INTEGER (default 48),
+-- auto_validation_hours INTEGER (default 48 — V2 auto-validation timer),
 -- telegram_chat_id STRING, created_at DATE, updated_at DATE
 
 CREATE DOCUMENT TYPE invariant_author_config IF NOT EXISTS;
@@ -729,7 +724,7 @@ to V2 — IMPROVEMENTS I-27).
 CREATE DOCUMENT TYPE invariant_confrontations IF NOT EXISTS;
 -- id STRING (PK, ULID), invariant_id STRING, regime STRING, date DATE,
 -- verdict STRING ('confirmed'|'refuted'), severity FLOAT,
--- source STRING ('backtest'|'evaluation'|'proposal' (V1)|'adaptation' (V2)),
+-- source STRING ('backtest'|'evaluation'|'proposal'|'adaptation' (V2)),
 -- source_id STRING
 
 CREATE DOCUMENT TYPE portfolio_weekly_snapshot IF NOT EXISTS;
@@ -776,8 +771,8 @@ Sortino (Invariant#calmar-accumulation gate). A `max_drawdown` breaching the
 **user** rule (-15%) keeps the row in the ranking but excludes the portfolio
 from the defender role and from proposal candidacy.
 
-The previous `strategies_library` table is removed: the `Strategy` vertex
-is the single source of truth. `adaptation_quality` removed from V1 (V2-only).
+The `Strategy` vertex is the single source of truth for strategies — no
+separate library document.
 
 ---
 

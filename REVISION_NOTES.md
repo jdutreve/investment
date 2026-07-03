@@ -86,7 +86,7 @@ see DATA_MODELS.md.
 
 ## Audit log
 
-The `EventLog` append-only vertex type (formerly the "Event" time-series) is
+The `EventLog` append-only vertex type is
 the audit spine: **every UC side-effect is appended to EventLog before the
 corresponding vertex/edge commit**. History backfill = 25 years for macro
 series (ETF prices limited by inception dates), so historical Regime instances
@@ -104,4 +104,4 @@ recommendations would have beaten the defender net of costs and risk
 over at least 3 months. The **Phase 9 shadow replay** (25y meta-backtest of
 the mechanical pipeline, point-in-time, net of costs) provides the initial
 evidence and gates go-live; the 3 months of real paper-mode (measured by
-I-23) then confirm it forward before V2.
+the weekly `outcomes.py` scoreboard) then confirm it forward before V2.

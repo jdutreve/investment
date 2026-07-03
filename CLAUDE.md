@@ -277,15 +277,13 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ---
 
-## ArcadeDB Entities (13 vertices, 10 edges, 3 time-series — see DATA_MODELS.md;
-## V2 adds Adaptation + MODIFIES)
+## ArcadeDB Entities (13 vertices, 10 edges, 3 time-series — V2 adds Adaptation + MODIFIES; see DATA_MODELS.md)
 
 ```
 VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,
          Evaluation, Backtest, Proposal,
          Portfolio, Document, Passage,
-         EventLog (append-only audit log, no edges — replaces the former
-                   Event time-series)
+         EventLog (append-only audit log, no edges)
          (Signal vertex dropped from V1 — see IMPROVEMENTS I-19;
           Adaptation is V2-only and NOT created at UC0)
 

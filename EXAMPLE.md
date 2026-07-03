@@ -893,8 +893,7 @@ Passage#pass-dalio-tips-142 -[SUPPORTS strength:0.90
 **Edges active:** UPDATES, FAVORS (RegimeType→Strategy), HAS_SCENARIO,
 BACKED_BY, TESTED_IN, IN_REGIME (→Regime), HOLDS,
 DESIGNED_FOR (→RegimeType), CONTAINS, SUPPORTS.
-**V2 additions (not in the V1 schema):** Adaptation vertex, MODIFIES edge.
-
-**Note:** Adaptation vertex is V2-only. V1 paper-mode uses Proposal.
+**V2 additions (not in the V1 schema):** Adaptation vertex, MODIFIES edge —
+V1 paper-mode uses Proposal.
 Scenario A (reallocation) and Scenario B (switch) cover the two UC8 outcomes;
 'maintain' produces no Proposal vertex at all.
