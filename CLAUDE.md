@@ -83,16 +83,23 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
           alert is sent — see Phase 7)
     08:00  CATCH-UP (mechanical, also the prelude to any ad-hoc UC9 UC8
            re-run): market fetch for all days since last run → MarketData
-           TS; regime detector run DAY-BY-DAY over the fetched days (same
-           forward code path as UC0 materialization and the replay —
-           start_dates come from the data, so weekly cadence changes
-           nothing) → Regime vertex + RegimeEvent (on change only);
-           NAV/ratios catch-up → PortfolioNAV TS; proposal-expiry sweep
-    08:10  UC2 market valuation → MarketEvent
-    08:15  UC3 knowledge search (user deposits only — RSS deferred I-9/I-26)
-    08:20  UC4 knowledge curation (LLM) → KnowledgeEvent
+           TS; regime detector stepped ONCE PER NEW MONTHLY PRINT since
+           the last run (usually 0-1 — the axes only change on print
+           days; candidate state persisted; start_dates come from the
+           data, never the run date; same step() as UC0 materialization
+           and the replay) → Regime vertex + RegimeEvent (on change only);
+           NAV/ratios catch-up → PortfolioNAV TS; proposal-expiry sweep;
+           inbox-drained check
+    (UC2 is absorbed: regime/valuations/macro live in the catch-up +
+     snapshot.market_context — see USE_CASES tombstone)
+    08:05  UC3 event watch: pinned official sources (EVENT_SOURCES
+           constant — Fed/ECB/SNB press) → LLM triage (major events only) →
+           Document(kind=event) with bounded-fetch enrichment, ingested
+           synchronously (see USE_CASES UC3)
+    08:10  UC4 knowledge curation sweep (LLM) → KnowledgeEvent
     08:30  Backtests recalculated → FAVORS edges (RegimeType → Strategy)
-    08:35  Scenario probabilities + 7-day shifts → ScenarioProbability TS
+    08:35  Scenario probabilities → ScenarioProbability TS (shift vs
+           previous week computed on read — no stored shift column)
            (numeric triggers only, weekly — probability values only change
             via the Worker; qualitative triggers Worker-interpreted, I-22)
     08:40  Invariant weights recalculated (incl. mechanical confrontations —
@@ -130,7 +137,10 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
 | Ingestion       | Telegram bot + local drop → inbox/ (watcher, ~5 min)          |
 | Embeddings      | sentence-transformers in-process, 384 dims (no daemon)        |
-| Veille          | user deposits only (RSS deferred — I-9/I-26)                  |
+| Veille          | UC3 Event Watch: pinned official sources (Fed/ECB/SNB press,  |
+|                 | LLM triage, bounded-fetch enrichment) + user deposits/notes.  |
+|                 | Quantitative shocks are mechanical (VIX/liquidity tags).      |
+|                 | General auto-veille deferred — I-9/I-26                       |
 | Notifications   | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Process         | APScheduler, single Python process                            |
 | Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
@@ -292,7 +302,7 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ---
 
-## Entities (conceptual graph: 13 entities, 10 relations, 3 time-series — V2 adds Adaptation + MODIFIES; physically SQLite tables, see DATA_MODELS.md mapping)
+## Entities (conceptual graph: 13 entities, 10 relations — physically 5 M:N tables + 5 FK columns — 3 time-series; V2 adds Adaptation + MODIFIES; see DATA_MODELS.md mapping)
 
 ```
 VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,

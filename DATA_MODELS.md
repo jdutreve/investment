@@ -13,10 +13,10 @@ via `Document.source_path`.
 
 **Conceptual → physical mapping (ADR-004):** the model below remains a
 conceptual graph — entities ("vertices") and typed relations ("edges") —
-because that is the right vocabulary for the domain. Physically, every
-entity and every relation is a SQLite **table** (relations = association
-tables `from_id, to_id, <properties>`; every relation in this system is a
-1-hop FK). Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1),
+because that is the right vocabulary for the domain. Physically, every entity is a SQLite **table**; a 1:N relation is a FK
+column on the child, a M:N relation an association table
+(`from_id, to_id, <properties>`) — every relation in this system is a
+1-hop FK either way. Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1),
 DATE/DATETIME→TEXT ISO-8601, FLOAT[dim]→BLOB (float32, 384 dims — see
 TASKS Phase 1bis). Table names are
 snake_case (`RegimeType` → `regime_type`).
@@ -96,9 +96,10 @@ only a dynamic tag on Regime instances (when CPI YoY < 0).
 
 ### Regime
 *A concrete occurrence of a RegimeType, bounded in time. Created/updated by the
-regime detector's forward day-by-day pass — ONE code path, four callers:
-UC0 25y materialization, the Monday catch-up (last 7 days), the Phase 9
-replay, and the on-demand UC9 prelude. IN_REGIME edges point here.*
+regime detector's step() — one step per new monthly print, ONE code path,
+four callers: UC0 25y materialization and the Phase 9 replay iterate it
+over the archive; the Monday catch-up and the on-demand UC9 prelude call
+it on the new prints since the last run. IN_REGIME edges point here.*
 
 ```
 Regime {
@@ -225,15 +226,15 @@ HOLDS edges are repointed only by the user (UC9). Every activated strategy
 
 ### Scenario
 *Probabilities of bull/base/bear must always sum to 100 per Strategy.
-The owning Strategy is reached via the HAS_SCENARIO edge — no `strategy_id`
-scalar on the vertex (the seed dicts carry one only to build the edge).*
+HAS_SCENARIO is a 1:N relation → physically `scenario.strategy_id`
+(mapping rule above).*
 
 ```
 Scenario {
   id                : STRING  PRIMARY KEY
   name              : STRING  -- 'bull' | 'base' | 'bear'
-  probability       : FLOAT   -- 0-100
-  probability_d7    : FLOAT   -- probability 7 days ago
+  probability       : FLOAT   -- 0-100 (history in scenario_probability;
+                              --   week-over-week shift computed on read)
   triggers          : STRING[]
   target_allocation : MAP     -- target allocation if this scenario realizes
   currency          : STRING  -- 'USD'
@@ -280,14 +281,16 @@ Backtest {
   max_drawdown    : FLOAT
   total_return    : FLOAT
   currency        : STRING  -- 'USD'
-  source          : STRING  -- 'agent-discovery' | 'mechanical'
-  status          : STRING  -- 'proposed' | 'validated' | 'integrated'
-                            --   ('integrated' set automatically for
-                            --    source='mechanical')
   trace           : STRING  -- MANDATORY
   created_at      : DATETIME
 }
 ```
+
+Every Backtest row is **mechanical by construction** — the Worker proposes
+strategies and invariants but never computes numbers (non-negotiable rule);
+a proposed strategy gets its backtests from the mechanical pipeline at the
+next cycle, so results stay reproducible by the replay. Hence no
+`source`/`status` columns.
 
 ---
 
@@ -436,6 +439,8 @@ Document {
   id          : STRING  PRIMARY KEY
   title       : STRING
   author      : STRING
+  kind        : STRING  -- 'book' | 'article' | 'note' (user one-liner) |
+                        --   'event' (UC3 Event Watch — triaged + enriched)
   source_type : STRING  -- 'pdf' | 'kindle' | 'url' | 'text'
   source_path : STRING
   ingested_at : DATE
@@ -481,7 +486,7 @@ EventLog {
                                      --   retrospective events (e.g. a seed
                                      --   backtest over 2021-2022 carries its
                                      --   period start)
-  type       : STRING   -- SeedEvent | MarketEvent | KnowledgeSearchEvent |
+  type       : STRING   -- SeedEvent |
                         --  KnowledgeEvent | ValuationEvent | RankingEvent |
                         --  ProposalEvent | InnovationEvent | UserDecisionEvent |
                         --  RegimeEvent (catch-up detector, on change only) |
@@ -516,15 +521,37 @@ never by timestamp comparison.
 
 ---
 
-## Graph Schema — EDGE types (10 in V1 — V2 adds MODIFIES)
+## Graph Schema — RELATION types (10 conceptual in V1 — V2 adds MODIFIES)
 
-Creation order: vertices first, edges second.
+**Physical mapping rule (composition):** the five 1:N relations below are
+**compositions** — the child cannot exist without its parent (a Scenario
+without its Strategy, a Passage without its Document…), so the relation is
+constitutive of the child's identity: FK column **and relation properties
+on the child row** (each child participates in exactly ONE instance of the
+relation, so ownership is unambiguous; the spec still documents each
+property under its relation). Only true M:N relations get an association
+table (`from_id, to_id, properties`). Guiding principle: **complexify when
+needed** — if a 1:N ever becomes M:N, creating the table then is a trivial
+SQLite migration.
+
+**1:N — FK columns on the child (5):**
 
 ```
-Evaluation -[UPDATES]-> Strategy
-  conviction_delta : FLOAT
-  date             : DATE
+Evaluation -[UPDATES]-> Strategy       → evaluation.strategy_id
+  (conviction_delta and date already live on Evaluation itself)
+Strategy -[HAS_SCENARIO]-> Scenario    → scenario.strategy_id
+  (always 3 per active Strategy — bull/base/bear, probabilities sum 100)
+Strategy -[TESTED_IN]-> Backtest       → backtest.strategy_id
+  + backtest.is_primary : BOOLEAN
+Backtest -[IN_REGIME]-> Regime         → backtest.regime_id
+  + backtest.overlap_pct : FLOAT  -- percent points, 0-100
+Document -[CONTAINS]-> Passage         → passage.document_id
+  + passage.position : INT, passage.page : INT
+```
 
+**M:N — association tables (5):**
+
+```
 RegimeType -[FAVORS]-> Strategy
   -- Multi-period aggregated favorability across ALL historical Regime instances
   --   of this type. Updated after each weekly backtest cycle.
@@ -535,47 +562,28 @@ RegimeType -[FAVORS]-> Strategy
   n_periods       : INT   -- total historical periods of this regime type
   last_updated    : DATE
 
-Strategy -[HAS_SCENARIO]-> Scenario
-  -- Always 3 per active Strategy (bull, base, bear); probabilities sum to 100
-  active : BOOLEAN
-
 Strategy -[BACKED_BY]-> Invariant
   strength : FLOAT
   added_at : DATE
   excerpt  : STRING  -- <100 chars
 
-Strategy -[TESTED_IN]-> Backtest
-  is_primary : BOOLEAN
-
-Backtest -[IN_REGIME]-> Regime
-  overlap_pct : FLOAT  -- percent points, 0-100 (units convention)
-
-Adaptation -[MODIFIES]-> Portfolio
-  -- V2 only; NOT created at UC0 (created with Adaptation when V2 lands)
-  delta            : MAP
-  drawdown_before  : FLOAT
-  validated_at     : DATE
-
 Portfolio -[HOLDS]-> Strategy
-  -- Replaces the former Portfolio.strategy_id scalar
   primary : BOOLEAN  -- true for the main strategy a portfolio executes
   weight  : FLOAT
   since   : DATE
 
 Portfolio -[DESIGNED_FOR]-> RegimeType
-  -- Points to the type, not an instance: the portfolio is designed for
-  --   stagflation in general, not for the May 2026 occurrence.
-  -- Nullable: framework-neutral portfolios (e.g. permanent-balanced) have no edge.
+  -- Points to the type, not an instance; a portfolio may target several
+  --   quadrants (see seed). Framework-neutral portfolios have no row.
   rationale : STRING
-
-Document -[CONTAINS]-> Passage
-  position : INT
-  page     : INT
 
 Passage -[SUPPORTS]-> Invariant
   strength : FLOAT
   excerpt  : STRING
 ```
+
+**V2:** `Adaptation -[MODIFIES]-> Portfolio` (delta MAP, drawdown_before,
+validated_at) — created with Adaptation when V2 lands.
 
 ---
 
@@ -594,8 +602,9 @@ CREATE TABLE IF NOT EXISTS market_data (
 
 CREATE TABLE IF NOT EXISTS scenario_probability (
   strategy_id TEXT NOT NULL, scenario TEXT NOT NULL, ts TEXT NOT NULL,
-  probability REAL, shift_d7 REAL,
+  probability REAL,
   PRIMARY KEY (strategy_id, scenario, ts));
+-- Week-over-week shift = LAG on read; no stored derivative column.
 -- Appended WEEKLY (Monday 08:35), not daily: probability values only change
 -- via the weekly Worker cycle.
 
@@ -702,6 +711,12 @@ Tags derived for Regime instances: `liquidity-tightening` when
 
 Plain tables. Ids are generated in Python as ULIDs; structured values are
 JSON columns (SQLite JSON1).
+
+**Table criterion (guiding principle):** a table exists only for data that
+**grows or changes at runtime** (confrontations, snapshots, calibration,
+user-editable rules/thresholds). Bounded static config lives in code
+constants (e.g. `EVENT_SOURCES`, `TRACE_EXEMPT`, `FORBIDDEN_SQL`) — promote
+to a table only when it actually starts growing or needs runtime editing.
 
 ### Static
 

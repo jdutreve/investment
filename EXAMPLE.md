@@ -40,9 +40,10 @@ directly in the MarketData TS rows below.
 ## Step 2 — Regime detection
 
 Regime detection is **mechanical** (Monday 08:00 catch-up — the detector
-runs day-by-day over the fetched days, formal algorithm in
-investment-ARCHITECTURE.md; start_dates come from the data, not the run
-date). It reads `level`, `speed`, and `acceleration` from the MarketData TS.
+steps once per NEW monthly print since the last run, at processing time;
+formal algorithm in investment-ARCHITECTURE.md; start_dates come from the
+data, not the run date). It reads `level`, `speed`, and `acceleration`
+from the MarketData TS.
 
 ### 2a — MarketData TS rows (Monday catch-up fetch)
 
@@ -415,14 +416,14 @@ Portfolio#4s-balanced-defender -[HOLDS primary:true weight:1.0 since:2026-01-15]
 ## Step 5 — Scenarios and Evaluation
 
 Weekly 08:35 job: numeric triggers only (`^VIX > 25` hit on 2026-05-08) +
-`shift_d7` recorded in ScenarioProbability TS. Probability VALUES are changed
+shift computed on read from ScenarioProbability TS. Probability VALUES are changed
 by the Worker (weekly), which also interprets qualitative triggers.
 
 ```
 Scenario#sc-4s-bear {
   id: "sc-4s-bear", name: "bear"
   probability: 55               ← Worker adjustment this cycle; was 20
-  probability_d7: 20
+  # previous week's row (read from scenario_probability): 20
   triggers: ["^VIX > 25", "CPI_YOY > 4 AND GROWTH_COMPOSITE < 98"]
   target_allocation: {TIP:30, GLD:25, DJP:15, SPY:10, TLT:10, cash:10}
   currency: "USD"
@@ -430,8 +431,8 @@ Scenario#sc-4s-bear {
           acceleration interpreted by Worker"
   updated_at: 2026-05-11
 }
-Scenario#sc-4s-base { probability: 35, probability_d7: 55, ... }
-Scenario#sc-4s-bull { probability: 10, probability_d7: 25, ... }
+Scenario#sc-4s-base { probability: 35, ... }   # was 55 last week (TS)
+Scenario#sc-4s-bull { probability: 10, ... }   # was 25 last week (TS)
 
 Strategy#four-seasons-rp -[HAS_SCENARIO active:true]-> each of the 3
 ```
@@ -465,7 +466,7 @@ ScenarioProbability TS records the shift for UC8 to read:
 
 ```
 ScenarioProbability { strategy_id:"four-seasons-rp", scenario:"bear",
-                      probability:55, shift_d7:+35.0 }
+                      probability:55 }   # shift vs last week: +35 (LAG)
 ```
 
 ---

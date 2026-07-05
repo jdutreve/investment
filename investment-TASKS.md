@@ -37,7 +37,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
 | Worker          | Sonnet 4.6 via Anthropic                                      |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
-| Veille          | user deposits only (RSS deferred — I-9/I-26)                  |
+| Veille          | UC3 Event Watch (pinned Fed/ECB/SNB press) + user deposits    |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
 | Backfill        | 25y macro; ETFs from inception                                |
 | Risk-free rate  | 3-Month T-Bill (^IRX) — USD                                   |
@@ -237,6 +237,8 @@ not root scripts — no path ambiguity.
 │       │   ├── snapshots.py      ← portfolio_weekly_snapshot writer
 │       │   ├── replay.py         ← Phase 9 shadow replay (go-live gate)
 │       │   └── learning.py       ← V2 only (stub)
+│       ├── veille/
+│       │   └── event_watch.py    ← UC3 (pinned sources + bounded fetch)
 │       └── telegram/
 │           ├── digest.py         ← weekly digest renderer
 │           └── bot.py            ← UC9 chat + proposal/innovation callbacks
@@ -331,17 +333,15 @@ CREATE TABLE IF NOT EXISTS event_log    (       -- append-only audit spine
   type TEXT NOT NULL, source_uc TEXT NOT NULL,
   source_id TEXT, payload TEXT NOT NULL);       --   payload = JSON
 
--- RELATION TABLES (10) — columns: from_id, to_id (FK), + edge properties
-CREATE TABLE IF NOT EXISTS updates      (...);  -- evaluation → strategy
-CREATE TABLE IF NOT EXISTS favors       (...);  -- regime_type → strategy
-CREATE TABLE IF NOT EXISTS has_scenario (...);  -- strategy → scenario
-CREATE TABLE IF NOT EXISTS backed_by    (...);  -- strategy → invariant
-CREATE TABLE IF NOT EXISTS tested_in    (...);  -- strategy → backtest
-CREATE TABLE IF NOT EXISTS in_regime    (...);  -- backtest → regime instance
-CREATE TABLE IF NOT EXISTS holds        (...);  -- portfolio → strategy (primary flag)
-CREATE TABLE IF NOT EXISTS designed_for (...);  -- portfolio → regime_type
-CREATE TABLE IF NOT EXISTS contains     (...);  -- document → passage
-CREATE TABLE IF NOT EXISTS supports     (...);  -- passage → invariant
+-- RELATION TABLES — M:N only (5). The five 1:N relations are FK columns
+-- on the child (DATA_MODELS mapping rule): scenario.strategy_id,
+-- passage.document_id, evaluation.strategy_id, backtest.strategy_id,
+-- backtest.regime_id (+overlap_pct, is_primary on backtest).
+CREATE TABLE IF NOT EXISTS favors       (...);  -- regime_type ↔ strategy
+CREATE TABLE IF NOT EXISTS backed_by    (...);  -- strategy ↔ invariant
+CREATE TABLE IF NOT EXISTS holds        (...);  -- portfolio ↔ strategy (primary flag)
+CREATE TABLE IF NOT EXISTS designed_for (...);  -- portfolio ↔ regime_type
+CREATE TABLE IF NOT EXISTS supports     (...);  -- passage ↔ invariant
 
 -- DOCUMENT TABLES (see DATA_MODELS.md for columns)
 CREATE TABLE IF NOT EXISTS user_profile              (...);
@@ -360,7 +360,7 @@ CREATE TABLE IF NOT EXISTS market_data (
   PRIMARY KEY (ticker, ts));
 CREATE TABLE IF NOT EXISTS scenario_probability (
   strategy_id TEXT NOT NULL, scenario TEXT NOT NULL, ts TEXT NOT NULL,
-  probability REAL, shift_d7 REAL, PRIMARY KEY (strategy_id, scenario, ts));
+  probability REAL, PRIMARY KEY (strategy_id, scenario, ts));
 CREATE TABLE IF NOT EXISTS portfolio_nav (
   portfolio_id TEXT NOT NULL, currency TEXT NOT NULL, ts TEXT NOT NULL,
   nav REAL, daily_return REAL, sharpe_rolling REAL, sortino_rolling REAL,
@@ -766,17 +766,17 @@ BACKED_BY_EDGES = [
 SCENARIOS = [
     # four-seasons-rp (strategy_id used only to build the HAS_SCENARIO edge)
     {"id": "sc-4s-bull", "strategy_id": "four-seasons-rp", "name": "bull",
-     "probability": 35, "probability_d7": 35,
+     "probability": 35,
      "triggers": ["CPI_YOY < 2.5", "GROWTH_COMPOSITE > 102", "Fed dovish"],
      "target_allocation": {"SPY": 35, "TLT": 25, "GLD": 15, "TIP": 15, "DJP": 5, "cash": 5},
      "currency": "USD", "trace": "Goldilocks scenario for 4 Seasons."},
     {"id": "sc-4s-base", "strategy_id": "four-seasons-rp", "name": "base",
-     "probability": 45, "probability_d7": 45,
+     "probability": 45,
      "triggers": ["CPI_YOY 2.5-3.5", "Fed pause"],
      "target_allocation": {"SPY": 30, "TLT": 30, "GLD": 10, "TIP": 20, "DJP": 7.5, "cash": 2.5},
      "currency": "USD", "trace": "Base case for 4 Seasons."},
     {"id": "sc-4s-bear", "strategy_id": "four-seasons-rp", "name": "bear",
-     "probability": 20, "probability_d7": 20,
+     "probability": 20,
      "triggers": ["^VIX > 25", "CPI_YOY > 4 AND GROWTH_COMPOSITE < 98"],
      "target_allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
      "currency": "USD", "trace": "Stagflation/stress scenario."},
@@ -972,14 +972,16 @@ investment-ARCHITECTURE.md (axis classification, hysteresis
 `regime_confirm_prints`, confidence formula, tag derivation, is_current
 uniqueness in one transaction). Emits **RegimeEvent → EventLog BEFORE**
 touching the Regime vertex, and only when regime/confidence-band/tags change.
-ONE forward code path `run_forward(db, start, end)` (day-by-day, PIT by
-construction) with FOUR callers: UC0 25y materialization, the Monday 08:00
-catch-up (last 7 days), the Phase 9 replay, and the on-demand UC9 prelude.
-`materialize_history` and the weekly detection are the same function.
+ONE state-machine step per NEW monthly print — `detector.step(print_set)`
+with persisted candidate state; PIT by construction. FOUR callers: UC0 25y
+materialization and the Phase 9 replay iterate step() over the archive;
+the Monday 08:00 catch-up and the on-demand UC9 prelude call it on the
+prints that arrived since the last run (usually 0-1 — the axes only change
+on print days, so processing-time detection is exact, not approximate).
 
 **Done when:** `detector.detect(db)` creates/updates a Regime vertex with
 `is_current=true`, hysteresis verified on synthetic flip-flop data, and
-`run_forward` yields ≥ 10 episodes on the 25y backfill and, on a 7-day
+iterated step() yields ≥ 10 episodes on the 25y backfill and, on a 7-day
 window, produces byte-identical Regime state to a hypothetical daily run.
 
 ---
@@ -1012,17 +1014,30 @@ then invoke the curation runner if ≥1 new Document was created. First scan
 at app start drains deposits made while the Mac was off. Failures move the
 file to `inbox/failed/` + ErrorEvent (never crash the loop).
 
-### Task 3.2 — UC3 knowledge search (V1: user deposits only)
+### Task 3.2 — `veille/event_watch.py` (UC3 Event Watch)
 
-RSS auto-veille is OUT of V1 (curation of chosen sources is the essence;
-a feed vacuum produces news noise, not Dalio-grade invariants — see
-IMPROVEMENTS I-9/I-26 for reactivation with source tiering). The weekly
-UC3 step reduces to: verify the inbox is drained by the watcher,
-count the week's user deposits, emit KnowledgeSearchEvent → EventLog.
+NOT a feed vacuum (general RSS stays out — I-9/I-26): a narrow weekly watch
+over PINNED official sources — a static `EVENT_SOURCES` constant in
+`event_watch.py` (`[{name, url, domain}]`, seeded Fed/ECB/SNB press
+endpoints; URLs pinned at implementation, never guessed). Changing sources
+= editing the constant; complexify to a runtime table only if editing via
+UC9 ever becomes a real need (guiding principle). Flow per USE_CASES UC3:
+fetch new items (dedupe by URL hash against existing Document
+source_paths — no state table) →
+LLM triage via the curation runner (`skill-triage-events.md`: major vs
+routine, routine discarded) → major → Document(kind=event) with summary,
+entities, and enrichment (source text + model knowledge + **bounded fetch**
+restricted to the EVENT_SOURCES domains; insufficient → `needs-user-input`
+flag → Telegram) → ingested SYNCHRONOUSLY via CorpusIngester so the UC4
+sweep sees it minutes later.
+
+The user note channel stays as a complement: the Telegram bot saves any
+plain-text message as `inbox/<ts>-note.md` (kind=note) — picked up by the
+watcher within ~5 min.
 
 **Done when:** a Dalio PDF produces Document + Passages with embeddings, and
-≥1 SUPPORTS edge lands on a seeded invariant; KnowledgeSearchEvent carries
-the deposit count.
+≥1 SUPPORTS edge lands on a seeded invariant; a plain-text Telegram note
+becomes a Document(kind=note) with Passages.
 
 ---
 
@@ -1039,7 +1054,7 @@ class PlannerPre:
         # PYTHON — BASELINE (mechanical, no LLM): asyncio.gather (5 queries):
         #   ① Current Regime + global liquidity latest row
         #   ② Ranked snapshot rows (today)
-        #   ③ Scenarios + shift_d7 (ScenarioProbability TS)
+        #   ③ Scenarios + week-over-week shift (LAG on scenario_probability)
         #   ④ Top invariants by weight_effective (integrated only)
         #   ⑤ Last 3 Proposals (any status, incl. outcomes/rejections)
         # CALL 1a — Qwen3-8B sees baseline SUMMARY, forced tool_use
@@ -1061,7 +1076,7 @@ class PlannerContext(BaseModel):
     regime: dict                  # type, aliases, confidence, tags, events
     global_liquidity: dict        # level, speed, state
     ranking: list[dict]           # snapshot rows incl. allocations
-    scenarios: list[dict]         # per strategy, with shift_d7
+    scenarios: list[dict]         # per strategy, with computed shift
     top_invariants: list[dict]    # id, title, weight_effective, tags, author
     recent_proposals: list[dict]  # incl. outcome verdicts and
                               #   rejection_reason — the Worker sees how its
@@ -1161,11 +1176,13 @@ Skill files (each: purpose, inputs, method, output contract):
 mechanically): new Passages since last run + their SUPPORTS-linked invariants
 + top invariants by weight. Skill: `skill-curate-knowledge.md`.
 
-**Three callers, one runner:**
+**Four callers, one runner:**
 1. event-driven — right after a watcher ingestion batch that created new
    Documents (a deposited book yields candidates within minutes);
-2. weekly Monday 08:20 — sweep + re-curation of existing invariants;
-3. UC0 seed batch (step 4b, default) — whole corpus, interactive CLI
+2. weekly UC3 event triage (`skill-triage-events.md` — major/routine
+   verdict + enrichment draft, Task 3.2);
+3. weekly Monday 08:10 — sweep + re-curation of existing invariants;
+4. UC0 seed batch (step 4b, default) — whole corpus, interactive CLI
    validation.
 
 Output:
@@ -1222,10 +1239,9 @@ existing invariant from a new fixture passage without touching its weight.
   deterministic). UC6 (08:45): update Portfolio vertices + ValuationEvent.
 - `scenarios.py` (weekly Monday 08:35) — evaluate NUMERIC triggers only
   (grammar `<TICKER|ALIAS> <op> <number>`; unparseable → skipped,
-  Worker-only); append current probabilities + `shift_d7` to
-  ScenarioProbability TS. Weekly, not daily: probability VALUES change only
-  via Worker `scenario_adjustments` (weekly) — daily appends would repeat
-  identical rows 6 days out of 7.
+  Worker-only); append current probabilities to ScenarioProbability TS
+  (week-over-week shift = LAG on read, no stored column). Weekly:
+  probability VALUES change only via Worker `scenario_adjustments`.
 - `backtests.py` (weekly 08:30) — synthetic backtests per (Strategy ×
   RegimeType) over historical Regime instances; refresh FAVORS aggregates.
 - `invariants.py` (weekly 08:40 + event-driven) — implements the mechanical
@@ -1338,7 +1354,8 @@ python-telegram-bot application:
   always preceded by the UC1 catch-up prelude; `/refresh` = prelude alone.
 - Commands: `/status`, `/ranking`, `/disable <strategy_id>`,
   `/enable <strategy_id>`, `/drawdown <pct>` (updates user_profile — binding).
-- Document/URL messages are saved to `INBOX_PATH` (picked up by the ingester).
+- Document/URL/plain-text messages are saved to `INBOX_PATH` (text →
+  `<ts>-note.md`, the qualitative-event channel — Task 3.2); picked up by the ingester).
 
 **Done when:** digest renders from a seeded snapshot; buttons mutate state
 via Writeback with EventLog-first ordering; `/drawdown -10` updates
@@ -1367,8 +1384,8 @@ async def main():
     #    monotonic vs wall clock), and by the Monday 08:00 cron while
     #    running — runs monday_chain() once if last success predates the
     #    most recent Monday 08:00.
-    # monday_chain() — runs UC2 → UC3 → UC4 →
-    #   catch-up (fetcher → regime day-by-day → ratios → expiry sweep) →
+    # monday_chain() — runs UC3 event watch → UC4 →
+    #   catch-up (fetcher → regime step per new print → ratios → expiry sweep) →
     #   backtests → scenarios.py → invariant weights → UC6 → UC7 → outcomes.py →
     #   (V2 learning) → UC8 → digest SEQUENTIALLY. Each step awaited; on exception: ErrorEvent →
     #   Telegram alert → abort remaining steps (never rank on stale data).
@@ -1388,7 +1405,8 @@ which ride the next backup).
 
 ```python
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
-async def test_schema_complete():            # 13 vertex + 10 edge + 3 TS + 8 doc types
+async def test_schema_complete():            # 13 entity + 5 M:N relation + 3 TS +
+                                             # 8 doc tables; 5 FK-column relations
 async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
@@ -1429,6 +1447,10 @@ async def test_scenario_calibration():       # dominant scenario vs realized qua
 async def test_strategy_probation():         # strategy below median FAVORS at +12w →
                                              # OutcomeEvent kind=probation
                                              # verdict 'review' + Telegram
+async def test_event_watch():               # routine item discarded; major item →
+                                             # Document(kind=event) + Passages;
+                                             # enrichment fetch refuses non-whitelisted
+                                             # domains; insufficient → Telegram flag
 async def test_watcher_curation_trigger():  # deposit → batch after 5-min quiet →
                                              # curation runs → InvariantCandidate with
                                              # author = document author tier +

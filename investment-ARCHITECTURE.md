@@ -127,7 +127,8 @@ GRAPH VERTICES (13 in V1 — V2 adds Adaptation)
   EventLog        append-only audit log (no edges) — APPEND BEFORE any
                   vertex/edge commit
 
-GRAPH EDGES (10 in V1 — V2 adds Adaptation → MODIFIES → Portfolio)
+GRAPH RELATIONS (10 conceptual — physically 5 M:N tables + 5 FK
+             columns on the child; V2 adds Adaptation → MODIFIES → Portfolio)
   Evaluation → UPDATES       → Strategy
   RegimeType → FAVORS        → Strategy (strategy-level rolling indicators,
                                 aggregated across n_periods historical instances)
@@ -167,9 +168,10 @@ Thresholds loaded from `system_thresholds` — not hardcoded. Growth axis =
 `GROWTH_COMPOSITE` (z(INDPRO YoY) − z(UNRATE Δ3m), rebased 100 — see
 DATA_MODELS.md); inflation axis = CPI YoY (CPIAUCSL transformed).
 
-**Axis classification (run day-by-day over new MarketData rows — ONE
-forward code path, four callers: UC0 25y materialization, Monday 08:00
-catch-up, Phase 9 replay, on-demand UC9 prelude):**
+**Axis classification (ONE state-machine step per new monthly print,
+candidate state persisted; four callers: UC0 materialization and the
+replay iterate step() over the archive; the Monday catch-up and the
+on-demand UC9 prelude call it on the prints since the last run):**
 
 ```
 growth_dir    = 'rising'  if GROWTH_COMPOSITE.speed > +regime_growth_noise (0.15)
@@ -356,7 +358,7 @@ Strategy "4 Seasons" — example
 
 Probability mechanics in V1: the weekly Monday 08:35 mechanical job
 evaluates **numeric triggers only** (e.g. "CPI<2.5", "VIX>25") against
-MarketData TS and computes shift_d7 (weekly, not daily — probability values
+MarketData TS (week-over-week shift computed on read — probability values
 only change via the weekly Worker cycle); qualitative triggers ("Fed
 dovish") are interpreted exclusively by the Worker, which reviews and may
 adjust probabilities. Formal trigger grammar deferred — see IMPROVEMENTS
@@ -431,8 +433,8 @@ Event-driven (no nightly cron — the Mac sleeps, ADR-002)
    the Monday chain — decision cadence is weekly)
 
 Weekly (Monday — canonical timeline, identical in CLAUDE.md / USE_CASES.md)
-  08:00  UC2 market valuation → MarketEvent
-  08:10  UC3 knowledge search → inbox
+  (UC2 absorbed — catch-up + snapshot.market_context)
+  08:05  UC3 event watch → Document(kind=event) via ingester
   08:20  UC4 knowledge curation → KnowledgeEvent
   08:30  Backtests → FAVORS edges (RegimeType → Strategy)
   08:40  Invariant weights
@@ -529,7 +531,7 @@ probation like any new strategy (see "Unified improvement cycle").
 asyncio.gather (5 fixed queries — no judgment involved, so no LLM):
   ① Current Regime + global liquidity
   ② Ranked enabled portfolios from portfolio_weekly_snapshot
-  ③ Scenarios with d7 shift
+  ③ Scenarios (+ week-over-week shift, computed on read)
   ④ Top invariants by weight_effective
   ⑤ Last 3 Proposals (incl. outcome verdicts, rejection reasons)
 ```
@@ -623,13 +625,13 @@ stale data). Timezone Europe/Zurich.
 (event-driven: inbox watcher → ingestion + curation; backup after
          chain/batches; weekly chain is DUE-ON-START at launch/wake)
 
-08:00   Weekly pre-processing (catch-up → UC2 → UC3 → UC4, then mechanical)
+08:00   Weekly pre-processing (catch-up → UC3 → UC4, then mechanical)
           → CATCH-UP: market fetch (all days since last run) → regime
-            detector day-by-day → NAV/ratios → proposal-expiry sweep
-          → Market valuation (MarketEvent), knowledge search (deposits)
-            + curation
+            detector step per new print → NAV/ratios → proposal-expiry sweep
+          → event watch (pinned sources, LLM triage) → curation sweep
+            (user deposits are ingested event-driven, before the chain)
           → Backtests recalculated → FAVORS edges
-          → Scenario numeric triggers + shift_d7 → ScenarioProbability TS
+          → Scenario numeric triggers → ScenarioProbability TS
           → Invariant weights updated (incl. mechanical confrontations)
           → Portfolio valuations + ranking → portfolio_weekly_snapshot rows
           → Proposal outcomes + scenario calibration + strategy probation

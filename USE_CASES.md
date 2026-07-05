@@ -29,11 +29,12 @@ sequential chain: each step starts only after the previous one succeeds;
 on failure the chain aborts, emits an ErrorEvent and sends a Telegram
 alert. Times in CLAUDE.md are indicative.)
   UC1  Market Feed (CATCH-UP) → MarketData TS for all days since last
-                              run + regime detector day-by-day + NAV
+                              run + regime detector step (new prints) + NAV
                               catch-up + expiry sweep (also runs on-demand
                               as the prelude to an ad-hoc UC9 UC8 re-run)
-  UC2  Market Valuation     → MarketEvent
-  UC3  Knowledge Search     → KnowledgeSearchEvent
+  UC2  (absorbed — see tombstone below)
+  UC3  Event Watch          → Document(kind=event) deposits (pinned
+                              official sources, LLM triage + enrichment)
   UC4  Knowledge Curation   → KnowledgeEvent
   UC5  Knowledge Storage    → DB updated (transverse mechanism, see below)
   UC6  Portfolio Valuation  → ValuationEvent
@@ -136,7 +137,7 @@ UC8 reads EventLog weekly to assemble its inputs.
     - BACKED_BY edges to relevant invariants
 
 7.  Scenario vertices (3 per Strategy = 12 total), bull/base/bear with
-    initial probabilities summing to 100; probability_d7 = probability
+    initial probabilities summing to 100
     + HAS_SCENARIO edges
 
 8.  Portfolio vertices (6-10), exactly one defender=true:
@@ -199,7 +200,7 @@ UC8 reads EventLog weekly to assemble its inputs.
     }
 ```
 
-**Done when:** Worker can run its first weekly cycle (UC2→UC8) without missing
+**Done when:** Worker can run its first weekly cycle (catch-up→UC8) without missing
 data, and the digest renders a non-empty defender row.
 
 **User action:** None after running the command.
@@ -214,51 +215,57 @@ Applies per-series transforms (DATA_MODELS.md "MarketData semantics") and
 computes `level`, `speed`, `acceleration` for each series. Appends to
 MarketData TS. Includes ^IRX (3M T-Bill risk-free rate), the
 `GROWTH_COMPOSITE` and the `GLOBAL_LIQUIDITY` composites.
-**Output:** → MarketData TS. No EventLog row (pure TS write — no vertex/edge
-committed, so the ordering invariant does not apply).
+**Output:** → MarketData TS — the durable `market_data` table in SQLite
+(25y history; what the regime detector, NAV, Planner baseline, Worker
+`market_fetch` and the Phase 9 replay all read). No EventLog row: EventLog
+is the audit journal for entity/relation commits, not the storage — the TS
+row itself is the durable record, so auditing it would duplicate the table.
 **User action:** None.
 
 ---
 
-## UC2 — Market Valuation
-**Trigger:** Weekly cron (Monday 08:00).
-**What it does:** Reads MarketData TS. Produces structured market snapshot:
-current regime (4 Seasons), benchmark performance, macro indicators with
-level/speed/acceleration, global liquidity state. The Regime vertex itself
-(`is_current`) is owned and maintained by the catch-up detector step —
-UC2 reads it, it does not update it.
-**Output:** MarketEvent → EventLog.
+## UC2 — Market Valuation (ABSORBED — no separate step, no MarketEvent)
 
-```json
-{
-  "framework": "4seasons",
-  "regime": "falling-growth-rising-inflation",
-  "regime_aliases": ["stagflation"],
-  "confidence": 78,
-  "changed": false,
-  "derivatives": {
-    "CPI_YOY":          {"level": 3.1,  "speed": 0.3,  "acceleration": 0.2},
-    "GROWTH_COMPOSITE": {"level": 97.2, "speed": -1.1, "acceleration": -0.4}
-  },
-  "global_liquidity": {"state": "tight", "trend": "tightening"},
-  "benchmarks": {"SPX_1w": "-1.2%", "BOND_1w": "+0.3%"},
-  "tags_active": ["liquidity-tightening"]
-}
-```
-
-**User action:** None.
+Everything UC2 once snapshotted is computed and audited elsewhere:
+- **current regime** → catch-up detector (Regime `is_current` + RegimeEvent);
+- **portfolio valuations** → NAV catch-up + UC6 (ValuationEvent) + UC7;
+- **macro indicators** (level/speed/acceleration) → catch-up fetch →
+  MarketData TS, read directly by the Planner baseline;
+- **weekly audit copy of the market context** →
+  `portfolio_weekly_snapshot.market_context` (written by UC7).
+A separate MarketEvent was a duplicate that nothing consumed.
 
 ---
 
-## UC3 — Knowledge Search
-**Trigger:** Weekly cron (Monday, after UC2).
-**What it does:** V1 = **user deposits only** (Telegram + local drop → inbox,
-processed by the watcher within minutes). The weekly step verifies the
-inbox is drained and counts
-the week's deposits. RSS auto-veille is deferred with source tiering
-(IMPROVEMENTS I-9/I-26); YouTube/X/podcasts likewise (I-9).
-**Output:** KnowledgeSearchEvent → EventLog (deposit counts).
-**User action:** None. User can deposit documents anytime.
+## UC3 — Event Watch (qualitative Tier-1 events, trusted sources only)
+
+**Trigger:** Weekly chain (Monday, after the catch-up, before UC4).
+**What it does:** NOT a feed vacuum — a narrow watch over a few PINNED
+official sources (static `EVENT_SOURCES` constant in code: Fed press
+releases / FOMC statements, ECB press, SNB press; changing sources = edit
+the constant — complexify to runtime config only if a real need appears):
+
+1. Fetch new items since last run (dedupe by URL against existing Document source_paths) — mechanical.
+2. **LLM triage** (curation runner, `skill-triage-events`): MAJOR event
+   (nomination, doctrine shift, emergency action) vs routine — routine is
+   discarded.
+3. Major events → **Document(kind=event)**: summary, entities, and
+   **enrichment** (e.g. Fed chair replaced → profile and likely intent of
+   the successor) from the source text + model knowledge + a **bounded
+   fetch** restricted to the EVENT_SOURCES domains; if still
+   insufficient, the item is flagged `needs-user-input` and pushed to
+   Telegram instead of being hallucinated.
+4. Ingested SYNCHRONOUSLY via the same `CorpusIngester` (no watcher
+   round-trip — UC4's sweep, minutes later, must see the events) →
+   Passages + embeddings → Worker context and citable in
+   `Evaluation.events`.
+
+The user note channel (one-line Telegram messages → `kind=note`) remains
+as a complement. Quantitative shocks stay mechanical (VIX/liquidity tags).
+General auto-veille (broad RSS, YouTube/X) stays deferred — I-9/I-26.
+**Output:** inbox deposits → Document(kind=event) (audited by
+IngestionEvent).
+**User action:** None, except answering `needs-user-input` flags.
 
 ---
 
@@ -420,7 +427,7 @@ allocation and the Worker's argued reasoning.
 
 Inputs:
 ```
-MarketEvent       → current regime + global liquidity context
+MarketData TS + Regime → current regime & liquidity (direct reads)
 KnowledgeEvent    → invariant changes
 ValuationEvent    → portfolio metrics
 RankingEvent      → defender rank and challenger gap
@@ -492,9 +499,9 @@ switch cooldown rule). Pending proposals auto-expire after
 | #  | UC                  | Trigger             | Output                                | Frequency        |
 |----|---------------------|---------------------|---------------------------------------|------------------|
 | 0  | Seed                | Manual CLI          | SeedEvent + full DB bootstrap         | Once at install  |
-| 1  | Market Feed         | Monday catch-up + on-demand | MarketData TS                         | Daily            |
-| 2  | Market Valuation    | Weekly cron         | MarketEvent                           | Weekly           |
-| 3  | Knowledge Search    | Weekly cron         | KnowledgeSearchEvent                  | Weekly           |
+| 1  | Market Feed         | Monday catch-up + on-demand | MarketData TS                         | Weekly           |
+| 2  | (absorbed)          | —                   | catch-up + snapshot.market_context    | —                |
+| 3  | Event Watch         | Weekly chain        | Document(kind=event) via ingester     | Weekly           |
 | 4  | Knowledge Curation  | Weekly cron         | KnowledgeEvent                        | Weekly           |
 | 5  | Knowledge Storage   | Any event with data | —                                     | Event-driven     |
 | 6  | Portfolio Valuation | Weekly cron         | ValuationEvent                        | Weekly           |

@@ -207,11 +207,13 @@ questions).
 
 ## I-9 — Auto-veille channels (RSS, YouTube, X, podcasts)
 
-**Why deferred (RSS included — moved out of V1, 2026-07):** curation of
+**Why deferred (general RSS moved out of V1, 2026-07):** curation of
 CHOSEN sources is the essence; a feed vacuum produces news noise, not
-Dalio-grade invariants. V1 = user deposits only (Telegram/local drop).
-Reactivate RSS together with I-26 source tiering; YouTube/X/podcasts add
-transcription overhead on top.
+Dalio-grade invariants. V1 ships the narrow **UC3 Event Watch** (pinned
+official sources — Fed/ECB/SNB press — LLM triage, bounded enrichment)
+plus user deposits. This item covers everything broader: general RSS
+(reactivate with I-26 tiering), YouTube/X/podcasts (transcription
+overhead on top).
 
 **Trigger to add:** when weekly deposits alone visibly starve UC4 curation,
 or the user identifies specific sources with consistent Tier-1 signal.
@@ -430,7 +432,7 @@ triggers mix numeric conditions ("CPI < 2.5") with qualitative ones
 ("Fed dovish") that no mechanical job can evaluate.
 
 **V1 behavior (interim):** the weekly job evaluates **numeric triggers only**
-against MarketData TS and computes `shift_d7`; qualitative triggers are
+against MarketData TS (week-over-week shift computed on read); qualitative triggers are
 interpreted exclusively by the weekly Worker cycle, which may adjust
 probabilities in its WorkerResult.
 
