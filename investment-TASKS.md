@@ -31,7 +31,8 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Component       | Detail                                                        |
 |-----------------|---------------------------------------------------------------|
 | DB              | SQLite (stdlib), WAL, single file (single engine — ADR-004: graph + vector + FTS + TS + documents) |
-| Graph           | 13 vertex types (incl. EventLog), 10 edge types               |
+| Graph           | 13 entities (incl. EventLog); 10 relations = 5 M:N tables     |
+|                 | + 5 FK columns (composition rule)                             |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
@@ -144,7 +145,8 @@ uv add pydantic-ai anthropic openai \
        python-telegram-bot python-ulid
 
 uv add yfinance pandas-datareader pandas numpy scipy \
-       sentence-transformers pypdf aiofiles aiohttp
+       sentence-transformers pypdf aiofiles aiohttp \
+       feedparser   # UC3 Event Watch only (pinned RSS/Atom press feeds)
 
 uv add --dev pytest pytest-asyncio httpx
 
@@ -216,7 +218,9 @@ not root scripts — no path ambiguity.
 │       │       ├── skill-rank-portfolios.md
 │       │       ├── skill-compare-vs-defender.md
 │       │       ├── skill-propose-reallocation.md
-│       │       └── skill-interpret-invariants.md
+│       │       ├── skill-interpret-invariants.md
+│       │       ├── skill-curate-knowledge.md    ← curation runner
+│       │       └── skill-triage-events.md       ← UC3 event triage
 │       ├── writeback/
 │       │   └── writeback.py      ← gates + persistence executor
 │       ├── corpus/
@@ -285,6 +289,10 @@ reliance on cron firing at all. Two mechanisms only:
    and Monday 08:00 while running: if the last successful chain predates
    the most recent Monday 08:00 → run the chain now, exactly once
    (guarded by a `last_chain_success` row in system_thresholds).
+   A multi-week gap still runs ONE chain: the catch-up covers all missing
+   days and prints, but missed Mondays leave no retroactive snapshots
+   (gaps in the ranking history — accepted); outcomes are keyed on
+   Proposal dates and are unaffected.
 No caffeinate hack — correctness must not depend on the lid.
 
 ---
@@ -348,6 +356,7 @@ CREATE TABLE IF NOT EXISTS user_profile              (...);
 CREATE TABLE IF NOT EXISTS invariant_author_config   (...);
 CREATE TABLE IF NOT EXISTS allowed_tickers           (...);
 CREATE TABLE IF NOT EXISTS system_thresholds         (...);
+CREATE TABLE IF NOT EXISTS detector_state             (...);  -- hysteresis state (1 row)
 CREATE TABLE IF NOT EXISTS invariant_confrontations  (...);
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 CREATE TABLE IF NOT EXISTS scenario_calibration      (...);  -- outcomes.py
@@ -391,7 +400,7 @@ CREATE INDEX IF NOT EXISTS ix_snapshot_date     ON portfolio_weekly_snapshot (da
 ```
 
 **Done when:** schema created without error; 13 entity + 10 relation + 3 TS +
-8 document tables present; a cosine query over seeded embeddings returns
+9 document tables present; a cosine query over seeded embeddings returns
 ranked passages.
 
 ---
@@ -578,7 +587,7 @@ valid `WorkerResult`; `encode()` returns a 384-dim vector; cosine floor
 Run: `uv run python -m investment.seed [--no-curate]` — idempotent (UPSERT on
 all vertices and edges). Full step list in USE_CASES.md UC0 (14 steps,
 including **historical Regime materialization** — step 10 — and the
-**initial curation pass** — step 4b, DEFAULT when a corpus is present, the
+**initial curation pass** — step 6b, DEFAULT when a corpus is present, the
 only LLM step in UC0: extracts author-tiered invariant candidates from the
 deposited books/articles for batch validation).
 
@@ -973,7 +982,7 @@ investment-ARCHITECTURE.md (axis classification, hysteresis
 uniqueness in one transaction). Emits **RegimeEvent → EventLog BEFORE**
 touching the Regime vertex, and only when regime/confidence-band/tags change.
 ONE state-machine step per NEW monthly print — `detector.step(print_set)`
-with persisted candidate state; PIT by construction. FOUR callers: UC0 25y
+with candidate state persisted in `detector_state`; PIT by construction. FOUR callers: UC0 25y
 materialization and the Phase 9 replay iterate step() over the archive;
 the Monday 08:00 catch-up and the on-demand UC9 prelude call it on the
 prints that arrived since the last run (usually 0-1 — the axes only change
@@ -1053,7 +1062,8 @@ class PlannerPre:
     async def run(self, trigger: str, history: list) -> tuple[PlannerContext, dict]:
         # PYTHON — BASELINE (mechanical, no LLM): asyncio.gather (5 queries):
         #   ① Current Regime + global liquidity latest row
-        #   ② Ranked snapshot rows (today)
+        #   ② Ranked snapshot rows (LATEST date — Monday's ranking when
+        #      re-run ad-hoc mid-week)
         #   ③ Scenarios + week-over-week shift (LAG on scenario_probability)
         #   ④ Top invariants by weight_effective (integrated only)
         #   ⑤ Last 3 Proposals (any status, incl. outcomes/rejections)
@@ -1104,7 +1114,10 @@ LEFT JOIN designed_for d ON d.from_id = p.id
 WHERE p.defender = 1 AND p.enabled = 1;
 
 -- Ranking:
-SELECT * FROM portfolio_weekly_snapshot WHERE date = :today ORDER BY rank ASC;
+SELECT * FROM portfolio_weekly_snapshot
+WHERE date = (SELECT MAX(date) FROM portfolio_weekly_snapshot)
+ORDER BY rank ASC;  -- latest ranking: today's on Monday; last Monday's for
+                    -- an ad-hoc mid-week UC8 re-run (no snapshot rewrite)
 ```
 
 ### Task 4.2 — `planner/post.py`
@@ -1176,13 +1189,16 @@ Skill files (each: purpose, inputs, method, output contract):
 mechanically): new Passages since last run + their SUPPORTS-linked invariants
 + top invariants by weight. Skill: `skill-curate-knowledge.md`.
 
+**Single-flight:** an asyncio lock serializes runner invocations — a
+watcher batch landing during the Monday chain waits its turn.
+
 **Four callers, one runner:**
 1. event-driven — right after a watcher ingestion batch that created new
    Documents (a deposited book yields candidates within minutes);
 2. weekly UC3 event triage (`skill-triage-events.md` — major/routine
    verdict + enrichment draft, Task 3.2);
 3. weekly Monday 08:10 — sweep + re-curation of existing invariants;
-4. UC0 seed batch (step 4b, default) — whole corpus, interactive CLI
+4. UC0 seed batch (step 6b, default) — whole corpus, interactive CLI
    validation.
 
 Output:
@@ -1218,9 +1234,9 @@ class CurationResult(BaseModel):
 
 Persisted via Writeback (KnowledgeEvent → EventLog first). Curation vs
 Innovation boundary and author-tier rule per CLAUDE.md. The same runner
-serves two callers: weekly UC4 (validation via Telegram) and the UC0
-`--curate` seed pass (batch validation interactively in the CLI — see
-USE_CASES.md step 4b).
+serves the four callers above — Telegram validation for the event-driven
+and weekly paths, interactive CLI batch validation for the UC0 seed pass
+(default; skip with `--no-curate` — see USE_CASES.md step 6b).
 
 **Done when:** on the seeded DB, the Worker produces a complete WorkerResult
 (with reallocation_proposed populated when the bear-scenario fixture shifts
@@ -1350,7 +1366,8 @@ python-telegram-bot application:
   an optional one-line rejection_reason); `[YES]/[NO]` →
   Invariant status integrated/rejected (+ validated_at).
 - Chat handler: Worker model + same 3 bridged tools + chat skill; decisions
-  persist via Planner Post → Writeback; max ONE ad-hoc UC8 re-run per day,
+  persist via Planner Post → Writeback; max ONE ad-hoc UC8 re-run per day
+  (enforced by counting today's ad-hoc UC8 EventLog rows before running),
   always preceded by the UC1 catch-up prelude; `/refresh` = prelude alone.
 - Commands: `/status`, `/ranking`, `/disable <strategy_id>`,
   `/enable <strategy_id>`, `/drawdown <pct>` (updates user_profile — binding).
@@ -1406,7 +1423,7 @@ which ride the next backup).
 ```python
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
 async def test_schema_complete():            # 13 entity + 5 M:N relation + 3 TS +
-                                             # 8 doc tables; 5 FK-column relations
+                                             # 9 doc tables; 5 FK-column relations
 async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
@@ -1461,7 +1478,8 @@ async def test_due_on_start():               # app starts Wednesday, last chain 
                                              # restart same day → no second run
 async def test_eventlog_event_date_query():  # backfilled event sortable by event_date
                                              # independently of append order
-async def test_eventlog_precedes_commit():   # for every audited change, the EventLog
+async def test_eventlog_precedes_commit():   # for every audited change (UC0 seed
+                                             # exempt — closing SeedEvent), the EventLog
                                              # append happens before the vertex commit
                                              # IN APPEND ORDER (monotonic ULID id) —
                                              # never compare wall-clock ts
@@ -1538,7 +1556,10 @@ Grid search over `proposal_sortino_gap_min`, `proposal_calmar_min`,
 
 At startup, `main.py` refuses to enable the weekly proposal cycle unless the
 latest `replay_report` shows **agent-follow ≥ hold-initial-defender on the
-validation window, net of costs** (override: `--force-live`). Telegram
+validation window, net of costs** (override: `--force-live`). Gate closed ≠
+system idle: the chain runs FULLY (catch-up, event watch, curation,
+ranking, outcomes keep accumulating history) — only UC8 is skipped, and the
+digest states "proposal cycle disabled (replay gate)". Telegram
 summary on every replay run:
 "25y replay: agent-follow +X.X%/y vs defender +Y.Y%/y | Sortino A vs B |
 N switches, hit-rate Z% at +12w, false signals W%".

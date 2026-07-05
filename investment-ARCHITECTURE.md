@@ -150,7 +150,8 @@ TIME-SERIES (3)
   PortfolioNAV        rolling indicators per day (USD)
 
 DOCUMENT TYPES      user_profile, allowed_tickers, system_thresholds,
-                    invariant_author_config, invariant_confrontations,
+                    invariant_author_config, detector_state (hysteresis,
+                    1 row), invariant_confrontations,
                     portfolio_weekly_snapshot,
                     scenario_calibration (weekly calibration scores),
                     replay_report (Phase 9 shadow replay / go-live gate)
@@ -309,8 +310,10 @@ score_scenarios():
   → OutcomeEvent (kind=calibration, batch)
 
 strategy_probation_check():
-  For each Strategy activated (new or revision) strategy_probation_weeks
-  ago: compare its FAVORS percentile in the current regime type vs the
+  For each Strategy activated VIA INNOVATION (new or revision — anchored
+  on its InnovationEvent date; the 4 SEEDED strategies are the baseline
+  and never enter probation) strategy_probation_weeks ago:
+  compare its FAVORS percentile in the current regime type vs the
   median → OutcomeEvent (kind=probation) verdict 'keep' | 'review'
   ('review' → Telegram: propose closure, user decides)
 ```
@@ -604,7 +607,9 @@ class WorkerResult(BaseModel):
 
 ### CALL 2 — Knowledge Extractor (async post-Worker)
 ```
-asyncio.create_task() after WorkerResult.
+asyncio.create_task() after WorkerResult — but the Monday chain AWAITS
+this task before the digest (the digest renders the Proposal it creates);
+create_task only buys parallelism within the UC8 step.
 Extracts: regime updates, evaluations, scenario updates,
           invariant confrontations, innovations.
 Outputs PostPlannerResult via extract_knowledge tool.
@@ -639,8 +644,9 @@ stale data). Timezone Europe/Zurich.
           → V2 only: learn_from_adaptations
 
 09:00   Worker cycle
-  09:00:01  Call 1a    LLM ~1s
-  09:00:02  Python DB  ~20ms (6 parallel queries)
+  09:00:00  Python     ~20ms — BASELINE (5 fixed queries, no LLM)
+  09:00:01  Call 1a    LLM ~1s — variable margin (corpus_queries + zooms)
+  09:00:02  Python     ~50ms — embed queries, cosine, whitelisted zooms
   09:00:03  Call 1b    LLM ~2s  → PlannerContext
   09:00:05  Worker     LLM ~5s  → WorkerResult
   09:00:10  asyncio.create_task() → PlannerPost + Writeback

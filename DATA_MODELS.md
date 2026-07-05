@@ -605,8 +605,9 @@ CREATE TABLE IF NOT EXISTS scenario_probability (
   probability REAL,
   PRIMARY KEY (strategy_id, scenario, ts));
 -- Week-over-week shift = LAG on read; no stored derivative column.
--- Appended WEEKLY (Monday 08:35), not daily: probability values only change
--- via the weekly Worker cycle.
+-- Appended WEEKLY: 08:35 mechanical (numeric triggers) and possibly again
+-- by Writeback after Worker adjustments — the POST-WORKER row is the
+-- canonical weekly value; every read takes MAX(ts) within the week.
 
 CREATE TABLE IF NOT EXISTS portfolio_nav (
   portfolio_id TEXT NOT NULL, currency TEXT NOT NULL, ts TEXT NOT NULL,
@@ -746,6 +747,13 @@ CREATE TABLE IF NOT EXISTS allowed_tickers (...);
 --   to the Worker.
 
 CREATE TABLE IF NOT EXISTS system_thresholds (...);
+
+CREATE TABLE IF NOT EXISTS detector_state (...);
+-- Single row — the regime detector's persisted hysteresis state (it must
+--   survive restarts: due-on-start). candidate_type STRING,
+--   consecutive_prints INTEGER, last_print_ts_growth TEXT,
+--   last_print_ts_inflation TEXT, updated_at TEXT.
+-- Runtime-changing state → table (criterion above).
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
 -- Seed includes regime thresholds, rolling window (756d), recency half-life,
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),

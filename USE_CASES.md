@@ -102,15 +102,32 @@ UC8 reads EventLog weekly to assemble its inputs.
     Tags reserved on instances: 'deflation', 'liquidity-tightening',
                    'liquidity-easing', 'market-stress'
 
-4.  Corpus seed (optional, if PDFs are in ~/data/investment/sources/corpus):
+4.  Invariant vertices (status='integrated', seed minimum, hand-written —
+    guaranteed baseline even when step 6b is skipped;
+    created BEFORE the corpus steps so SUPPORTS/BACKED_BY targets exist):
+    - inflation-persistence-tips     (dalio, weight 0.85, floor 0.40)
+    - falling-growth-duration         (dalio, weight 0.80, floor 0.40)
+    - rising-growth-equities          (dalio, weight 0.80, floor 0.40)
+    - liquidity-tightening-risk       (marks, weight 0.75, floor 0.35)
+    - liquidity-easing-risk           (marks, weight 0.75, floor 0.35)
+    - diversification-drawdown        (dalio, weight 0.70, floor 0.40)
+
+5.  Strategy vertices (4), enabled=true:
+    - four-seasons-rp, permanent-browne, barbell-taleb, momentum-macro
+    - Conditions include ≥1 dimension orthogonal to regime thresholds,
+      and every referenced indicator is computable from MarketData/Regime
+    - BACKED_BY edges to relevant invariants
+
+6.  Corpus seed (optional, if PDFs are in ~/data/investment/sources/corpus):
     - Calls the SAME `CorpusIngester` used by the inbox watcher
       (single pipeline: parse + chunk + embed → Document + Passage vertices)
-    - SUPPORTS edges built from passage-invariant matches above similarity floor
+    - SUPPORTS edges built from passage-invariant matches above similarity
+      floor (invariants exist — step 4 — so the matrix is non-empty)
 
-4b. Initial curation pass (DEFAULT when a corpus is present; skip with
+6b. Initial curation pass (DEFAULT when a corpus is present; skip with
     `--no-curate` — the ONLY LLM step in UC0):
     - Runs the SAME curation runner as weekly UC4 (Task 5.3) over the whole
-      corpus ingested in step 4, in batches of passages
+      corpus ingested in step 6, in batches of passages
     - Extracted invariant candidates are proposed with
       **author = Document.author tier** ('dalio' → floor 0.40,
       'marks' → 0.35, other → null/0.20) — NOT 'system'; 'system' is
@@ -120,21 +137,6 @@ UC8 reads EventLog weekly to assemble its inputs.
     - Validated candidates → status='integrated', BACKED_BY/SUPPORTS edges
     - This is how a deposited book yields stable invariants at install time
       instead of waiting for weekly UC4 cycles
-
-5.  Invariant vertices (status='integrated', seed minimum, hand-written —
-    guaranteed baseline even when step 4b is skipped):
-    - inflation-persistence-tips     (dalio, weight 0.85, floor 0.40)
-    - falling-growth-duration         (dalio, weight 0.80, floor 0.40)
-    - rising-growth-equities          (dalio, weight 0.80, floor 0.40)
-    - liquidity-tightening-risk       (marks, weight 0.75, floor 0.35)
-    - liquidity-easing-risk           (marks, weight 0.75, floor 0.35)
-    - diversification-drawdown        (dalio, weight 0.70, floor 0.40)
-
-6.  Strategy vertices (4), enabled=true:
-    - four-seasons-rp, permanent-browne, barbell-taleb, momentum-macro
-    - Conditions include ≥1 dimension orthogonal to regime thresholds,
-      and every referenced indicator is computable from MarketData/Regime
-    - BACKED_BY edges to relevant invariants
 
 7.  Scenario vertices (3 per Strategy = 12 total), bull/base/bear with
     initial probabilities summing to 100
@@ -192,7 +194,9 @@ UC8 reads EventLog weekly to assemble its inputs.
     - gap_to_defender computed for each non-defender entry
     - recommendation = 'maintain' on day zero
 
-14. SeedEvent → EventLog with full inventory:
+14. SeedEvent → EventLog with full inventory (EXPLICIT EXEMPTION from the
+    append-before-commit rule: UC0 is the bootstrap — the SeedEvent is a
+    CLOSING summary, appended after the commits it inventories):
     payload = {
       frameworks, regimes (incl. historical count), invariants, strategies,
       scenarios, portfolios, market_data_rows, backtests, snapshot_date,
@@ -278,7 +282,7 @@ IngestionEvent).
    only — never decisions.
 2. **Weekly cron (Monday, after UC3):** sweep over anything not yet curated
    + re-curation opportunities on existing invariants.
-3. **UC0 seed batch** (step 4b, default): initial pass over the whole corpus.
+3. **UC0 seed batch** (step 6b, default): initial pass over the whole corpus.
 
 **What it does:** Processes Documents/Passages ingested since the last run.
 Raw inbox parsing (parse + chunk + embed → Document/Passage vertices +
@@ -466,7 +470,9 @@ go through Planner Post → Writeback like any UC (UC5 path). This is
 user-initiated, so it does not violate the "weekly = sole scheduled decision
 cycle" rule; it may trigger at most **one ad-hoc UC8 re-run per day** —
 which always starts with the UC1 catch-up prelude (fetch + regime + NAV,
-mechanical, seconds) so the Worker never reasons on stale data. `/status`
+mechanical, seconds) so the Worker never reasons on stale market data —
+while the RANKING context stays the latest Monday snapshot (no mid-week
+snapshot rewrite). `/status`
 mid-week offers `/refresh` (same prelude, no UC8).
 **What it does:** Conversational interface. Any decision stored via UC5.
 Rule changes ("reduce max drawdown") update `user_profile` (binding rules);

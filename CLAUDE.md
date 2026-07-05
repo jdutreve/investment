@@ -85,7 +85,8 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
            re-run): market fetch for all days since last run → MarketData
            TS; regime detector stepped ONCE PER NEW MONTHLY PRINT since
            the last run (usually 0-1 — the axes only change on print
-           days; candidate state persisted; start_dates come from the
+           days; candidate state persisted in `detector_state`;
+           start_dates come from the
            data, never the run date; same step() as UC0 materialization
            and the replay) → Regime vertex + RegimeEvent (on change only);
            NAV/ratios catch-up → PortfolioNAV TS; proposal-expiry sweep;
@@ -164,7 +165,8 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 `EventLog` is an **append-only table** (entity with no relations; monotonic
 ULID id = canonical append order). **Every UC side-effect must be appended to EventLog BEFORE being
 committed elsewhere in the DB.** Architectural invariant for auditability
-and replay. Exemption: pure TS writes (UC1 market feed, weekly NAV catch-up and scenario
+and replay. Exemptions: UC0 bootstrap (SeedEvent is a closing summary) and
+pure TS writes (UC1 market feed, weekly NAV catch-up and scenario
 jobs) append no EventLog row — they create no vertex/edge.
 
 ### Decision cycle
@@ -212,7 +214,7 @@ jobs) append no EventLog row — they create no vertex/edge.
   `author = Document.author` tier (dalio/marks/null — floor 0.40/0.35/0.20);
   discovered from market patterns (backtests, rankings) →
   `author='system'` (floor 0.05). `source` always records the real
-  provenance in free text. The UC0 initial curation pass (USE_CASES step 4b,
+  provenance in free text. The UC0 initial curation pass (USE_CASES step 6b,
   DEFAULT — skip with `--no-curate`) lets a deposited book yield validated
   invariants at install time; later deposits are curated within minutes
   (watcher → ingestion batch → curation runner).
@@ -325,7 +327,7 @@ EDGES  : UPDATES,
 TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
               PortfolioNAV
 DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
-              system_thresholds, invariant_confrontations,
+              system_thresholds, detector_state, invariant_confrontations,
               portfolio_weekly_snapshot, scenario_calibration, replay_report
               (plain tables, single engine — weight/history/
                performance data live on vertices and FAVORS edges, never
@@ -350,14 +352,16 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 
 ## Definition of Done
 
-1. UC0 seed produces 13 vertex types, 10 edge types, 3 time-series, the
-   document types, historical Regime instances from the 25y backfill, seed
-   data, and the first `portfolio_weekly_snapshot` row.
+1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
+   other 5 relations are FK columns), 3 TS tables and 9 document tables;
+   historical Regime instances from the 25y backfill; seed data; and the
+   first `portfolio_weekly_snapshot` row.
 2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
    every trading day (USD).
 3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`
    using level/speed/acceleration, with hysteresis and a computed confidence.
-4. After Dalio corpus ingestion + `--curate` batch validation: 10+ Passage
+4. After Dalio corpus ingestion + the default seed curation pass (skip
+   with `--no-curate`) and batch validation: 10+ Passage
    vertices, and extracted Invariants carrying `author='dalio'` (floor 0.40)
    with weights, linked by SUPPORTS edges.
 5. Full weekly cycle: MarketData/EventLog ingestion → Worker → Evaluation →
