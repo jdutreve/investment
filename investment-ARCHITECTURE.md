@@ -687,8 +687,12 @@ Swap model: change `.env` only. No `BaseLLMClient`, no factory, no wrapper.
 
 ```
 Seeds      → runs UC0 once at install
-Feeds      → uploads PDFs, URLs (local drop or Telegram)
-Challenges → questions theses via UC9 (Telegram chat)
-Arbitrates → validates/rejects Proposals and innovations
-Defines    → drawdown rule, single-asset concentration, strategy enabled flag
+Feeds      → PDFs, URLs, one-line notes (Telegram, `invest feed/note`, drop)
+Challenges → questions theses via UC9 chat (Telegram or `invest chat`)
+Reads      → weekly digest (push) | dashboard http://127.0.0.1:8765 —
+             ranking, invariants + confrontation timelines, proposals &
+             scoreboard, EventLog, semantic search, read-only SQL console
+Arbitrates → validates/rejects Proposals and innovations (buttons, CLI,
+             dashboard — one command layer, ADR-005)
+Defines    → drawdown rule, concentration, strategy enabled flag
 ```

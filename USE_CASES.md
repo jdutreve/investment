@@ -465,8 +465,13 @@ ARCHITECTURE "Unified improvement cycle".
 
 ---
 
-## UC9 — Chatbot
-**Trigger:** User message (Telegram).
+## UC9 — User interfaces (Telegram bot + `invest` CLI + local dashboard)
+**Trigger:** User action on any of the three fronts — Telegram message,
+`invest` CLI command, dashboard click (http://127.0.0.1:8765). All fronts
+dispatch to ONE command layer (`ops/commands.py`, TASKS Phase 6ter):
+action → UserDecisionEvent → Writeback — same gates, same audit trail.
+Reads are direct on SQLite (WAL); the dashboard adds a read-only SQL
+console and semantic search; full command list in TASKS Task 6ter.2.
 **LLM policy:** UC9 uses the Worker model (Sonnet) with the same 3 bridged
 read-only tools (`db_query`, `market_fetch`, `portfolio_check`) and the same
 Worker system prompt plus a chat skill. It never writes directly — decisions
@@ -517,7 +522,7 @@ switch cooldown rule). Pending proposals auto-expire after
 | 6  | Portfolio Valuation | Weekly cron         | ValuationEvent                        | Weekly           |
 | 7  | Portfolio Ranking   | Weekly cron         | RankingEvent + snapshot               | Weekly           |
 | 8  | Proposal Detection  | Weekly Worker cycle | ProposalEvent + Proposal (switch or reallocation) / — | Weekly |
-| 9  | Chatbot             | User message        | UserDecisionEvent                     | On demand        |
+| 9  | User interfaces     | Telegram / CLI / dashboard | UserDecisionEvent (one command layer) | On demand |
 
 ---
 

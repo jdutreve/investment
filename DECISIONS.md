@@ -158,3 +158,39 @@ not mitigated but **removed**. The SQLite file format is stable for 20+
 years (archival-grade) — aligned with the retirement horizon. Revisit only
 if a real multi-hop traversal need or a >1M-row table appears (V2+);
 that decision would supersede this ADR.
+
+---
+
+## ADR-005 — Local exploitation: three fronts, one command layer
+
+**Status:** accepted.
+**Date:** 2026-07.
+
+**Context.** Simple, relevant daily exploitation is vital. Telegram alone
+is a narrow pipe (20-row tool cap, no tables, no charts) and the raw
+SQLite file, while open, is not an interface. Meanwhile the single-writer
+rule must survive any new write path.
+
+**Decision.** One command layer, three fronts:
+- `ops/commands.py` — every user action (accept/reject, yes/no, feed,
+  note, enable/disable, drawdown, manual runs) = validate →
+  UserDecisionEvent → Writeback. The Telegram bot, the `invest` CLI and
+  the dashboard are thin clients of this layer.
+- **Reads direct, writes through the agent**: SQLite WAL gives concurrent
+  readers for free, so CLI/dashboard read the live file; writes go only
+  through the running agent's serialized asyncio path via a localhost-only
+  aiohttp API (127.0.0.1:LOCAL_API_PORT). Agent down → read-only mode.
+- Dashboard: server-rendered HTML + vanilla fetch + inline SVG — no build
+  step, no CDN, no new framework (aiohttp is already a dependency).
+- Power-user escape hatch: read-only SQL console (keyword blacklist,
+  LIMIT 5000 sanity cap — the Worker's 20-row cap is a guardrail for the
+  LLM, not for the human owner).
+
+**Consequences.** Every mutation, from any front, carries the same audit
+trail and passes the same gates — no side-channel around user validation.
+Adding a future front (e.g. iOS shortcut) = one more thin client.
+Hardening (2026-07 pass): `X-Ops-Token` header (file-based, chmod 600) on
+every API call — localhost binding alone does not stop browser CSRF;
+command layer idempotent across fronts; single-flight run-lock over
+{catchup, chain, uc8, replay}; long ops are async jobs; `feed`/`note`/
+`backup` stay available agent-down (filesystem/read-only operations).

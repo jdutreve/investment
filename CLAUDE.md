@@ -143,6 +143,9 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 |                 | Quantitative shocks are mechanical (VIX/liquidity tags).      |
 |                 | General auto-veille deferred — I-9/I-26                       |
 | Notifications   | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
+| Local ops       | `invest` CLI + dashboard http://127.0.0.1:8765 (aiohttp) —    |
+|                 | reads direct (SQLite WAL), writes via the agent's command     |
+|                 | layer (ADR-005)                                               |
 | Process         | APScheduler, single Python process                            |
 | Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
 | Service         | launchd LaunchAgent `com.jp.investment-agent`; weekly chain   |
@@ -221,6 +224,13 @@ jobs) append no EventLog row — they create no vertex/edge.
   DEFAULT — skip with `--no-curate`) lets a deposited book yield validated
   invariants at install time; later deposits are curated within minutes
   (watcher → ingestion batch → curation runner).
+
+### User interfaces — one command layer
+- Telegram bot, `invest` CLI and the local dashboard are THREE FRONTS of
+  ONE command layer (`ops/commands.py`): every user action, whatever the
+  front, becomes a UserDecisionEvent and goes through Writeback — same
+  gates, same audit. Reads are direct on SQLite (WAL concurrent readers);
+  writes only through the running agent (single-writer preserved).
 
 ### Worker
 - Never mention Writeback/Planner/storage in Worker prompts.

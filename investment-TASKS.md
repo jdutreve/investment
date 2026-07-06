@@ -113,6 +113,9 @@ FRED_SERIES=CPIAUCSL,T10Y2Y,UNRATE,INDPRO
 GROWTH_COMPOSITE_COMPONENTS=INDPRO,UNRATE
 GLOBAL_LIQUIDITY_COMPONENTS=M2SL,WALCL,ECBASSETSW,JPNASSETS
 
+# Local ops
+LOCAL_API_PORT=8765   # bound to 127.0.0.1 only
+
 # Telegram
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
@@ -246,6 +249,11 @@ not root scripts — no path ambiguity.
 │       │   └── learning.py       ← V2 only (stub)
 │       ├── veille/
 │       │   └── event_watch.py    ← UC3 (pinned sources + bounded fetch)
+│       ├── ops/
+│       │   ├── api.py            ← aiohttp localhost API (127.0.0.1:8765)
+│       │   ├── commands.py       ← ONE command layer (Telegram/CLI/dashboard)
+│       │   ├── cli.py            ← `invest` console script
+│       │   └── dashboard/        ← server-rendered pages + inline SVG
 │       └── telegram/
 │           ├── digest.py         ← weekly digest renderer
 │           └── bot.py            ← UC9 chat + proposal/innovation callbacks
@@ -1470,6 +1478,9 @@ python-telegram-bot application:
 - Candidate validation is BATCHED: one grouped message per curation run
   (numbered list, each with a one-line rationale) — `/yes 1,3,5`, `/no 2`,
   `/yes all`. No per-candidate message flood.
+- All handlers dispatch to `ops/commands.py` (Phase 6ter) — the bot is a
+  thin front of the same command layer as the CLI and dashboard; it
+  exposes a SUBSET of the commands (full set: Task 6ter.2).
 - Callbacks: `[ACCEPT PAPER-TEST]/[REJECT]` → UserDecisionEvent →
   Proposal.user_response (+ paper_started on accept; on reject, prompt for
   an optional one-line rejection_reason); `[YES]/[NO]` →
@@ -1486,6 +1497,127 @@ python-telegram-bot application:
 **Done when:** digest renders from a seeded snapshot; buttons mutate state
 via Writeback with EventLog-first ordering; `/drawdown -10` updates
 user_profile and is reflected in the next gate evaluation.
+
+---
+
+## Phase 6ter — Local ops: CLI + web dashboard (daily exploitation)
+*Estimated: 1.5 days*
+
+Simple, relevant exploitation is vital: three fronts, ONE command layer.
+Telegram (remote), `invest` CLI (terminal), dashboard (browser) all call
+the same `ops/commands.py` — validate → UserDecisionEvent → Writeback —
+so every user action, whatever the front, follows the same audited path
+and the same gates. No new framework: aiohttp (already a dependency)
+serves a localhost-only API + the dashboard. See DECISIONS.md ADR-005.
+
+**Read/write rule (single-writer preserved) — offline matrix:**
+- READS: direct SQLite — WAL allows concurrent readers; the CLI and
+  dashboard read the live file with zero coordination. `invest digest`
+  works offline too (the renderer is importable, snapshots are readable).
+- ALWAYS AVAILABLE, agent up or down: `feed` and `note` (FILESYSTEM drops
+  into the inbox — not DB writes; the watcher's first scan drains them at
+  next start) and `backup` (reads the source file).
+- AGENT REQUIRED: DB-mutating commands (accept/reject, yes/no,
+  enable/disable, drawdown), manual runs, and `chat` (LLM keys live in the
+  agent) — all through the localhost API → `ops/commands.py` → serialized
+  asyncio write path. Agent stopped → explicit refusal message.
+
+### Task 6ter.1 — `ops/api.py` + `ops/commands.py`
+
+aiohttp.web server bound to **127.0.0.1** only, port `LOCAL_API_PORT`
+(8765), started by main.py alongside the scheduler/watcher/bot.
+
+**Auth (CSRF — localhost binding does NOT protect against the browser):**
+any web page can POST to 127.0.0.1, so every API call requires the header
+`X-Ops-Token`, whose value is generated at startup into
+`~/data/investment/ops_token` (chmod 600). A custom header forces a CORS
+preflight, which fails cross-origin; the dashboard (same-origin) embeds
+the token, the CLI reads the file. No token → 403.
+
+**Long operations are async jobs:** `POST /api/cmd` for {catchup, chain,
+uc8, replay} returns `job started` immediately; the heavy compute runs in
+an executor (the API/watcher/bot stay responsive); progress is visible via
+`invest status` and EventLog.
+- `GET /api/...` — JSON reads (status, ranking, invariants, proposals,
+  outcomes, events, nav, regime history, semantic search over both
+  embedding matrices).
+- `GET /api/sql?q=` — READ-ONLY free SQL (keyword blacklist incl.
+  INSERT/UPDATE/DELETE/DROP/ALTER **and ATTACH/PRAGMA**; single statement;
+  NO 20-row cap — local trusted user; sanity LIMIT 5000).
+- `POST /api/cmd` — actions, dispatched to `ops/commands.py` (shared with
+  the Telegram bot handlers — the bot becomes a thin front too).
+
+**`ops/commands.py` invariants:**
+- **Idempotent across fronts**: acting on an already-decided item (a
+  candidate validated on the dashboard, then `/yes` on Telegram) returns
+  its current state — "already integrated via dashboard at 10:42" — and
+  appends NO second UserDecisionEvent.
+- **Run-lock (single-flight)**: {catchup, chain, uc8, replay} share one
+  lock — a concurrent request is refused with "already running: <step>".
+  Covers the Monday chain vs manual runs vs the ad-hoc UC9 UC8.
+
+### Task 6ter.2 — `ops/cli.py` — the `invest` command
+
+Console script (`[project.scripts] invest = "investment.ops.cli:main"`).
+Thin client of the API; falls back to direct read-only SQLite when the
+agent is down.
+
+```
+READ
+  invest status                     regime, defender, last chain, pending items
+  invest ranking [--date D]         snapshot table
+  invest digest                     re-render the latest digest in the terminal
+  invest scoreboard                 hit-rate, paper-tests, probations, calibration
+  invest invariants [--regime R] [--tag T] [--status S] [--top N]
+  invest invariant <id>             detail + confrontation history + weight curve
+  invest proposals [--pending]      incl. outcome verdicts
+  invest regime [--history]
+  invest nav <portfolio_id>         NAV series (sparkline in terminal)
+  invest events [--type T] [--since D]   EventLog tail
+  invest search "query"             semantic search (passages + invariants)
+  invest sql "SELECT ..."           read-only, uncapped (LIMIT 5000)
+
+WRITE (via agent — every action = UserDecisionEvent → Writeback)
+  invest accept <proposal_id> | reject <proposal_id> [--reason "..."]
+  invest yes 1,3,5 | no 2           pending invariant candidates
+  invest feed <file|url>            deposit into inbox
+  invest note "one-line event"      qualitative note (kind=note)
+  invest disable|enable <strategy_id>
+  invest drawdown <pct>             binding user rule
+  invest chat "question"            one-shot UC9 (Worker + bridged tools)
+
+OPS
+  invest run catchup|chain|uc8|replay   manual triggers (uc8: 1/day rule applies)
+  invest backup                     immediate sqlite3 .backup
+```
+
+### Task 6ter.3 — `ops/dashboard/` — local web dashboard
+
+Served by the same aiohttp server at `http://127.0.0.1:8765`. No build
+step, no CDN: server-rendered HTML + vanilla JS `fetch` on the JSON API;
+charts as server-generated inline SVG (NAV lines, weight timelines).
+Pages:
+
+1. **Overview** — regime (type, confidence, tags), defender + NAV
+   sparkline, scoreboard, pending validations, last chain run.
+2. **Ranking & portfolios** — snapshot table (sortable), portfolio detail
+   with NAV chart and allocation.
+3. **Invariants** — filterable table (tag/status/author/weight); detail =
+   description, provenance, SUPPORTS passages, BACKED_BY strategies,
+   confrontation timeline, weight_effective curve.
+4. **Knowledge** — documents/passages browser + semantic search box.
+5. **Proposals & outcomes** — pending (with ACCEPT/REJECT buttons →
+   /api/cmd), history with verdicts, hit-rate chart.
+6. **EventLog** — filterable audit tail (type, source_uc, date).
+7. **SQL console** — read-only textarea → table (the power-user escape
+   hatch; same guard as /api/sql).
+8. **Actions panel** — candidate validation (YES/NO batched), strategy
+   enable/disable, drawdown rule, feed/note upload, manual runs.
+
+**Done when:** with the agent running, `invest status` answers in <1s;
+an ACCEPT click on the dashboard produces UserDecisionEvent → Writeback
+(same rows as the Telegram button); with the agent stopped, reads still
+work and writes fail with the explicit message.
 
 ---
 
@@ -1601,6 +1733,16 @@ async def test_eventlog_id_monotonic():      # two appends in the same milliseco
                                              # strictly increasing ids; a backdated
                                              # payload date does not disturb ordering
 async def test_monday_chain_aborts():        # UC6 failure → no UC7 snapshot, ErrorEvent
+async def test_command_layer_single_path():  # same action via bot handler and /api/cmd
+                                             # → identical UserDecisionEvent + Writeback rows
+async def test_cli_readonly_offline():       # agent down → reads + feed/note/backup OK,
+                                             # DB-mutating commands refuse explicitly
+async def test_ops_auth_token():             # API call without X-Ops-Token → 403;
+                                             # with the file's token → 200
+async def test_run_lock():                   # run chain while chain in flight →
+                                             # "already running", no second cycle
+async def test_command_idempotent():         # same accept via dashboard then Telegram
+                                             # → one UserDecisionEvent, second returns state
 ```
 
 ---
