@@ -499,7 +499,7 @@ SYSTEM_THRESHOLDS = {
     "scenario_calibration_weeks": 4.0,   # scenario probability scoring horizon
     # invariants
     "recency_half_life_days": 365.0,
-    "confrontation_margin": 0.10,        # FAVORS-vs-median infirmation margin
+    "confrontation_margin": 0.10,        # effect-vs-benchmark no-op band (±)
     "vector_similarity_min": 0.35,
     # regime detection (see ARCHITECTURE formal algorithm)
     "regime_cpi_stagflation": 2.5,
@@ -658,8 +658,10 @@ REGIME_TYPES = [
 
 ### Task 1ter.3 — Invariant seed (6 minimum, status=integrated)
 
-`regime:*` tags use RegimeType ids — they drive the mechanical confrontation
-rule (ARCHITECTURE).
+Each seeded invariant carries a machine-readable `condition` + `effect` (the
+confrontation driver — ARCHITECTURE "Birth maturation"). `regime:*` tags, if
+present, use RegimeType ids but are THEMATIC/retrieval only, NOT the
+confrontation driver.
 
 ```python
 INVARIANTS = [
@@ -1352,8 +1354,8 @@ the same way (default; skip with `--no-curate` — see USE_CASES.md step 6b).
 - **tagged**: ≥1 tag — namespaced where applicable (`regime:`, `asset:`,
   `asset-class:`, `indicator:`, `phase:`), free thematic otherwise
   (`economy`, `rates`, `forex`, `credit`, `liquidity`, `geopolitics`, …).
-  Mechanical confrontation keys on `regime:*`; context selection keys on
-  `regime:`/`asset:`; thematic tags serve retrieval and curation;
+  Tags are THEMATIC/retrieval + context selection only; mechanical
+  confrontation keys on `condition`/`effect`, NOT on tags;
 - **evidenced**: a dated example + real provenance.
 A candidate failing the contract is not emitted. This is what makes
 candidates proportional to PRINCIPLES, not to chunks.
@@ -1389,11 +1391,14 @@ existing invariant from a new fixture passage without touching its weight.
   (week-over-week shift = LAG on read, no stored column). Weekly:
   probability VALUES change only via Worker `scenario_adjustments`.
 - `backtests.py` (weekly 08:30) — synthetic backtests per (Strategy ×
-  RegimeType) over historical Regime instances; refresh FAVORS aggregates.
+  RegimeType) over historical Regime instances; refresh FAVORS aggregates;
+  extend benchmark_valuation (asset_class + strategy rows) with the new period.
 - `invariants.py` (weekly 08:40 + event-driven) — implements the mechanical
-  confrontation rule (ARCHITECTURE): FAVORS-vs-median for the current regime
-  type + Evaluation verdict propagation → invariant_confrontations →
-  update_invariant_weights() → Invariant.updated_at.
+  confrontation rule (ARCHITECTURE): CONDITION-gated, effect evaluated by its
+  method vs benchmark_valuation (cross_class/cross_strategy) on completed
+  condition-moments; + Evaluation/Proposal verdict propagation (condition-
+  gated) → invariant_confrontations → update_invariant_weights() →
+  Invariant.updated_at. Also runs mature_invariant() on every new birth.
 - `snapshots.py` (weekly 08:50) — ranking per REVISION_NOTES rule
   (sortino DESC, calmar tie-break 0.02, max_drawdown final; calmar<1.0
   demoted; user-drawdown breach = defender/proposal exclusion flag) →
@@ -1712,7 +1717,8 @@ async def test_switch_gate_blocked_caps():   # binding user cap violation → bl
 async def test_reallocation_gate():          # valid ReallocationProposal → Proposal
                                              # vertex with proposed_allocation
 async def test_reallocation_gate_turnover(): # Σ|delta|/2 > 30 → blocked
-async def test_invariant_confrontation():    # FAVORS above median → confirmation row +
+async def test_invariant_confrontation():    # active-condition invariant: effect beats
+                                             # benchmark (method) → confirmation row +
                                              # weight_effective recomputed
 async def test_agent_innovation():           # born proposed → matured 25y → integrated
                                              #   iff time-validated; no user gate (ADR-006)

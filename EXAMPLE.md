@@ -179,11 +179,12 @@ an asymptotic floor of 0.5.
 ```
 Invariant {
   id: "gold-stagflation-hedge"
-  title: "GLD outperforms in stagflation vs standard 4 Seasons weighting"
-  description: "In stagflation, gold benefits from dual tailwinds: real yields
-                fall (inflation up, growth down) and risk aversion rises.
-                Standard 4 Seasons holds ~10% GLD; this invariant supports a
-                15-25% tilt."
+  title: "Gold-commodities lead the other asset classes when real rates are negative"
+  description: "When real rates are negative, gold benefits from dual
+                tailwinds and leads the other asset classes (cross_class).
+                Negative real rates are the fundamental driver — stagflation is
+                one common occurrence, not the condition itself. Standard 4
+                Seasons holds ~10% GLD; this invariant supports a 15-25% tilt."
   example: "2021-2022: GLD +18% vs 4 Seasons GLD sleeve +11% while the growth
             composite stayed below 100 for 8 consecutive months."
   tags: ["asset:GLD", "asset-class:commodities",
@@ -321,14 +322,16 @@ RegimeType#falling-growth-rising-inflation
     n_periods:4, last_updated:2026-05-11]-> Strategy#momentum-macro
 ```
 
-Mechanical invariant confrontation (weekly 08:40, ARCHITECTURE rule): median
-FAVORS sortino for this regime = 0.645. `four-seasons-rp` (0.91 ≥ median) →
-confirmation for its BACKED_BY invariants tagged
-`regime:falling-growth-rising-inflation` (gold-stagflation-hedge,
-inv-inflation-persistence-tips) and untagged ones. `momentum-macro`
-(0.28 < 0.645 − 0.10) → infirmation for inv-rising-growth-equities? No —
-that invariant carries only rising-growth regime tags, so it is NOT
-confronted by a stagflation cell. Tags gate the confrontation.
+Mechanical invariant confrontation (weekly 08:40, ARCHITECTURE rule):
+confrontation is CONDITION-gated and evaluated by each invariant's METHOD —
+NOT keyed on tags. When a negative-real-rate episode COMPLETES, each invariant
+whose `condition` held over it is confronted: `gold-stagflation-hedge`
+(condition `real_rate<0`; effect `{asset-class:gold-commodities, return,
+cross_class, outperform}`) → gold-commodities' return vs the OTHER asset
+classes in `benchmark_valuation` for that episode: it led → confirmation. An
+`always` invariant (e.g. `calmar-v2`, `cross_strategy`) is confronted every
+weekly tick instead. An invariant whose condition never held over the window
+is simply NOT confronted — the condition gates it, not a tag.
 
 ### 4b — Portfolio ranking (portfolio_weekly_snapshot, Monday 08:50)
 

@@ -144,11 +144,12 @@ Invariant {
                                     --   (time-validated: N_min/θ, not refuted)
                                     --   | 'rejected' (refuted). Mechanical —
                                     --   no 'validated' human step (ADR-006).
-  tags          : STRING[]          -- namespaced where applicable: 'asset:GLD',
+  tags          : STRING[]          -- THEMATIC / retrieval only (NOT the
+                                    --   confrontation driver — that is `condition`).
+                                    --   Namespaced where applicable: 'asset:GLD',
                                     --   'asset-class:fixed-income',
                                     --   'indicator:max_drawdown', 'phase:accumulation',
-                                    --   'regime:<regime_type_id>' (drives mechanical
-                                    --   confrontation — see ARCHITECTURE);
+                                    --   'regime:<regime_type_id>';
                                     --   free thematic tags otherwise: 'economy',
                                     --   'rates', 'forex', 'credit', 'liquidity',
                                     --   'geopolitics', … (retrieval/curation)
@@ -825,9 +826,11 @@ CREATE TABLE IF NOT EXISTS detector_state (...);
 Removed as redundant duplicates (single-engine rule — the graph vertex IS
 the record): `invariant_weights` (all weight fields live on `Invariant`),
 `regime_history` (all fields live on / are derivable from `Regime`
-instances), `strategy_performance` (per-period numbers live on `Backtest`,
-aggregates on `FAVORS`), `schema_extensions` (schema self-extension deferred
-to V2 — IMPROVEMENTS I-27).
+instances), `schema_extensions` (schema self-extension deferred to V2 —
+IMPROVEMENTS I-27). (Per-period STRATEGY valuations are NOT redundant — they
+live in `benchmark_valuation.strategy` as the `cross_strategy` benchmark;
+`Backtest` is regime-type-aggregated, `FAVORS` too, so neither holds the
+per-period series.)
 
 ### Analytical
 
@@ -841,16 +844,19 @@ CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
 -- source STRING ('backtest'|'evaluation'|'proposal'|'adaptation' (V2)),
 -- source_id STRING
 
-CREATE TABLE IF NOT EXISTS asset_class_valuation (...);
--- The pre-materialised BENCHMARK that effect.method='cross_class' reads
--- (USE_CASES step 10b; "define and value the asset classes before valuing
+CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
+-- The pre-materialised BENCHMARK that effect.method reads at confrontation:
+-- 'cross_class' → the asset-class rows; 'cross_strategy' → the strategy rows
+-- (USE_CASES step 10b; "define and value the benchmarks before valuing
 --  invariants"). Grows per period → a table (criterion).
--- asset_class STRING, date DATE (unique index on (asset_class, date)),
+-- benchmark_kind STRING ('asset_class'|'strategy'), benchmark_id STRING,
+-- date DATE (unique index on (benchmark_kind, benchmark_id, date)),
 -- return FLOAT, sortino_rolling FLOAT, max_drawdown FLOAT, volatility FLOAT
---   -- per class over the reference universe (equities / rates / inflation-
---   --   protected / gold-commodities / cash), computed from the constituent
---   --   ETF prices in MarketData. Class membership = the asset_class field
---   --   on allowed_tickers. Rebuilt over 25y at seed, extended weekly.
+--   -- asset_class rows: per reference class (equities / rates / inflation-
+--   --   protected / gold-commodities / cash) from constituent ETF prices;
+--   --   class membership = allowed_tickers.asset_class.
+--   -- strategy rows: per Strategy's prescribed allocation (synthetic NAV).
+--   -- Rebuilt over 25y at seed, extended weekly.
 
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 -- date DATE, portfolio_id STRING (unique index on (date, portfolio_id)),

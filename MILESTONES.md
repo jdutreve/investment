@@ -99,12 +99,15 @@ Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
 
 ---
 
-## M5 — Backtests + FAVORS + mechanical confrontations (1 d)
+## M5 — Backtests + FAVORS + benchmark_valuation + mechanical confrontations (1 d)
 
 **Definition of Verified**
 - [ ] FAVORS matrix regime × strategy is plausible (barbell favored under
       stress? risk parity in disinflation?)
-- [ ] confrontation fixture moves a weight_effective as computed by hand
+- [ ] benchmark_valuation populated (asset_class + strategy rows) — the
+      cross_class/cross_strategy benchmark
+- [ ] confrontation fixture: an active-condition invariant whose effect beats
+      its benchmark (by method) moves a weight_effective as computed by hand
 
 ---
 

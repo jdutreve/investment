@@ -231,8 +231,8 @@ MarketData TS or Regime fields.
 ## Invariant confrontation rule (mechanical, V1)
 
 How confirmations/infirmations are generated without V2 real executions.
-Runs in the weekly 08:40 step, after Backtests/FAVORS refresh, and after each
-Evaluation commit.
+Runs in the weekly 08:40 step, after Backtests/FAVORS and benchmark_valuation
+refresh, and after each Evaluation commit.
 
 ```
 FROM BACKTESTS (source='backtest') — forward confrontation on the invariant's
@@ -344,9 +344,10 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   PREREQUISITE (materialised at seed, upstream of any maturation):
     - regime instances (USE_CASES step 10) — for regime-signal conditions;
     - the market-data TS incl. DERIVED signals (real_rate, composites);
-    - the ASSET-CLASS VALUATIONS (USE_CASES step 10b) — each reference asset
-      class valued per period over 25y; this IS the benchmark `cross_class`
-      reads. "Define and value the asset classes before valuing invariants."
+    - the BENCHMARK VALUATIONS (USE_CASES step 10b) — each reference asset
+      class AND each strategy valued per period over 25y; this IS what
+      `cross_class` / `cross_strategy` read. "Define and value the benchmarks
+      before valuing invariants."
     Maturation cannot run before these exist.
 
   MOMENTS = all historical periods/occurrences where i.condition held, read

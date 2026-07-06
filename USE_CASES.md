@@ -172,15 +172,16 @@ UC8 reads EventLog weekly to assemble its inputs.
       (is_current=false, end_date set)
     - Set is_current=true on the final (ongoing) instance
 
-10b. Asset-class valuation materialization (prerequisite for invariant
-    maturation — "define and value the asset classes before valuing
-    invariants"):
-    - Group the reference universe into classes via allowed_tickers.asset_class
-      (equities / rates / inflation-protected / gold-commodities / cash)
-    - For each (asset_class, period) over 25y, compute return + sortino_rolling
-      + max_drawdown + volatility from the constituent ETF prices
-    - Write asset_class_valuation rows — this IS the benchmark that
-      effect.method='cross_class' reads at confrontation time
+10b. Benchmark valuation materialization (prerequisite for invariant
+    maturation — "define and value the benchmarks before valuing invariants"):
+    - asset_class rows: group the reference universe into classes via
+      allowed_tickers.asset_class (equities / rates / inflation-protected /
+      gold-commodities / cash); per (class, period) over 25y compute return +
+      sortino_rolling + max_drawdown + volatility from constituent ETF prices
+    - strategy rows: per Strategy's prescribed allocation (synthetic NAV),
+      same metrics per period over 25y
+    - Write benchmark_valuation rows — this IS what effect.method reads
+      (cross_class → asset_class rows, cross_strategy → strategy rows)
     - Also materialize DERIVED signals used by conditions (real_rate =
       irx − inflation, composites) into the MarketData TS
 
@@ -201,14 +202,15 @@ UC8 reads EventLog weekly to assemble its inputs.
     - Confronts over its CONDITION-moments (ARCHITECTURE "Birth maturation"):
       all historical periods/occurrences where i.condition held (regime is
       one signal among many; frequency emergent), evaluating i.effect by its
-      METHOD (cross_class reads the asset-class valuations from step 10b;
-      cross_strategy the strategy benchmarks). Per-moment metrics recomputed
-      on the fly — nothing per-moment stored; only invariant_confrontations +
-      weights persist. Seeds confirmation_count / infirmation_count →
-      market_score from day zero; verdict per N_min (3) / θ (0.60).
+      METHOD, reading benchmark_valuation from step 10b (cross_class → asset-
+      class rows, cross_strategy → strategy rows). The invariant-specific
+      comparison is recomputed on the fly — nothing per-moment stored; only
+      invariant_confrontations + weights persist. Seeds confirmation_count /
+      infirmation_count → market_score from day zero; verdict per N_min (3) /
+      θ (0.60).
     - Prerequisite: the signals i.condition references + the benchmarks
       i.effect.method reads must be persisted — steps 10 (regime instances),
-      10b (asset-class valuations) + the market TS — before this runs.
+      10b (benchmark valuations) + the market TS — before this runs.
 
 12. PortfolioNAV TS synthetic backfill:
     - NAV per DATA_MODELS.md calculation conventions (constant weights,

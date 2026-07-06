@@ -377,7 +377,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 
 1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
    other 5 relations are FK columns), 3 TS tables and 10 document tables
-   (incl. `asset_class_valuation`, the cross_class benchmark);
+   (incl. `benchmark_valuation`, the cross_class/cross_strategy benchmark);
    historical Regime instances from the 25y backfill; seed data; and the
    first `portfolio_weekly_snapshot` row.
 2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
