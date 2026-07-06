@@ -72,7 +72,7 @@ of SCP, and **laptop sleep** — scheduled jobs must survive a closed lid
 brew install python@3.12 uv git gh tmux
 
 gh auth login
-git clone https://github.com/jp/investment-agent.git ~/projets/investment-agent
+git clone https://github.com/jdutreve/investment ~/projets/investment
 ```
 
 **Done when:** python3.12, uv, gh OK.
@@ -90,7 +90,7 @@ mkdir -p ~/data/investment/{inbox,sources/corpus,sources/kindle,backups,logs}
 ### Task 0.3 — Environment variables
 
 ```bash
-cat > ~/projets/investment-agent/.env << 'EOF'
+cat > ~/projets/investment/.env << 'EOF'
 # LLMs
 ANTHROPIC_API_KEY=sk-ant-...
 OPENROUTER_API_KEY=sk-or-...
@@ -134,7 +134,7 @@ USER_BENCHMARK=60/40-USD
 USER_PHASE=accumulation
 USER_AUTO_VALIDATION_HOURS=48
 EOF
-chmod 600 ~/projets/investment-agent/.env
+chmod 600 ~/projets/investment/.env
 ```
 
 Notes: VIX comes from Yahoo `^VIX` only (VIXCLS dropped — single source).
@@ -145,9 +145,8 @@ Notes: VIX comes from Yahoo `^VIX` only (VIXCLS dropped — single source).
 ### Task 0.4 — Python setup
 
 ```bash
-cd ~/projets/investment-agent
-uv init --package investment-agent   # src layout
-cd investment-agent
+cd ~/projets/investment
+uv init --package --name investment .   # init in place, src layout, no nested dir
 
 uv add pydantic-ai anthropic openai \
        apscheduler pydantic pydantic-settings python-dotenv \
@@ -196,7 +195,7 @@ Everything lives under `src/` (uv package layout). Entry points are modules,
 not root scripts — no path ambiguity.
 
 ```
-~/projets/investment-agent/investment-agent/
+~/projets/investment/
 ├── pyproject.toml
 ├── src/
 │   └── investment/
@@ -278,11 +277,11 @@ cat > ~/Library/LaunchAgents/com.jp.investment-agent.plist << 'EOF'
 <plist version="1.0"><dict>
   <key>Label</key><string>com.jp.investment-agent</string>
   <key>ProgramArguments</key><array>
-    <string>/Users/jp/projets/investment-agent/investment-agent/.venv/bin/python</string>
+    <string>/Users/jp/projets/investment/.venv/bin/python</string>
     <string>-m</string><string>investment.main</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/jp/projets/investment-agent/investment-agent</string>
+  <string>/Users/jp/projets/investment</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>StandardOutPath</key>

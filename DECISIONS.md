@@ -53,7 +53,7 @@ functional gain.
 **Decision.** Run everything locally on the user's MacBook Pro M5 (macOS
 ARM64, 24 GB RAM): launchd LaunchAgent instead of systemd, local `cp` into
 `~/data/investment/inbox` instead of SCP. Paths move to
-`~/data/investment/...` and `~/projets/investment-agent/`.
+`~/data/investment/...` and `~/projets/investment/`.
 
 **Consequences.**
 - **Laptop sleep is the structural trade-off** — resolved (2026-07 rev.) by
