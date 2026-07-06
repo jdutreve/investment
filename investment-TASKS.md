@@ -112,6 +112,7 @@ INBOX_PATH=$HOME/data/investment/inbox
 SOURCES_PATH=$HOME/data/investment/sources/corpus
 
 # Market data
+FRED_API_KEY=...   # free key — required for FRED/ALFRED REST (first-release vintages)
 MARKET_BACKFILL_YEARS=25
 YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,VTI,QQQ,EFA,EEM,IEF,SHY,BIL,DBC,CHFUSD=X,^IRX,^VIX
 FRED_SERIES=CPIAUCSL,T10Y2Y,UNRATE,INDPRO

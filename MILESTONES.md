@@ -18,11 +18,20 @@ Rhythm: one commit per milestone. Explicit STOP points at M3, M6, M7 —
 where owner judgment is the acceptance criterion (the three places the
 system can be technically correct and substantively wrong).
 
+**Incremental seed:** `python -m investment.seed` is idempotent and is
+RE-RUN at M1/M2/M3/M4/M7 — each run completes the UC0 steps whose
+prerequisites now exist and SKIPS the rest with a warning (M1: static
+steps 1-5,7,8; M2 adds 9; M3 adds 10; M4 adds 11-13; M7 adds 6/6b). The
+closing SeedEvent inventory reflects what ran.
+
 ---
 
 ## M0 — Foundation + smoke test (0.5 d — Phase 0)
 
 brew, dirs, `.env`, uv, `spike_sqlite.py` (Task 0.5).
+
+Note: Task 0.7 (launchd) is only WRITTEN here — the LaunchAgent is
+loaded at M9, when an agent worth running exists.
 
 **Definition of Verified**
 - [ ] smoke test: schema persists after reopen
@@ -39,7 +48,8 @@ scenarios, 7 portfolios) + **minimal `invest sql` / `invest status`**.
 
 **Definition of Verified**
 - [ ] `invest sql "SELECT id, weight_initial, floor_weight FROM invariant"`
-- [ ] re-run seed → zero duplicates, 2 SeedEvents
+- [ ] re-run seed → zero duplicates, 2 SeedEvents (partial inventory —
+      static steps only at this stage)
 - [ ] counts: 13 entity / 5 M:N / 3 TS / 9 doc tables
 
 **⚔️ Challenge point:** the seeds ARE your investment philosophy encoded —
@@ -78,7 +88,8 @@ proceed until the regime history reads true.
 
 ## M4 — NAV engine + indicators + first ranking (1.5 d — Phase 5bis partial)
 
-Pinned conventions, snapshot, ranking + **dashboard Ranking/NAV pages**.
+Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
+`invest nav <id>` terminal sparkline — the dashboard pages come at M10).
 
 **Definition of Verified**
 - [ ] golden numbers vs an external source (SPY Sharpe on the window,
@@ -104,7 +115,8 @@ The mechanical pipeline is complete: replay it over 25y.
 **Definition of Verified**
 - [ ] replay_report: hit-rate, agent-follow vs hold-defender net of costs
 - [ ] vintage_mode=first_release; vintage sensitivity reported
-- [ ] walk-forward calibrated thresholds (15y/10y split)
+- [ ] walk-forward calibrated thresholds (15y/10y split) — confirmation
+      of the winning set happens in the CLI (Telegram arrives at M9)
 - [ ] zero PIT assertions failed
 
 **⚔️ STOP — the premise gate:** if the replay shows no net value-add, we
@@ -116,7 +128,9 @@ final gate thresholds.
 ## M7 — Corpus + invariant factory (2 d — Phases 1bis, 3, curation) — STOP POINT
 
 In-process embeddings, ingester, watcher, curation runner + dedup gate +
-consolidation + quality contract, CLI batch validation.
+consolidation + quality contract, CLI batch validation. Includes the
+KNOWLEDGE SLICE of Writeback (EventLog-first persistence of candidates +
+the dedup gate) — the decision slice of Writeback comes at M8.
 
 **Definition of Verified**
 - [ ] deposit the Dalio book → HOW MANY candidates, of WHAT quality?
@@ -132,8 +146,11 @@ converges. The quality contract faces reality here.
 
 ## M8 — Planner + Worker + gates + first full chain (2 d — Phases 4, 5, 6)
 
-Baseline + 1a/1b + Worker + Call 2 guardrail + Writeback gates, full
-Monday chain on fixtures, digest rendered in terminal.
+Baseline + 1a/1b + Worker + Call 2 guardrail + Writeback gates,
+`outcomes.py` (proposal verdicts, calibration, probation — fixture-tested
+now, armed by real time at M11) + scoreboard render, full Monday chain on
+fixtures (UC3 event watch not built yet → the chain SKIPS it until M9),
+digest rendered in terminal.
 
 **Definition of Verified**
 - [ ] simulated Monday on fixtures end to end
@@ -146,7 +163,12 @@ invariants the right ones?
 
 ---
 
-## M9 — Telegram + Event Watch + real-life scheduling (1.5 d — Phases 6bis, 3.2, 7)
+## M9 — Telegram + Event Watch + real-life scheduling (1.5 d — Phases 6bis, 3.2, 7 + ops core)
+
+Includes `ops/commands.py` (the command layer core — the bot's buttons
+dispatch to it) and the RUN-LOCK (the real-life week can collide the
+Monday chain with an ad-hoc UC8). M10 keeps the API/dashboard/token/
+idempotency/async-jobs hardening.
 
 **Definition of Verified**
 - [ ] one week of real operation on the Mac
@@ -158,7 +180,8 @@ invariants the right ones?
 
 ## M10 — Full ops + hardening (1 d — Phase 6ter)
 
-Dashboard 8 pages, X-Ops-Token, run-lock, idempotency, async jobs.
+Dashboard 8 pages, `invest` full CLI over the API, X-Ops-Token,
+idempotency, async jobs (commands.py and run-lock exist since M9).
 
 **Definition of Verified**
 - [ ] cross-front equivalence tests green (bot vs dashboard vs CLI)
