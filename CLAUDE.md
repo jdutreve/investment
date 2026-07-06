@@ -3,7 +3,7 @@
 See REVISION_NOTES.md for V1 scope, core concepts, ranking rule, and stagflation/deflation tagging.
 
 Read this file before any action. Implement in the order defined in
-investment-TASKS.md. Also read investment-ARCHITECTURE.md and DATA_MODELS.md
+MILESTONES.md (incremental, owner-verifiable slices of investment-TASKS.md). Also read investment-ARCHITECTURE.md and DATA_MODELS.md
 before writing any code. See IMPROVEMENTS.md for deferred features and when
 to add them, and DECISIONS.md for the ADRs (engine spike gate, local macOS
 target, vintage discipline) — never contradict an accepted ADR silently.

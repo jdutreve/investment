@@ -2,6 +2,11 @@
 
 See REVISION_NOTES.md for V1 scope and core concepts.
 
+> **Execution order: see MILESTONES.md** — this file specifies WHAT to
+> build (phases/tasks); MILESTONES.md sequences it into owner-verifiable
+> increments with Definition-of-Verified checklists and STOP points
+> (M3 regime history, M6 replay premise gate, M7 invariant quality).
+
 ## Objective
 
 Build capital (10-20 year horizon) via a self-improving expert investment agent.
