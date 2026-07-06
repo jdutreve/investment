@@ -70,7 +70,8 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
            → IngestionEvent per batch
            → curator (LLM) — ONLY when the batch created new
              Documents: invariant candidates (author = document author
-             tier) → Telegram validation within minutes of the deposit.
+             tier) matured mechanically over 25y within minutes of the
+             deposit (no user gate — ADR-006); the digest surfaces them.
              Knowledge extraction, never decisions.
     backup (sqlite3 .backup, keep 14d) after every Monday chain and
            every ingestion batch — no clock-based backup
@@ -175,14 +176,16 @@ jobs) append no EventLog row — they create no vertex/edge.
 ### Decision cycle
 - **Event-driven ingestion** = mechanical, with ONE LLM exception: the
   curator (fires minutes after a deposit; knowledge extraction
-  from newly ingested documents — its outputs are
-  `status=proposed` candidates gated by user validation, never decisions).
+  from newly ingested documents — its outputs are invariant candidates that
+  mature MECHANICALLY (25y confrontation), never decisions; no user gate —
+  ADR-006).
 - **Weekly (Monday 09:00)** = sole *scheduled* decision cycle. Worker +
   Planner Post. UC9 (user-initiated chat) may trigger one ad-hoc UC8 re-run
   per day — user-initiated, so it does not break the autonomy rule.
 - V1 proposals (switch or reallocation) → Telegram digest + `Proposal`
-  vertex only. No automatic application. V2 = auto-validation and
-  auto-application.
+  vertex only. No automatic application. V1 cognition is fully autonomous —
+  no user-validation gate (ADR-006); the owner's only hand is placing real
+  orders on reading the digest. V2 = auto-execution.
 
 ### Invariants — weight model
 - `source` is now a free-text real provenance (document+page, backtest run,
@@ -194,36 +197,41 @@ jobs) append no EventLog row — they create no vertex/edge.
   - null (other corpus): 0.20
   - system (agent-discovery): 0.05
 - `recency_factor` (single half-life in V1):
-  - `days_since = (today - updated_at).days`   ← updated_at = last confrontation
+  - `days_since` = CONDITION-RELATIVE — time since the invariant's `condition`
+    was last PRESENT (moment-time), NOT wall-clock; a dormant invariant whose
+    condition is absent does not decay. For an `always` condition this reduces
+    to days-since-last-confrontation.
   - `half_life = 365 days`
   - `recency_factor = 0.5 + 0.5 × exp(-days_since / half_life)`
     (decays from 1.0 toward an asymptotic floor of 0.5 — no clamp needed)
 - `market_score = confirmation_count / (confirmation_count + infirmation_count)`
   (use 1.0 until first confrontation)
-- Event-driven update after each Backtest or Evaluation.
-- `source=agent-discovery` → EventLog append → vertex committed with
-  `status=proposed` → Telegram notification in the same cycle. Never
-  `integrated` without `user_validated=True`.
+- Every invariant matures MECHANICALLY at birth over 25y (ARCHITECTURE "Birth
+  maturation"); weight updates event-driven after each Backtest or Evaluation.
+- `source=agent-discovery` → EventLog append → vertex committed and matured
+  mechanically like any other (same 25y confrontation); the digest surfaces
+  it. No `status=proposed`-awaiting-user, no validation notification (ADR-006).
 
-### Curation vs Innovation
+### Curation vs Innovation (both mechanical — ADR-006)
 - **Curation** (autonomous): update weight, add confirmations, add SUPPORTS
   edges, enrich description/example on **existing integrated** Invariants.
-- **Innovation** (user validation required, AFTER the mechanical dedup
+- **Innovation** (also autonomous — NO user gate; AFTER the mechanical dedup
   gate — cosine ≥ `invariant_merge_threshold` vs an existing invariant
   converts the candidate into a curation, never a duplicate): create a new
-  Invariant, new
-  or revised Strategy (`type=new_strategy` / `strategy_revision`,
-  `enabled=false` until validated — lifecycle in ARCHITECTURE "System
-  Evolution"), new metric. `status=proposed` until `user_validated=True`.
-  Schema self-extension (new vertex/edge types) is V2 — IMPROVEMENTS I-27.
+  Invariant, new or revised Strategy (`type=new_strategy` /
+  `strategy_revision`, `enabled=false` until mechanical probation passes —
+  lifecycle in ARCHITECTURE "System Evolution"), new metric. `status`:
+  `proposed` (maturing) → `integrated` (time-validated: N_min/θ, not refuted)
+  → `rejected` (refuted) — 100 % mechanical. Schema self-extension (new
+  vertex/edge types) is V2 — IMPROVEMENTS I-27.
 - **Author tier of new Invariants**: extracted from a corpus document →
   `author = Document.author` tier (dalio/marks/null — floor 0.40/0.35/0.20);
   discovered from market patterns (backtests, rankings) →
   `author='system'` (floor 0.05). `source` always records the real
   provenance in free text. The UC0 initial curation pass (USE_CASES step 6b,
-  DEFAULT — skip with `--no-curate`) lets a deposited book yield validated
+  DEFAULT — skip with `--no-curate`) lets a deposited book yield matured
   invariants at install time; later deposits are curated within minutes
-  (watcher → ingestion batch → curator).
+  (watcher → ingestion batch → curator), matured the same way.
 
 ### User interfaces — one command layer
 - Telegram bot, `invest` CLI and the local dashboard are THREE FRONTS of
@@ -234,7 +242,8 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ### Worker
 - Never mention Writeback/Planner/storage in Worker prompts.
-- `status:integrated` only after `user_validated=True`.
+- `status:integrated` = time-validated mechanically (N_min/θ, not refuted);
+  no user gate (ADR-006).
 - `_db` captured by closure in PlannerPre.run() — never exposed to Worker.
 - Bridged functions (principle of least privilege):
   - `db_query` : FORBIDDEN_SQL whitelist, max 20 rows
@@ -247,8 +256,8 @@ jobs) append no EventLog row — they create no vertex/edge.
 ### Unified improvement cycle — proposal → measure → adoption
 - Applies to ALL improvable resources (Proposal, Invariant, Strategy,
   scenario probabilities, thresholds): measure current performance →
-  propose → user gate where required → mechanical maturation window →
-  adopt or reject. Nothing stays "proposed" forever and nothing is adopted
+  propose → mechanical maturation window → adopt or reject. No user gate
+  (ADR-006). Nothing stays "proposed" forever and nothing is adopted
   without measurement. Table + job spec in ARCHITECTURE.
 - Weekly 08:52 `outcomes.py`: every Proposal gets an `outcome.verdict`
   (won/lost) at +`proposal_outcome_weeks` (12), feeding invariant
@@ -367,7 +376,8 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 ## Definition of Done
 
 1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
-   other 5 relations are FK columns), 3 TS tables and 9 document tables;
+   other 5 relations are FK columns), 3 TS tables and 10 document tables
+   (incl. `asset_class_valuation`, the cross_class benchmark);
    historical Regime instances from the 25y backfill; seed data; and the
    first `portfolio_weekly_snapshot` row.
 2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
@@ -375,13 +385,15 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`
    using level/speed/acceleration, with hysteresis and a computed confidence.
 4. After Dalio corpus ingestion + the default seed curation pass (skip
-   with `--no-curate`) and batch validation: 10+ Passage
-   vertices, and extracted Invariants carrying `author='dalio'` (floor 0.40)
-   with weights, linked by SUPPORTS edges.
+   with `--no-curate`): 10+ Passage vertices, and extracted Invariants
+   carrying `author='dalio'` (floor 0.40), each with a machine-readable
+   `condition`+`effect`, matured over 25y (market_score set), linked by
+   SUPPORTS edges — no user validation (ADR-006).
 5. Full weekly cycle: MarketData/EventLog ingestion → Worker → Evaluation →
    Scenario update → Proposal (if gate passed).
-6. `source=agent-discovery` Invariant is persisted as `status=proposed` and
-   triggers a Telegram notification in the same cycle.
+6. `source=agent-discovery` Invariant is persisted, matured mechanically over
+   25y like any other, and surfaced in the digest — no user-validation gate
+   (ADR-006).
 7. `weight_effective` of an agent-discovery invariant grows after mechanical
    market confirmations (ARCHITECTURE "Invariant confrontation rule").
 8. `learn_from_adaptations()` (V2) propagates `performance_3m` to BACKED_BY invariants.

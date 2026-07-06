@@ -242,7 +242,9 @@ made several thesis decisions worth capturing as invariants.
   `arbitrage-user` (floor 0.25, weight_initial 0.60-0.70) and
   `discussion-user` (floor 0.15, weight_initial 0.40-0.60).
 - UC9 detects user decisions and proposes a new Invariant.
-- Same lifecycle: status:proposed → user validates → status:integrated.
+- Same mechanical lifecycle as any invariant (ADR-006): status:proposed →
+  matured 25y → status:integrated iff time-validated. The user tiers only set
+  the floor/weight_initial band, not a validation gate.
 
 ---
 
@@ -289,7 +291,7 @@ and the Worker shows pattern recognition over the current library.
 
 **Spec:**
 - Worker can propose `Strategy source=agent-discovery status=proposed`.
-- User validates via Telegram.
+- Auto-enabled after mechanical probation — no user gate (ADR-006).
 - New strategy enters FAVORS ranking starting the next weekly cycle.
 - Requires a minimum backtest history (3+ periods) before its portfolios
   become real candidates.
@@ -519,6 +521,29 @@ behavior changes.
 
 ---
 
+## I-28 — Multiple independent conditions per invariant
+
+**Why deferred:** V1 gives each invariant ONE `condition` (a conjunction of
+predicates over known signals — e.g. rising-and-decelerating inflation) and
+ONE `effect`; its confrontation frequency is emergent from that condition
+(event → per occurrence, persistent state → per episode, 'always' → weekly).
+A single invariant could legitimately carry SEVERAL *independent* trigger
+conditions with different effects (OR-semantics, not the AND-conjunction V1
+already supports) — e.g. one behaviour under rising inflation AND a distinct
+one on rate hikes. Modelling that means a list of (condition, effect) pairs
+and a market_score aggregated across them — extra surface the curator must
+synthesise reliably, for a case that is real but rare.
+
+**Trigger to add:** when a concrete invariant is genuinely two rules wedged
+into one and splitting it into two invariants is worse than modelling both
+conditions on one.
+
+**Spec:** promote `condition`/`effect` from single objects to a
+`criteria : [{condition, effect}]` list; mature_invariant() iterates criteria;
+market_score aggregates confirm/infirm across all of them.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:
@@ -538,13 +563,17 @@ If/when adding from this list, prioritize by dependency and impact:
 
 ## What never goes here
 
-- Anything that would create a side-channel around user validation
-  (e.g. "auto-integrate innovations without notification" — never).
+- Anything that lets the agent AUTO-EXECUTE a real allocation change in V1 —
+  the manual-execution boundary is the V1/V2 line (ADR-006). (Integrating an
+  invariant is autonomous; moving real money is not.)
+- Anything that integrates an invariant OTHER than through the mechanical
+  maturation verdict (N_min/θ, not refuted) — no back-door `status=integrated`
+  that skips the 25y confrontation.
 - Anything that bypasses EventLog append-before-commit ordering.
 - Anything that gives Worker direct DB write access.
 - Anything that increases *scheduled autonomous* LLM decision-making beyond
   the weekly cycle (mechanical jobs can run as often as needed;
   user-initiated UC9 chats and their capped ad-hoc UC8 re-run — max 1/day —
   are explicitly allowed, being user-triggered; the event-driven curation
-  curator is also allowed because it only extracts knowledge into
-  user-gated `status=proposed` candidates — it never decides anything).
+  curator is also allowed because it only extracts knowledge into candidates
+  that mature mechanically — it never decides anything).

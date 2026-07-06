@@ -187,10 +187,68 @@ rule must survive any new write path.
   LLM, not for the human owner).
 
 **Consequences.** Every mutation, from any front, carries the same audit
-trail and passes the same gates — no side-channel around user validation.
+trail and passes the same gates — no side-channel around the command layer.
 Adding a future front (e.g. iOS shortcut) = one more thin client.
 Hardening (2026-07 pass): `X-Ops-Token` header (file-based, chmod 600) on
 every API call — localhost binding alone does not stop browser CSRF;
 command layer idempotent across fronts; single-flight run-lock over
 {catchup, chain, uc8, replay}; long ops are async jobs; `feed`/`note`/
 `backup` stay available agent-down (filesystem/read-only operations).
+
+---
+
+## ADR-006 — Fully autonomous V1 cognition: no user-validation gate
+
+**Status:** accepted.
+**Date:** 2026-07 (supersedes the "Innovation requires user validation" and
+"Never integrated without `user_validated=True`" rules stated across
+CLAUDE.md / USE_CASES / TASKS).
+
+**Context.** The original design gated every new invariant, strategy and
+metric behind an explicit user validation (`status=proposed` → Telegram/CLI
+yes/no → `integrated`). Two later decisions hollowed that gate out entirely:
+(1) the maturation redesign made VERACITY a **mechanical** verdict — an
+invariant "survived the test of time" iff `confrontations ≥ N_min (3) AND
+market_score ≥ θ (0.60) AND not refuted`, computed over 25y at birth (see
+ARCHITECTURE "Birth maturation"); (2) dedup and well-formedness are already
+mechanical. Nothing substantive was left for the human to judge — the owner
+is explicitly not positioned to adjudicate market theses, and being asked to
+click "validate" on pre-vetted, already-scored candidates is friction with no
+information added.
+
+**Decision.** V1 agent cognition is **fully autonomous — the agent is never
+solicited for validation.** The invariant/strategy lifecycle is 100 %
+mechanical:
+- `status`: `proposed` (maturing) → `integrated` (time-validated: N_min/θ,
+  not refuted) → `rejected` (refuted: ≥4 confrontations, market_score < 0.35).
+  **No `validated` step, no `user_validated` field, no Telegram/CLI approval
+  flow.** Same path for every provenance — corpus, agent-discovery, user
+  note, UC3 event (agent-discovery is scored identically; its heavier
+  in-sample bias is a self-correcting prior, ARCHITECTURE point-in-time note).
+- New strategies auto-enable after mechanical probation
+  (`strategy_probation_weeks`); no human gate.
+- The **weekly digest reports** what changed; it never asks. It is a passive
+  report the owner reads, not a gate that blocks.
+
+**The V1/V2 boundary no longer runs through a validation gate — it runs
+through real-world execution.** In V1 the agent is autonomous *internally* and
+emits paper-mode `Proposal` vertices only; **the owner is the sole hand that
+places real orders**, at will, on reading the digest. That manual-execution
+step is the human boundary. V2 = auto-execution, which would supersede this.
+
+**Consequences.**
+- CLAUDE.md "Curation vs Innovation" collapses: the curation/innovation
+  distinction no longer implies a user gate — both are mechanical; only the
+  author-tier floor and the dedup gate differ.
+- The command layer (ADR-005) stays, but its user actions are **preferences
+  and overrides** (enable/disable a strategy, set drawdown, feed a document,
+  trigger a run) — never "validate the agent's knowledge."
+- Residual risk (accepted): an over-fit agent-discovery invariant integrates
+  without a human filter and can color a **paper** digest recommendation.
+  Bounded because nothing auto-executes, forward confrontation refutes it,
+  and its weight stays continuous. The stricter lever (discover on 15y /
+  validate on the 10y held-out split Phase 9 already uses) is available if a
+  concrete failure ever justifies it — not needed for V1.
+- DoD item 6 changes: an agent-discovery invariant is persisted and matured
+  mechanically; the digest surfaces it — no `status=proposed`-awaiting-user,
+  no validation notification.

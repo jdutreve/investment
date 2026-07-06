@@ -27,10 +27,10 @@ mechanical decides · LLM proposes · the user arbitrates · reality judges
   interprets and proposes (reallocations, new/revised strategies, new
   invariants); the **curator** (Sonnet) turns deposited books and
   watched events into invariant candidates — dedup-gated, quality-contracted,
-  user-validated.
+  matured mechanically over 25y (no user gate — ADR-006).
 - **Unified improvement cycle:** every resource (proposal, invariant,
   strategy, scenario probabilities, thresholds) follows
-  *measure → propose → validate → mature → adopt or reject*.
+  *measure → propose → mature → adopt or reject* — fully mechanical.
   Week-over-week improvement is measured on a scoreboard, never asserted.
 
 ## Runtime
@@ -41,7 +41,7 @@ cron: an inbox **watcher** ingests deposits ~5 min after they land, and the
 weekly Monday chain is **due-on-start** (runs at wake/launch if overdue).
 
 **Interfaces** (three fronts, one audited command layer — ADR-005):
-Telegram (weekly digest, alerts, chat, validations) · `invest` CLI ·
+Telegram (weekly digest, alerts, chat, preference overrides) · `invest` CLI ·
 local web dashboard (`http://127.0.0.1:8765`, read-only SQL console,
 semantic search).
 

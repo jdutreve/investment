@@ -418,7 +418,7 @@ CREATE INDEX IF NOT EXISTS ix_snapshot_date     ON portfolio_weekly_snapshot (da
 ```
 
 **Done when:** schema created without error; 13 entity + 10 relation + 3 TS +
-9 document tables present; a cosine query over seeded embeddings returns
+10 document tables present; a cosine query over seeded embeddings returns
 ranked passages.
 
 ---
@@ -611,7 +611,8 @@ all vertices and edges). Full step list in USE_CASES.md UC0 (14 steps,
 including **historical Regime materialization** — step 10 — and the
 **initial curation pass** — step 6b, DEFAULT when a corpus is present, the
 only LLM step in UC0: extracts author-tiered invariant candidates from the
-deposited books/articles for batch validation).
+deposited books/articles, matured mechanically over 25y — no user validation
+(ADR-006)).
 
 ### Task 1ter.1 — Framework seed
 
@@ -1291,6 +1292,22 @@ class InvariantCandidate(BaseModel):
                               #   corpus extraction; 'system' ONLY for
                               #   market-pattern discoveries
     tags: list[str]           # incl. regime:<regime_type_id> when applicable
+    condition: list[dict]     # WHEN active — ANDed predicates over REGISTRY
+                              #   signals, {signal, feature, op, value}; empty
+                              #   ⇒ 'always'. Express the FUNDAMENTAL driver, not
+                              #   a surface correlate (real_rate<0, not
+                              #   regime=stagflation). Derived signals (real_rate,
+                              #   composites) are in the registry. If it cannot be
+                              #   reduced to valid predicates over registry
+                              #   signals → NOT a weighted invariant (ponctual fact)
+    effect: Optional[dict]    # WHAT must hold when active — the VALUATION METHOD:
+                              #   {handle, metric, method, direction}
+                              #   handle ∈ asset:<t>|asset-class:<c>|strategy:<id>;
+                              #   method ∈ cross_class|cross_strategy|absolute|
+                              #   vs_defender; direction ∈ outperform|underperform.
+                              #   empty ⇒ reference knowledge. Writeback VALIDATION
+                              #   GATE demotes a malformed effect. See ARCHITECTURE
+                              #   "Birth maturation" + DATA_MODELS Invariant
     supporting_passages: list[str]
     weight_initial: float     # proposed by the CURATOR (not the
                               #   Planner/Worker) within the author band
@@ -1319,13 +1336,17 @@ class CurationResult(BaseModel):
 
 Persisted via Writeback (KnowledgeEvent → EventLog first). Curation vs
 Innovation boundary and author-tier rule per CLAUDE.md. The same curator
-serves the four callers above — Telegram validation for the event-driven
-and weekly paths, interactive CLI batch validation for the UC0 seed pass
-(default; skip with `--no-curate` — see USE_CASES.md step 6b).
+serves the four callers above — for all of them the candidates mature
+MECHANICALLY over 25y (no user validation — ADR-006); the UC0 seed pass runs
+the same way (default; skip with `--no-curate` — see USE_CASES.md step 6b).
 
 **Quality contract (`skill-curate-knowledge.md`) — what makes a candidate:**
 - **falsifiable**: a condition → measurable effect, not a factual summary of
-  a passage;
+  a passage — and reducible to a machine-readable `condition` + `effect` over
+  registry signals (else it is a ponctual fact, not a weighted invariant).
+  Generalise to the FUNDAMENTAL driver + a valuation method: "JPY carry risky
+  in July 2026" → condition `[{real_rate, level, <, 0}]` (or the true driver),
+  effect `{asset-class:fx-carry, return, cross_class, underperform}`;
 - **general**: holds across ≥2 historical episodes, or carries an explicit
   rationale for why it should;
 - **tagged**: ≥1 tag — namespaced where applicable (`regime:`, `asset:`,
@@ -1441,15 +1462,19 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #     curation (SUPPORTS + enrichment + confirmation on the existing one) —
 #     no duplicate is ever proposed;
 #   >= threshold vs a PENDING candidate → merged into it.
-# Innovations: InnovationEvent → vertex(status=proposed) → Telegram [YES][NO].
-#   type=new_invariant → Invariant vertex.
-#   type=new_strategy  → Strategy vertex (enabled=false); on user YES, ONE
-#     transaction creates status=active + 3 Scenarios + HAS_SCENARIO +
-#     BACKED_BY edges (spec fields in ARCHITECTURE "System Evolution");
-#     Backtests/FAVORS follow mechanically at the next weekly cycle.
+# Innovations (fully mechanical — no user gate, ADR-006):
+#   InnovationEvent → vertex(status=proposed).
+#   type=new_invariant → Invariant vertex → mature_invariant() (25y) →
+#     status=integrated iff time-validated (N_min/θ, not refuted), else stays
+#     proposed. Digest reports it.
+#   type=new_strategy  → Strategy vertex (enabled=false) → mechanical probation
+#     (strategy_probation_weeks); on probation PASS, ONE transaction
+#     auto-enables (status=active + 3 Scenarios + HAS_SCENARIO + BACKED_BY
+#     edges — spec in ARCHITECTURE "System Evolution"); Backtests/FAVORS
+#     follow at the next weekly cycle.
 #   type=strategy_revision → same as new_strategy + in the SAME transaction
 #     the superseded vertex gets status='closed', enabled=false,
-#     date_revised=today; HOLDS repointing stays a user action (UC9).
+#     date_revised=today; HOLDS repointing stays a user preference (UC9).
 #   Every activated strategy (new or revision) enters probation
 #     (strategy_probation_weeks — outcomes.py).
 # Expiry: catch-up sweep (Monday 08:00) sets user_response='expired' after
@@ -1669,7 +1694,7 @@ which ride the next backup).
 ```python
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
 async def test_schema_complete():            # 13 entity + 5 M:N relation + 3 TS +
-                                             # 9 doc tables; 5 FK-column relations
+                                             # 10 doc tables; 5 FK-column relations
 async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
@@ -1689,7 +1714,8 @@ async def test_reallocation_gate():          # valid ReallocationProposal → Pr
 async def test_reallocation_gate_turnover(): # Σ|delta|/2 > 30 → blocked
 async def test_invariant_confrontation():    # FAVORS above median → confirmation row +
                                              # weight_effective recomputed
-async def test_agent_innovation():           # status=proposed + Telegram in same cycle
+async def test_agent_innovation():           # born proposed → matured 25y → integrated
+                                             #   iff time-validated; no user gate (ADR-006)
 async def test_invariant_dedup_gate():       # candidate cosine ≥ 0.80 vs existing →
                                              # converted to curation (no duplicate);
                                              # vs pending candidate → merged
@@ -1875,7 +1901,9 @@ async def test_replay_go_live_gate():    # value-destroying fixture → main.py
     stricter; Writeback uses `effective_caps()`.
 15. **Worker proposes, Writeback disposes** — all proposal gates (switch AND
     reallocation) are mechanical, in Writeback.
-16. **Innovation status** — never `status:integrated` without `user_validated=True`.
+16. **Innovation status** — mechanical: `proposed` → `integrated` iff
+    time-validated (N_min/θ, not refuted) → `rejected` iff refuted. No
+    `user_validated` (ADR-006).
 17. **Timezone** — Europe/Zurich everywhere (APScheduler + cron semantics).
 18. **Monday = one chain** — sequential, abort on failure, ErrorEvent + alert.
 19. **YFinance rate limit** — `time.sleep(0.5)` between tickers.

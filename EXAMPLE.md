@@ -137,13 +137,13 @@ Regime {
 
 ---
 
-## Step 3 — Strategy and its Invariants (all from the seed + validated discoveries)
+## Step 3 — Strategy and its Invariants (all from the seed + matured discoveries)
 
 The defender `4s-balanced-defender` executes the seeded strategy
 `four-seasons-rp` (HOLDS primary=true). Its thesis is backed by a mix of
-corpus invariants (seeded at UC0) and **user-validated agent discoveries** —
-the V1-legal path for `source=agent-discovery` (proposed → Telegram →
-user YES → integrated).
+corpus invariants (seeded at UC0) and **mechanically time-validated agent
+discoveries** — the V1 path for `source=agent-discovery` (proposed → matured
+over 25y → integrated iff N_min/θ; no user gate — ADR-006).
 
 ```
 Strategy#four-seasons-rp -[BACKED_BY strength:0.8 added_at:2026-01-15
@@ -156,7 +156,7 @@ Strategy#four-seasons-rp -[BACKED_BY strength:0.7 added_at:2026-01-15
 
 Strategy#four-seasons-rp -[BACKED_BY strength:0.9 added_at:2026-03-02
   excerpt:"GLD +18% vs 4S in stagflation 2021-2022"]->
-  Invariant#gold-stagflation-hedge                  (system, user-validated)
+  Invariant#gold-stagflation-hedge                  (system, time-validated)
 ```
 
 ### Invariant weight mechanics
@@ -173,7 +173,7 @@ an asymptotic floor of 0.5.
 
 ---
 
-**Invariant#gold-stagflation-hedge** — agent discovery, user-validated,
+**Invariant#gold-stagflation-hedge** — agent discovery, time-validated (25y),
 3/3 confirmations
 
 ```
@@ -188,27 +188,37 @@ Invariant {
             composite stayed below 100 for 8 consecutive months."
   tags: ["asset:GLD", "asset-class:commodities",
          "regime:falling-growth-rising-inflation"]
+  condition: [{signal:"real_rate", feature:"level", op:"<", value:0}]  ← FUNDAMENTAL
+                                     driver (real_rate = irx − inflation), not the
+                                     surface regime; captures negative-real-rate
+                                     episodes incl. but not only stagflation
+  effect: {handle:"asset-class:gold-commodities", metric:"return",
+           method:"cross_class", direction:"outperform"}  ← gold vs OTHER classes
   source: "Backtest stagflation 2021-2022 — GLD +18% vs 4S GLD sleeve +11%
            (computed 2026-03-01 from Yahoo daily closes)"
   author: "system"
-  status: "integrated"            ← proposed 2026-03-01, user validated 2026-03-02
+  status: "integrated"            ← proposed 2026-03-01; matured over 25y the
+                                     SAME cycle → time-validated (N_min/θ);
+                                     no user gate (ADR-006)
   floor_weight: 0.05              ← system (agent-discovery) floor
   weight_initial: 0.25            ← ceiling for this invariant
-  confirmation_count: 3
+  confirmation_count: 3           ← gold led the other classes in 3 of the 3
+                                     negative-real-rate episodes in 25y
   infirmation_count: 0
-  market_score: 1.0               ← 3/(3+0)
-  recency_factor: 0.992           ← 0.5+0.5×exp(-6/365); 6d since last confrontation
+  market_score: 1.0               ← 3/(3+0) ≥ θ(0.60), confrontations 3 ≥ N_min(3)
+  recency_factor: 0.992           ← condition-relative: 6d since real_rate last < 0
   weight_effective: 0.248         ← max(0.25 × 1.0 × 0.992, 0.05)
   embedding: [384 floats]         ← encode(title + "\n" + description)
-  trace: "Discovered analyzing stagflation 2021-2022. Confirmed mechanically:
-          Oct 2024, Mar 2026, May 2026 (FAVORS-vs-median rule)."
+  trace: "Discovered analyzing stagflation 2021-2022; generalized to the
+          fundamental driver (negative real rates). Matured mechanically at
+          birth over 3 negative-real-rate episodes (cross_class vs other classes)."
   created_at: 2026-03-01
-  validated_at: 2026-03-02        ← user clicked [YES]
+  validated_at: 2026-03-01      ← time-validated at birth (25y), not a user click
   updated_at: 2026-05-11
 }
 ```
 
-**Invariant#calmar-accumulation** — agent discovery, user-validated,
+**Invariant#calmar-accumulation** — agent discovery, time-validated (25y),
 2 confirmations / 1 refutation
 
 ```
@@ -548,26 +558,32 @@ EventLog { id:"01JY...", ts:2026-05-12T09:00:11, type:"InnovationEvent",
 Invariant {
   id: "calmar-v2-threshold"
   title: "Calmar > 1.5 as strategy selection criterion — optimal threshold"
-  status: "proposed"             ← never integrated without user validation
+  condition: []                  ← empty ⇒ 'always' (general, weekly clock)
+  effect: {handle:"strategy:four-seasons-rp", metric:"calmar_rolling",
+           method:"cross_strategy", direction:"outperform"}
+  status: "integrated"           ← born proposed, matured over 25y the SAME
+                                    cycle → time-validated (N_min/θ). Mechanical,
+                                    no user gate (ADR-006). Had it scored < θ it
+                                    would stay 'proposed' (candidate).
   author: "system"
   floor_weight: 0.05, weight_initial: 0.15
-  weight_effective: 0.15         ← max(0.15 × 1.0 × 1.0, 0.05); no confrontation yet
-  confirmation_count: 0, infirmation_count: 0
-  market_score: 1.0              ← default until first confrontation
-  recency_factor: 1.0            ← created today
+  confirmation_count: 2, infirmation_count: 1   ← over 3 historical episodes at birth
+  market_score: 0.667            ← 2/(2+1) ≥ θ(0.60); confrontations 3 ≥ N_min(3)
+  recency_factor: 1.0            ← condition present now
+  weight_effective: 0.100        ← max(0.15 × 0.667 × 1.0, 0.05)
   source: "Backtests 2008 / 2020 / 2022 (computed 2026-05-12)"
-  trace: "Pending user validation."
-  created_at: 2026-05-12, validated_at: null, updated_at: 2026-05-12
+  trace: "Matured mechanically at birth over 3 episodes; time-validated."
+  created_at: 2026-05-12, validated_at: 2026-05-12, updated_at: 2026-05-12
 }
 ```
 
-**Telegram to user:**
+**Digest to user (report — not a question, ADR-006):**
 ```
-💡 Agent innovation:
+💡 Agent innovation — auto-integrated:
    Calmar indicator optimal threshold = 1.5
-   Analyzed across 3 crises (2008/2020/2022)
-   Current weight: 0.15 (not validated — author: system)
-   → Integrate as selection criterion? [YES] [NO]
+   Matured over 3 historical episodes (2008/2020/2022)
+   market_score 0.67 ≥ θ → time-validated; weight_effective 0.10
+   (would have stayed a candidate below θ)
 ```
 
 ---
@@ -883,7 +899,7 @@ Passage#pass-dalio-tips-142 -[SUPPORTS strength:0.90
 | MarketData TS | 3 rows | CPI YoY, GROWTH_COMPOSITE, GLOBAL_LIQUIDITY |
 | ScenarioProbability TS | 1 row | Bear shift +35pts recorded |
 | Strategy | 4 | Seeded ids; FAVORS edges + HOLDS by portfolios |
-| Invariant | 3+1 | 2 user-validated discoveries + 1 Dalio + 1 proposed |
+| Invariant | 3+1 | 2 time-validated discoveries + 1 Dalio + 1 born-and-integrated (all mechanical) |
 | Scenario | 3 | sc-4s-bull/base/bear (four-seasons-rp) |
 | Evaluation | 1 | Verdict confirms → mechanical confirmations |
 | Backtest | 1 | 2021-2022 episode; IN_REGIME → historical instance |

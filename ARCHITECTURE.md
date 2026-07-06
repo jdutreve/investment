@@ -82,6 +82,13 @@ WORKER system prompt:
    Rolling window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
    WorkerResult must include innovations_proposed (empty list if none)
    and reallocation_proposed (null if none)."
+
+CURATOR: no persona system prompt by design. It runs on WORKER_MODEL but
+  is a single-shot, tool-less transformation whose behavioral spec lives
+  entirely in its skill (skill-curate-knowledge.md). Omitting the Worker
+  persona is deliberate — it keeps the curator on the
+  knowledge-extraction-never-decisions side of the guardrail (it must never
+  evaluate strategies, rank, or propose adjustments).
 ```
 
 ---
@@ -228,39 +235,167 @@ Runs in the weekly 08:40 step, after Backtests/FAVORS refresh, and after each
 Evaluation commit.
 
 ```
-FROM BACKTESTS (source='backtest'):
-  Let rt = current regime type. After the weekly FAVORS refresh:
-  For each Strategy s with a refreshed FAVORS edge from rt:
-    median = median(favors.sortino_rolling) across all strategies for rt
-    For each Invariant i in BACKED_BY(s) where
-        'regime:<rt.id>' ∈ i.tags OR i.tags has no 'regime:*' tag:
-      if favors(s).sortino_rolling ≥ median:
-          confirmation(i, severity=1.0)
-      elif favors(s).sortino_rolling < median − confrontation_margin (0.10):
-          infirmation(i, severity=1.0)
-      else: no-op
-  Only the CURRENT regime type confronts — historical cells do not re-confront
-  weekly (they already did at seed).
+FROM BACKTESTS (source='backtest') — forward confrontation on the invariant's
+CONDITION-moments. Per-moment metrics are recomputed from the TS (NOT the
+running FAVORS aggregate, which serves Worker reasoning and the reallocation
+blend, not confrontation):
+
+  A MOMENT of invariant i = a period/occurrence where i.condition holds, read
+  from the market-data TS / regime instances (condition model in "Birth
+  maturation" below). Forward, a moment is confronted when it COMPLETES (a
+  condition-episode closes; an event fires; or the weekly sample for an
+  'always' condition) — not every tick, which would over-count a persistent
+  state.
+  For the completed moment M, evaluate i.effect by its method (see "Birth
+  maturation"): benchmark_M from the pre-materialised valuations per
+  i.effect.method (cross_class / cross_strategy / absolute / vs_defender):
+    i.handle's metric vs benchmark_M in i.direction ± confrontation_margin (0.10):
+      held         → confirmation(i)
+      contradicted → infirmation(i)
+      within band  → no-op
+  Already-elapsed historical moments are NOT re-confronted: they were swept
+  once, at i's BIRTH, by mature_invariant() (see below). Seed invariants are
+  the first batch of births; no special seed path.
 
 FROM EVALUATIONS (source='evaluation'):
-  verdict='confirms'     → confirmation for each BACKED_BY invariant of the
-                           evaluated strategy (severity=1.0)
-  verdict='invalidates'  → infirmation (severity=1.0)
-  'weakens' | 'neutral'  → no count change
+  CONDITION GATE — confront ONLY invariants whose `condition` was ACTIVE at
+  the evaluation's as-of date (an 'always' condition always qualifies).
+  Confronting an invariant whose condition was absent would credit/blame it
+  for a market it does not claim to describe.
+    verdict='confirms'     → confirmation for each qualifying BACKED_BY
+                             invariant of the evaluated strategy (severity=1.0)
+    verdict='invalidates'  → infirmation (severity=1.0)
+    'weakens' | 'neutral'  → no count change
 
 FROM PROPOSALS (source='proposal') — closes the loop on emitted proposals:
   Run by evaluate_proposals() (weekly 08:52 — see "Unified improvement
   cycle" below). When a Proposal reaches proposal_outcome_weeks (12) of age:
-  verdict='won'  → confirmation for each cited invariant
-                   (reallocation: supporting_invariants; switch: the
-                    challenger's BACKED_BY invariants), severity=1.0
-  verdict='lost' → infirmation, severity=1.0
+  CONDITION GATE — of the cited invariants (reallocation: supporting_invariants;
+  switch: the challenger's BACKED_BY invariants), confront ONLY those whose
+  `condition` was active during the outcome window [Proposal.date, +12w]
+  ('always' always qualifies).
+    verdict='won'  → confirmation for each qualifying cited invariant (severity=1.0)
+    verdict='lost' → infirmation, severity=1.0
 
 Each confrontation: append invariant_confrontations doc → update counts →
 update_invariant_weights() (weight_effective formula in CLAUDE.md) →
 Invariant.updated_at = today (drives recency_factor).
 Severity is recorded but unused in market_score in V1 (IMPROVEMENTS I-24).
 ```
+
+### Birth maturation — `mature_invariant()` (factored, source-blind)
+
+Maturation is **orthogonal to provenance and creation type.** ONE mechanism,
+identical for EVERY invariant at creation — seed, corpus ingestion,
+agent-discovery, user note, UC3 event. Provenance affects only metadata
+(author identity, floor); it never changes the maturation path.
+
+**Two distinct things** the condition/effect split keeps separate:
+- **ACTIVE** — `i.condition` holds NOW → `i` applies to the current market
+  (Worker context, digest "what it depends on"). *Applicability, present tense.*
+- **VERIDICAL** — over the moments where `i.condition` HELD (25y + forward),
+  did `i.effect` materialise? → `market_score`. *Truth / track record.*
+
+The 2×2: active+veridical = reliable & applicable now; **inactive+veridical =
+dormant but trustworthy** (its condition simply is not present — must NOT
+decay, see recency); active+unproven; inactive+refuted.
+
+```
+mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commit):
+  Requires a machine-readable CONDITION + EFFECT over KNOWN signals:
+    condition : Predicate[]  (ANDed; empty ⇒ 'always')  — WHEN active
+      Predicate = { signal, feature, op, value }
+      signal  ∈ the SIGNAL REGISTRY: any collected MarketData series
+                (from allowed_tickers), any DERIVED composite (GROWTH_COMPOSITE,
+                GLOBAL_LIQUIDITY, real_rate = irx − inflation, …), or 'regime'
+      feature = 'level' | 'speed' | 'acceleration' | 'type'
+      CURATOR RULE: express the FUNDAMENTAL causal driver, not a surface
+      correlate — "gold when real rates are negative", NOT "gold in
+      stagflation" (more causal, and captures more moments → larger N).
+      e.g. negative real rates   → [{real_rate, level, <, 0}]
+           rising & decelerating → [{inflation, speed, >, 0}, {inflation, acceleration, <, 0}]
+           short-rate rising     → [{irx, speed, >, 0}]
+    effect : { handle, metric, method, direction }  — the VALUATION METHOD
+      handle   = 'asset:<ticker>' | 'asset-class:<class>' | 'strategy:<id>'
+      metric   = return | max_drawdown | sortino_rolling | …
+      method   = 'cross_class'    (handle vs the OTHER asset classes at the moment)
+               | 'cross_strategy' (handle vs the other strategies)
+               | 'absolute'       (handle metric vs 0 / a threshold)
+               | 'vs_defender'
+      direction= 'outperform' | 'underperform'
+      e.g. gold: {asset-class:commodities, return, cross_class, outperform}
+      (effect.handle is INDEPENDENT of BACKED_BY: BACKED_BY = what the invariant
+       supports for reallocation; effect = how its veracity is measured.)
+
+  VALIDATION GATE (mechanical, Writeback, before maturation):
+    every predicate's `signal` ∈ the registry, `feature` valid for it,
+    `op`/`value` type-consistent; `effect.handle` an existing asset / asset
+    class / enabled Strategy; `metric` a computed indicator; `method` in the
+    enum AND consistent with the handle kind (cross_class ⇒ asset/class handle;
+    cross_strategy ⇒ strategy handle); `direction` valid. FAIL on any → the
+    candidate is DEMOTED to reference knowledge (empty condition/effect,
+    market_score frozen 1.0, reason in `trace`) — a malformed condition/effect
+    never silently breaks maturation.
+
+  An observation not reducible to a VALID condition+effect over registry
+  signals is NOT a weighted invariant: a ponctual fact — not a new entity
+  (a confrontation moment or an event Passage; DATA_MODELS) — not matured.
+
+  PREREQUISITE (materialised at seed, upstream of any maturation):
+    - regime instances (USE_CASES step 10) — for regime-signal conditions;
+    - the market-data TS incl. DERIVED signals (real_rate, composites);
+    - the ASSET-CLASS VALUATIONS (USE_CASES step 10b) — each reference asset
+      class valued per period over 25y; this IS the benchmark `cross_class`
+      reads. "Define and value the asset classes before valuing invariants."
+    Maturation cannot run before these exist.
+
+  MOMENTS = all historical periods/occurrences where i.condition held, read
+  from the TS / regime instances (frequency EMERGENT from the condition —
+  event → per occurrence, persistent state → per episode, 'always' → weekly
+  sample). For each moment M, evaluate i.effect by its METHOD:
+    benchmark_M per method — cross_class: the OTHER asset classes' metric;
+      cross_strategy: the other strategies'; absolute: 0/threshold; vs_defender:
+      the defender — READ from the pre-materialised valuations, not recomputed
+      ad hoc
+    i.handle's metric vs benchmark_M in i.direction ± confrontation_margin (0.10)
+      → confirmation(i) | infirmation(i) | no-op (within band)
+  → seeds confirmation_count / infirmation_count from all N moments at once
+  → market_score REAL on day 1 (no infinite forward wait)
+  → append invariant_confrontations rows → update_invariant_weights()
+     → updated_at = today.
+
+  Per-moment metrics are NOT stored — recomputed on the fly from the persisted
+  signals. Maturation persists only its OUTCOMES (invariant_confrontations +
+  weights).
+
+  TIME-VALIDATION VERDICT — the number. i "survived the test of time" iff:
+      confrontations ≥ invariant_min_confrontations (N_min)
+      AND market_score ≥ invariant_time_validation_score (θ)
+      AND not refuted (≥4 confrontations with market_score < 0.35 disqualifies).
+  Below N_min → INSUFFICIENT HISTORY: not time-validated, weight held near
+  floor (a rare condition with too few moments cannot be certified yet).
+  weight_effective stays continuous via market_score; the verdict is the
+  discrete gate for integration eligibility and money-moving citation. Seed
+  defaults N_min=3, θ=0.60; calibrated by the Phase 9 replay, like all thresholds.
+
+  RECENCY is CONDITION-RELATIVE. recency_factor must NOT decay i for its
+  condition being ABSENT — a dormant-but-veridical invariant is not stale, it
+  waits for its condition. days_since counts moment-time (since the condition
+  was last PRESENT), not wall-clock. (Formula pinned in DATA_MODELS.)
+
+  NOT reducible to condition+effect over known signals (axiomatic — "keep costs
+  low"; hard caps like concentration/drawdown): NOT a weighted invariant.
+  Either reference knowledge (empty condition, market_score frozen 1.0) or a
+  binding user_profile rule — never enters mature_invariant().
+```
+
+**Point-in-time honesty (ADR-003).** mature_invariant() recomputes effects from
+the point-in-time market-data TS (ALFRED vintages) — NO new look-ahead. But for
+a corpus invariant part of the 25y is in-sample for its author, and an
+**agent-discovery invariant is FULLY in-sample** (discovered from the same
+history it is then scored on): the resulting market_score is a **weight prior**,
+not out-of-sample proof. Uniform 25y maturation for all births — agent-discovery
+included — is a deliberate choice; V2 accrues real forward track record.
 
 ---
 
@@ -270,10 +405,12 @@ Every improvable resource follows the SAME lifecycle — this is the system's
 core loop, and each stage is mechanical except the proposal itself:
 
 ```
-measure current performance → PROPOSE → user gate (where required)
+measure current performance → PROPOSE
   → MATURATION (mechanical measurement over a fixed window)
   → ADOPT (validated principle — no longer a proposal) | REJECT
 ```
+No user gate anywhere in this loop (ADR-006); the digest reports adoptions
+and rejections.
 
 | Resource            | Proposer          | Measure (mechanical)                          | Maturation window            | Adopt / Reject                                  |
 |---------------------|-------------------|-----------------------------------------------|------------------------------|--------------------------------------------------|
@@ -461,16 +598,19 @@ No hedging in Phase 1. See IMPROVEMENTS.md I-15.
 
 ---
 
-## System Evolution — Supervised Self-Extensible
+## System Evolution — Autonomous, mechanically self-validating (ADR-006)
 
 ```
-Worker discovers new pattern (type=new_invariant)
+Worker/curator discovers new pattern (type=new_invariant)
   → ImprovementProposal in WorkerResult.innovations_proposed
   → EventLog append → Invariant source:agent-discovery status:proposed
-  → Telegram notification in the same cycle
+  → mature_invariant() (25y confrontation, like any birth)
         ↓
-  User validates → status:integrated
-  User rejects   → status:rejected (reason persisted as trace)
+  time-validated (N_min/θ, not refuted) → status:integrated   [mechanical]
+  refuted (≥4 confrontations, market_score < 0.35)            → status:rejected
+  otherwise                                                    → stays proposed
+                                                                  (candidate, low weight)
+  → the weekly digest reports what changed; no user gate, no approval flow.
 
 Schema self-extension (new vertex/edge/property types): DEFERRED TO V2
 (IMPROVEMENTS I-27) — a schema element without code to use it is dead
@@ -496,22 +636,22 @@ spec = {
                    user caps), initial probabilities (sum to 100)
 }
 
-Flow:
+Flow (fully mechanical — no user gate, ADR-006):
   → EventLog append (InnovationEvent) → Strategy vertex
     source:agent-discovery, status:proposed, enabled:false
-  → Telegram notification in the same cycle
+  → mechanical PROBATION (strategy_probation_weeks); the digest reports it
         ↓
-  User validates → in ONE Writeback transaction:
+  probation PASSES → in ONE Writeback transaction:
     status:active, enabled:true
     3 Scenario vertices + HAS_SCENARIO edges
     BACKED_BY edges to the cited invariants
   → the next weekly cycle picks it up mechanically: Backtests over
     historical Regime instances (coverage permitting) → FAVORS edges →
     eligible as structural anchor for reallocation deltas
-  User rejects → status:closed, enabled stays false (reason as trace)
+  probation FAILS → status:closed, enabled stays false (reason as trace)
 
 A new Strategy affects the ranking only when a Portfolio HOLDS it —
-creating or modifying Portfolios remains a user action (UC9) in V1.
+creating or modifying Portfolios remains a user preference (UC9) in V1.
 ```
 
 **Strategy revision (type=strategy_revision)** — the "better strategy" path:
@@ -669,7 +809,8 @@ stale data). Timezone Europe/Zurich.
             portfolio; reallocation: old vs new allocation + blend reasoning)
           → scoreboard: proposal hit-rate, paper-tests in progress,
             strategies in probation, scenario calibration flags
-          → proposed innovations (user validation required)
+          → newly integrated / rejected invariants + strategies (mechanical,
+            reported — not for approval; ADR-006)
 ```
 
 ---

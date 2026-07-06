@@ -19,8 +19,8 @@ Both are recommendations only; the user applies changes manually in V1.
 
 Every improvable resource (Proposal, Invariant, Strategy, scenario
 probabilities, thresholds) follows the same loop: **measure current
-performance → propose → user gate where required → mechanical maturation
-window → adopt or reject**. Proposals get an outcome verdict at +12 weeks
+performance → propose → mechanical maturation window → adopt or reject** —
+fully mechanical, no user gate (ADR-006). Proposals get an outcome verdict at +12 weeks
 (won/lost vs the incumbent, feeding invariant confrontations
 `source='proposal'`); new/revised strategies run a 12-week probation;
 scenario probabilities are calibration-scored; thresholds are calibrated by

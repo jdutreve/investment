@@ -50,7 +50,7 @@ scenarios, 7 portfolios) + **minimal `invest sql` / `invest status`**.
 - [ ] `invest sql "SELECT id, weight_initial, floor_weight FROM invariant"`
 - [ ] re-run seed → zero duplicates, 2 SeedEvents (partial inventory —
       static steps only at this stage)
-- [ ] counts: 13 entity / 5 M:N / 3 TS / 9 doc tables
+- [ ] counts: 13 entity / 5 M:N / 3 TS / 10 doc tables
 
 **⚔️ Challenge point:** the seeds ARE your investment philosophy encoded —
 reread the 6 invariants, 4 strategy conditions, 7 allocations line by line.
@@ -128,9 +128,10 @@ final gate thresholds.
 ## M7 — Corpus + invariant factory (2 d — Phases 1bis, 3, curation) — STOP POINT
 
 In-process embeddings, ingester, watcher, curator + dedup gate +
-consolidation + quality contract, CLI batch validation. Includes the
-KNOWLEDGE SLICE of Writeback (EventLog-first persistence of candidates +
-the dedup gate) — the decision slice of Writeback comes at M8.
+consolidation + quality contract + mechanical maturation (no user gate —
+ADR-006). Includes the KNOWLEDGE SLICE of Writeback (EventLog-first
+persistence of candidates + the dedup gate) — the decision slice of Writeback
+comes at M8.
 
 **Definition of Verified**
 - [ ] deposit the Dalio book → HOW MANY candidates, of WHAT quality?
@@ -138,9 +139,10 @@ the dedup gate) — the decision slice of Writeback comes at M8.
 - [ ] consolidation: multi-batch dupes merged, none silently dropped
 - [ ] SUPPORTS links land on seeded invariants
 
-**⚔️ STOP — the qualitative core:** you validate/reject the real
-candidates; the candidates/principles ratio tells whether the factory
-converges. The quality contract faces reality here.
+**⚔️ STOP — the qualitative core:** you INSPECT the real candidates (a
+build-time sanity read, not a runtime gate — ADR-006); the
+candidates/principles ratio tells whether the factory converges. The quality
+contract faces reality here.
 
 ---
 

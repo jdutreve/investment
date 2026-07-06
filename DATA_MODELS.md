@@ -140,7 +140,10 @@ Invariant {
                                     --   observation date), NOT an enum of provenance types
   author        : STRING            -- authority tier driving floor: 'dalio' | 'marks' |
                                     --   'system' (agent-discovery) | null
-  status        : STRING            -- 'proposed' | 'validated' | 'integrated' | 'rejected'
+  status        : STRING            -- 'proposed' (maturing) | 'integrated'
+                                    --   (time-validated: N_min/θ, not refuted)
+                                    --   | 'rejected' (refuted). Mechanical —
+                                    --   no 'validated' human step (ADR-006).
   tags          : STRING[]          -- namespaced where applicable: 'asset:GLD',
                                     --   'asset-class:fixed-income',
                                     --   'indicator:max_drawdown', 'phase:accumulation',
@@ -154,6 +157,31 @@ Invariant {
                                     --    model pinned in .env); RE-ENCODED
                                     --   whenever title/description change
 
+  condition     : JSON             -- WHEN the invariant is ACTIVE. Predicate[]
+                                   --   ANDed over REGISTRY signals; empty ⇒ 'always'.
+                                   --   Predicate = {signal, feature, op, value};
+                                   --   signal ∈ collected MarketData series +
+                                   --   DERIVED composites (real_rate = irx−inflation,
+                                   --   GROWTH_COMPOSITE, GLOBAL_LIQUIDITY) + 'regime';
+                                   --   feature ∈ level|speed|acceleration|type.
+                                   --   Curator expresses the FUNDAMENTAL driver, not
+                                   --   a surface correlate (e.g. real_rate<0, not
+                                   --   regime=stagflation, for gold).
+                                   --   Machine-readable so "is it active now?" is
+                                   --   answerable and mature_invariant() can find
+                                   --   its historical moments. Empty condition +
+                                   --   no effect ⇒ reference knowledge.
+  effect        : JSON             -- WHAT must hold when active — the VALUATION
+                                   --   METHOD (drives veracity):
+                                   --   {handle, metric, method, direction}
+                                   --   handle ∈ asset:<t>|asset-class:<c>|strategy:<id>
+                                   --     (INDEPENDENT of BACKED_BY);
+                                   --   method ∈ cross_class|cross_strategy|absolute
+                                   --     |vs_defender (reads the pre-materialised
+                                   --      asset-class / strategy valuations);
+                                   --   direction ∈ outperform|underperform.
+                                   --   See ARCHITECTURE "Birth maturation".
+
   weight_initial   : FLOAT
   floor_weight     : FLOAT
   weight_effective : FLOAT  -- = max(weight_initial × market_score × recency_factor,
@@ -163,20 +191,37 @@ Invariant {
   infirmation_count  : INT
   market_score       : FLOAT
   recency_factor     : FLOAT  -- 0.5 + 0.5 × exp(-days_since/half_life);
-                              --   recomputed from updated_at (last confrontation)
+                              --   CONDITION-RELATIVE, NOT wall-clock — a dormant
+                              --   invariant whose condition is absent does NOT
+                              --   decay. Concretely:
+                              --     days_since = 0            if condition active now
+                              --                = today − last_active_day  otherwise
+                              --   where last_active_day = the most recent day the
+                              --   condition held (end of its last episode / last
+                              --   occurrence). For an 'always' condition this is
+                              --   days-since-last-confrontation.
 
   trace           : STRING  -- MANDATORY
   created_at      : DATETIME
-  validated_at    : DATETIME
+  validated_at    : DATETIME  -- TIME-validation timestamp (mechanical: when it
+                              --   first met N_min/θ, not refuted) — not a user
+                              --   click; null while still a candidate (ADR-006)
   updated_at      : DATETIME  -- last confrontation (drives recency_factor)
 }
 ```
 
-An Invariant with no BACKED_BY edge is **reference knowledge**: it is never
-confronted (market_score stays 1.0), its weight = authority × recency; it
-informs Worker reasoning without backing a strategy — intended, not an
-accident. Invariants extracted from UC3 events or user notes carry
-`author=null` → floor 0.20 ('other corpus' tier).
+An Invariant with an **empty `condition` / no `effect`** (equivalently no
+BACKED_BY edge) is **reference knowledge**: never confronted (market_score
+stays 1.0), weight = authority × recency; it informs Worker reasoning without
+backing a strategy — intended, not an accident. A weighted (maturable)
+invariant MUST carry a machine-readable `condition` + `effect` over known
+signals; an observation not reducible to that is a ponctual fact, not an
+invariant. **A ponctual fact is NOT a new entity**: a quantitative one is a
+TS-derived confrontation moment (already an `invariant_confrontations` row —
+that row IS its link to the invariant it confirms/refutes); a narrative one is
+an event Document/Passage that may `SUPPORTS` the invariant it illustrates.
+Invariants extracted from UC3 events or user notes carry `author=null` → floor
+0.20 ('other corpus' tier).
 
 Half-life uniform in V1: 365 days (see IMPROVEMENTS I-5).
 Floor by **author** tier, persisted at creation:
@@ -209,7 +254,9 @@ Strategy {
                                         --   every referenced indicator must be computable
                                         --   from MarketData TS or Regime fields
   source         : STRING               -- 'corpus' | 'agent-discovery' (free text accepted)
-  status         : STRING               -- 'proposed' | 'validated' | 'active' | 'closed'
+  status         : STRING               -- 'proposed' | 'active' (auto-enabled
+                                        --   after mechanical probation) | 'closed'.
+                                        --   No 'validated' human step (ADR-006).
   date_opened    : DATE
   date_revised   : DATE
   trace          : STRING  -- MANDATORY
@@ -222,15 +269,15 @@ Benchmarking is a Portfolio concern, not a Strategy one.
 
 Agent-discovered strategies enter via
 `ImprovementProposal(type=new_strategy)` as `status='proposed'`,
-`enabled=false`; user validation activates them and creates their 3 Scenario
-vertices and BACKED_BY edges in one transaction — full lifecycle in
-ARCHITECTURE.md "System Evolution". Revisions
-(`type=strategy_revision`, spec + `supersedes`) close the old version
-(`status='closed'`, `enabled=false`, `date_revised` set) and open `-v(N+1)`;
-HOLDS edges are repointed only by the user (UC9). Every activated strategy
-(new or revision) then runs a probation window
-(`strategy_probation_weeks`, 12) measured mechanically — see ARCHITECTURE
-"Unified improvement cycle".
+`enabled=false`; they enter a mechanical probation window
+(`strategy_probation_weeks`, 12) and **auto-enable** if it passes — no user
+gate (ADR-006) — creating their 3 Scenario vertices and BACKED_BY edges in
+one transaction. Full lifecycle in ARCHITECTURE.md "System Evolution".
+Revisions (`type=strategy_revision`, spec + `supersedes`) close the old
+version (`status='closed'`, `enabled=false`, `date_revised` set) and open
+`-v(N+1)`; the owner may still repoint HOLDS edges (UC9) as a preference
+override. Every activated strategy (new or revision) runs its probation
+measured mechanically — see ARCHITECTURE "Unified improvement cycle".
 
 ---
 
@@ -767,7 +814,11 @@ CREATE TABLE IF NOT EXISTS detector_state (...);
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
 -- Seed includes regime thresholds, rolling window (756d), recency half-life,
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
--- proposal_expiry_days. (See TASKS.md seed.)
+-- proposal_expiry_days,
+-- invariant_min_confrontations (N_min, 3) and invariant_time_validation_score
+--   (θ, 0.60) — the time-validation verdict gate (ARCHITECTURE "Birth
+--   maturation"); both calibrated by the Phase 9 replay.
+-- (See TASKS.md seed.)
 
 ```
 
@@ -782,10 +833,24 @@ to V2 — IMPROVEMENTS I-27).
 
 ```sql
 CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
--- id STRING (PK, ULID), invariant_id STRING, regime STRING, date DATE,
+-- id STRING (PK, ULID), invariant_id STRING, moment_context STRING, date DATE,
+--   -- moment_context: the regime type if the moment is regime-keyed, else a
+--   --   compact descriptor of the condition that held (e.g. 'inflation:rising')
+--   --   — a moment is any condition-occurrence, not only a regime
 -- verdict STRING ('confirmed'|'refuted'), severity FLOAT,
 -- source STRING ('backtest'|'evaluation'|'proposal'|'adaptation' (V2)),
 -- source_id STRING
+
+CREATE TABLE IF NOT EXISTS asset_class_valuation (...);
+-- The pre-materialised BENCHMARK that effect.method='cross_class' reads
+-- (USE_CASES step 10b; "define and value the asset classes before valuing
+--  invariants"). Grows per period → a table (criterion).
+-- asset_class STRING, date DATE (unique index on (asset_class, date)),
+-- return FLOAT, sortino_rolling FLOAT, max_drawdown FLOAT, volatility FLOAT
+--   -- per class over the reference universe (equities / rates / inflation-
+--   --   protected / gold-commodities / cash), computed from the constituent
+--   --   ETF prices in MarketData. Class membership = the asset_class field
+--   --   on allowed_tickers. Rebuilt over 25y at seed, extended weekly.
 
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 -- date DATE, portfolio_id STRING (unique index on (date, portfolio_id)),
@@ -896,7 +961,7 @@ append always precedes vertex/edge commit.*
 ```
 Invariant    → EventLog → vertex (all weight fields live here) → edges
               (SUPPORTS from passages; BACKED_BY from suggested_backed_by
-              at user validation) → FTS + vector
+              at birth) → mature_invariant() (25y) → FTS + vector
 Evaluation   → EventLog → vertex (events[] filled) → UPDATES → FTS
 Scenario     → EventLog → vertex update → ScenarioProbability TS (weekly)
 Proposal V1  → mechanical gates (switch or reallocation) → EventLog

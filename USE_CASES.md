@@ -132,10 +132,11 @@ UC8 reads EventLog weekly to assemble its inputs.
       **author = Document.author tier** ('dalio' → floor 0.40,
       'marks' → 0.35, other → null/0.20) — NOT 'system'; 'system' is
       reserved for market-pattern discoveries (backtests, rankings)
-    - status='proposed' → batch validation, interactively in the CLI at
-      seed time (fallback: Telegram [YES]/[NO] per candidate)
-    - Validated candidates → status='integrated', BACKED_BY/SUPPORTS edges
-    - This is how a deposited book yields stable invariants at install time
+    - Each candidate → BACKED_BY/SUPPORTS edges → mature_invariant() over
+      25y → status='integrated' if time-validated (N_min/θ, not refuted),
+      else stays 'proposed' (candidate). 100 % mechanical — no user gate
+      (ADR-006).
+    - This is how a deposited book yields matured invariants at install time
       instead of waiting for weekly UC4 cycles
 
 7.  Scenario vertices (3 per Strategy = 12 total), bull/base/bear with
@@ -171,6 +172,18 @@ UC8 reads EventLog weekly to assemble its inputs.
       (is_current=false, end_date set)
     - Set is_current=true on the final (ongoing) instance
 
+10b. Asset-class valuation materialization (prerequisite for invariant
+    maturation — "define and value the asset classes before valuing
+    invariants"):
+    - Group the reference universe into classes via allowed_tickers.asset_class
+      (equities / rates / inflation-protected / gold-commodities / cash)
+    - For each (asset_class, period) over 25y, compute return + sortino_rolling
+      + max_drawdown + volatility from the constituent ETF prices
+    - Write asset_class_valuation rows — this IS the benchmark that
+      effect.method='cross_class' reads at confrontation time
+    - Also materialize DERIVED signals used by conditions (real_rate =
+      irx − inflation, composites) into the MarketData TS
+
 11. Initial Backtests:
     - For each (Strategy, RegimeType) cell where historical coverage ≥
       min_backtest_periods regime instances
@@ -180,6 +193,22 @@ UC8 reads EventLog weekly to assemble its inputs.
       indicators (synthetic backtest of prescribed allocation, aggregated
       across all historical instances — n_periods now meaningful thanks to
       the 25y backfill)
+11b. Invariant birth maturation:
+    - Call mature_invariant() (ARCHITECTURE "Birth maturation") on EVERY
+      seed invariant — the SAME factored, source-blind mechanism later
+      applied to every post-launch birth. Seed invariants are just the
+      first batch; there is no special seed maturation path.
+    - Confronts over its CONDITION-moments (ARCHITECTURE "Birth maturation"):
+      all historical periods/occurrences where i.condition held (regime is
+      one signal among many; frequency emergent), evaluating i.effect by its
+      METHOD (cross_class reads the asset-class valuations from step 10b;
+      cross_strategy the strategy benchmarks). Per-moment metrics recomputed
+      on the fly — nothing per-moment stored; only invariant_confrontations +
+      weights persist. Seeds confirmation_count / infirmation_count →
+      market_score from day zero; verdict per N_min (3) / θ (0.60).
+    - Prerequisite: the signals i.condition references + the benchmarks
+      i.effect.method reads must be persisted — steps 10 (regime instances),
+      10b (asset-class valuations) + the market TS — before this runs.
 
 12. PortfolioNAV TS synthetic backfill:
     - NAV per DATA_MODELS.md calculation conventions (constant weights,
@@ -293,23 +322,23 @@ updates and candidates (CurationResult — see TASKS.md Task 5.3).
 
 **Curation (autonomous):** updating confirmation counts, enriching
 description/example, adding SUPPORTS edges, recalculating `weight_effective`
-on existing integrated Invariants. No user validation required.
+on existing integrated Invariants.
 
-**Innovation (requires user validation, after the mechanical dedup gate —
-see TASKS.md Phase 6):** creating a new Invariant
-(`status=proposed`), a new or revised Strategy (`type=new_strategy` /
-`strategy_revision`, persisted `status=proposed`, `enabled=false` — complete
-spec and validation lifecycle in ARCHITECTURE.md "System
-Evolution"), or proposing a new metric (schema self-extension is V2 —
-IMPROVEMENTS I-27). Persisted as `status=proposed`, with a Telegram
-notification in the same cycle; never `integrated`/`active` without user
-validation. New invariants extracted from corpus
-documents carry `author = Document.author` tier (dalio → floor 0.40, etc.);
+**Innovation (also autonomous — no user gate, ADR-006; after the mechanical
+dedup gate — see TASKS.md Phase 6):** creating a new Invariant, a new or
+revised Strategy (`type=new_strategy` / `strategy_revision`,
+`enabled=false` — auto-enabled after mechanical probation; lifecycle in
+ARCHITECTURE.md "System Evolution"), or proposing a new metric (schema
+self-extension is V2 — IMPROVEMENTS I-27). A new Invariant is born
+`status=proposed`, matured over 25y, and reaches `status=integrated`
+mechanically iff time-validated (N_min/θ, not refuted) — the digest reports
+it, never asks. New invariants extracted from corpus documents carry
+`author = Document.author` tier (dalio → floor 0.40, etc.);
 `author='system'` is reserved for market-pattern discoveries. `source` is
 always the real free-text provenance (document+page, backtest run).
 
 **Output:** KnowledgeEvent → EventLog.
-**User action:** Validation required for proposed innovations.
+**User action:** none — the invariant/strategy lifecycle is fully mechanical.
 
 ---
 
@@ -528,11 +557,17 @@ switch cooldown rule). Pending proposals auto-expire after
 
 ## What the Agent Never Does Without User Awareness
 
-- Execute an allocation change in V1. V1 only ranks, digests, and proposes
-  paper-mode switches and reallocations via Proposal vertices — application
-  is always manual.
-- Create a new Invariant or Strategy `source=agent-discovery` without prior
-  Telegram notification — and never activate one without user validation.
-- Change user rules (drawdown limit, concentration limit, strategy enabled)
-  without UC9.
-- Persist a schema extension without explicit user validation.
+The V1 boundary is **real-world execution**, not a knowledge-validation gate
+(ADR-006). The agent's internal cognition is fully autonomous; the weekly
+digest provides awareness by REPORTING what changed — it never asks.
+
+- **Execute an allocation change** in V1. V1 only ranks, digests, and proposes
+  paper-mode switches and reallocations via Proposal vertices — application to
+  the real portfolio is always the owner's manual act. THIS is the human
+  boundary.
+- **Change the owner's rules** (drawdown limit, concentration limit, strategy
+  enabled) without UC9 — those are user preferences, never agent-overridden.
+- Persist a **schema extension** (V2 — IMPROVEMENTS I-27).
+
+(Creating AND mechanically integrating invariants/strategies is now
+autonomous — matured over 25y, reported in the digest, no approval flow.)
