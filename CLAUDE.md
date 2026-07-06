@@ -68,7 +68,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
     inbox watcher (60s poll on inbox/): new file(s) + 5-min quiet period
            → CorpusIngester batch (parse + chunk + embed, no LLM)
            → IngestionEvent per batch
-           → curation runner (LLM) — ONLY when the batch created new
+           → curator (LLM) — ONLY when the batch created new
              Documents: invariant candidates (author = document author
              tier) → Telegram validation within minutes of the deposit.
              Knowledge extraction, never decisions.
@@ -174,7 +174,7 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ### Decision cycle
 - **Event-driven ingestion** = mechanical, with ONE LLM exception: the
-  curation runner (fires minutes after a deposit; knowledge extraction
+  curator (fires minutes after a deposit; knowledge extraction
   from newly ingested documents — its outputs are
   `status=proposed` candidates gated by user validation, never decisions).
 - **Weekly (Monday 09:00)** = sole *scheduled* decision cycle. Worker +
@@ -223,7 +223,7 @@ jobs) append no EventLog row — they create no vertex/edge.
   provenance in free text. The UC0 initial curation pass (USE_CASES step 6b,
   DEFAULT — skip with `--no-curate`) lets a deposited book yield validated
   invariants at install time; later deposits are curated within minutes
-  (watcher → ingestion batch → curation runner).
+  (watcher → ingestion batch → curator).
 
 ### User interfaces — one command layer
 - Telegram bot, `invest` CLI and the local dashboard are THREE FRONTS of

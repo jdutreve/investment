@@ -430,7 +430,7 @@ Once at install (UC0)
 
 Event-driven (no nightly cron — the Mac sleeps, ADR-002)
   inbox watcher (60s poll, 5-min quiet) → CorpusIngester batch
-    → curation runner (LLM — only when the batch created new Documents)
+    → curator (LLM — only when the batch created new Documents)
   backup after every Monday chain and every ingestion batch
   (market fetch, regime detection, NAV, scenario probabilities: all in
    the Monday chain — decision cadence is weekly)
@@ -478,7 +478,7 @@ weight. V1 innovations are new_invariant / new_strategy /
 strategy_revision / process / data.
 ```
 
-**New Strategy (type=new_strategy)** — the Worker (or the curation runner)
+**New Strategy (type=new_strategy)** — the Worker (or the curator)
 may propose an entire agent-discovered strategy. The proposal `spec` must be
 complete:
 

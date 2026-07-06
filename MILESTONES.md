@@ -127,7 +127,7 @@ final gate thresholds.
 
 ## M7 — Corpus + invariant factory (2 d — Phases 1bis, 3, curation) — STOP POINT
 
-In-process embeddings, ingester, watcher, curation runner + dedup gate +
+In-process embeddings, ingester, watcher, curator + dedup gate +
 consolidation + quality contract, CLI batch validation. Includes the
 KNOWLEDGE SLICE of Writeback (EventLog-first persistence of candidates +
 the dedup gate) — the decision slice of Writeback comes at M8.

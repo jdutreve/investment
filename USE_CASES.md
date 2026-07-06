@@ -21,7 +21,7 @@ One-time (manual)
 
 Event-driven — no nightly cron (the Mac sleeps at night)
   inbox watcher: deposit + 5-min quiet → ingestion batch → curation
-  runner (LLM, only on new Documents) → Telegram candidates;
+  curator (LLM, only on new Documents) → Telegram candidates;
   backup after every Monday chain and every ingestion batch
 
 Weekly (Monday 08:00 when running + DUE-ON-START at launch/wake — one
@@ -126,7 +126,7 @@ UC8 reads EventLog weekly to assemble its inputs.
 
 6b. Initial curation pass (DEFAULT when a corpus is present; skip with
     `--no-curate` — the ONLY LLM step in UC0):
-    - Runs the SAME curation runner as weekly UC4 (Task 5.3) over the whole
+    - Runs the SAME curator as weekly UC4 (Task 5.3) over the whole
       corpus ingested in step 6, in batches of passages
     - Extracted invariant candidates are proposed with
       **author = Document.author tier** ('dalio' → floor 0.40,
@@ -250,7 +250,7 @@ releases / FOMC statements, ECB press, SNB press; changing sources = edit
 the constant — complexify to runtime config only if a real need appears):
 
 1. Fetch new items since last run (dedupe by URL against existing Document source_paths) — mechanical.
-2. **LLM triage** (curation runner, `skill-triage-events`): MAJOR event
+2. **LLM triage** (curator, `skill-triage-events`): MAJOR event
    (nomination, doctrine shift, emergency action) vs routine — routine is
    discarded.
 3. Major events → **Document(kind=event)**: summary, entities, and
@@ -274,10 +274,10 @@ IngestionEvent).
 ---
 
 ## UC4 — Knowledge Curation
-**Triggers (same runner, three callers):**
+**Triggers (same curator, three callers):**
 1. **Event-driven:** ~5 minutes after a deposit (watcher quiet period),
    whenever the ingestion batch created ≥1 new Document, the curation
-   runner processes it immediately — a deposited book yields its invariant
+   curator processes it immediately — a deposited book yields its invariant
    candidates within minutes, not the next Monday. Knowledge extraction
    only — never decisions.
 2. **Weekly cron (Monday, after UC3):** sweep over anything not yet curated
@@ -288,7 +288,7 @@ IngestionEvent).
 Raw inbox parsing (parse + chunk + embed → Document/Passage vertices +
 similarity-based SUPPORTS edges) is done by the watcher batch with no LLM;
 the
-curation runner is the LLM step that turns new passages into invariant
+curator is the LLM step that turns new passages into invariant
 updates and candidates (CurationResult — see investment-TASKS.md Task 5.3).
 
 **Curation (autonomous):** updating confirmation counts, enriching

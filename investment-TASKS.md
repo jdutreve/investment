@@ -231,7 +231,7 @@ not root scripts — no path ambiguity.
 │       │       ├── skill-compare-vs-defender.md
 │       │       ├── skill-propose-reallocation.md
 │       │       ├── skill-interpret-invariants.md
-│       │       ├── skill-curate-knowledge.md    ← curation runner
+│       │       ├── skill-curate-knowledge.md    ← curator
 │       │       └── skill-triage-events.md       ← UC3 event triage
 │       ├── writeback/
 │       │   └── writeback.py      ← gates + persistence executor
@@ -1042,7 +1042,7 @@ class CorpusIngester:
 task polling `INBOX_PATH` every 60s. When new files appear AND the newest
 mtime is ≥ `inbox_quiet_seconds` (300) old — the quiet period lets a batch
 of drops finish — ingest the batch, move processed files to `SOURCES_PATH`,
-then invoke the curation runner if ≥1 new Document was created. First scan
+then invoke the curator if ≥1 new Document was created. First scan
 at app start drains deposits made while the Mac was off. Failures move the
 file to `inbox/failed/` + ErrorEvent (never crash the loop).
 
@@ -1056,7 +1056,7 @@ endpoints; URLs pinned at implementation, never guessed). Changing sources
 UC9 ever becomes a real need (guiding principle). Flow per USE_CASES UC3:
 fetch new items (dedupe by URL hash against existing Document
 source_paths — no state table) →
-LLM triage via the curation runner (`skill-triage-events.md`: major vs
+LLM triage via the curator (`skill-triage-events.md`: major vs
 routine, routine discarded) → major → Document(kind=event) with summary,
 entities, and enrichment (source text + model knowledge + **bounded fetch**
 restricted to the EVENT_SOURCES domains; insufficient → `needs-user-input`
@@ -1257,13 +1257,13 @@ Skill files (each: purpose, inputs, method, output contract):
 - `skill-interpret-invariants.md` — weight semantics (ceiling, floor, decay),
   authority tiers, how to cite invariants in reasoning.
 
-### Task 5.3 — UC4 knowledge curation runner (LLM)
+### Task 5.3 — UC4 knowledge curator (LLM)
 
-`worker/curation.py` — same Worker model, NO bridged tools (input assembled
+`worker/curator.py` — same Worker model, NO bridged tools (input assembled
 mechanically): new Passages since last run + their SUPPORTS-linked invariants
 + top invariants by weight. Skill: `skill-curate-knowledge.md`.
 
-**Single-flight:** an asyncio lock serializes runner invocations — a
+**Single-flight:** an asyncio lock serializes curator invocations — a
 watcher batch landing during the Monday chain waits its turn.
 
 **Re-embedding rule:** any curation that touches `title` or `description`
@@ -1271,7 +1271,7 @@ re-encodes the invariant's embedding in the SAME transaction (embedded text
 = title + description — a stale vector degrades dedup and retrieval exactly
 on the most active invariants).
 
-**Four callers, one runner:**
+**Four callers, one curator:**
 1. event-driven — right after a watcher ingestion batch that created new
    Documents (a deposited book yields candidates within minutes);
 2. weekly UC3 event triage (`skill-triage-events.md` — major/routine
@@ -1293,13 +1293,13 @@ class InvariantCandidate(BaseModel):
                               #   market-pattern discoveries
     tags: list[str]           # incl. regime:<regime_type_id> when applicable
     supporting_passages: list[str]
-    weight_initial: float     # proposed by the CURATION RUNNER (not the
+    weight_initial: float     # proposed by the CURATOR (not the
                               #   Planner/Worker) within the author band
                               #   [initial_weight_min, initial_weight_max]
                               #   per evidence strength; Writeback CLAMPS
                               #   to the band
     suggested_backed_by: list[dict]  # [{strategy_id, strength}] — strength
-                              #   proposed by the runner (default 0.5,
+                              #   proposed by the curator (default 0.5,
                               #   Writeback clamps to [0,1]); on user
                               #   validation Writeback creates the BACKED_BY
                               #   edges (without this, new invariants would
@@ -1319,7 +1319,7 @@ class CurationResult(BaseModel):
 ```
 
 Persisted via Writeback (KnowledgeEvent → EventLog first). Curation vs
-Innovation boundary and author-tier rule per CLAUDE.md. The same runner
+Innovation boundary and author-tier rule per CLAUDE.md. The same curator
 serves the four callers above — Telegram validation for the event-driven
 and weekly paths, interactive CLI batch validation for the UC0 seed pass
 (default; skip with `--no-curate` — see USE_CASES.md step 6b).
@@ -1350,7 +1350,7 @@ candidates are never silently dropped.
 
 **Done when:** on the seeded DB, the Worker produces a complete WorkerResult
 (with reallocation_proposed populated when the bear-scenario fixture shifts
-+35pts) using only the 3 bridged tools; the curation runner enriches an
++35pts) using only the 3 bridged tools; the curator enriches an
 existing invariant from a new fixture passage without touching its weight.
 
 ---
@@ -1642,7 +1642,7 @@ async def main():
     scheduler = AsyncIOScheduler(timezone="Europe/Zurich")
     # NO nightly cron (ADR-002 — the Mac sleeps at night). Two mechanisms:
     # 1. inbox watcher task (corpus/watcher.py): 60s poll, 5-min quiet
-    #    period → ingestion batch → curation runner (only on new docs).
+    #    period → ingestion batch → curator (only on new docs).
     # 2. Weekly chain, DUE-ON-START: run_if_due() called at startup, on
     #    wake (macOS wake notification or a 5-min heartbeat comparing
     #    monotonic vs wall clock), and by the Monday 08:00 cron while
@@ -1724,7 +1724,7 @@ async def test_watcher_curation_trigger():  # deposit → batch after 5-min quie
                                              # curation runs → InvariantCandidate with
                                              # author = document author tier +
                                              # suggested_backed_by; no new Document
-                                             # → runner not invoked
+                                             # → curator not invoked
 async def test_due_on_start():               # app starts Wednesday, last chain 9 days
                                              # old → chain runs ONCE at startup;
                                              # restart same day → no second run

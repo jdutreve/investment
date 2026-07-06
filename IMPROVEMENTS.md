@@ -546,5 +546,5 @@ If/when adding from this list, prioritize by dependency and impact:
   the weekly cycle (mechanical jobs can run as often as needed;
   user-initiated UC9 chats and their capped ad-hoc UC8 re-run — max 1/day —
   are explicitly allowed, being user-triggered; the event-driven curation
-  runner is also allowed because it only extracts knowledge into
+  curator is also allowed because it only extracts knowledge into
   user-gated `status=proposed` candidates — it never decides anything).
