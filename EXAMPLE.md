@@ -3,7 +3,7 @@
 Full trace of a real V1 cycle: events → regime → portfolio ranking
 → Worker cycle → innovation → proposals to user.
 Each entity is instantiated with its actual properties.
-**Every entity below exists in the UC0 seed** (investment-TASKS.md Phase 1ter)
+**Every entity below exists in the UC0 seed** (TASKS.md Phase 1ter)
 — this example is V1-conformant end to end.
 
 **Two complete scenarios are shown:**
@@ -41,7 +41,7 @@ directly in the MarketData TS rows below.
 
 Regime detection is **mechanical** (Monday 08:00 catch-up — the detector
 steps once per NEW monthly print since the last run, at processing time;
-formal algorithm in investment-ARCHITECTURE.md; start_dates come from the
+formal algorithm in ARCHITECTURE.md; start_dates come from the
 data, not the run date). It reads `level`, `speed`, and `acceleration`
 from the MarketData TS.
 

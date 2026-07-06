@@ -1000,7 +1000,7 @@ def compute_global_liquidity(components: dict[str, pd.Series]) -> pd.Series:
 ### Task 2.3 — Regime detector
 
 **`regime.py`** — implements the formal algorithm in
-investment-ARCHITECTURE.md (axis classification, hysteresis
+ARCHITECTURE.md (axis classification, hysteresis
 `regime_confirm_prints`, confidence formula, tag derivation, is_current
 uniqueness in one transaction). Emits **RegimeEvent → EventLog BEFORE**
 touching the Regime vertex, and only when regime/confidence-band/tags change.

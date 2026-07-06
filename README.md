@@ -51,10 +51,10 @@ semantic search).
 |---|---|
 | `CLAUDE.md` | Entry point — rules, schedules, stack (read first) |
 | `REVISION_NOTES.md` | V1 scope, core concepts, ranking rule |
-| `investment-ARCHITECTURE.md` | Regime algorithm, Planner/Worker cycle, improvement cycle |
+| `ARCHITECTURE.md` | Regime algorithm, Planner/Worker cycle, improvement cycle |
 | `DATA_MODELS.md` | Schema (13 entities, relations, TS), formulas, weights |
 | `USE_CASES.md` | UC0–UC9, gates, Event Watch |
-| `investment-TASKS.md` | Full build spec, phase by phase |
+| `TASKS.md` | Full build spec, phase by phase |
 | `MILESTONES.md` | **Execution order** — 11 owner-verifiable increments, 3 STOP points |
 | `DECISIONS.md` | ADRs (SQLite, local Mac, vintage discipline, ops layer) |
 | `IMPROVEMENTS.md` | Deferred features (I-N), triggers to revisit |

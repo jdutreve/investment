@@ -224,7 +224,7 @@ Agent-discovered strategies enter via
 `ImprovementProposal(type=new_strategy)` as `status='proposed'`,
 `enabled=false`; user validation activates them and creates their 3 Scenario
 vertices and BACKED_BY edges in one transaction — full lifecycle in
-investment-ARCHITECTURE.md "System Evolution". Revisions
+ARCHITECTURE.md "System Evolution". Revisions
 (`type=strategy_revision`, spec + `supersedes`) close the old version
 (`status='closed'`, `enabled=false`, `date_revised` set) and open `-v(N+1)`;
 HOLDS edges are repointed only by the user (UC9). Every activated strategy
@@ -767,7 +767,7 @@ CREATE TABLE IF NOT EXISTS detector_state (...);
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
 -- Seed includes regime thresholds, rolling window (756d), recency half-life,
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
--- proposal_expiry_days. (See investment-TASKS.md seed.)
+-- proposal_expiry_days. (See TASKS.md seed.)
 
 ```
 
@@ -883,7 +883,7 @@ class ReallocationProposal(BaseModel):
 # WorkerResult must always include:
 #   innovations_proposed  : list[ImprovementProposal]      (empty list if none)
 #   reallocation_proposed : Optional[ReallocationProposal] (None if none)
-# Full WorkerResult schema in investment-ARCHITECTURE.md.
+# Full WorkerResult schema in ARCHITECTURE.md.
 ```
 
 ---
@@ -928,7 +928,7 @@ restart); similarity =
 brute-force cosine (<10 ms at this scale). No vector index, no FTS in V1
 (FTS5 available natively if ever needed).
 
-Backup after every chain/ingestion batch — sqlite3 .backup (WAL-safe); see investment-TASKS.md Phase 7
+Backup after every chain/ingestion batch — sqlite3 .backup (WAL-safe); see TASKS.md Phase 7
 ```
 
 ---
@@ -938,7 +938,7 @@ Backup after every chain/ingestion batch — sqlite3 .backup (WAL-safe); see inv
 Loaded from `system_thresholds` — not hardcoded. Detection uses `level`,
 `speed`, and `acceleration` from MarketData TS, not only static thresholds.
 The formal detection algorithm (axis classification, confidence formula,
-hysteresis) is specified in investment-ARCHITECTURE.md.
+hysteresis) is specified in ARCHITECTURE.md.
 
 Strategy `conditions` must reference at least one indicator NOT in the regime
 threshold set, to avoid tautological self-confirmation, and every referenced

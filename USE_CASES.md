@@ -289,17 +289,17 @@ Raw inbox parsing (parse + chunk + embed → Document/Passage vertices +
 similarity-based SUPPORTS edges) is done by the watcher batch with no LLM;
 the
 curator is the LLM step that turns new passages into invariant
-updates and candidates (CurationResult — see investment-TASKS.md Task 5.3).
+updates and candidates (CurationResult — see TASKS.md Task 5.3).
 
 **Curation (autonomous):** updating confirmation counts, enriching
 description/example, adding SUPPORTS edges, recalculating `weight_effective`
 on existing integrated Invariants. No user validation required.
 
 **Innovation (requires user validation, after the mechanical dedup gate —
-see investment-TASKS.md Phase 6):** creating a new Invariant
+see TASKS.md Phase 6):** creating a new Invariant
 (`status=proposed`), a new or revised Strategy (`type=new_strategy` /
 `strategy_revision`, persisted `status=proposed`, `enabled=false` — complete
-spec and validation lifecycle in investment-ARCHITECTURE.md "System
+spec and validation lifecycle in ARCHITECTURE.md "System
 Evolution"), or proposing a new metric (schema self-extension is V2 —
 IMPROVEMENTS I-27). Persisted as `status=proposed`, with a Telegram
 notification in the same cycle; never `integrated`/`active` without user

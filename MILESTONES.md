@@ -1,6 +1,6 @@
 # MILESTONES.md — Incremental implementation plan
 
-Execution-order view of investment-TASKS.md, sliced so the OWNER can
+Execution-order view of TASKS.md, sliced so the OWNER can
 challenge and verify each increment before the next starts. This is a
 STEERING document: check boxes, strike milestones, add findings — the
 specs stay in the other files.

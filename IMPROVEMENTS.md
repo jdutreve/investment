@@ -400,7 +400,7 @@ qualitative events are rare enough in V1 to live as strings.
 **Decision (2026-07):** the growth axis uses **GROWTH_COMPOSITE** —
 z(INDPRO YoY) − z(UNRATE Δ3m), rebased to index 100 — fully free, FRED-native,
 automatic and perennial (no license risk, no manual pulls). Formula in
-DATA_MODELS.md; detection algorithm in investment-ARCHITECTURE.md.
+DATA_MODELS.md; detection algorithm in ARCHITECTURE.md.
 
 Rejected candidates: DBnomics ISM mirror (third-party availability risk),
 S&P Global US PMI (manual pull). Revisit only if GROWTH_COMPOSITE visibly
@@ -447,7 +447,7 @@ probabilities in its WorkerResult.
 ## I-23 — Retrospective learning job — ✅ PROMOTED TO V1
 
 **Decision (2026-07):** promoted into V1 core as `mechanical/outcomes.py`
-(weekly 08:52 — see investment-ARCHITECTURE.md "Unified improvement cycle").
+(weekly 08:52 — see ARCHITECTURE.md "Unified improvement cycle").
 Every Proposal (switch AND reallocation) receives an `outcome.verdict`
 (won/lost) at +`proposal_outcome_weeks` (12), feeding
 `invariant_confrontations.source='proposal'`; accepted paper-tests are

@@ -26,7 +26,7 @@ window → adopt or reject**. Proposals get an outcome verdict at +12 weeks
 scenario probabilities are calibration-scored; thresholds are calibrated by
 the Phase 9 walk-forward replay. The weekly digest scoreboard renders these
 measurements — week-over-week improvement is measured, not asserted. Spec
-in investment-ARCHITECTURE.md "Unified improvement cycle".
+in ARCHITECTURE.md "Unified improvement cycle".
 
 ## Core concepts
 
@@ -39,7 +39,7 @@ in investment-ARCHITECTURE.md "Unified improvement cycle".
   `falling-growth-rising-inflation`). Deflation is a tag, never a regime.
   The growth axis is `GROWTH_COMPOSITE` (FRED-native: z(INDPRO YoY) −
   z(UNRATE Δ3m), rebased to index 100) — chosen over ISM PMI because it is
-  automatic, free and perennial (see investment-ARCHITECTURE.md).
+  automatic, free and perennial (see ARCHITECTURE.md).
 - **Strategy** — investment thesis or concept (vertex `Strategy`). Seeded ids:
   `four-seasons-rp`, `permanent-browne`, `barbell-taleb`, `momentum-macro`
   (distinct from Framework ids to avoid name collisions).
