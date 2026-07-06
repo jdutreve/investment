@@ -535,7 +535,9 @@ asyncio.gather (5 fixed queries — no judgment involved, so no LLM):
   ① Current Regime + global liquidity
   ② Ranked enabled portfolios from portfolio_weekly_snapshot
   ③ Scenarios (+ week-over-week shift, computed on read)
-  ④ Top invariants by weight_effective
+  ④ Invariants in 3 relevance buckets (K=8 each, ≤20 after dedup):
+     regime:<current> tag | assets held by defender+challengers | global
+     top by weight_effective
   ⑤ Last 3 Proposals (incl. outcome verdicts, rejection reasons)
 ```
 
@@ -555,7 +557,10 @@ tool_use output — QueryStrategies (bounded; never raw SQL):
 
 ### PYTHON — Variable execution (no LLM)
 ```
-embed corpus_queries → numpy cosine over the passage matrix;
+embed corpus_queries → cosine over BOTH matrices:
+  passages (top-k, + their SUPPORTS-linked invariants)
+  invariants directly (top-k — reaches agent-discovery / reference
+  invariants that have no supporting passage)
 execute whitelisted zooms.
 ```
 

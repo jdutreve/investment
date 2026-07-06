@@ -186,7 +186,6 @@ Invariant {
                 15-25% tilt."
   example: "2021-2022: GLD +18% vs 4 Seasons GLD sleeve +11% while the growth
             composite stayed below 100 for 8 consecutive months."
-  topic: ["gold","stagflation","inflation","allocation"]
   tags: ["asset:GLD", "asset-class:commodities",
          "regime:falling-growth-rising-inflation"]
   source: "Backtest stagflation 2021-2022 — GLD +18% vs 4S GLD sleeve +11%
@@ -222,7 +221,6 @@ Invariant {
                 primary selection indicator."
   example: "2008: best-Sharpe strategies had max_drawdown -35% to -50%;
             best-Calmar strategies had -8% to -15%, recovering 3× faster."
-  topic: ["calmar","sharpe","drawdown","accumulation","risk"]
   tags: ["indicator:calmar", "indicator:max_drawdown", "phase:accumulation"]
   source: "Backtests 2008 / 2020 / 2022 cross-validation (computed 2026-03-01)"
   author: "system"
@@ -254,7 +252,6 @@ Invariant {
   description: "When CPI YoY > 2.5% and speed > 0, real yields fall and
                 TIPS/gold/commodities outperform nominal bonds."
   example: "2021-2022: TIP +2.3% while TLT -26%."
-  topic: ["tips","inflation","bonds","real-yield"]
   tags: ["asset:TIP", "asset:GLD", "indicator:real-yield",
          "regime:falling-growth-rising-inflation",
          "regime:rising-growth-rising-inflation"]
@@ -838,8 +835,9 @@ The verdict confronts the invariants that backed the challenger
 loop: the insight that argued for the proposal is now credited by reality.
 The digest scoreboard shows: `Proposals hit-rate: 1/1 (100%) at +12w`.
 A 'lost' verdict would instead append infirmations — a repeatedly wrong
-insight decays toward its floor and (below
-`proposal_invariant_weight_min`) can no longer justify a reallocation.
+insight decays toward its floor, and once measurably refuted (≥4
+confrontations, market_score < 0.35) it can no longer justify a
+reallocation, authority floor or not.
 
 ---
 

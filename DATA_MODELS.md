@@ -141,14 +141,18 @@ Invariant {
   author        : STRING            -- authority tier driving floor: 'dalio' | 'marks' |
                                     --   'system' (agent-discovery) | null
   status        : STRING            -- 'proposed' | 'validated' | 'integrated' | 'rejected'
-  topic         : STRING[]          -- semantic topics
-  tags          : STRING[]          -- ex: 'asset:GLD', 'indicator:max_drawdown',
-                                    --   'asset-class:fixed-income', 'phase:accumulation',
+  tags          : STRING[]          -- namespaced where applicable: 'asset:GLD',
+                                    --   'asset-class:fixed-income',
+                                    --   'indicator:max_drawdown', 'phase:accumulation',
                                     --   'regime:<regime_type_id>' (drives mechanical
-                                    --   confrontation — see ARCHITECTURE)
+                                    --   confrontation — see ARCHITECTURE);
+                                    --   free thematic tags otherwise: 'economy',
+                                    --   'rates', 'forex', 'credit', 'liquidity',
+                                    --   'geopolitics', … (retrieval/curation)
   embedding     : FLOAT[384]        -- embedded text = title + "\n" + description
                                     --   (sentence-transformers, in-process,
-                                    --    model pinned in .env)
+                                    --    model pinned in .env); RE-ENCODED
+                                    --   whenever title/description change
 
   weight_initial   : FLOAT
   floor_weight     : FLOAT
@@ -167,6 +171,12 @@ Invariant {
   updated_at      : DATETIME  -- last confrontation (drives recency_factor)
 }
 ```
+
+An Invariant with no BACKED_BY edge is **reference knowledge**: it is never
+confronted (market_score stays 1.0), its weight = authority × recency; it
+informs Worker reasoning without backing a strategy — intended, not an
+accident. Invariants extracted from UC3 events or user notes carry
+`author=null` → floor 0.20 ('other corpus' tier).
 
 Half-life uniform in V1: 365 days (see IMPROVEMENTS I-5).
 Floor by **author** tier, persisted at creation:
@@ -910,8 +920,11 @@ One SQLite file: ~/data/investment/investment.db (WAL sidecar files
 alongside). Dataset ≈ 100 MB — lives in the OS page cache after first read,
 so reads are effectively in-memory.
 
-Embeddings: float32×384 BLOBs on invariant/passage rows, loaded ONCE at
-startup into an in-RAM numpy matrix (~15 MB at 10k passages); similarity =
+Embeddings: float32×384 BLOBs on invariant/passage rows, loaded at startup
+into an in-RAM numpy matrix (~15 MB at 10k passages) and APPENDED
+INCREMENTALLY at runtime — the BLOB row is COMMITTED first, then the matrix
+row appended (the matrix is a cache of committed state, rebuildable at any
+restart); similarity =
 brute-force cosine (<10 ms at this scale). No vector index, no FTS in V1
 (FTS5 available natively if ever needed).
 

@@ -205,7 +205,10 @@ jobs) append no EventLog row — they create no vertex/edge.
 ### Curation vs Innovation
 - **Curation** (autonomous): update weight, add confirmations, add SUPPORTS
   edges, enrich description/example on **existing integrated** Invariants.
-- **Innovation** (user validation required): create a new Invariant, new
+- **Innovation** (user validation required, AFTER the mechanical dedup
+  gate — cosine ≥ `invariant_merge_threshold` vs an existing invariant
+  converts the candidate into a curation, never a duplicate): create a new
+  Invariant, new
   or revised Strategy (`type=new_strategy` / `strategy_revision`,
   `enabled=false` until validated — lifecycle in ARCHITECTURE "System
   Evolution"), new metric. `status=proposed` until `user_validated=True`.
@@ -254,8 +257,9 @@ jobs) append no EventLog row — they create no vertex/edge.
   proposed allocation, min meaningful change
   (`proposal_min_allocation_change_pts`), turnover cap
   (`proposal_max_turnover_pct`), and cited-invariant eligibility
-  (`status=integrated` AND `weight_effective ≥
-  proposal_invariant_weight_min`). See USE_CASES.md UC8.
+  (`status=integrated`, `weight_effective ≥ proposal_invariant_weight_min`,
+  and not measurably refuted — ≥4 confrontations with market_score < 0.35
+  disqualifies, floor or not). See USE_CASES.md UC8.
 
 ### Mechanical calculations
 - Sharpe/Sortino/Calmar: pure Python (numpy/pandas), no LLM.

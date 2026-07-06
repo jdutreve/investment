@@ -209,7 +209,10 @@ not root scripts — no path ambiguity.
 │       │   └── queries.py
 │       ├── planner/
 │       │   ├── pre.py
-│       │   └── post.py
+│       │   ├── post.py
+│       │   └── skills/
+│       │       ├── skill-plan-context.md    ← Call 1a contract
+│       │       └── skill-build-context.md   ← Call 1b contract
 │       ├── worker/
 │       │   ├── worker.py
 │       │   ├── tools.py
@@ -391,8 +394,10 @@ CREATE INDEX IF NOT EXISTS ix_snapshot_date     ON portfolio_weekly_snapshot (da
 """
 
 # Embeddings (ADR-004): invariant.embedding / passage.embedding are BLOBs
-# (float32 × 384, InProcessEmbedder). Loaded ONCE at startup into an in-RAM
-# numpy matrix (~15 MB at 10k passages); similarity = brute-force cosine.
+# (float32 × 384, InProcessEmbedder). Loaded at startup into an in-RAM numpy
+# matrix and appended incrementally at runtime — COMMIT the BLOB row first,
+# then append to the matrix (cache of committed state, rebuilt on restart).
+# Similarity = brute-force cosine.
 # No vector index, no FTS in V1 (FTS5 is available natively if ever needed).
 
 # PRAGMAs at connection open:
@@ -470,9 +475,13 @@ SYSTEM_THRESHOLDS = {
     "proposal_max_turnover_pct": 30.0,   # realloc gate 4: Σ|delta|/2
     "proposal_expiry_days": 14.0,        # pending → expired
     "inbox_quiet_seconds": 300.0,        # watcher: quiet period before a batch
+    "invariant_merge_threshold": 0.80,   # dedup gate: cosine vs existing invariants
+    "curation_sanity_ceiling": 40.0,     # candidates/document → stricter re-merge + flag
     "proposal_outcome_weeks": 12.0,      # maturation before outcome verdict
     "proposal_cooldown_weeks": 4.0,      # anti-repetition after user rejection
     "proposal_invariant_weight_min": 0.10,  # realloc gate 6: cited-invariant floor
+    "invariant_refuted_min_confrontations": 4.0,  # gate 6: refutation test arms after N
+    "invariant_refuted_score": 0.35,     # gate 6: market_score below → ineligible
     "strategy_probation_weeks": 12.0,    # new/revised strategy probation window
     "scenario_calibration_weeks": 4.0,   # scenario probability scoring horizon
     # invariants
@@ -647,8 +656,8 @@ INVARIANTS = [
      "example": "2021-2022: TIP +2.3% while TLT -26%.",
      "source": "Dalio — Principles for Navigating Big Debt Crises, ch. inflation",
      "author": "dalio", "status": "integrated",
-     "topic": ["tips", "inflation", "gold"],
-     "tags": ["asset:TIP", "asset:GLD", "indicator:real-yield",
+     "tags": ["tips", "inflation", "gold",
+              "asset:TIP", "asset:GLD", "indicator:real-yield",
               "regime:falling-growth-rising-inflation",
               "regime:rising-growth-rising-inflation"],
      "weight_initial": 0.85, "floor_weight": 0.40,
@@ -660,8 +669,8 @@ INVARIANTS = [
      "example": "2008 H2, 2019 H2: TLT strongly positive as growth rolled over.",
      "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
      "author": "dalio", "status": "integrated",
-     "topic": ["duration", "recession"],
-     "tags": ["asset:TLT", "asset:BIL",
+     "tags": ["duration", "recession",
+              "asset:TLT", "asset:BIL",
               "regime:falling-growth-falling-inflation"],
      "weight_initial": 0.80, "floor_weight": 0.40,
      "trace": "Dalio Principles; recession playbook."},
@@ -672,8 +681,8 @@ INVARIANTS = [
      "example": "2016-2018, 2023-2024 expansions.",
      "source": "Standard cycle finance; multi-decade empirical regularity",
      "author": "dalio", "status": "integrated",
-     "topic": ["equities", "growth"],
-     "tags": ["asset:SPY", "asset:VTI",
+     "tags": ["equities", "growth",
+              "asset:SPY", "asset:VTI",
               "regime:rising-growth-falling-inflation",
               "regime:rising-growth-rising-inflation"],
      "weight_initial": 0.80, "floor_weight": 0.40,
@@ -685,8 +694,8 @@ INVARIANTS = [
      "example": "2018 QT, 2022 tightening.",
      "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
      "author": "marks", "status": "integrated",
-     "topic": ["liquidity", "risk"],
-     "tags": ["indicator:global-liquidity"],
+     "tags": ["liquidity", "risk",
+              "indicator:global-liquidity"],
      "weight_initial": 0.75, "floor_weight": 0.35,
      "trace": "Howard Marks memos on cycles and liquidity."},
     {"id": "inv-liquidity-easing-risk",
@@ -696,8 +705,8 @@ INVARIANTS = [
      "example": "2020-2021 QE.",
      "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
      "author": "marks", "status": "integrated",
-     "topic": ["liquidity", "risk"],
-     "tags": ["indicator:global-liquidity"],
+     "tags": ["liquidity", "risk",
+              "indicator:global-liquidity"],
      "weight_initial": 0.75, "floor_weight": 0.35,
      "trace": "Howard Marks memos on cycles and liquidity."},
     {"id": "inv-diversification-drawdown",
@@ -707,8 +716,8 @@ INVARIANTS = [
      "example": "2008: 60/40 -30% vs All Weather ~-12%.",
      "source": "Dalio — All Weather framework documentation",
      "author": "dalio", "status": "integrated",
-     "topic": ["diversification", "drawdown"],
-     "tags": ["indicator:max_drawdown", "phase:accumulation"],
+     "tags": ["diversification", "drawdown",
+              "indicator:max_drawdown", "phase:accumulation"],
      "weight_initial": 0.70, "floor_weight": 0.40,
      "trace": "Dalio Principles; All Weather chapter."},
 ]
@@ -1065,7 +1074,11 @@ class PlannerPre:
         #   ② Ranked snapshot rows (LATEST date — Monday's ranking when
         #      re-run ad-hoc mid-week)
         #   ③ Scenarios + week-over-week shift (LAG on scenario_probability)
-        #   ④ Top invariants by weight_effective (integrated only)
+        #   ④ Invariants, 3 RELEVANCE buckets (integrated only, K=8 each,
+        #      ≤20 after dedup): tag regime:<current> | asset:/asset-class:
+        #      matching defender+challenger allocations | global top by
+        #      weight_effective — weight alone would surface the same Dalio
+        #      heavyweights forever, regime-blind
         #   ⑤ Last 3 Proposals (any status, incl. outcomes/rejections)
         # CALL 1a — Qwen3-8B sees baseline SUMMARY, forced tool_use
         #   "QueryStrategies" — the VARIABLE margin only:
@@ -1074,9 +1087,15 @@ class PlannerPre:
         #   zooms: list[Zoom] (≤3, whitelisted enum — never raw SQL):
         #     strategy_history(id) | invariant_confrontations(id) |
         #     regime_history(window) | proposal_thread(id)
-        # PYTHON — embed corpus_queries → numpy cosine → passages;
+        # PYTHON — embed corpus_queries → cosine over BOTH matrices:
+        #   • passage matrix → top-k passages (+ their SUPPORTS-linked
+        #     invariants)
+        #   • invariant matrix DIRECTLY → top-k invariants — surfaces
+        #     reference knowledge and agent-discovery invariants that have
+        #     NO supporting passage (no SUPPORTS link to ride on)
         #   execute whitelisted zooms
         # CALL 1b — assemble_context tool → PlannerContext
+        #   (contract: planner/skills/skill-build-context.md below)
         # Bridged tool closures built HERE (_db captured — never given to Worker);
         # returns (PlannerContext, tool_registry)
 ```
@@ -1088,6 +1107,9 @@ class PlannerContext(BaseModel):
     ranking: list[dict]           # snapshot rows incl. allocations
     scenarios: list[dict]         # per strategy, with computed shift
     top_invariants: list[dict]    # id, title, weight_effective, tags, author
+                              #   — 3 relevance buckets (regime / assets /
+                              #   global weight), plus SUPPORTS-linked
+                              #   invariants of the retrieved passages
     recent_proposals: list[dict]  # incl. outcome verdicts and
                               #   rejection_reason — the Worker sees how its
                               #   past proposals fared and why rejections
@@ -1095,6 +1117,22 @@ class PlannerContext(BaseModel):
     passages: list[dict]          # id, excerpt, similarity
     notes: str                    # Call 1b free-text framing
 ```
+
+**Planner skill contracts** (`planner/skills/`):
+
+- `skill-plan-context.md` (Call 1a) — pick corpus_queries from THIS week's
+  deltas: regime change or candidate, biggest invariant weight movers,
+  rejected/lost proposals, fresh event documents. Zooms only when the
+  baseline summary shows an anomaly worth depth; **empty lists are valid
+  answers** (a quiet week needs no extra context).
+- `skill-build-context.md` (Call 1b) — inclusion rules for
+  `top_invariants`: (i) ALWAYS include invariants cited by pending or
+  recently-judged proposals (continuity with outcomes); (ii) prioritize
+  invariants whose weight moved this week (fresh confrontations); (iii)
+  dedupe across buckets and channels; (iv) final budget ~12-15, each with
+  a one-line "why included" in `notes`; (v) NEVER invent — only ids present
+  in the fetched pool. PlannerPre validates mechanically that every id in
+  PlannerContext exists in the pool (unknown id → Phase 1bis retry policy).
 
 Key queries (fixed):
 ```sql
@@ -1127,6 +1165,20 @@ tool_use `extract_knowledge` → `PostPlannerResult {evaluations,
 scenario_updates, confrontations, innovations, regime_notes}`. Rejects any
 vertex payload with missing `trace` (ValueError). Pydantic validation with
 1 retry (Phase 1bis policy).
+
+**Guardrail contract (this is where hallucinations die):**
+- every EvaluationDraft verdict must cite ≥1 `events` entry that matches a
+  data point actually present in PlannerContext — a verdict with no
+  traceable evidence is DOWNGRADED to 'neutral' and flagged in
+  regime_notes;
+- any reference to an unknown id (strategy, invariant, portfolio) is
+  dropped and flagged;
+- scenario_adjustments must name the qualitative trigger they interpret;
+- contradictions between WorkerResult claims and baseline data → flagged
+  in regime_notes (the digest shows them);
+- irrecoverable incoherence → PlannerOutputError → ErrorEvent: the UC8
+  step aborts (no proposals this week — digest says so), the chain's
+  earlier mechanical steps stand.
 
 **Done when:** on the seeded DB with a mocked LLM, PlannerContext builds in
 <5s and PostPlannerResult round-trips.
@@ -1170,7 +1222,15 @@ skills (markdown files) concatenated into the system context, output type
 
 Skill files (each: purpose, inputs, method, output contract):
 - `skill-evaluate-strategy.md` — verdict per enabled strategy from regime,
-  FAVORS, scenario shifts, invariants → EvaluationDrafts.
+  FAVORS, scenario shifts, invariants → EvaluationDrafts. **Verdict
+  contract** (verdicts feed confrontations, i.e. move invariant weights —
+  hence written criteria): 'confirms' = current-regime data consistent with
+  the strategy's conditions AND supportive FAVORS, with cited numbers;
+  'invalidates' = explicit contradicting data (ticker + value cited);
+  'weakens' = directional evidence against, not conclusive; 'neutral' =
+  default when evidence is thin (never force a verdict);
+  conviction_delta ∈ [-10, +10]; every non-neutral verdict cites ≥1
+  concrete data point in events[].
 - `skill-rank-portfolios.md` — EXPLAIN the mechanical ranking (never re-rank);
   flag calmar demotions and drawdown-rule exclusions.
 - `skill-compare-vs-defender.md` — challenger gaps, downside-profile flags,
@@ -1191,6 +1251,11 @@ mechanically): new Passages since last run + their SUPPORTS-linked invariants
 
 **Single-flight:** an asyncio lock serializes runner invocations — a
 watcher batch landing during the Monday chain waits its turn.
+
+**Re-embedding rule:** any curation that touches `title` or `description`
+re-encodes the invariant's embedding in the SAME transaction (embedded text
+= title + description — a stale vector degrades dedup and retrieval exactly
+on the most active invariants).
 
 **Four callers, one runner:**
 1. event-driven — right after a watcher ingestion batch that created new
@@ -1214,20 +1279,27 @@ class InvariantCandidate(BaseModel):
                               #   market-pattern discoveries
     tags: list[str]           # incl. regime:<regime_type_id> when applicable
     supporting_passages: list[str]
-    suggested_backed_by: list[str]  # Strategy ids this invariant plausibly
-                              #   backs; on user validation Writeback creates
-                              #   the BACKED_BY edges (without this, new
-                              #   invariants would never enter the
-                              #   confrontation loop)
+    weight_initial: float     # proposed by the CURATION RUNNER (not the
+                              #   Planner/Worker) within the author band
+                              #   [initial_weight_min, initial_weight_max]
+                              #   per evidence strength; Writeback CLAMPS
+                              #   to the band
+    suggested_backed_by: list[dict]  # [{strategy_id, strength}] — strength
+                              #   proposed by the runner (default 0.5,
+                              #   Writeback clamps to [0,1]); on user
+                              #   validation Writeback creates the BACKED_BY
+                              #   edges (without this, new invariants would
+                              #   never enter the confrontation loop)
 
 class CurationResult(BaseModel):
     curations: list[dict]     # AUTONOMOUS: description/example enrichment,
                               #   new SUPPORTS links on existing INTEGRATED
                               #   invariants (never weights directly — weights
                               #   are mechanical)
-    invariant_candidates: list[InvariantCandidate]  # → status=proposed;
-                              #   weight_initial/floor from
-                              #   invariant_author_config[author]
+    invariant_candidates: list[InvariantCandidate]  # → DEDUP GATE (Writeback)
+                              #   → status=proposed; floor from
+                              #   invariant_author_config[author];
+                              #   weight_initial clamped to the author band
     innovations_proposed: list[ImprovementProposal] # new_invariant /
                               #   new_strategy / schema / metric proposals
 ```
@@ -1237,6 +1309,30 @@ Innovation boundary and author-tier rule per CLAUDE.md. The same runner
 serves the four callers above — Telegram validation for the event-driven
 and weekly paths, interactive CLI batch validation for the UC0 seed pass
 (default; skip with `--no-curate` — see USE_CASES.md step 6b).
+
+**Quality contract (`skill-curate-knowledge.md`) — what makes a candidate:**
+- **falsifiable**: a condition → measurable effect, not a factual summary of
+  a passage;
+- **general**: holds across ≥2 historical episodes, or carries an explicit
+  rationale for why it should;
+- **tagged**: ≥1 tag — namespaced where applicable (`regime:`, `asset:`,
+  `asset-class:`, `indicator:`, `phase:`), free thematic otherwise
+  (`economy`, `rates`, `forex`, `credit`, `liquidity`, `geopolitics`, …).
+  Mechanical confrontation keys on `regime:*`; context selection keys on
+  `regime:`/`asset:`; thematic tags serve retrieval and curation;
+- **evidenced**: a dated example + real provenance.
+A candidate failing the contract is not emitted. This is what makes
+candidates proportional to PRINCIPLES, not to chunks.
+
+**Two-phase consolidation (multi-batch documents — UC0 seed, big deposits):**
+extract per batch, then a CONSOLIDATION pass re-reads ALL of the document's
+candidates, merges near-duplicates and re-ranks by evidence strength.
+**NO hard cap** — a book with 30 genuine principles yields 30 candidates
+(the quality contract + dedup gate are the convergence pressure, never an
+arbitrary limit). Sanity alert: > `curation_sanity_ceiling` (40) candidates
+for one document → consolidation re-runs with stricter merging and the
+batch is FLAGGED in the validation UI (paraphrase inflation likely) —
+candidates are never silently dropped.
 
 **Done when:** on the seeded DB, the Worker produces a complete WorkerResult
 (with reallocation_proposed populated when the bear-scenario fixture shifts
@@ -1315,13 +1411,23 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #   AND max per-asset |delta| >= proposal_min_allocation_change_pts
 #   AND Σ|delta|/2 <= proposal_max_turnover_pct
 #   AND every supporting_invariant is status='integrated' with
-#       weight_effective >= proposal_invariant_weight_min  (gate 6)
+#       weight_effective >= proposal_invariant_weight_min AND NOT measurably
+#       refuted (confrontations >= invariant_refuted_min_confrontations AND
+#       market_score < invariant_refuted_score → ineligible, floor or not)
+#       (gate 6)
 #   → Proposal(proposal_type='reallocation', recommendation='paper-test',
 #              proposed_allocation=..., reasoning=ReallocationProposal.reasoning)
 
 # On pass: ProposalEvent → Proposal vertex → snapshot recommendation upgrade
 #          → telegram.send_proposal(...)
 # On block: ⛔ Telegram note with the failed gate + Worker reasoning; no vertex.
+# DEDUP GATE (mechanical, before any candidate/innovation becomes proposed —
+#   applies to ALL curation callers, incl. the UC0 seed CLI batch):
+#   cosine vs the invariant matrix (ALL statuses):
+#   >= invariant_merge_threshold vs an EXISTING invariant → converted into a
+#     curation (SUPPORTS + enrichment + confirmation on the existing one) —
+#     no duplicate is ever proposed;
+#   >= threshold vs a PENDING candidate → merged into it.
 # Innovations: InnovationEvent → vertex(status=proposed) → Telegram [YES][NO].
 #   type=new_invariant → Invariant vertex.
 #   type=new_strategy  → Strategy vertex (enabled=false); on user YES, ONE
@@ -1361,6 +1467,9 @@ formatting happens HERE only (decimal fractions everywhere else).
 ### Task 6bis.2 — `telegram/bot.py` (UC9)
 
 python-telegram-bot application:
+- Candidate validation is BATCHED: one grouped message per curation run
+  (numbered list, each with a one-line rationale) — `/yes 1,3,5`, `/no 2`,
+  `/yes all`. No per-candidate message flood.
 - Callbacks: `[ACCEPT PAPER-TEST]/[REJECT]` → UserDecisionEvent →
   Proposal.user_response (+ paper_started on accept; on reject, prompt for
   an optional one-line rejection_reason); `[YES]/[NO]` →
@@ -1444,6 +1553,11 @@ async def test_reallocation_gate_turnover(): # Σ|delta|/2 > 30 → blocked
 async def test_invariant_confrontation():    # FAVORS above median → confirmation row +
                                              # weight_effective recomputed
 async def test_agent_innovation():           # status=proposed + Telegram in same cycle
+async def test_invariant_dedup_gate():       # candidate cosine ≥ 0.80 vs existing →
+                                             # converted to curation (no duplicate);
+                                             # vs pending candidate → merged
+async def test_curation_consolidation():     # 3-batch fixture doc → duplicates merged,
+                                             # no silent drop; >ceiling → flagged batch
 async def test_new_strategy_innovation():    # validated new_strategy → Strategy(active)
                                              # + 3 Scenarios + BACKED_BY in one tx;
                                              # rejected → status=closed, enabled=false;

@@ -295,7 +295,8 @@ updates and candidates (CurationResult — see investment-TASKS.md Task 5.3).
 description/example, adding SUPPORTS edges, recalculating `weight_effective`
 on existing integrated Invariants. No user validation required.
 
-**Innovation (requires user validation):** creating a new Invariant
+**Innovation (requires user validation, after the mechanical dedup gate —
+see investment-TASKS.md Phase 6):** creating a new Invariant
 (`status=proposed`), a new or revised Strategy (`type=new_strategy` /
 `strategy_revision`, persisted `status=proposed`, `enabled=false` — complete
 spec and validation lifecycle in investment-ARCHITECTURE.md "System
@@ -423,8 +424,11 @@ Writeback validates mechanically:
 4. turnover `Σ|delta|/2` ≤ `proposal_max_turnover_pct` (30.0);
 5. every proposed ticker is in `allowed_tickers` (active, non-macro);
 6. every cited invariant (`supporting_invariants`) is `status='integrated'`
-   with `weight_effective` ≥ `proposal_invariant_weight_min` (0.10) — a
-   refuted insight cannot justify a reallocation.
+   with `weight_effective` ≥ `proposal_invariant_weight_min` (0.10), AND is
+   not measurably refuted: if it has ≥ `invariant_refuted_min_confrontations`
+   (4) confrontations and `market_score` < `invariant_refuted_score` (0.35),
+   it is ineligible REGARDLESS of its authority floor — the floor protects
+   authority against forgetting, never against measured refutation.
 On pass: Proposal vertex (`proposal_type='reallocation'`,
 `recommendation='paper-test'`), rendered in the digest with old vs new
 allocation and the Worker's argued reasoning.
