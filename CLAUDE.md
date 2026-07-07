@@ -277,8 +277,9 @@ jobs) append no EventLog row — they create no vertex/edge.
   (`proposal_min_allocation_change_pts`), turnover cap
   (`proposal_max_turnover_pct`), and cited-invariant eligibility
   (`status=integrated`, `weight_effective ≥ proposal_invariant_weight_min`,
-  and not measurably refuted — ≥4 confrontations with market_score < 0.35
-  disqualifies, floor or not). See USE_CASES.md UC8.
+  not measurably refuted — ≥4 confrontations with market_score < 0.35
+  disqualifies, floor or not — AND `condition` ACTIVE now: a dormant
+  invariant does not justify acting on today's market). See USE_CASES.md UC8.
 
 ### Mechanical calculations
 - Sharpe/Sortino/Calmar: pure Python (numpy/pandas), no LLM.

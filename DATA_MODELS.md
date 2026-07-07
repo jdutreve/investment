@@ -852,9 +852,10 @@ CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
 -- benchmark_kind STRING ('asset_class'|'strategy'), benchmark_id STRING,
 -- date DATE (unique index on (benchmark_kind, benchmark_id, date)),
 -- return FLOAT, sortino_rolling FLOAT, max_drawdown FLOAT, volatility FLOAT
---   -- asset_class rows: per reference class (equities / rates / inflation-
+--   -- asset_class rows: per reference class (equities / bonds / inflation-
 --   --   protected / gold-commodities / cash) from constituent ETF prices;
---   --   class membership = allowed_tickers.asset_class.
+--   --   class membership = the pinned BENCHMARK_CLASSES mapping (TASKS seed)
+--   --   over allowed_tickers.asset_class (fine → coarse).
 --   -- strategy rows: per Strategy's prescribed allocation (synthetic NAV).
 --   -- Rebuilt over 25y at seed, extended weekly.
 

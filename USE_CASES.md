@@ -174,8 +174,9 @@ UC8 reads EventLog weekly to assemble its inputs.
 
 10b. Benchmark valuation materialization (prerequisite for invariant
     maturation — "define and value the benchmarks before valuing invariants"):
-    - asset_class rows: group the reference universe into classes via
-      allowed_tickers.asset_class (equities / rates / inflation-protected /
+    - asset_class rows: group the reference universe into the 5 coarse classes
+      via the pinned BENCHMARK_CLASSES mapping (TASKS seed) over
+      allowed_tickers.asset_class (equities / bonds / inflation-protected /
       gold-commodities / cash); per (class, period) over 25y compute return +
       sortino_rolling + max_drawdown + volatility from constituent ETF prices
     - strategy rows: per Strategy's prescribed allocation (synthetic NAV),
@@ -459,7 +460,10 @@ Writeback validates mechanically:
    not measurably refuted: if it has ≥ `invariant_refuted_min_confrontations`
    (4) confrontations and `market_score` < `invariant_refuted_score` (0.35),
    it is ineligible REGARDLESS of its authority floor — the floor protects
-   authority against forgetting, never against measured refutation.
+   authority against forgetting, never against measured refutation. AND its
+   `condition` is ACTIVE now (or 'always') — a veridical-but-dormant invariant
+   does not justify acting on TODAY's market (the active/veridical split:
+   integration = veridical, this clause = active).
 On pass: Proposal vertex (`proposal_type='reallocation'`,
 `recommendation='paper-test'`), rendered in the digest with old vs new
 allocation and the Worker's argued reasoning.

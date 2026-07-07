@@ -118,6 +118,7 @@ YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,VTI,QQQ,EFA,EEM,IEF,SHY,BIL,DBC,CHFUSD
 FRED_SERIES=CPIAUCSL,T10Y2Y,UNRATE,INDPRO
 GROWTH_COMPOSITE_COMPONENTS=INDPRO,UNRATE
 GLOBAL_LIQUIDITY_COMPONENTS=M2SL,WALCL,ECBASSETSW,JPNASSETS
+REAL_RATE_COMPONENTS=^IRX,CPIAUCSL   # real_rate = ^IRX − CPIAUCSL(yoy) — derived signal for conditions
 
 # Local ops
 LOCAL_API_PORT=8765   # bound to 127.0.0.1 only
@@ -563,6 +564,28 @@ ALLOWED_TICKERS = [
 ]
 # Macro/composite tickers are exposed to the Worker's market_fetch but are
 # NEVER valid allocation assets (Writeback realloc gate 5 checks asset_class).
+
+# BENCHMARK CLASS TAXONOMY (pinned) — the 5 coarse classes that
+# benchmark_valuation.asset_class rows use for effect.method='cross_class'.
+# Maps the fine allowed_tickers.asset_class values → coarse benchmark class:
+BENCHMARK_CLASSES = {
+    "equities":            ["US_EQUITY", "INTL_EQUITY", "EM_EQUITY"],
+    "bonds":               ["US_LONG_TREASURY", "US_TREASURY_7_10", "US_TREASURY_1_3"],
+    "inflation-protected": ["US_TIPS"],
+    "gold-commodities":    ["GOLD", "COMMODITIES"],
+    "cash":                ["US_TBILL"],
+}
+# Excluded (not investable sleeves): MACRO, GLOBAL_LIQUIDITY, VOLATILITY, FX,
+# RISK_FREE (^IRX is the risk-free RATE, not an asset).
+
+# DERIVED SIGNALS (pinned) — composites materialized into the MarketData TS at
+# seed step 10b, usable in invariant `condition` predicates (the signal
+# registry = collected series + these + 'regime'):
+DERIVED_SIGNALS = {
+    "GROWTH_COMPOSITE": "INDPRO,UNRATE (see GROWTH_COMPOSITE_COMPONENTS)",
+    "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
+    "real_rate":        "irx − CPIAUCSL(yoy_pct)   # nominal short rate minus inflation",
+}
 ```
 
 ---
@@ -1122,10 +1145,13 @@ class PlannerContext(BaseModel):
     global_liquidity: dict        # level, speed, state
     ranking: list[dict]           # snapshot rows incl. allocations
     scenarios: list[dict]         # per strategy, with computed shift
-    top_invariants: list[dict]    # id, title, weight_effective, tags, author
-                              #   — 3 relevance buckets (regime / assets /
-                              #   global weight), plus SUPPORTS-linked
-                              #   invariants of the retrieved passages
+    top_invariants: list[dict]    # id, title, weight_effective, tags, author,
+                              #   active (condition holds NOW)
+                              #   — 3 relevance buckets (ACTIVE-now (condition
+                              #   true) / assets / global weight), plus
+                              #   SUPPORTS-linked invariants of the retrieved
+                              #   passages. `active` lets the Worker weight what
+                              #   applies to today's market.
     recent_proposals: list[dict]  # incl. outcome verdicts and
                               #   rejection_reason — the Worker sees how its
                               #   past proposals fared and why rejections
@@ -1453,6 +1479,7 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #       weight_effective >= proposal_invariant_weight_min AND NOT measurably
 #       refuted (confrontations >= invariant_refuted_min_confrontations AND
 #       market_score < invariant_refuted_score → ineligible, floor or not)
+#       AND its condition is ACTIVE now (or 'always') — dormant ⇒ ineligible
 #       (gate 6)
 #   → Proposal(proposal_type='reallocation', recommendation='paper-test',
 #              proposed_allocation=..., reasoning=ReallocationProposal.reasoning)
