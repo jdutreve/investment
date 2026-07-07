@@ -248,7 +248,7 @@ blend, not confrontation):
   state.
   For the completed moment M, evaluate i.effect by its method (see "Birth
   maturation"): benchmark_M from the pre-materialised valuations per
-  i.effect.method (cross_class / cross_strategy / absolute / vs_defender):
+  i.effect.method (cross_class / cross_strategy / absolute):
     i.handle's metric vs benchmark_M in i.direction ± confrontation_margin (0.10):
       held         → confirmation(i)
       contradicted → infirmation(i)
@@ -318,21 +318,21 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
     effect : { handle, metric, method, direction }  — the VALUATION METHOD
       handle   = 'asset:<ticker>' | 'asset-class:<class>' | 'strategy:<id>'
       metric   = return | max_drawdown | sortino_rolling | …
-      method   = 'cross_class'    (handle vs the OTHER asset classes at the moment)
-               | 'cross_strategy' (handle vs the other strategies)
-               | 'absolute'       (handle metric vs 0 / a threshold)
-               | 'vs_defender'
-      direction= 'outperform' | 'underperform'
-      e.g. gold: {asset-class:commodities, return, cross_class, outperform}
+      method   = 'cross_class'    (handle vs the MEDIAN of the other asset classes)
+               | 'cross_strategy' (handle vs the MEDIAN of the other strategies)
+               | 'absolute'       (handle metric vs 0 — sign of the metric)
+      direction= 'outperform' | 'underperform'  (absolute: outperform ≡ metric > 0)
+      e.g. gold: {asset-class:gold-commodities, return, cross_class, outperform}
       (effect.handle is INDEPENDENT of BACKED_BY: BACKED_BY = what the invariant
        supports for reallocation; effect = how its veracity is measured.)
 
   VALIDATION GATE (mechanical, Writeback, before maturation):
     every predicate's `signal` ∈ the registry, `feature` valid for it,
     `op`/`value` type-consistent; `effect.handle` an existing asset / asset
-    class / enabled Strategy; `metric` a computed indicator; `method` in the
-    enum AND consistent with the handle kind (cross_class ⇒ asset/class handle;
-    cross_strategy ⇒ strategy handle); `direction` valid. FAIL on any → the
+    class (a BENCHMARK_CLASSES key) / enabled Strategy; `metric` a computed
+    indicator; `method` in the enum AND consistent with the handle kind
+    (cross_class ⇒ asset/class handle; cross_strategy ⇒ strategy handle;
+    absolute ⇒ any handle); `direction` valid. FAIL on any → the
     candidate is DEMOTED to reference knowledge (empty condition/effect,
     market_score frozen 1.0, reason in `trace`) — a malformed condition/effect
     never silently breaks maturation.
@@ -354,9 +354,9 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   from the TS / regime instances (frequency EMERGENT from the condition —
   event → per occurrence, persistent state → per episode, 'always' → weekly
   sample). For each moment M, evaluate i.effect by its METHOD:
-    benchmark_M per method — cross_class: the OTHER asset classes' metric;
-      cross_strategy: the other strategies'; absolute: 0/threshold; vs_defender:
-      the defender — READ from the pre-materialised valuations, not recomputed
+    benchmark_M per method — cross_class: MEDIAN of the other asset classes'
+      metric; cross_strategy: MEDIAN of the other strategies'; absolute: 0
+      — READ from the pre-materialised benchmark_valuations, not recomputed
       ad hoc
     i.handle's metric vs benchmark_M in i.direction ± confrontation_margin (0.10)
       → confirmation(i) | infirmation(i) | no-op (within band)

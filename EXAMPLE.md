@@ -187,8 +187,8 @@ Invariant {
                 Seasons holds ~10% GLD; this invariant supports a 15-25% tilt."
   example: "2021-2022: GLD +18% vs 4 Seasons GLD sleeve +11% while the growth
             composite stayed below 100 for 8 consecutive months."
-  tags: ["asset:GLD", "asset-class:commodities",
-         "regime:falling-growth-rising-inflation"]
+  tags: ["asset:GLD", "asset-class:gold-commodities",
+         "regime:falling-growth-rising-inflation"]  ← tags thematic only
   condition: [{signal:"real_rate", feature:"level", op:"<", value:0}]  ← FUNDAMENTAL
                                      driver (real_rate = irx − inflation), not the
                                      surface regime; captures negative-real-rate

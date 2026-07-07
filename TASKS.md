@@ -586,6 +586,19 @@ DERIVED_SIGNALS = {
     "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
     "real_rate":        "irx − CPIAUCSL(yoy_pct)   # nominal short rate minus inflation",
 }
+
+# SIGNAL ALIASES (pinned) — the readable `signal` names usable in invariant
+# `condition` predicates, resolved to the underlying series/derived id:
+SIGNAL_ALIASES = {
+    "inflation": "CPIAUCSL",          # yoy_pct transform
+    "growth":    "GROWTH_COMPOSITE",
+    "liquidity": "GLOBAL_LIQUIDITY",
+    "irx":       "^IRX",
+    "real_rate": "real_rate",         # derived (see DERIVED_SIGNALS)
+    "regime":    "regime",            # special: feature='type' vs a RegimeType id
+}
+# The signal registry = SIGNAL_ALIASES ∪ any raw allowed_tickers series.
+# The Writeback VALIDATION GATE rejects a condition signal not in the registry.
 ```
 
 ---
@@ -679,12 +692,14 @@ REGIME_TYPES = [
 ]
 ```
 
-### Task 1ter.3 — Invariant seed (6 minimum, status=integrated)
+### Task 1ter.3 — Invariant seed (6 minimum, status=proposed → matured at M5)
 
 Each seeded invariant carries a machine-readable `condition` + `effect` (the
-confrontation driver — ARCHITECTURE "Birth maturation"). `regime:*` tags, if
-present, use RegimeType ids but are THEMATIC/retrieval only, NOT the
-confrontation driver.
+confrontation driver — ARCHITECTURE "Birth maturation"). They are seeded
+`status='proposed'`; M5 birth maturation over 25y promotes them to
+`integrated` iff they pass (N_min/θ, not refuted) — belief does not grant
+integration, history does (ADR-006). `regime:*` tags, if present, use
+RegimeType ids but are THEMATIC/retrieval only, NOT the confrontation driver.
 
 ```python
 INVARIANTS = [
@@ -694,7 +709,11 @@ INVARIANTS = [
                     "TIPS/gold/commodities outperform nominal bonds.",
      "example": "2021-2022: TIP +2.3% while TLT -26%.",
      "source": "Dalio — Principles for Navigating Big Debt Crises, ch. inflation",
-     "author": "dalio", "status": "integrated",
+     "author": "dalio", "status": "proposed",
+     "condition": [{"signal": "inflation", "feature": "level", "op": ">", "value": 2.5},
+                   {"signal": "inflation", "feature": "speed", "op": ">", "value": 0}],
+     "effect": {"handle": "asset-class:inflation-protected", "metric": "return",
+                "method": "cross_class", "direction": "outperform"},
      "tags": ["tips", "inflation", "gold",
               "asset:TIP", "asset:GLD", "indicator:real-yield",
               "regime:falling-growth-rising-inflation",
@@ -707,7 +726,10 @@ INVARIANTS = [
                     "duration (TLT) and cash equivalents (BIL).",
      "example": "2008 H2, 2019 H2: TLT strongly positive as growth rolled over.",
      "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
-     "author": "dalio", "status": "integrated",
+     "author": "dalio", "status": "proposed",
+     "condition": [{"signal": "growth", "feature": "speed", "op": "<", "value": 0}],
+     "effect": {"handle": "asset-class:bonds", "metric": "return",
+                "method": "cross_class", "direction": "outperform"},
      "tags": ["duration", "recession",
               "asset:TLT", "asset:BIL",
               "regime:falling-growth-falling-inflation"],
@@ -719,7 +741,10 @@ INVARIANTS = [
                     "broad equity beta (SPY/VTI).",
      "example": "2016-2018, 2023-2024 expansions.",
      "source": "Standard cycle finance; multi-decade empirical regularity",
-     "author": "dalio", "status": "integrated",
+     "author": "dalio", "status": "proposed",
+     "condition": [{"signal": "growth", "feature": "speed", "op": ">", "value": 0}],
+     "effect": {"handle": "asset-class:equities", "metric": "return",
+                "method": "cross_class", "direction": "outperform"},
      "tags": ["equities", "growth",
               "asset:SPY", "asset:VTI",
               "regime:rising-growth-falling-inflation",
@@ -732,7 +757,11 @@ INVARIANTS = [
                     "compresses risk-asset multiples.",
      "example": "2018 QT, 2022 tightening.",
      "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
-     "author": "marks", "status": "integrated",
+     "author": "marks", "status": "proposed",
+     "condition": [{"signal": "liquidity", "feature": "level", "op": "<", "value": 100},
+                   {"signal": "liquidity", "feature": "speed", "op": "<", "value": 0}],
+     "effect": {"handle": "asset-class:equities", "metric": "return",
+                "method": "cross_class", "direction": "underperform"},
      "tags": ["liquidity", "risk",
               "indicator:global-liquidity"],
      "weight_initial": 0.75, "floor_weight": 0.35,
@@ -743,7 +772,10 @@ INVARIANTS = [
                     "multiples.",
      "example": "2020-2021 QE.",
      "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
-     "author": "marks", "status": "integrated",
+     "author": "marks", "status": "proposed",
+     "condition": [{"signal": "liquidity", "feature": "speed", "op": ">", "value": 0}],
+     "effect": {"handle": "asset-class:equities", "metric": "return",
+                "method": "cross_class", "direction": "outperform"},
      "tags": ["liquidity", "risk",
               "indicator:global-liquidity"],
      "weight_initial": 0.75, "floor_weight": 0.35,
@@ -754,11 +786,15 @@ INVARIANTS = [
                     "cost of upside capture in single-regime bull runs.",
      "example": "2008: 60/40 -30% vs All Weather ~-12%.",
      "source": "Dalio — All Weather framework documentation",
-     "author": "dalio", "status": "integrated",
+     "author": "dalio", "status": "proposed",
+     "condition": [],
+     "effect": {"handle": "strategy:four-seasons-rp", "metric": "max_drawdown",
+                "method": "cross_strategy", "direction": "outperform"},
      "tags": ["diversification", "drawdown",
               "indicator:max_drawdown", "phase:accumulation"],
      "weight_initial": 0.70, "floor_weight": 0.40,
-     "trace": "Dalio Principles; All Weather chapter."},
+     "trace": "Dalio Principles; All Weather chapter (always-clock; lower "
+              "drawdown than the other strategies)."},
 ]
 ```
 
@@ -1331,8 +1367,8 @@ class InvariantCandidate(BaseModel):
     effect: Optional[dict]    # WHAT must hold when active — the VALUATION METHOD:
                               #   {handle, metric, method, direction}
                               #   handle ∈ asset:<t>|asset-class:<c>|strategy:<id>;
-                              #   method ∈ cross_class|cross_strategy|absolute|
-                              #   vs_defender; direction ∈ outperform|underperform.
+                              #   method ∈ cross_class|cross_strategy|absolute;
+                              #   direction ∈ outperform|underperform.
                               #   empty ⇒ reference knowledge. Writeback VALIDATION
                               #   GATE demotes a malformed effect. See ARCHITECTURE
                               #   "Birth maturation" + DATA_MODELS Invariant
@@ -1372,9 +1408,12 @@ the same way (default; skip with `--no-curate` — see USE_CASES.md step 6b).
 - **falsifiable**: a condition → measurable effect, not a factual summary of
   a passage — and reducible to a machine-readable `condition` + `effect` over
   registry signals (else it is a ponctual fact, not a weighted invariant).
-  Generalise to the FUNDAMENTAL driver + a valuation method: "JPY carry risky
-  in July 2026" → condition `[{real_rate, level, <, 0}]` (or the true driver),
-  effect `{asset-class:fx-carry, return, cross_class, underperform}`;
+  Generalise to the FUNDAMENTAL driver + a valuation method, handle in the
+  reference universe, picking the class with the CLEANEST relationship:
+  "cash leads when real rates rise" → condition `[{real_rate, speed, >, 0}]`,
+  effect `{asset-class:cash, return, cross_class, outperform}` (cash reprices
+  up while duration/valuation classes are hurt — a crisper cross_class signal
+  than "bonds underperform", since gold/TIPS suffer too);
 - **general**: holds across ≥2 historical episodes, or carries an explicit
   rationale for why it should;
 - **tagged**: ≥1 tag — namespaced where applicable (`regime:`, `asset:`,

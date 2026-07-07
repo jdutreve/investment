@@ -178,8 +178,8 @@ Invariant {
                                    --   handle ∈ asset:<t>|asset-class:<c>|strategy:<id>
                                    --     (INDEPENDENT of BACKED_BY);
                                    --   method ∈ cross_class|cross_strategy|absolute
-                                   --     |vs_defender (reads the pre-materialised
-                                   --      asset-class / strategy valuations);
+                                   --     (cross_* read the MEDIAN of the OTHER
+                                   --      benchmark_valuation rows; absolute vs 0);
                                    --   direction ∈ outperform|underperform.
                                    --   See ARCHITECTURE "Birth maturation".
 

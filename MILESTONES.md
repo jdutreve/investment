@@ -19,10 +19,13 @@ where owner judgment is the acceptance criterion (the three places the
 system can be technically correct and substantively wrong).
 
 **Incremental seed:** `python -m investment.seed` is idempotent and is
-RE-RUN at M1/M2/M3/M4/M7 — each run completes the UC0 steps whose
+RE-RUN at M1/M2/M3/M4/M5/M7 — each run completes the UC0 steps whose
 prerequisites now exist and SKIPS the rest with a warning (M1: static
-steps 1-5,7,8; M2 adds 9; M3 adds 10; M4 adds 11-13; M7 adds 6/6b). The
-closing SeedEvent inventory reflects what ran.
+steps 1-5,7,8 — seed invariants carry their `condition`/`effect` but are
+not yet matured; M2 adds 9; M3 adds 10; M4 adds 12-13; M5 adds 10b
+(benchmark_valuation) + 11 (backtests/FAVORS) + 11b (birth maturation of
+the seed invariants over 25y); M7 adds 6/6b (corpus invariants, matured the
+same way)). The closing SeedEvent inventory reflects what ran.
 
 ---
 
@@ -53,7 +56,10 @@ scenarios, 7 portfolios) + **minimal `invest sql` / `invest status`**.
 - [ ] counts: 13 entity / 5 M:N / 3 TS / 10 doc tables
 
 **⚔️ Challenge point:** the seeds ARE your investment philosophy encoded —
-reread the 6 invariants, 4 strategy conditions, 7 allocations line by line.
+reread the 6 invariants (each now a `condition` → `effect`/method, machine-
+readable), 4 strategy conditions, 7 allocations line by line. Note: these
+invariants face the SAME 25y maturation at M5 — belief does not grant
+`integrated` status, history does (ADR-006).
 
 ---
 
@@ -108,6 +114,12 @@ Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
       cross_class/cross_strategy benchmark
 - [ ] confrontation fixture: an active-condition invariant whose effect beats
       its benchmark (by method) moves a weight_effective as computed by hand
+- [ ] seed invariants matured over 25y: each has a real market_score and a
+      status verdict (integrated iff N_min/θ, not refuted) — inspect which of
+      your 6 survived, and whether the survivors ring true
+
+**⚔️ Challenge:** does the 25y verdict on YOUR seed philosophy read fair? A
+demoted invariant is history disagreeing — worth understanding before M6.
 
 ---
 
