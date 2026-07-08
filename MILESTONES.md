@@ -99,7 +99,8 @@ Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
 
 **Definition of Verified**
 - [ ] golden numbers vs an external source (SPY Sharpe on the window,
-      60/40 NAV vs Portfolio Visualizer, within tolerance)
+      All Weather NAV vs Portfolio Visualizer, within tolerance — also
+      validates the ALL_WEATHER_BENCHMARK everything is compared to)
 - [ ] `test_nav_conventions_golden` green
 - [ ] first snapshot: defender ranked, gaps computed
 

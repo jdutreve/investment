@@ -131,7 +131,7 @@ TELEGRAM_CHAT_ID=...
 USER_CURRENCY=CHF
 USER_MAX_DRAWDOWN_PCT=-15
 USER_MAX_SINGLE_ASSET_PCT=40
-USER_BENCHMARK=60/40-USD
+USER_BENCHMARK=all-weather-USD   # All Weather static reference (see ALL_WEATHER_BENCHMARK) — 60/40 dropped (structurally short duration-risk, flatters in rising rates, no skill signal)
 USER_PHASE=accumulation
 USER_AUTO_VALIDATION_HOURS=48
 EOF
@@ -599,6 +599,19 @@ SIGNAL_ALIASES = {
 }
 # The signal registry = SIGNAL_ALIASES ∪ any raw allowed_tickers series.
 # The Writeback VALIDATION GATE rejects a condition signal not in the registry.
+
+# ALL_WEATHER_BENCHMARK (pinned) — the static reference for USER_BENCHMARK and
+# portfolio.vs_benchmark (replaces 60/40 everywhere). Classic Dalio All Weather
+# allocation, regime-agnostic by design (a fair yardstick in any regime):
+ALL_WEATHER_BENCHMARK = {          # id "all-weather-USD"; monthly-rebalanced, USD
+    "VTI": 0.30,                   # equities
+    "TLT": 0.40,                   # long-term bonds
+    "IEF": 0.15,                   # intermediate bonds
+    "GLD": 0.075,                  # gold
+    "DBC": 0.075,                  # commodities
+}
+# vs_benchmark = portfolio total_return − ALL_WEATHER_BENCHMARK total_return
+# over the same window (same NAV conventions as any portfolio).
 ```
 
 ---
@@ -890,7 +903,7 @@ PORTFOLIOS = [
     {"id": "4s-balanced-defender",
      "name": "4 Seasons Balanced Defender",
      "framework_id": "4seasons", "defender": True, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"TIP": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 97.5,
@@ -898,7 +911,7 @@ PORTFOLIOS = [
     {"id": "4s-stagflation-defensive",
      "name": "4 Seasons Stagflation Defensive",
      "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 97.5,
@@ -906,7 +919,7 @@ PORTFOLIOS = [
     {"id": "4s-rising-growth-equities",
      "name": "4 Seasons Rising-Growth Equity Tilt",
      "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"SPY": 40, "EFA": 10, "TLT": 15, "GLD": 10, "TIP": 15, "DJP": 5, "cash": 5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 95.0,
@@ -915,7 +928,7 @@ PORTFOLIOS = [
     {"id": "4s-falling-growth-defensive",
      "name": "4 Seasons Falling-Growth Defensive",
      "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"TLT": 40, "IEF": 20, "GLD": 15, "SPY": 15, "cash": 10},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 95.0,
@@ -923,7 +936,7 @@ PORTFOLIOS = [
     {"id": "permanent-balanced",
      "name": "Permanent Portfolio Balanced",
      "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 30.0,   # stricter — OK
      "phase": "accumulation", "fx_usd_exposure": 75.0,
@@ -931,7 +944,7 @@ PORTFOLIOS = [
     {"id": "barbell-defensive",
      "name": "Barbell Taleb Defensive",
      "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"SHY": 35, "BIL": 30, "IEF": 20, "SPY": 15},
      "max_drawdown_rule": -10.0,          # stricter than user rule — OK
      "max_single_asset_pct": 40.0,        # was 70 — now complies with binding cap
@@ -940,7 +953,7 @@ PORTFOLIOS = [
     {"id": "momentum-macro-rotation",
      "name": "Momentum Macro Rotation",
      "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "60/40-USD",
+     "currency": "CHF", "benchmark": "all-weather-USD",
      "allocation": {"SPY": 40, "TLT": 30, "GLD": 15, "DJP": 10, "cash": 5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 100.0,
@@ -1876,9 +1889,15 @@ async def shadow_replay(db, start: date, end: date,
         a verdict obtained on revised data is not valid go-live evidence.
       - Regime state as-of t: the historical instances are PIT by construction
         (materialize_history runs the detector forward chronologically with
-        hysteresis); assert no instance with start_date > t is visible.
-      - FAVORS as-of t: aggregate ONLY over regime instances with end_date < t
-        (recomputed incrementally, never read from the live seeded edges).
+        hysteresis). Visibility is keyed on the CONFIRMATION date — Regime
+        `created_at` (the commit after the 2-print hysteresis = when it was
+        KNOWN), NOT on start_date (which is back-dated to the data): assert no
+        instance whose created_at > t is visible — a regime begun before t but
+        not yet confirmed at t must stay invisible, else a few weeks of
+        look-ahead leak.
+      - FAVORS as-of t: aggregate ONLY over regime instances created_at ≤ t
+        AND end_date < t (recomputed incrementally, never read from the live
+        seeded edges).
       - Portfolio indicators: rolling windows ending at t.
 
     Per simulated Monday t:
@@ -1893,13 +1912,34 @@ async def shadow_replay(db, start: date, end: date,
       5. record the shadow book NAV
 
     Outputs ReplayReport (persisted as replay_report doc + ReplayEvent →
-    EventLog with event_date = t range) comparing three NAVs over [start,end]:
-      A. agent-follow (accept every gated proposal)
+    EventLog with event_date = t range) comparing TWO NAVs over [start,end].
+    A and B START FROM THE SAME seeded defender (four-seasons-rp) at t=start —
+    they diverge ONLY because A applies the mechanical proposals. The gate
+    isolates the marginal value of adaptation, nothing else:
+      A. agent-follow          (accept every gated proposal)
       B. hold-initial-defender (never switch)
-      C. 60/40 benchmark
+    B is a FAIR baseline because four-seasons-rp is All Weather / risk parity
+    — regime-AGNOSTIC by design, so holding it across 25y of regime change is
+    "do nothing", not "hold a bet on the 2000 regime". (No 60/40 benchmark: it
+    is structurally short duration-risk, so beating it proves nothing about
+    regime skill — dropped as noise.)
     Metrics: CAGR, sortino, calmar, max_drawdown, n_switches, avg turnover,
     proposal hit-rate at +12 weeks, false-signal rate (proposal whose
     challenger underperforms the defender over the following 12 weeks).
+
+    WHAT M6 VALIDATES: the founding mantra — "adapt to the current regime".
+    Concretely, MECHANICAL REGIME-ROTATION OVER A FIXED PORTFOLIO MENU (the 7
+    seeded portfolios) + reallocation weight-tweaks, vs a STATIC All Weather,
+    net of costs. If flat, adapting-to-regime does not pay mechanically → do
+    not pay for the LLM.
+    SCOPE (honest bounds — see REVISION_NOTES): the replay evolves market data,
+    regimes (PIT) and the defender's allocation, but the portfolio/strategy
+    UNIVERSE is FIXED (no forward discovery), invariant weights are NOT in the
+    mechanical path (no Worker), and the quality of the 7 seeded portfolios is
+    half of what M6 measures. The WORKER is NOT and CANNOT be historically
+    replayed (its corpus knowledge is anachronistic — the Dalio/Marks sources
+    postdate most of the window); it is validated FORWARD, in the 3-month
+    paper-mode. A fully evolutionary walk-forward is V2/research.
     """
 ```
 

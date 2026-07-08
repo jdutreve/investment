@@ -105,3 +105,25 @@ over at least 3 months. The **Phase 9 shadow replay** (25y meta-backtest of
 the mechanical pipeline, point-in-time, net of costs) provides the initial
 evidence and gates go-live; the 3 months of real paper-mode (measured by
 the weekly `outcomes.py` scoreboard) then confirm it forward before V2.
+
+**What the replay does and does NOT prove (honest bounds).** M6 validates the
+FOUNDING MANTRA — "adapt to the current regime": mechanical regime-rotation
+over a FIXED portfolio menu (the 7 seeded portfolios) + reallocation tweaks,
+vs a STATIC All Weather, net of costs. A and B start from the SAME seeded
+defender (four-seasons-rp) and diverge only through the mechanical proposals,
+so the gate isolates the marginal value of adaptation. It does NOT exercise
+(a) invariant weights — they influence decisions only via the Worker, absent
+from the mechanical replay; (b) forward discovery. So M6 validates the
+mechanical core, NOT the invariant model, and its power is bounded by the
+quality of the 7 seeded portfolios.
+
+**Two validations, each PIT-clean in its own way — and why the Worker is NOT
+historically replayed.** The market/regime layer is PIT (as-known-at-t), so
+the mechanical core is replayable → M6. The WORKER is not: its corpus
+knowledge is ANACHRONISTIC — the Dalio/Marks sources postdate most of the 25y
+window, so a Worker "replayed" at 2005 would already know a 2018 book. You can
+PIT the market data, the regimes, even an invariant's as-of-t market_score
+(confrontations are dated), but you cannot un-know knowledge extracted from
+future-published sources. Hence the Worker + invariants-in-the-loop are
+validated FORWARD, in the 3-month real paper-mode (PIT by construction), never
+by a historical replay. A fully evolutionary walk-forward is V2/research.

@@ -78,7 +78,7 @@ mispredicts regimes during liquidity cycles (e.g. 2020 QE event), activate
 ## I-2 — Benchmark as vertex
 
 **Why deferred:** In Phase 1, `benchmark` is a Portfolio-level string
-("60/40-USD"). A vertex adds traversal overhead with no read benefit.
+("all-weather-USD"). A vertex adds traversal overhead with no read benefit.
 
 **Trigger to add:** when comparing portfolios against multiple benchmarks
 becomes a regular Worker question.
