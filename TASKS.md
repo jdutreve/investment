@@ -378,6 +378,7 @@ CREATE TABLE IF NOT EXISTS allowed_tickers           (...);
 CREATE TABLE IF NOT EXISTS system_thresholds         (...);
 CREATE TABLE IF NOT EXISTS detector_state             (...);  -- hysteresis state (1 row)
 CREATE TABLE IF NOT EXISTS invariant_confrontations  (...);
+CREATE TABLE IF NOT EXISTS benchmark_valuation        (...);  -- cross_class/cross_strategy benchmark (step 10b)
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 CREATE TABLE IF NOT EXISTS scenario_calibration      (...);  -- outcomes.py
 CREATE TABLE IF NOT EXISTS replay_report             (...);  -- Phase 9

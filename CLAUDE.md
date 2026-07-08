@@ -355,7 +355,8 @@ TIME-SERIES : MarketData (level/speed/acceleration), ScenarioProbability,
               PortfolioNAV
 DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
               system_thresholds, detector_state, invariant_confrontations,
-              portfolio_weekly_snapshot, scenario_calibration, replay_report
+              benchmark_valuation, portfolio_weekly_snapshot,
+              scenario_calibration, replay_report
               (plain tables, single engine — weight/history/
                performance data live on vertices and FAVORS edges, never
                duplicated in docs)

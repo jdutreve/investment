@@ -805,13 +805,6 @@ CREATE TABLE IF NOT EXISTS allowed_tickers (...);
 --   to the Worker.
 
 CREATE TABLE IF NOT EXISTS system_thresholds (...);
-
-CREATE TABLE IF NOT EXISTS detector_state (...);
--- Single row — the regime detector's persisted hysteresis state (it must
---   survive restarts: due-on-start). candidate_type STRING,
---   consecutive_prints INTEGER, last_print_ts_growth TEXT,
---   last_print_ts_inflation TEXT, updated_at TEXT.
--- Runtime-changing state → table (criterion above).
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
 -- Seed includes regime thresholds, rolling window (756d), recency half-life,
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
@@ -820,6 +813,13 @@ CREATE TABLE IF NOT EXISTS detector_state (...);
 --   (θ, 0.60) — the time-validation verdict gate (ARCHITECTURE "Birth
 --   maturation"); both calibrated by the Phase 9 replay.
 -- (See TASKS.md seed.)
+
+CREATE TABLE IF NOT EXISTS detector_state (...);
+-- Single row — the regime detector's persisted hysteresis state (it must
+--   survive restarts: due-on-start). candidate_type STRING,
+--   consecutive_prints INTEGER, last_print_ts_growth TEXT,
+--   last_print_ts_inflation TEXT, updated_at TEXT.
+-- Runtime-changing state → table (criterion above).
 
 ```
 

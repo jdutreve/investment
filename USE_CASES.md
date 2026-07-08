@@ -87,8 +87,10 @@ UC8 reads EventLog weekly to assemble its inputs.
     - invariant_author_config (dalio/marks/corpus-other/system
       floors and initial weight bands — keyed by `author` field on Invariant)
 
-2.  Framework vertex:
-    - '4seasons' enabled=true
+2.  Framework vertices:
+    - '4seasons' enabled=true (the only active framework in V1)
+    - 'permanent' + 'liquidity-cycle' enabled=false (metadata-only, seeded
+      so I-1 can flip them on later — TASKS.md seed)
 
 3.  RegimeType vertices (5), seeded once and never mutated:
     - rising-growth-falling-inflation

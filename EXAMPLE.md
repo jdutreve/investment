@@ -275,8 +275,9 @@ Invariant {
   confirmation_count: 8
   infirmation_count: 1
   market_score: 0.889             ← 8/(8+1)
-  recency_factor: 0.992
-  weight_effective: 0.750         ← max(0.85 × 0.889 × 0.992, 0.40)
+  recency_factor: 1.0             ← condition (CPI>2.5 & speed>0) active NOW →
+                                     days_since = 0 (condition-relative rule)
+  weight_effective: 0.756         ← max(0.85 × 0.889 × 1.0, 0.40)
   embedding: [384 floats]
   trace: "Dalio All Weather principle. Only refutation: 2020 deflation
           (extreme case out of scope)."
@@ -525,7 +526,7 @@ WorkerResult {
                 55%) justifies a 0.4-weighted tilt: +5 GLD, +5 TIP, +2.5 DJP,
                 +2.5 cash funded from -7.5 TLT, -7.5 SPY. Gold tilt backed by
                 gold-stagflation-hedge (0.248, 3/3 confirmed); TIP tilt by
-                Dalio inv-inflation-persistence-tips (0.750, 8/9)."
+                Dalio inv-inflation-persistence-tips (0.756, 8/9)."
   }
 
   innovations_proposed: [
@@ -534,7 +535,10 @@ WorkerResult {
       title: "Calmar > 1.5 as strategy selection criterion — optimal threshold"
       rationale: "Backtests 2008/2020/2022: Calmar > 1.5 → max_drawdown < 10%
                   vs < 20% for Calmar < 1."
-      spec: {"indicator": "calmar_rolling", "threshold": 1.5, "operator": "gt"}
+      spec: {"condition": [],   # empty ⇒ 'always'
+             "effect": {"handle": "strategy:four-seasons-rp",
+                        "metric": "calmar_rolling", "method": "cross_strategy",
+                        "direction": "outperform"}}   # InvariantCandidate fields
       source: "Backtests 2008 / 2020 / 2022 (computed 2026-05-12)"
       author: "system", status: "proposed"
       weight_initial: 0.15, floor_weight: 0.05
@@ -703,7 +707,7 @@ row by Writeback.
       drawdown -18.2% breaches the -15% rule)
 
 🔑 Key Invariants (effective weight):
-   • TIPS inflation persistence : 0.750 (8/9 confirmed)     [Dalio]
+   • TIPS inflation persistence : 0.756 (8/9 confirmed)     [Dalio]
    • GLD stagflation hedge      : 0.248 (3/3, near ceiling) [system]
    • Calmar > 1.5 filter        : 0.123 (2/3 confirmed)     [system]
 

@@ -88,9 +88,10 @@ see DATA_MODELS.md.
 
 The `EventLog` append-only vertex type is
 the audit spine: **every UC side-effect is appended to EventLog before the
-corresponding vertex/edge commit**. History backfill = 25 years for macro
-series (ETF prices limited by inception dates), so historical Regime instances
-and FAVORS aggregation are meaningful from day one.
+corresponding vertex/edge commit**. History backfill = 35 years (→1991) for
+macro/regime series; the tradable/benchmark layer is spliced back to ~1991 via
+HISTORY_PROXIES (ETFs alone are limited by inception dates), so historical
+Regime instances and FAVORS aggregation are meaningful from day one.
 
 ## Language
 

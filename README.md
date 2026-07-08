@@ -20,7 +20,7 @@ mechanical decides · LLM proposes · the user arbitrates · reality judges
 - **Mechanical core (no LLM):** market data (FRED first-release vintages,
   publication-dated), regime detection with print-based hysteresis, NAV +
   Sharpe/Sortino/Calmar (pinned formulas), backtests → FAVORS, proposal
-  gates, outcome verdicts at +12 weeks. Fully replayable — a **25-year
+  gates, outcome verdicts at +12 weeks. Fully replayable — a **35-year
   point-in-time shadow replay gates go-live**.
 - **Three LLM roles:** the **Planner** (Qwen, guardrail) assembles the
   optimal context and catches hallucinations; the **Worker** (Sonnet)
@@ -55,7 +55,7 @@ semantic search).
 | `DATA_MODELS.md` | Schema (13 entities, relations, TS), formulas, weights |
 | `USE_CASES.md` | UC0–UC9, gates, Event Watch |
 | `TASKS.md` | Full build spec, phase by phase |
-| `MILESTONES.md` | **Execution order** — 11 owner-verifiable increments, 3 STOP points |
+| `MILESTONES.md` | **Execution order** — 13 owner-verifiable increments, 4 STOP points |
 | `DECISIONS.md` | ADRs (SQLite, local Mac, vintage discipline, ops layer) |
 | `IMPROVEMENTS.md` | Deferred features (I-N), triggers to revisit |
 | `EXAMPLE.md` | One full cycle traced end-to-end (stagflation 2026) |

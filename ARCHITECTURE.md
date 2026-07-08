@@ -159,7 +159,8 @@ TIME-SERIES (3)
 DOCUMENT TYPES      user_profile, allowed_tickers, system_thresholds,
                     invariant_author_config, detector_state (hysteresis,
                     1 row), invariant_confrontations,
-                    portfolio_weekly_snapshot,
+                    benchmark_valuation (cross_class/cross_strategy benchmark,
+                    per period), portfolio_weekly_snapshot,
                     scenario_calibration (weekly calibration scores),
                     replay_report (Phase 9 shadow replay / go-live gate)
                     — weight/history/performance data live on the graph
@@ -593,11 +594,13 @@ Event-driven (no nightly cron — the Mac sleeps, ADR-002)
 Weekly (Monday — canonical timeline, identical in CLAUDE.md / USE_CASES.md)
   (UC2 absorbed — catch-up + snapshot.market_context)
   08:05  UC3 event watch → Document(kind=event) via ingester
-  08:20  UC4 knowledge curation → KnowledgeEvent
+  08:10  UC4 knowledge curation → KnowledgeEvent
   08:30  Backtests → FAVORS edges (RegimeType → Strategy)
+  08:35  Scenario numeric triggers → ScenarioProbability TS
   08:40  Invariant weights
   08:45  UC6 portfolio valuations → Portfolio vertices
   08:50  UC7 ranking → portfolio_weekly_snapshot
+  08:52  Outcome evaluation (outcomes.py) → OutcomeEvent
   08:55  V2 only: learn_from_adaptations
   09:00  UC8: Planner Pre → Worker → Planner Post → Writeback
   09:30  Weekly digest → Telegram
