@@ -382,8 +382,10 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
    other 5 relations are FK columns), 3 TS tables and 10 document tables
    (incl. `benchmark_valuation`, the cross_class/cross_strategy benchmark);
-   historical Regime instances from the 35y backfill; seed data; and the
-   first `portfolio_weekly_snapshot` row.
+   historical Regime instances from the 35y backfill; seed data; invariants
+   MATURED over 35y and scenario probabilities WARM-STARTED over 35y (go-live
+   with matured knowledge, not cold); a clean invariant-contradiction check;
+   and the first `portfolio_weekly_snapshot` row.
 2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
    every trading day (USD).
 3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`

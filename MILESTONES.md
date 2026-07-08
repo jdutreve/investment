@@ -26,8 +26,9 @@ prerequisites now exist and SKIPS the rest with a warning (M1: static
 steps 1-5,7,8 — seed invariants carry their `condition`/`effect` but are
 not yet matured; M2 adds 9; M3 adds 10; M4 adds 12-13; M5 adds 10b
 (benchmark_valuation) + 11 (backtests/FAVORS) + 11b (birth maturation of
-the seed invariants over 35y); M7 adds 6/6b (corpus invariants, matured the
-same way)). The closing SeedEvent inventory reflects what ran.
+the seed invariants over 35y) + 11c (scenario probability warm-start over
+35y); M7 adds 6/6b (corpus invariants, matured the same way)). The closing
+SeedEvent inventory reflects what ran.
 
 ---
 
@@ -76,9 +77,10 @@ transforms, composites, 35y macro backfill + HISTORY_PROXIES splice.
 - [ ] publication dates spot-checked against the real BLS/Fed calendar
 - [ ] GLOBAL_LIQUIDITY: QE/QT episodes visible (from ~2002, WALCL)
 - [ ] HISTORY_PROXIES resolve (Yahoo: VFINX/VUSTX/VBMFX/VFISX/VIPSX; FRED:
-      GOLDAMGBD228NLBM gold, TB3MS cash; commodities S&P GSCI TR); splice joins
-      continuous; report the ACTUAL tradable floor — target 1991; the commodity
-      TR source is the gate (fallback ^BCOM 1991, else commodities floor 2006)
+      GOLDAMGBD228NLBM gold, TB3MS cash; commodities S&P GSCI TR); report the
+      ACTUAL tradable floor (target 1991; commodity TR the gate)
+- [ ] splice ARTIFACT gate (#3): each proxy/ETF overlap has return-corr ≥ 0.95
+      and no >3σ gap at the join — `test_splice_continuity` green; no join spike
 
 **⚔️ Challenge:** does the growth composite match your macro memory?
 
@@ -93,6 +95,10 @@ Per-print `step()`, hysteresis, `detector_state`, historical episodes.
       falling-growth, 2021-22 stagflation, plausible transition dates,
       ≥12 episodes (the 35y window adds the 90s)
 - [ ] flip-flop fixture does not switch before 2 concordant prints
+- [ ] STABILITY AUDIT (#4) over 35y: whipsaw count (episodes reversed within
+      3 months), median episode length, detector lag (start_date → created_at
+      confirmation), and how many candidate switches the 2-print hysteresis
+      suppressed — all reported; whipsaws are rare and lag is bounded
 
 **⚔️ STOP:** every episode is a historical fact you can dispute. Do not
 proceed until the regime history reads true.
@@ -125,6 +131,10 @@ Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
 - [ ] seed invariants matured over 35y: each has a real market_score and a
       status verdict (integrated iff N_min/θ, not refuted) — inspect which of
       your 6 survived, and whether the survivors ring true
+- [ ] scenario probabilities warm-started from 35y base rates (not hand-set) —
+      the reallocation blend's scenario leg is historically grounded at go-live
+- [ ] contradiction check: no two integrated invariants give opposing effects
+      on the same handle under simultaneously-active conditions (#5)
 
 **⚔️ Challenge:** does the 35y verdict on YOUR seed philosophy read fair? A
 demoted invariant is history disagreeing — worth understanding before M6.

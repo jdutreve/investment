@@ -221,6 +221,18 @@ UC8 reads EventLog weekly to assemble its inputs.
       i.effect.method reads must be persisted — steps 10 (regime instances),
       10b (benchmark valuations) + the market TS — before this runs.
 
+11c. Scenario probability warm-start (35y calibration — the un-matured piece
+    the invariants already have; ARCHITECTURE "Unified improvement cycle"):
+    - For each Scenario (bull/base/bear × strategy), run the SAME calibration
+      scoring used weekly (dominant-scenario vs realized) over the FULL 35y
+      history → the historical BASE-RATE frequency of each scenario's realized
+      outcome, regime-conditioned where applicable.
+    - Set the seed ScenarioProbability from these base rates (not hand-set) —
+      so the reallocation blend's `0.4 × active-scenario` leg is HISTORICALLY
+      GROUNDED at go-live, matched to the 35y-matured FAVORS/invariants, not
+      cold. The weekly job then adjusts forward from these priors.
+    - Same PIT/floor rules as maturation (from ~1991 where signals exist).
+
 12. PortfolioNAV TS synthetic backfill:
     - NAV per DATA_MODELS.md calculation conventions (constant weights,
       monthly rebalancing, cash accruing at ^IRX), from the date all

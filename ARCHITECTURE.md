@@ -403,6 +403,18 @@ history it is then scored on): the resulting market_score is a **weight prior**,
 not out-of-sample proof. Uniform 35y maturation for all births — agent-discovery
 included — is a deliberate choice; V2 accrues real forward track record.
 
+### Invariant contradiction check (mechanical — seed + every birth)
+
+After maturation, Writeback flags pairs of INTEGRATED invariants that
+**contradict**: their conditions can be simultaneously ACTIVE (the predicate
+sets overlap — e.g. both fire on rising real rates) AND their effects oppose
+on the SAME handle (same asset/class/strategy, same metric, opposite
+direction). A flagged pair is surfaced for owner review (digest) — it does not
+auto-resolve; two high-weight invariants pulling opposite ways on the same
+lever is a knowledge defect the market-score alone will not catch (each may be
+individually well-confirmed). Cheap (pairwise over the integrated set, ~50
+invariants). Runs at seed (after 11b/11c) and on each new integrated birth.
+
 ---
 
 ## Unified improvement cycle (ALL resources)
@@ -424,7 +436,7 @@ and rejections.
 | Proposal (realloc)  | Worker            | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
 | Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
 | Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
-| Scenario probabilities | weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
+| Scenario probabilities | seed WARM-START (35y base rates, UC0 step 11c) + weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
 | Thresholds          | Phase 9 replay    | walk-forward calibration                      | ~25y calibrate / ~10y validate | user-confirmed write to system_thresholds        |
 
 **`mechanical/outcomes.py` — weekly 08:52 (after ranking, before UC8):**

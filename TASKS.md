@@ -640,8 +640,13 @@ HISTORY_PROXIES = {                 # etf : (proxy, source, inception)  — all 
                                       #    ^BCOM 1991, else commodities floor 2006)
     "BIL": ("TB3MS", "fred", 1934),   # 3M T-bill rate via FRED → cash return
 }
-# SPLICE RULE: series(t) = proxy total-return for t < ETF.inception, ETF
-#   adjusted-close (total return) for t >= inception; chain-linked at the join.
+# SPLICE RULE: work in RETURNS, not levels. series(t) = proxy total-return for
+#   t < ETF.inception, ETF adjusted-close return for t >= inception; then
+#   cumulate. RATIO-CHAIN at the join (rescale so the level is continuous — no
+#   step). ARTIFACT GATE (#3, verified at M2): in the OVERLAP window (proxy AND
+#   ETF both live, ≥1y after inception) assert daily-return correlation ≥ 0.95
+#   and no single-day |return gap| > 3σ at the join; a failing pair is rejected
+#   (fall back to a shorter floor) rather than silently splicing an artifact.
 # TRADABLE FLOOR: equities 1976 · bonds 1986 · gold 1968 · cash 1934 · commodities
 #   1970 (if GSCI TR resolves) → the All Weather benchmark (VTI/TLT/IEF/GLD/DBC,
 #   no TIPS) clears 1991 with MARGIN. The one verify-gate is the COMMODITY TR
