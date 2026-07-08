@@ -157,8 +157,8 @@ TIME-SERIES (3)
   PortfolioNAV        rolling indicators per day (USD)
 
 DOCUMENT TYPES      user_profile, allowed_tickers, system_thresholds,
-                    invariant_author_config, detector_state (hysteresis,
-                    1 row), invariant_confrontations,
+                    invariant_author_config, detector_state (hysteresis +
+                    chain last-success marker, 1 row), invariant_confrontations,
                     benchmark_valuation (cross_class/cross_strategy benchmark,
                     per period), portfolio_weekly_snapshot,
                     scenario_calibration (weekly calibration scores),

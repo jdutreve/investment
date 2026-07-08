@@ -815,10 +815,14 @@ CREATE TABLE IF NOT EXISTS system_thresholds (...);
 -- (See TASKS.md seed.)
 
 CREATE TABLE IF NOT EXISTS detector_state (...);
--- Single row — the regime detector's persisted hysteresis state (it must
---   survive restarts: due-on-start). candidate_type STRING,
+-- Single row — persistent runtime state that must survive restarts (for
+--   due-on-start). Holds the regime detector's hysteresis state AND the
+--   weekly chain's last-success marker. candidate_type STRING,
 --   consecutive_prints INTEGER, last_print_ts_growth TEXT,
---   last_print_ts_inflation TEXT, updated_at TEXT.
+--   last_print_ts_inflation TEXT,
+--   last_chain_success TEXT (ISO-8601 — drives DUE-ON-START, a timestamp,
+--     NOT a FLOAT config threshold, so it lives here and not in
+--     system_thresholds), updated_at TEXT.
 -- Runtime-changing state → table (criterion above).
 
 ```

@@ -308,7 +308,8 @@ reliance on cron firing at all. Two mechanisms only:
 2. **DUE-ON-START weekly chain** — `run_if_due()` at app launch, on wake,
    and Monday 08:00 while running: if the last successful chain predates
    the most recent Monday 08:00 → run the chain now, exactly once
-   (guarded by a `last_chain_success` row in system_thresholds).
+   (guarded by the `last_chain_success` TEXT column in `detector_state` —
+   an ISO-8601 timestamp, not a config threshold).
    A multi-week gap still runs ONE chain: the catch-up covers all missing
    days and prints, but missed Mondays leave no retroactive snapshots
    (gaps in the ranking history — accepted); outcomes are keyed on
