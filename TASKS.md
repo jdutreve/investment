@@ -45,7 +45,8 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Corpus          | PDF parser direct → Passages → Invariants                     |
 | Veille          | UC3 Event Watch (pinned Fed/ECB/SNB press) + user deposits    |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
-| Backfill        | 25y macro; ETFs from inception                                |
+| Backfill        | 35y macro (→1991); tradable ~1991 via HISTORY_PROXIES         |
+|                 | (commodity TR the verify-gate); TIPS 2000, liquidity 2002     |
 | Risk-free rate  | 3-Month T-Bill (^IRX) — USD                                   |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
 | Ingestion       | Telegram bot + local drop → inbox/ (watcher, ~5 min)          |
@@ -113,7 +114,7 @@ SOURCES_PATH=$HOME/data/investment/sources/corpus
 
 # Market data
 FRED_API_KEY=...   # free key — required for FRED/ALFRED REST (first-release vintages)
-MARKET_BACKFILL_YEARS=25
+MARKET_BACKFILL_YEARS=35   # MACRO/regime backfill (→1991, adds the 1994 bond crash). Tradable/benchmark reaches ~1991 too via HISTORY_PROXIES (proxies span to 1968-86, margin). TIPS floor 2000, liquidity 2002 (those signals only).
 YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,VTI,QQQ,EFA,EEM,IEF,SHY,BIL,DBC,CHFUSD=X,^IRX,^VIX
 FRED_SERIES=CPIAUCSL,T10Y2Y,UNRATE,INDPRO
 GROWTH_COMPOSITE_COMPONENTS=INDPRO,UNRATE
@@ -251,7 +252,9 @@ not root scripts — no path ambiguity.
 │       │   ├── invariants.py     ← weights + confrontation rule
 │       │   ├── backtests.py
 │       │   ├── snapshots.py      ← portfolio_weekly_snapshot writer
-│       │   ├── replay.py         ← Phase 9 shadow replay (go-live gate)
+│       │   ├── replay.py         ← Phase 9 replay harness (live chain accelerated):
+│       │   │                       include_worker=False = mechanical/go-live gate,
+│       │   │                       True = agentic/M8b best-case screen
 │       │   └── learning.py       ← V2 only (stub)
 │       ├── veille/
 │       │   └── event_watch.py    ← UC3 (pinned sources + bounded fetch)
@@ -519,7 +522,9 @@ SYSTEM_THRESHOLDS = {
     "min_backtest_periods": 3.0,
     "derivative_lookback_short": 30.0,
     # shadow replay (Phase 9 — go-live gate)
-    "replay_cost_bps": 10.0,             # per side, applied to turnover
+    "replay_cost_bps": 10.0,             # bps per side; cost = Σ|Δweight| × bps
+                                         #   (round-trip; full switch ⇒ 20bps).
+                                         #   Trade fees only — taxes out of scope.
     "replay_confirmation_weeks": 2.0,    # acceptance policy in the replay
 }
 
@@ -612,6 +617,36 @@ ALL_WEATHER_BENCHMARK = {          # id "all-weather-USD"; monthly-rebalanced, U
 }
 # vs_benchmark = portfolio total_return − ALL_WEATHER_BENCHMARK total_return
 # over the same window (same NAV conventions as any portfolio).
+
+# HISTORY_PROXIES (pinned) — longer-history TOTAL-RETURN series spliced BEFORE
+# each ETF's inception so the tradable backtest/benchmark/replay can reach back
+# to ~1991 (35y: dot-com cycle + the 1994 bond crash), not ETF inception (~2004-06).
+# BACKTEST-ONLY: proxies are mutual funds / indices, NOT tradable — the LIVE fetcher
+# uses the ETF only. Verify availability + inception at build (M2).
+HISTORY_PROXIES = {                 # etf : (proxy, source, inception)  — all VERIFY at M2
+    "SPY": ("VFINX", "yahoo", 1976),  # Vanguard 500 (total-return fund) — older than SPY
+    "VTI": ("VFINX", "yahoo", 1976),  #   (equity class proxy)
+    "TLT": ("VUSTX", "yahoo", 1986),  # Vanguard Long-Term Treasury
+    "IEF": ("VBMFX", "yahoo", 1986),  # Vanguard Total Bond (aggregate) — intermediate
+                                      #   proxy with margin (slight credit vs pure 7-10y)
+    "SHY": ("VFISX", "yahoo", 1991),  # Vanguard Short-Term Treasury (SHY not in the
+                                      #   All Weather benchmark → floors SHY portfolios only)
+    "TIP": ("VIPSX", "yahoo", 2000),  # Vanguard Inflation-Protected — HARD floor
+                                      #   (US TIPS did not exist before 1997; NOT
+                                      #    in the All Weather benchmark)
+    "GLD": ("GOLDAMGBD228NLBM", "fred", 1968),  # LBMA gold fixing via FRED → 1968
+    "DBC": ("SPGSCITR", "index", 1970),  # S&P GSCI Total Return → 1970. VERIFY source
+    "DJP": ("SPGSCITR", "index", 1970),  #   (Yahoo ^SPGSCI is spot; prefer TR — else
+                                      #    ^BCOM 1991, else commodities floor 2006)
+    "BIL": ("TB3MS", "fred", 1934),   # 3M T-bill rate via FRED → cash return
+}
+# SPLICE RULE: series(t) = proxy total-return for t < ETF.inception, ETF
+#   adjusted-close (total return) for t >= inception; chain-linked at the join.
+# TRADABLE FLOOR: equities 1976 · bonds 1986 · gold 1968 · cash 1934 · commodities
+#   1970 (if GSCI TR resolves) → the All Weather benchmark (VTI/TLT/IEF/GLD/DBC,
+#   no TIPS) clears 1991 with MARGIN. The one verify-gate is the COMMODITY TR
+#   source; fallback ^BCOM (1991, tight), else commodities floor 2006. TIPS-
+#   holding portfolios floor at 2000; liquidity-conditioned invariants at 2002.
 ```
 
 ---
@@ -660,7 +695,7 @@ all vertices and edges). Full step list in USE_CASES.md UC0 (14 steps,
 including **historical Regime materialization** — step 10 — and the
 **initial curation pass** — step 6b, DEFAULT when a corpus is present, the
 only LLM step in UC0: extracts author-tiered invariant candidates from the
-deposited books/articles, matured mechanically over 25y — no user validation
+deposited books/articles, matured mechanically over 35y — no user validation
 (ADR-006)).
 
 ### Task 1ter.1 — Framework seed
@@ -709,7 +744,7 @@ REGIME_TYPES = [
 
 Each seeded invariant carries a machine-readable `condition` + `effect` (the
 confrontation driver — ARCHITECTURE "Birth maturation"). They are seeded
-`status='proposed'`; M5 birth maturation over 25y promotes them to
+`status='proposed'`; M5 birth maturation over 35y promotes them to
 `integrated` iff they pass (N_min/θ, not refuted) — belief does not grant
 integration, history does (ADR-006). `regime:*` tags, if present, use
 RegimeType ids but are THEMATIC/retrieval only, NOT the confrontation driver.
@@ -983,14 +1018,17 @@ DESIGNED_FOR_EDGES = [
 ### Task 1ter.7 — Time-series, historical regimes, and snapshot bootstrap
 
 ```python
-# 1. MarketData TS backfill: 25y for FRED/composites; ETFs from inception
-#    (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, BIL 2007). Apply per-series
-#    transforms (DATA_MODELS.md), compute level/speed/acceleration.
+# 1. MarketData TS backfill: 35y for FRED/composites (→1991); ETFs from
+#    inception (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, BIL 2007), SPLICED
+#    with HISTORY_PROXIES (VFINX 1976; VUSTX/VBMFX 1986; gold+cash via FRED
+#    GOLDAMGBD228NLBM 1968 / TB3MS 1934; commodities S&P GSCI TR 1970) back to
+#    ~1991 for the tradable/benchmark layer. Apply per-series transforms
+#    (DATA_MODELS.md), compute level/speed/acceleration.
 #    GROWTH_COMPOSITE (market/growth.py) and GLOBAL_LIQUIDITY
 #    (market/liquidity.py) computed over the full history.
 #
 # 2. HISTORICAL REGIME MATERIALIZATION: run RegimeDetector over the full
-#    25y macro backfill. One Regime vertex per episode (is_current=false,
+#    35y macro backfill (→1991). One Regime vertex per episode (is_current=false,
 #    end_date set, confidence from the formula, events filled from the
 #    triggering rows). Set is_current=true on the ongoing final instance.
 #    → This is what makes IN_REGIME edges and FAVORS n_periods meaningful.
@@ -1027,7 +1065,7 @@ edges have n_periods ≥ 1; first snapshot row visible; SeedEvent in EventLog.
 
 **`src/investment/market/fetcher.py`** — Yahoo Finance + FRED, driven by the
 `allowed_tickers` documents (source + transform + availability_lag_days
-columns). 25y backfill + catch-up incremental (all days since last run —
+columns). 35y backfill + catch-up incremental (all days since last run —
 Monday chain 08:00, and on-demand as the UC9 prelude). `time.sleep(0.5)` between Yahoo
 tickers (rate limit). Retry 3× with exponential backoff (60s base); on final
 failure → ErrorEvent + Telegram alert, and the affected series keeps its
@@ -1079,7 +1117,7 @@ ARCHITECTURE.md (axis classification, hysteresis
 uniqueness in one transaction). Emits **RegimeEvent → EventLog BEFORE**
 touching the Regime vertex, and only when regime/confidence-band/tags change.
 ONE state-machine step per NEW monthly print — `detector.step(print_set)`
-with candidate state persisted in `detector_state`; PIT by construction. FOUR callers: UC0 25y
+with candidate state persisted in `detector_state`; PIT by construction. FOUR callers: UC0 35y
 materialization and the Phase 9 replay iterate step() over the archive;
 the Monday 08:00 catch-up and the on-demand UC9 prelude call it on the
 prints that arrived since the last run (usually 0-1 — the axes only change
@@ -1087,7 +1125,7 @@ on print days, so processing-time detection is exact, not approximate).
 
 **Done when:** `detector.detect(db)` creates/updates a Regime vertex with
 `is_current=true`, hysteresis verified on synthetic flip-flop data, and
-iterated step() yields ≥ 10 episodes on the 25y backfill and, on a 7-day
+iterated step() yields ≥ 10 episodes on the 35y backfill and, on a 7-day
 window, produces byte-identical Regime state to a hypothetical daily run.
 
 ---
@@ -1414,7 +1452,7 @@ class CurationResult(BaseModel):
 Persisted via Writeback (KnowledgeEvent → EventLog first). Curation vs
 Innovation boundary and author-tier rule per CLAUDE.md. The same curator
 serves the four callers above — for all of them the candidates mature
-MECHANICALLY over 25y (no user validation — ADR-006); the UC0 seed pass runs
+MECHANICALLY over 35y (no user validation — ADR-006); the UC0 seed pass runs
 the same way (default; skip with `--no-curate` — see USE_CASES.md step 6b).
 
 **Quality contract (`skill-curate-knowledge.md`) — what makes a candidate:**
@@ -1548,7 +1586,7 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #   >= threshold vs a PENDING candidate → merged into it.
 # Innovations (fully mechanical — no user gate, ADR-006):
 #   InnovationEvent → vertex(status=proposed).
-#   type=new_invariant → Invariant vertex → mature_invariant() (25y) →
+#   type=new_invariant → Invariant vertex → mature_invariant() (35y) →
 #     status=integrated iff time-validated (N_min/θ, not refuted), else stays
 #     proposed. Digest reports it.
 #   type=new_strategy  → Strategy vertex (enabled=false) → mechanical probation
@@ -1799,7 +1837,7 @@ async def test_reallocation_gate_turnover(): # Σ|delta|/2 > 30 → blocked
 async def test_invariant_confrontation():    # active-condition invariant: effect beats
                                              # benchmark (method) → confirmation row +
                                              # weight_effective recomputed
-async def test_agent_innovation():           # born proposed → matured 25y → integrated
+async def test_agent_innovation():           # born proposed → matured 35y → integrated
                                              #   iff time-validated; no user gate (ADR-006)
 async def test_invariant_dedup_gate():       # candidate cosine ≥ 0.80 vs existing →
                                              # converted to curation (no duplicate);
@@ -1866,21 +1904,31 @@ async def test_command_idempotent():         # same accept via dashboard then Te
 ## Phase 9 — Shadow Replay (meta-backtest of the agent — GO-LIVE GATE)
 *Estimated: 1.5 days*
 
-**Principle:** the decision pipeline is fully mechanical (regime detection,
-ranking, switch and reallocation gates — the LLM only adds reasoning, never
-decisions). It can therefore be **replayed week by week over the whole 25y
-backfill** to measure whether the agent's recommendations would actually have
-beaten holding the defender, net of costs — BEFORE the service goes live.
+**Principle:** the mechanical core produces COMPLETE decisions on its own —
+switches are fully mechanical (5 gates), and reallocation has a mechanical
+blend the Worker only *nuances* (qualitative scenario reading). So the
+mechanical core can be **replayed standalone, week by week over the 35y
+backfill** to measure whether it would have beaten holding the defender, net
+of costs — BEFORE the service goes live. (The Worker's added nuance is
+measured separately by the agentic mode, Task 9.4.)
 This is also what turns every hand-picked threshold (Sortino gap 0.02,
 Calmar 1.5, blend 0.4/0.6, turnover 30, 36M window) from an opinion into a
 calibrated value.
 
 ### Task 9.1 — `mechanical/replay.py`
 
+This is the `replay(..., include_worker=False)` mode of the ONE shared harness
+(the live chain accelerated — see Task 9.4). Task 9.1 = mechanical mode (the
+automated go-live gate); Task 9.4 = agentic mode. Shown here as `shadow_replay`
+for the PIT detail; the two are the same function, two flags.
+
 ```python
 async def shadow_replay(db, start: date, end: date,
                         thresholds: dict | None = None) -> ReplayReport:
-    """Replay the mechanical Monday pipeline for every Monday in [start, end].
+    """replay(include_worker=False): the mechanical live chain, accelerated,
+    for every Monday in [start, end]. START DEFAULTS TO THE EARLIEST TRADABLE
+    DATE (~1991, the proxy floor) — BOTH replays run the full window to exploit
+    all 35y (the 1994 crash, dot-com, 2008, 2020, 2022).
 
     POINT-IN-TIME DISCIPLINE (non-negotiable — a leak invalidates everything):
       - MarketData/derivatives: only rows with ts <= t. Rows are PIT by
@@ -1908,7 +1956,11 @@ async def shadow_replay(db, start: date, end: date,
       3. run the REALLOCATION path mechanically: numeric scenario triggers
          only (the Worker's qualitative judgment is NOT simulated — flag as
          a conservative approximation in the report)
-      4. apply switching costs: turnover × replay_cost_bps (both sides)
+      4. apply trade costs: cost = Σ|Δweight| × replay_cost_bps  (= round-trip:
+         Σ|Δ| already counts sell+buy, = 2 × turnover; do NOT also ×2). A full
+         switch (Σ|Δ|=2.0) ⇒ 20 bps. TRADE FEES ONLY — taxes are deliberately
+         out of scope (assume a tax-advantaged wrapper); if the real account is
+         taxable, cap-gains dwarf this and the value-add bar is much higher.
       5. record the shadow book NAV
 
     Outputs ReplayReport (persisted as replay_report doc + ReplayEvent →
@@ -1919,7 +1971,7 @@ async def shadow_replay(db, start: date, end: date,
       A. agent-follow          (accept every gated proposal)
       B. hold-initial-defender (never switch)
     B is a FAIR baseline because four-seasons-rp is All Weather / risk parity
-    — regime-AGNOSTIC by design, so holding it across 25y of regime change is
+    — regime-AGNOSTIC by design, so holding it across 35y of regime change is
     "do nothing", not "hold a bet on the 2000 regime". (No 60/40 benchmark: it
     is structurally short duration-risk, so beating it proves nothing about
     regime skill — dropped as noise.)
@@ -1936,10 +1988,11 @@ async def shadow_replay(db, start: date, end: date,
     regimes (PIT) and the defender's allocation, but the portfolio/strategy
     UNIVERSE is FIXED (no forward discovery), invariant weights are NOT in the
     mechanical path (no Worker), and the quality of the 7 seeded portfolios is
-    half of what M6 measures. The WORKER is NOT and CANNOT be historically
-    replayed (its corpus knowledge is anachronistic — the Dalio/Marks sources
-    postdate most of the window); it is validated FORWARD, in the 3-month
-    paper-mode. A fully evolutionary walk-forward is V2/research.
+    half of what M6 measures. M6 produces the only PIT-clean GO-LIVE
+    performance evidence. The Worker layer is exercised separately by the
+    AGENTIC replay (Task 9.4) — behavioral evidence + the Worker's marginal
+    contribution over M6, NOT go-live performance (semi-PIT). Its real
+    performance validation is FORWARD, the 3-month paper-mode.
     """
 ```
 
@@ -1947,20 +2000,24 @@ async def shadow_replay(db, start: date, end: date,
 
 Grid search over `proposal_sortino_gap_min`, `proposal_calmar_min`,
 `ranking_tiebreak_window`, blend weights, `proposal_max_turnover_pct`.
-**Walk-forward split: calibrate on the first 15y, validate on the last 10y**
-(never calibrate and judge on the same window). Winning set written to
+**Walk-forward split: calibrate on the first ~25y (→~2016), validate on the
+last ~10y** (never calibrate and judge on the same window). The pre-2001
+spliced portion is lower-quality (more splice joins) so it is CALIBRATION
+only; the held-out ~10y runs on clean native-ETF data. Winning set written to
 `system_thresholds` only after user confirmation via Telegram.
 
 ### Task 9.3 — Go-live gate in `main.py`
 
 At startup, `main.py` refuses to enable the weekly proposal cycle unless the
-latest `replay_report` shows **agent-follow ≥ hold-initial-defender on the
-validation window, net of costs** (override: `--force-live`). Gate closed ≠
+latest `replay_report` **with kind='mechanical'** (Task 9.1 — the agentic
+kind='agentic' is never the AUTOMATED gate; it is the manual M8b STOP) shows
+**agent-follow ≥ hold-initial-defender
+on the validation window, net of costs** (override: `--force-live`). Gate closed ≠
 system idle: the chain runs FULLY (catch-up, event watch, curation,
 ranking, outcomes keep accumulating history) — only UC8 is skipped, and the
 digest states "proposal cycle disabled (replay gate)". Telegram
 summary on every replay run:
-"25y replay: agent-follow +X.X%/y vs defender +Y.Y%/y | Sortino A vs B |
+"35y replay: agent-follow +X.X%/y vs defender +Y.Y%/y | Sortino A vs B |
 N switches, hit-rate Z% at +12w, false signals W%".
 
 Add to `system_thresholds`: `replay_cost_bps: 10.0`,
@@ -1968,7 +2025,7 @@ Add to `system_thresholds`: `replay_cost_bps: 10.0`,
 and `replay_report` to the document types.
 
 **Done when:** `uv run python -m investment.mechanical.replay` produces a
-full 25y report with zero point-in-time assertions failed; go-live gate
+full 35y report with zero point-in-time assertions failed; go-live gate
 blocks on a fixture where the ruleset destroys value; calibration writes
 nothing without user confirmation.
 
@@ -1979,6 +2036,101 @@ async def test_replay_point_in_time():   # injecting a future-dated row must not
 async def test_replay_go_live_gate():    # value-destroying fixture → main.py
                                          # refuses weekly cycle without --force-live
 ```
+
+### Task 9.4 — Agentic shadow replay (Planner + Worker — the pre-go-live BEST-CASE screen)
+
+Validates the LLM layer that Task 9.1 deliberately omits. A NECESSARY
+pre-go-live screen: since it runs the full Worker with the corpus known from
+t=start (a mild look-ahead ADVANTAGE), it is a **best-case** run — **if even
+this cannot beat All Weather, the real-time system has no chance → do not go
+live.** It is not a *sufficient* proof (semi-PIT, look-ahead-advantaged, LLM
+non-determinism) — real-time performance is proven only FORWARD (paper-mode).
+
+The Worker adds value through TWO channels; the replay must surface BOTH:
+- **decisions** → the NAV delta `A' − A`. NOTE: the SWITCH is mechanical in
+  both A and A' (identical), so the delta isolates the Worker's contribution
+  to the REALLOCATION path (qualitative scenario interpretation + gate 6 on
+  cited invariants), NOT the whole Worker.
+- **improvements** → the innovations the Worker proposes (new invariants,
+  strategies, evaluations). These are LOGGED for inspection but NOT fed
+  forward in the replay (forward discovery is excluded, = V2), so they do NOT
+  move A' — judge them qualitatively in the behavioral log. So A' ≈ A does NOT
+  mean "the Worker is worthless" — its improvement channel is off-NAV.
+
+**One harness, two modes — the replay IS the live chain accelerated.** Task
+9.1 and Task 9.4 are the SAME function with an `include_worker` flag; it drives
+the SAME live weekly chain over history, never a reimplemented decision loop
+(so replay logic cannot DRIFT from live logic — the classic replay bug):
+
+```python
+async def replay(db, start, end, *, include_worker: bool,
+                 cadence='monthly', thresholds=None) -> ReplayReport:
+    """The live weekly chain run ACCELERATED over [start, end] — start defaults
+    to the earliest tradable date (~1991, proxy floor); both modes run the FULL
+    window. Same code path as live (catch-up → regime → ranking → UC8 →
+    Writeback gates). Modes:
+      include_worker=False → MECHANICAL (Task 9.1, kind='mechanical', the
+        AUTOMATED go-live gate): UC8 uses the switch gates + mechanical
+        reallocation blend, no LLM.
+      include_worker=True  → AGENTIC (Task 9.4, kind='agentic', the M8b manual
+        best-case STOP): full UC8 incl. Planner Pre → Worker → Planner Post
+        before the SAME Writeback gates.
+    ONLY differences from live: (a) a SIMULATED clock stepping `cadence` over
+    [start,end]; (b) data is PIT-as-of-t from the backfill, not a live fetch;
+    (c) accepted proposals move a SHADOW BOOK, not emitted; (d) digest logged.
+    READ-ONLY on the live DB: the chain READS the already-materialised regimes/
+    backtests/invariants (PIT, as-of-t) and WRITES only the shadow book +
+    behavioral_log + the one replay_report row — it never commits fake
+    events/vertices to the live graph (that would poison history).
+
+    PIT (BOTH modes): MarketData ts<=t; regimes created_at<=t; FAVORS +
+      benchmark_valuation as-of t; invariant market_score AS-OF-T (confrontations
+      dated <=t → PIT, evolves chronologically); active = condition holds at t.
+    SEMI-PIT (agentic only — the residual look-ahead, WHY kind='agentic' is not
+      go-live evidence): corpus invariants/passages exist from t=start (Dalio/
+      Marks sources postdate the window); agent-discovery EXCLUDED (discovery is
+      in-sample); LLM temp low/fixed, deltas DIRECTIONAL. The Worker's proposed
+      innovations are LOGGED only, never fed forward (forward discovery = V2).
+    cadence: 'weekly' | 'monthly' (default, bounds LLM cost) | 'episodes'.
+    """
+```
+
+**Outputs & reading.** Run BOTH modes over the SAME dates (lockstep — a cadence
+mismatch would confound "Worker vs mechanical" with "monthly vs weekly"):
+- **A' agentic** vs **A mechanical** vs **B hold-initial-defender** (All Weather).
+- HEADLINE 1 — best-case screen: does A' beat B at all? (necessary pre-go-live.)
+- HEADLINE 2 — `delta = A' − A`. Switches are mechanical in BOTH modes, so this
+  isolates the Worker's REALLOCATION contribution (+ gate 6), not the whole
+  Worker. Labelled "semi-PIT, NOT go-live performance".
+- IMPROVEMENT channel: the logged innovations, judged qualitatively — off-NAV.
+- Behavioral log (agentic): per date, Worker decision + reasoning + gate
+  outcome + proposed innovations — the owner reads 2008 / 2020 / stagflation.
+      Coherence metrics: Worker-proposal vs what the mechanical core would have
+        proposed (agreement %); how often the Worker's reallocation beat the
+        mechanical blend at +12w; false-signal rate; ranking agreement.
+    """
+```
+
+**Relationship to the gates:** it is NOT the AUTOMATED main.py gate — that
+stays on the mechanical M6 replay (kind='mechanical', cheap, re-runnable at
+every startup). It IS a NECESSARY MANUAL pre-go-live STOP (M8b): the owner
+proceeds to live only if the best-case run beats All Weather and the Worker
+reads coherent. Two premise gates, then: M6 (automated, mechanical, PIT) and
+M8b (manual, best-case, semi-PIT).
+
+**Cost:** monthly ≈ 300 dates × ~4 LLM calls ≈ ~1.2k calls; 'episodes' mode
+≈ 20 episodes → ~100 calls. Configurable; default 'monthly'. Same harness,
+same `replay_cost_bps` / `replay_confirmation_weeks` as Task 9.1.
+
+**Schema:** reuse `replay_report` with a `kind STRING ('mechanical'|'agentic')`
+discriminator + `delta_vs_mechanical REAL` + `behavioral_log JSON` (no new doc
+table — count stays 10). `ReplayEvent` gains the same `kind`.
+
+**Done when:** `uv run python -m investment.mechanical.replay --agentic
+--cadence episodes` produces A'/A/B + the behavioral log; every output is
+labelled non-PIT; `test_agentic_replay_semipit` asserts invariant weights are
+read as-of-t (a confrontation dated after t must not change a weight before t);
+agent-discovery invariants are absent from the run.
 
 ---
 

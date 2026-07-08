@@ -101,7 +101,7 @@ identifiers.
 
 V2 starts only after V1 paper-mode history demonstrates that challenger
 recommendations would have beaten the defender net of costs and risk
-over at least 3 months. The **Phase 9 shadow replay** (25y meta-backtest of
+over at least 3 months. The **Phase 9 shadow replay** (35y meta-backtest of
 the mechanical pipeline, point-in-time, net of costs) provides the initial
 evidence and gates go-live; the 3 months of real paper-mode (measured by
 the weekly `outcomes.py` scoreboard) then confirm it forward before V2.
@@ -117,13 +117,27 @@ from the mechanical replay; (b) forward discovery. So M6 validates the
 mechanical core, NOT the invariant model, and its power is bounded by the
 quality of the 7 seeded portfolios.
 
-**Two validations, each PIT-clean in its own way — and why the Worker is NOT
-historically replayed.** The market/regime layer is PIT (as-known-at-t), so
-the mechanical core is replayable → M6. The WORKER is not: its corpus
-knowledge is ANACHRONISTIC — the Dalio/Marks sources postdate most of the 25y
-window, so a Worker "replayed" at 2005 would already know a 2018 book. You can
-PIT the market data, the regimes, even an invariant's as-of-t market_score
-(confrontations are dated), but you cannot un-know knowledge extracted from
-future-published sources. Hence the Worker + invariants-in-the-loop are
-validated FORWARD, in the 3-month real paper-mode (PIT by construction), never
-by a historical replay. A fully evolutionary walk-forward is V2/research.
+**Three validations, each honest about what it proves.**
+1. **M6 — mechanical replay (Task 9.1), strict-PIT → GO-LIVE performance.**
+   Regime-rotation over the fixed menu vs static All Weather. The only
+   PIT-clean performance evidence; gates go-live.
+2. **Agentic replay (Task 9.4), SEMI-PIT → the NECESSARY best-case screen.**
+   The full Planner+Worker pipeline over 35y, with the corpus known from
+   t=start — a mild look-ahead ADVANTAGE, so a **best-case** run: *if even this
+   cannot beat All Weather, the real-time system has no chance → do not go
+   live.* Necessary before go-live, but not sufficient (semi-PIT). It is
+   semi-PIT because market/regime/invariant-weights are as-of-t (confrontations
+   are dated → an as-of-t market_score is point-in-time) but the corpus
+   principles are anachronistic (you can PIT the data and weights, not un-know
+   a 2018 book). Read it for TWO things: (i) does A' beat All Weather at all?
+   (ii) the Worker's value on BOTH channels — decisions (delta A' − A, which
+   isolates the reallocation contribution since switches are mechanical in
+   both) AND improvements (innovations it proposes, logged, off-NAV, judged
+   qualitatively). agent-discovery is excluded (its discovery is in-sample).
+3. **Forward paper-mode, 3 months → real-time PIT performance of the Worker.**
+   The true performance validation of the reasoning layer, before V2.
+
+So the Worker CAN be replayed (behaviorally, Task 9.4) — my earlier "cannot
+be replayed" was wrong; what it cannot yield is go-live PERFORMANCE evidence
+from history. A fully evolutionary walk-forward (forward discovery in the
+loop) is V2/research.

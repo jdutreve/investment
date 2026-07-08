@@ -293,7 +293,7 @@ agent-discovery, user note, UC3 event. Provenance affects only metadata
 **Two distinct things** the condition/effect split keeps separate:
 - **ACTIVE** — `i.condition` holds NOW → `i` applies to the current market
   (Worker context, digest "what it depends on"). *Applicability, present tense.*
-- **VERIDICAL** — over the moments where `i.condition` HELD (25y + forward),
+- **VERIDICAL** — over the moments where `i.condition` HELD (35y + forward),
   did `i.effect` materialise? → `market_score`. *Truth / track record.*
 
 The 2×2: active+veridical = reliable & applicable now; **inactive+veridical =
@@ -345,15 +345,20 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
     - regime instances (USE_CASES step 10) — for regime-signal conditions;
     - the market-data TS incl. DERIVED signals (real_rate, composites);
     - the BENCHMARK VALUATIONS (USE_CASES step 10b) — each reference asset
-      class AND each strategy valued per period over 25y; this IS what
+      class AND each strategy valued per period over 35y; this IS what
       `cross_class` / `cross_strategy` read. "Define and value the benchmarks
       before valuing invariants."
     Maturation cannot run before these exist.
 
   MOMENTS = all historical periods/occurrences where i.condition held, read
-  from the TS / regime instances (frequency EMERGENT from the condition —
-  event → per occurrence, persistent state → per episode, 'always' → weekly
-  sample). For each moment M, evaluate i.effect by its METHOD:
+  from the TS / regime instances, over the FULL available history — from the
+  earliest date i's signals exist (~1991 for macro/price signals; per-signal
+  data floors: liquidity 2002 WALCL, TIPS-effect 2000). Nothing artificially
+  truncates the window: every invariant is confronted as far back as its data
+  allows, so at go-live the whole seed+corpus knowledge is already matured over
+  1991-present, not cold. (frequency EMERGENT from the condition — event → per
+  occurrence, persistent state → per episode, 'always' → weekly sample.)
+  For each moment M, evaluate i.effect by its METHOD:
     benchmark_M per method — cross_class: MEDIAN of the other asset classes'
       metric; cross_strategy: MEDIAN of the other strategies'; absolute: 0
       — READ from the pre-materialised benchmark_valuations, not recomputed
@@ -392,10 +397,10 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
 
 **Point-in-time honesty (ADR-003).** mature_invariant() recomputes effects from
 the point-in-time market-data TS (ALFRED vintages) — NO new look-ahead. But for
-a corpus invariant part of the 25y is in-sample for its author, and an
+a corpus invariant part of the 35y is in-sample for its author, and an
 **agent-discovery invariant is FULLY in-sample** (discovered from the same
 history it is then scored on): the resulting market_score is a **weight prior**,
-not out-of-sample proof. Uniform 25y maturation for all births — agent-discovery
+not out-of-sample proof. Uniform 35y maturation for all births — agent-discovery
 included — is a deliberate choice; V2 accrues real forward track record.
 
 ---
@@ -420,7 +425,7 @@ and rejections.
 | Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
 | Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
 | Scenario probabilities | weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
-| Thresholds          | Phase 9 replay    | walk-forward calibration                      | 15y calibrate / 10y validate | user-confirmed write to system_thresholds        |
+| Thresholds          | Phase 9 replay    | walk-forward calibration                      | ~25y calibrate / ~10y validate | user-confirmed write to system_thresholds        |
 
 **`mechanical/outcomes.py` — weekly 08:52 (after ranking, before UC8):**
 
@@ -605,7 +610,7 @@ No hedging in Phase 1. See IMPROVEMENTS.md I-15.
 Worker/curator discovers new pattern (type=new_invariant)
   → ImprovementProposal in WorkerResult.innovations_proposed
   → EventLog append → Invariant source:agent-discovery status:proposed
-  → mature_invariant() (25y confrontation, like any birth)
+  → mature_invariant() (35y confrontation, like any birth)
         ↓
   time-validated (N_min/θ, not refuted) → status:integrated   [mechanical]
   refuted (≥4 confrontations, market_score < 0.35)            → status:rejected

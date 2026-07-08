@@ -97,7 +97,7 @@ only a dynamic tag on Regime instances (when CPI YoY < 0).
 ### Regime
 *A concrete occurrence of a RegimeType, bounded in time. Created/updated by the
 regime detector's step() — one step per new monthly print, ONE code path,
-four callers: UC0 25y materialization and the Phase 9 replay iterate it
+four callers: UC0 35y materialization and the Phase 9 replay iterate it
 over the archive; the Monday catch-up and the on-demand UC9 prelude call
 it on the new prints since the last run. IN_REGIME edges point here.*
 
@@ -675,8 +675,8 @@ CREATE TABLE IF NOT EXISTS portfolio_nav (
 ```
 
 **No downsampling policies** — the 756-trading-day rolling windows and the
-25y Phase 9 replay require full daily granularity end to end; total volume
-(~30 series × 25y daily) is trivial for the embedded engine.
+35y Phase 9 replay require full daily granularity end to end; total volume
+(~30 series × 35y daily) is trivial for the embedded engine.
 
 `level` carries the canonical numeric reading (no separate close/volume
 columns — volume is not used in any rule); the regime an observation belongs
@@ -692,7 +692,7 @@ signal than the same level reached while decelerating.
 A MarketData row's `ts` is **the date the value became knowable**, and its
 `level` is **the value as first known**: macro observations are indexed at
 their publication date (ALFRED `realtime_start`; fallback `reference_date +
-availability_lag_days`), and the 25y backfill stores ALFRED **first-release**
+availability_lag_days`), and the 35y backfill stores ALFRED **first-release**
 values for revised series (INDPRO first; CPIAUCSL, UNRATE second).
 Composites and z-scores are computed from these as-known rows. The live
 fetcher (Monday catch-up / on-demand) appends whatever is current at fetch
@@ -857,7 +857,7 @@ CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
 --   --   class membership = the pinned BENCHMARK_CLASSES mapping (TASKS seed)
 --   --   over allowed_tickers.asset_class (fine → coarse).
 --   -- strategy rows: per Strategy's prescribed allocation (synthetic NAV).
---   -- Rebuilt over 25y at seed, extended weekly.
+--   -- Rebuilt over 35y at seed, extended weekly.
 
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 -- date DATE, portfolio_id STRING (unique index on (date, portfolio_id)),
@@ -884,15 +884,25 @@ CREATE TABLE IF NOT EXISTS scenario_calibration (...);
 
 CREATE TABLE IF NOT EXISTS replay_report (...);
 -- id STRING (PK, ULID), run_at DATETIME, window_start DATE, window_end DATE,
+-- kind STRING ('mechanical' | 'agentic')  -- 'mechanical' = Task 9.1 (go-live
+--   evidence); 'agentic' = Task 9.4 (Planner+Worker, semi-PIT, NOT go-live)
 -- thresholds MAP (the set replayed), acceptance_policy STRING,
--- nav_agent_follow MAP, nav_hold_defender MAP, nav_benchmark MAP
+-- nav_agent_follow MAP, nav_hold_defender MAP
 --   (each: cagr, sortino, calmar, max_drawdown — decimal fractions),
 -- n_switches INTEGER, avg_turnover FLOAT, hit_rate_12w FLOAT,
 -- false_signal_rate FLOAT, cost_bps FLOAT, pit_assertions_passed BOOLEAN,
 -- vintage_mode STRING ('first_release' expected — a go-live verdict obtained
 --   on revised data is not valid evidence, ADR-003),
+-- delta_vs_mechanical REAL   -- kind='agentic' only: A' − A (Worker's marginal
+--   contribution over the mechanical core); labelled non-PIT
+-- behavioral_log JSON        -- kind='agentic' only: per-date Worker decision +
+--   reasoning + gate outcome, for owner inspection at crisis points
 -- notes STRING
--- Written by the Phase 9 shadow replay; read by the main.py go-live gate.
+-- Written by Phase 9: kind='mechanical' (Task 9.1) is read by the AUTOMATED
+--   main.py go-live gate; kind='agentic' (Task 9.4) is never the automated
+--   gate but IS the necessary MANUAL pre-go-live STOP (M8b — best-case screen).
+--   (nav_benchmark dropped with the 60/40 benchmark; vs_benchmark vs
+--    ALL_WEATHER_BENCHMARK lives on the snapshot, not here.)
 ```
 
 Ranking rule (applies to snapshot rows):
@@ -968,7 +978,7 @@ append always precedes vertex/edge commit.*
 ```
 Invariant    → EventLog → vertex (all weight fields live here) → edges
               (SUPPORTS from passages; BACKED_BY from suggested_backed_by
-              at birth) → mature_invariant() (25y) → FTS + vector
+              at birth) → mature_invariant() (35y) → FTS + vector
 Evaluation   → EventLog → vertex (events[] filled) → UPDATES → FTS
 Scenario     → EventLog → vertex update → ScenarioProbability TS (weekly)
 Proposal V1  → mechanical gates (switch or reallocation) → EventLog

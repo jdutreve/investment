@@ -143,7 +143,7 @@ The defender `4s-balanced-defender` executes the seeded strategy
 `four-seasons-rp` (HOLDS primary=true). Its thesis is backed by a mix of
 corpus invariants (seeded at UC0) and **mechanically time-validated agent
 discoveries** — the V1 path for `source=agent-discovery` (proposed → matured
-over 25y → integrated iff N_min/θ; no user gate — ADR-006).
+over 35y → integrated iff N_min/θ; no user gate — ADR-006).
 
 ```
 Strategy#four-seasons-rp -[BACKED_BY strength:0.8 added_at:2026-01-15
@@ -173,7 +173,7 @@ an asymptotic floor of 0.5.
 
 ---
 
-**Invariant#gold-stagflation-hedge** — agent discovery, time-validated (25y),
+**Invariant#gold-stagflation-hedge** — agent discovery, time-validated (35y),
 3/3 confirmations
 
 ```
@@ -198,13 +198,13 @@ Invariant {
   source: "Backtest stagflation 2021-2022 — GLD +18% vs 4S GLD sleeve +11%
            (computed 2026-03-01 from Yahoo daily closes)"
   author: "system"
-  status: "integrated"            ← proposed 2026-03-01; matured over 25y the
+  status: "integrated"            ← proposed 2026-03-01; matured over 35y the
                                      SAME cycle → time-validated (N_min/θ);
                                      no user gate (ADR-006)
   floor_weight: 0.05              ← system (agent-discovery) floor
   weight_initial: 0.25            ← ceiling for this invariant
   confirmation_count: 3           ← gold led the other classes in 3 of the 3
-                                     negative-real-rate episodes in 25y
+                                     negative-real-rate episodes in 35y
   infirmation_count: 0
   market_score: 1.0               ← 3/(3+0) ≥ θ(0.60), confrontations 3 ≥ N_min(3)
   recency_factor: 0.992           ← condition-relative: 6d since real_rate last < 0
@@ -214,12 +214,12 @@ Invariant {
           fundamental driver (negative real rates). Matured mechanically at
           birth over 3 negative-real-rate episodes (cross_class vs other classes)."
   created_at: 2026-03-01
-  validated_at: 2026-03-01      ← time-validated at birth (25y), not a user click
+  validated_at: 2026-03-01      ← time-validated at birth (35y), not a user click
   updated_at: 2026-05-11
 }
 ```
 
-**Invariant#calmar-accumulation** — agent discovery, time-validated (25y),
+**Invariant#calmar-accumulation** — agent discovery, time-validated (35y),
 2 confirmations / 1 refutation
 
 ```
@@ -295,10 +295,10 @@ Invariant {
 Updated after each weekly backtest cycle. Edge indicators come from
 **synthetic backtests of each strategy's prescribed allocation** (= its base
 scenario `target_allocation`) replayed over every historical Regime instance
-of this type — instances materialized at UC0 from the 25y backfill.
+of this type — instances materialized at UC0 from the 35y backfill.
 They are *strategy-level* numbers and must not be confused with
 portfolio-level rolling indicators (Step 4b). `n_periods=4` = 4 distinct
-stagflation episodes in the 25y history.
+stagflation episodes in the 35y history.
 
 ```
 RegimeType#falling-growth-rising-inflation
@@ -564,7 +564,7 @@ Invariant {
   condition: []                  ← empty ⇒ 'always' (general, weekly clock)
   effect: {handle:"strategy:four-seasons-rp", metric:"calmar_rolling",
            method:"cross_strategy", direction:"outperform"}
-  status: "integrated"           ← born proposed, matured over 25y the SAME
+  status: "integrated"           ← born proposed, matured over 35y the SAME
                                     cycle → time-validated (N_min/θ). Mechanical,
                                     no user gate (ADR-006). Had it scored < θ it
                                     would stay 'proposed' (candidate).
@@ -594,7 +594,7 @@ Invariant {
 ## Step 7 — Backtest in a historical regime instance
 
 `Regime#stagflation-2021-03-01` was materialized at UC0 by running the
-detector over the 25y backfill (USE_CASES.md UC0 step 10) — it is a normal
+detector over the 35y backfill (USE_CASES.md UC0 step 10) — it is a normal
 seeded instance, not an exception.
 
 ```
@@ -607,7 +607,7 @@ Regime {
   events: ["CPI YoY peaked 9.1% Jun 2022",
            "GROWTH_COMPOSITE below 100 from Aug 2022",
            "global liquidity tightening Q4 2021 — Q4 2022"]
-  trace: "Materialized at UC0 from the 25y backfill."
+  trace: "Materialized at UC0 from the 35y backfill."
   created_at: 2026-01-01, updated_at: 2026-01-01
 }
 ```

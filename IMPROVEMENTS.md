@@ -243,7 +243,7 @@ made several thesis decisions worth capturing as invariants.
   `discussion-user` (floor 0.15, weight_initial 0.40-0.60).
 - UC9 detects user decisions and proposes a new Invariant.
 - Same mechanical lifecycle as any invariant (ADR-006): status:proposed →
-  matured 25y → status:integrated iff time-validated. The user tiers only set
+  matured 35y → status:integrated iff time-validated. The user tiers only set
   the floor/weight_initial band, not a validation gate.
 
 ---
@@ -568,7 +568,7 @@ If/when adding from this list, prioritize by dependency and impact:
   invariant is autonomous; moving real money is not.)
 - Anything that integrates an invariant OTHER than through the mechanical
   maturation verdict (N_min/θ, not refuted) — no back-door `status=integrated`
-  that skips the 25y confrontation.
+  that skips the 35y confrontation.
 - Anything that bypasses EventLog append-before-commit ordering.
 - Anything that gives Worker direct DB write access.
 - Anything that increases *scheduled autonomous* LLM decision-making beyond

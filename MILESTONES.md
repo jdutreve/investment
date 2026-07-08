@@ -6,7 +6,7 @@ STEERING document: check boxes, strike milestones, add findings — the
 specs stay in the other files.
 
 **Ordering principles:**
-1. **Mechanical before LLM** — and the 25y replay BEFORE any Planner/
+1. **Mechanical before LLM** — and the 35y replay BEFORE any Planner/
    Worker wiring: the replay only needs the mechanical pipeline, and it is
    the evidence that validates (or kills) the thresholds and the premise.
 2. **Each milestone ships its own inspection view** (CLI/dashboard) — the
@@ -14,9 +14,11 @@ specs stay in the other files.
 3. **Each milestone has a Definition of Verified**: commands the owner
    types and facts the owner can dispute — never just "tests pass".
 
-Rhythm: one commit per milestone. Explicit STOP points at M3, M6, M7 —
-where owner judgment is the acceptance criterion (the three places the
-system can be technically correct and substantively wrong).
+Rhythm: one commit per milestone. Explicit STOP points at M3, M6, M7, M8b —
+where owner judgment is the acceptance criterion (the places the system can
+be technically correct and substantively wrong). M6 and M8b are the two
+pre-go-live premise gates: M6 (mechanical core beats All Weather, PIT) and
+M8b (best-case full system beats All Weather, semi-PIT).
 
 **Incremental seed:** `python -m investment.seed` is idempotent and is
 RE-RUN at M1/M2/M3/M4/M5/M7 — each run completes the UC0 steps whose
@@ -24,7 +26,7 @@ prerequisites now exist and SKIPS the rest with a warning (M1: static
 steps 1-5,7,8 — seed invariants carry their `condition`/`effect` but are
 not yet matured; M2 adds 9; M3 adds 10; M4 adds 12-13; M5 adds 10b
 (benchmark_valuation) + 11 (backtests/FAVORS) + 11b (birth maturation of
-the seed invariants over 25y); M7 adds 6/6b (corpus invariants, matured the
+the seed invariants over 35y); M7 adds 6/6b (corpus invariants, matured the
 same way)). The closing SeedEvent inventory reflects what ran.
 
 ---
@@ -58,7 +60,7 @@ scenarios, 7 portfolios) + **minimal `invest sql` / `invest status`**.
 **⚔️ Challenge point:** the seeds ARE your investment philosophy encoded —
 reread the 6 invariants (each now a `condition` → `effect`/method, machine-
 readable), 4 strategy conditions, 7 allocations line by line. Note: these
-invariants face the SAME 25y maturation at M5 — belief does not grant
+invariants face the SAME 35y maturation at M5 — belief does not grant
 `integrated` status, history does (ADR-006).
 
 ---
@@ -66,25 +68,30 @@ invariants face the SAME 25y maturation at M5 — belief does not grant
 ## M2 — Market data pipeline (1.5 d — Phase 2 partial)
 
 Yahoo+FRED fetcher, ALFRED first-release vintages, publication dating,
-transforms, composites, 25y backfill.
+transforms, composites, 35y macro backfill + HISTORY_PROXIES splice.
 
 **Definition of Verified**
 - [ ] CPI YoY at dates you know, via `invest sql`
 - [ ] GROWTH_COMPOSITE through 2008 and 2020 tells the story you know
 - [ ] publication dates spot-checked against the real BLS/Fed calendar
-- [ ] GLOBAL_LIQUIDITY: QE/QT episodes visible
+- [ ] GLOBAL_LIQUIDITY: QE/QT episodes visible (from ~2002, WALCL)
+- [ ] HISTORY_PROXIES resolve (Yahoo: VFINX/VUSTX/VBMFX/VFISX/VIPSX; FRED:
+      GOLDAMGBD228NLBM gold, TB3MS cash; commodities S&P GSCI TR); splice joins
+      continuous; report the ACTUAL tradable floor — target 1991; the commodity
+      TR source is the gate (fallback ^BCOM 1991, else commodities floor 2006)
 
 **⚔️ Challenge:** does the growth composite match your macro memory?
 
 ---
 
-## M3 — Regime detector + 25y materialization (1 d — Phase 2 end) — STOP POINT
+## M3 — Regime detector + 35y materialization (1 d — Phase 2 end) — STOP POINT
 
 Per-print `step()`, hysteresis, `detector_state`, historical episodes.
 
 **Definition of Verified**
-- [ ] `invest regime --history`: 2008 falling-growth, 2021-22 stagflation,
-      plausible transition dates, ≥10 episodes
+- [ ] `invest regime --history`: 1994 rate shock, 2000 dot-com, 2008
+      falling-growth, 2021-22 stagflation, plausible transition dates,
+      ≥12 episodes (the 35y window adds the 90s)
 - [ ] flip-flop fixture does not switch before 2 concordant prints
 
 **⚔️ STOP:** every episode is a historical fact you can dispute. Do not
@@ -115,29 +122,32 @@ Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
       cross_class/cross_strategy benchmark
 - [ ] confrontation fixture: an active-condition invariant whose effect beats
       its benchmark (by method) moves a weight_effective as computed by hand
-- [ ] seed invariants matured over 25y: each has a real market_score and a
+- [ ] seed invariants matured over 35y: each has a real market_score and a
       status verdict (integrated iff N_min/θ, not refuted) — inspect which of
       your 6 survived, and whether the survivors ring true
 
-**⚔️ Challenge:** does the 25y verdict on YOUR seed philosophy read fair? A
+**⚔️ Challenge:** does the 35y verdict on YOUR seed philosophy read fair? A
 demoted invariant is history disagreeing — worth understanding before M6.
 
 ---
 
 ## M6 — 🎯 Shadow replay + calibration (1.5 d — Phase 9, PULLED FORWARD) — STOP POINT
 
-The mechanical pipeline is complete: replay it over 25y.
+The mechanical pipeline is complete: replay it over 35y.
 
 **Definition of Verified**
 - [ ] replay_report: hit-rate, agent-follow vs hold-defender net of costs
 - [ ] vintage_mode=first_release; vintage sensitivity reported
-- [ ] walk-forward calibrated thresholds (15y/10y split) — confirmation
+- [ ] walk-forward calibrated thresholds (~25y calibrate / ~10y validate) — confirmation
       of the winning set happens in the CLI (Telegram arrives at M9)
 - [ ] zero PIT assertions failed
 
-**⚔️ STOP — the premise gate:** if the replay shows no net value-add, we
-discuss BEFORE paying for the LLM wiring. This evidence also decides the
-final gate thresholds.
+**⚔️ STOP — the mechanical premise gate:** if the replay shows no net
+value-add, we discuss BEFORE paying for the LLM wiring. It does NOT auto-kill
+the project: the LLM layer might still rescue a weak mechanical core, which is
+exactly what M8b (agentic) tests — but building the LLM to chase a failing
+mechanical core is a DELIBERATE bet, not the default. This evidence also
+decides the final gate thresholds.
 
 ---
 
@@ -181,6 +191,32 @@ invariants the right ones?
 
 ---
 
+## M8b — Agentic replay: the best-case pre-go-live screen (0.5 d — Task 9.4) — STOP POINT
+
+The SAME replay harness as M6, `include_worker=True` — the live chain
+accelerated (no reimplemented decision loop). Because the corpus is known from
+t=start, it is a **best-case** run → a NECESSARY a-priori screen: *if even this
+cannot beat All Weather, the real-time system has no chance.* Not a *sufficient*
+proof (semi-PIT; real-time performance = forward paper-mode). Default cadence
+'episodes' (≈20 LLM runs) to bound cost.
+
+**Definition of Verified**
+- [ ] best-case check: A' (agentic-follow) beats B (All Weather) at all?
+- [ ] behavioral log readable: at 2008 / 2020 / stagflation, does the Worker
+      reason sensibly? does it propose sensible improvements?
+- [ ] delta A' − A reported — isolates the REALLOCATION contribution (switches
+      are mechanical in both); LABELLED "semi-PIT, not go-live performance"
+- [ ] `test_agentic_replay_semipit`: invariant weights read as-of-t; a
+      confrontation dated after t changes no weight before t; agent-discovery
+      absent from the run
+
+**⚔️ STOP:** if the best-case system can't beat All Weather, or the Worker's
+reasoning reads incoherent, do NOT proceed to live. Judge the Worker on BOTH
+channels: decisions (A' − A) AND the improvements it proposes (off-NAV, in the
+log) — A' ≈ A alone does not condemn it.
+
+---
+
 ## M9 — Telegram + Event Watch + real-life scheduling (1.5 d — Phases 6bis, 3.2, 7 + ops core)
 
 Includes `ops/commands.py` (the command layer core — the bot's buttons
@@ -219,5 +255,5 @@ in M8, verified on real history as it accumulates.
 
 ---
 
-**Total: ~14.5 days.** After M11: 3 months of paper-mode history →
+**Total: ~15 days.** After M11: 3 months of paper-mode history →
 the V2 boundary discussion (REVISION_NOTES).

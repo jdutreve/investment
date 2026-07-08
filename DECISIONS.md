@@ -90,7 +90,7 @@ Concretely:
   ALFRED `realtime_start` when available, else `reference_date +
   allowed_tickers.availability_lag_days` (CPI ≈ 13d, INDPRO ≈ 16d,
   UNRATE ≈ 7d, UMCSENT ≈ 3d).
-- The 25y **backfill stores first-release values** (ALFRED vintages) for the
+- The 35y **backfill stores first-release values** (ALFRED vintages) for the
   revised series (INDPRO first; CPIAUCSL, UNRATE second); composites and
   z-scores are computed from those as-known rows.
 - The **live daily fetcher** appends whatever is current at fetch time —
@@ -209,7 +209,7 @@ metric behind an explicit user validation (`status=proposed` → Telegram/CLI
 yes/no → `integrated`). Two later decisions hollowed that gate out entirely:
 (1) the maturation redesign made VERACITY a **mechanical** verdict — an
 invariant "survived the test of time" iff `confrontations ≥ N_min (3) AND
-market_score ≥ θ (0.60) AND not refuted`, computed over 25y at birth (see
+market_score ≥ θ (0.60) AND not refuted`, computed over 35y at birth (see
 ARCHITECTURE "Birth maturation"); (2) dedup and well-formedness are already
 mechanical. Nothing substantive was left for the human to judge — the owner
 is explicitly not positioned to adjudicate market theses, and being asked to

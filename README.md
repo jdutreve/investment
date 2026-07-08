@@ -27,7 +27,7 @@ mechanical decides · LLM proposes · the user arbitrates · reality judges
   interprets and proposes (reallocations, new/revised strategies, new
   invariants); the **curator** (Sonnet) turns deposited books and
   watched events into invariant candidates — dedup-gated, quality-contracted,
-  matured mechanically over 25y (no user gate — ADR-006).
+  matured mechanically over 35y (no user gate — ADR-006).
 - **Unified improvement cycle:** every resource (proposal, invariant,
   strategy, scenario probabilities, thresholds) follows
   *measure → propose → mature → adopt or reject* — fully mechanical.
@@ -63,7 +63,7 @@ semantic search).
 ## Getting started
 
 Follow `MILESTONES.md`: M0 (smoke test) → M6 delivers the whole mechanical
-core **and the 25y replay evidence with zero LLM spend**; M7+ adds the
+core **and the 35y replay evidence with zero LLM spend**; M7+ adds the
 knowledge factory and the weekly Worker cycle. Each milestone ends with a
 *Definition of Verified* — commands the owner runs and facts the owner can
 dispute.

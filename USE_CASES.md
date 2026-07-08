@@ -133,7 +133,7 @@ UC8 reads EventLog weekly to assemble its inputs.
       'marks' → 0.35, other → null/0.20) — NOT 'system'; 'system' is
       reserved for market-pattern discoveries (backtests, rankings)
     - Each candidate → BACKED_BY/SUPPORTS edges → mature_invariant() over
-      25y → status='integrated' if time-validated (N_min/θ, not refuted),
+      35y → status='integrated' if time-validated (N_min/θ, not refuted),
       else stays 'proposed' (candidate). 100 % mechanical — no user gate
       (ADR-006).
     - This is how a deposited book yields matured invariants at install time
@@ -158,7 +158,9 @@ UC8 reads EventLog weekly to assemble its inputs.
     + DESIGNED_FOR edges to RegimeType (nullable for framework-neutral portfolios)
 
 9.  MarketData TS backfill:
-    - 25y history for macro/FRED series; ETFs from inception
+    - 35y history for macro/FRED series (→1991); ETFs from inception, spliced
+      with HISTORY_PROXIES back to ~1991 for the tradable/benchmark layer
+      (proxies span to 1968-86 → margin; commodity TR source the verify-gate)
       (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, BIL 2007, ...)
     - As-known-at-ts (ADR-003): first-release ALFRED vintages for revised
       series, every macro observation indexed at its publication date
@@ -167,7 +169,8 @@ UC8 reads EventLog weekly to assemble its inputs.
     - GROWTH_COMPOSITE and GLOBAL_LIQUIDITY composites computed and stored
 
 10. Historical Regime materialization (NEW — prerequisite for backtests):
-    - Run the regime detector over the FULL macro backfill (25y)
+    - Run the regime detector over the FULL macro backfill (35y → 1991,
+      captures the 1994 bond crash + 2000 dot-com; liquidity only from ~2002)
     - Create one Regime vertex per detected historical episode
       (is_current=false, end_date set)
     - Set is_current=true on the final (ongoing) instance
@@ -177,10 +180,13 @@ UC8 reads EventLog weekly to assemble its inputs.
     - asset_class rows: group the reference universe into the 5 coarse classes
       via the pinned BENCHMARK_CLASSES mapping (TASKS seed) over
       allowed_tickers.asset_class (equities / bonds / inflation-protected /
-      gold-commodities / cash); per (class, period) over 25y compute return +
-      sortino_rolling + max_drawdown + volatility from constituent ETF prices
+      gold-commodities / cash); per (class, period) compute return +
+      sortino_rolling + max_drawdown + volatility from constituent prices,
+      SPLICED with HISTORY_PROXIES before ETF inception → tradable history to
+      ~1991 (equity/bond/gold/cash proxies to 1968-86, margin; commodity TR
+      source is the verify-gate — TIPS floor 2000, not in the AW benchmark)
     - strategy rows: per Strategy's prescribed allocation (synthetic NAV),
-      same metrics per period over 25y
+      same metrics per period, same proxy splice
     - Write benchmark_valuation rows — this IS what effect.method reads
       (cross_class → asset_class rows, cross_strategy → strategy rows)
     - Also materialize DERIVED signals used by conditions (real_rate =
@@ -194,14 +200,16 @@ UC8 reads EventLog weekly to assemble its inputs.
     - FAVORS edges from RegimeType to Strategy with strategy-level rolling
       indicators (synthetic backtest of prescribed allocation, aggregated
       across all historical instances — n_periods now meaningful thanks to
-      the 25y backfill)
+      the 35y backfill)
 11b. Invariant birth maturation:
     - Call mature_invariant() (ARCHITECTURE "Birth maturation") on EVERY
       seed invariant — the SAME factored, source-blind mechanism later
       applied to every post-launch birth. Seed invariants are just the
       first batch; there is no special seed maturation path.
-    - Confronts over its CONDITION-moments (ARCHITECTURE "Birth maturation"):
-      all historical periods/occurrences where i.condition held (regime is
+    - Confronts over the FULL available history (from ~1991 where the signals
+      exist; per-signal floors liquidity 2002 / TIPS 2000) — so the system
+      GOES LIVE with all seed+corpus knowledge already matured over 1991-present,
+      not cold. All CONDITION-moments where i.condition held (regime is
       one signal among many; frequency emergent), evaluating i.effect by its
       METHOD, reading benchmark_valuation from step 10b (cross_class → asset-
       class rows, cross_strategy → strategy rows). The invariant-specific
@@ -252,7 +260,7 @@ computes `level`, `speed`, `acceleration` for each series. Appends to
 MarketData TS. Includes ^IRX (3M T-Bill risk-free rate), the
 `GROWTH_COMPOSITE` and the `GLOBAL_LIQUIDITY` composites.
 **Output:** → MarketData TS — the durable `market_data` table in SQLite
-(25y history; what the regime detector, NAV, Planner baseline, Worker
+(35y history; what the regime detector, NAV, Planner baseline, Worker
 `market_fetch` and the Phase 9 replay all read). No EventLog row: EventLog
 is the audit journal for entity/relation commits, not the storage — the TS
 row itself is the durable record, so auditing it would duplicate the table.
@@ -333,7 +341,7 @@ revised Strategy (`type=new_strategy` / `strategy_revision`,
 `enabled=false` — auto-enabled after mechanical probation; lifecycle in
 ARCHITECTURE.md "System Evolution"), or proposing a new metric (schema
 self-extension is V2 — IMPROVEMENTS I-27). A new Invariant is born
-`status=proposed`, matured over 25y, and reaches `status=integrated`
+`status=proposed`, matured over 35y, and reaches `status=integrated`
 mechanically iff time-validated (N_min/θ, not refuted) — the digest reports
 it, never asks. New invariants extracted from corpus documents carry
 `author = Document.author` tier (dalio → floor 0.40, etc.);
@@ -576,4 +584,4 @@ digest provides awareness by REPORTING what changed — it never asks.
 - Persist a **schema extension** (V2 — IMPROVEMENTS I-27).
 
 (Creating AND mechanically integrating invariants/strategies is now
-autonomous — matured over 25y, reported in the digest, no approval flow.)
+autonomous — matured over 35y, reported in the digest, no approval flow.)

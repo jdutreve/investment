@@ -70,7 +70,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
            → IngestionEvent per batch
            → curator (LLM) — ONLY when the batch created new
              Documents: invariant candidates (author = document author
-             tier) matured mechanically over 25y within minutes of the
+             tier) matured mechanically over 35y within minutes of the
              deposit (no user gate — ADR-006); the digest surfaces them.
              Knowledge extraction, never decisions.
     backup (sqlite3 .backup, keep 14d) after every Monday chain and
@@ -132,8 +132,11 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Planner LLM     | `qwen/qwen3-8b` via OpenRouter, thinking mode                 |
 | Worker LLM      | `claude-sonnet-4-6` via Anthropic                             |
 | Market data     | Yahoo Finance + FRED + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY    |
-| Backfill        | 25y macro (ALFRED first-release vintages, publication-dated   |
-|                 | — ADR-003); ETFs limited by inception date                    |
+| Backfill        | MACRO/regime 35y (→1991, ALFRED first-release vintages,       |
+|                 | publication-dated — ADR-003). TRADABLE/benchmark ~1991 too    |
+|                 | via HISTORY_PROXIES (equity/bond/gold/cash proxies to         |
+|                 | 1968-86, margin; commodity TR the verify-gate); TIPS floor    |
+|                 | 2000, liquidity 2002 (WALCL). 1994 bond crash + dot-com.      |
 | Risk-free rate  | 3-Month T-Bill (^IRX) via Yahoo Finance — USD                 |
 | Timezone        | Europe/Zurich (APScheduler + all cron times)                  |
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
@@ -177,7 +180,7 @@ jobs) append no EventLog row — they create no vertex/edge.
 - **Event-driven ingestion** = mechanical, with ONE LLM exception: the
   curator (fires minutes after a deposit; knowledge extraction
   from newly ingested documents — its outputs are invariant candidates that
-  mature MECHANICALLY (25y confrontation), never decisions; no user gate —
+  mature MECHANICALLY (35y confrontation), never decisions; no user gate —
   ADR-006).
 - **Weekly (Monday 09:00)** = sole *scheduled* decision cycle. Worker +
   Planner Post. UC9 (user-initiated chat) may trigger one ad-hoc UC8 re-run
@@ -206,10 +209,10 @@ jobs) append no EventLog row — they create no vertex/edge.
     (decays from 1.0 toward an asymptotic floor of 0.5 — no clamp needed)
 - `market_score = confirmation_count / (confirmation_count + infirmation_count)`
   (use 1.0 until first confrontation)
-- Every invariant matures MECHANICALLY at birth over 25y (ARCHITECTURE "Birth
+- Every invariant matures MECHANICALLY at birth over 35y (ARCHITECTURE "Birth
   maturation"); weight updates event-driven after each Backtest or Evaluation.
 - `source=agent-discovery` → EventLog append → vertex committed and matured
-  mechanically like any other (same 25y confrontation); the digest surfaces
+  mechanically like any other (same 35y confrontation); the digest surfaces
   it. No `status=proposed`-awaiting-user, no validation notification (ADR-006).
 
 ### Curation vs Innovation (both mechanical — ADR-006)
@@ -379,7 +382,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
    other 5 relations are FK columns), 3 TS tables and 10 document tables
    (incl. `benchmark_valuation`, the cross_class/cross_strategy benchmark);
-   historical Regime instances from the 25y backfill; seed data; and the
+   historical Regime instances from the 35y backfill; seed data; and the
    first `portfolio_weekly_snapshot` row.
 2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
    every trading day (USD).
@@ -388,12 +391,12 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 4. After Dalio corpus ingestion + the default seed curation pass (skip
    with `--no-curate`): 10+ Passage vertices, and extracted Invariants
    carrying `author='dalio'` (floor 0.40), each with a machine-readable
-   `condition`+`effect`, matured over 25y (market_score set), linked by
+   `condition`+`effect`, matured over 35y (market_score set), linked by
    SUPPORTS edges — no user validation (ADR-006).
 5. Full weekly cycle: MarketData/EventLog ingestion → Worker → Evaluation →
    Scenario update → Proposal (if gate passed).
 6. `source=agent-discovery` Invariant is persisted, matured mechanically over
-   25y like any other, and surfaced in the digest — no user-validation gate
+   35y like any other, and surfaced in the digest — no user-validation gate
    (ADR-006).
 7. `weight_effective` of an agent-discovery invariant grows after mechanical
    market confirmations (ARCHITECTURE "Invariant confrontation rule").
@@ -404,7 +407,7 @@ Private repo, solo dev — no PR. `gh` CLI sufficient.
 11. The Worker can emit a reallocation Proposal for the defender that passes
     the mechanical gates and renders in the digest with old vs new
     allocation and reasoning.
-12. The Phase 9 shadow replay produces a 25y `replay_report` with zero
+12. The Phase 9 shadow replay produces a 35y `replay_report` with zero
     point-in-time violations, and `main.py` refuses to enable the weekly
     proposal cycle when the report shows no net value-add on the validation
     window (override `--force-live`).
