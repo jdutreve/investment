@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(claude-api)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(grep -vE '^-\\\\s*$')",
+      "Bash(echo \"exit=$?\")",
+      "Bash(python3 *)",
+      "Bash(echo \"clean=$?\")",
+      "Bash(grep -n -A2 'weight_effective` ≥ `proposal_invariant_weight_min' USE_CASES.md)",
+      "Bash(echo \"left=$?\")",
+      "Bash(git mv *)",
+      "Read(//Users/jdutreve/projets/**)",
+      "Bash(grep -rn \"rates \\\\`\\\\|rates:\\\\|; rates\\\\|rates \\(\\\\| rates,\" EXAMPLE.md)",
+      "Bash(grep -viE \"^$\")",
+      "Bash(grep -Eo \"[a-z_]+[^A-Za-z]{1,4}[0-9]+\\\\.?[0-9]*\")"
+    ]
+  }
+}
