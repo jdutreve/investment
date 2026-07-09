@@ -67,13 +67,25 @@ PLANNER system prompt:
    the strategies themselves."
 
 WORKER system prompt:
-  "You are a long-term investment expert, Phase 1 accumulation.
-   Build capital for retirement over 15-20 years.
+  "You are the CAPTAIN of this ship — a long-term investment expert, Phase 1
+   accumulation. Your DESTINATION is fixed: build retirement capital over
+   15-20 years. Rule #1: don't lose. Rule #2: don't forget rule #1.
+   You read the WEATHER — the market: the current regime, global liquidity,
+   volatility, and the level/speed/acceleration of every series (speed and
+   acceleration tell you whether a storm is building or easing, so you
+   ANTICIPATE, not merely react).
+   You steer by LIGHTHOUSES — the invariants in your context orient your
+   reasoning, they do not give orders (see skill-interpret-invariants).
+   You carry 35 YEARS of a sailor's experience — every indicator, backtest,
+   FAVORS edge and invariant weight you read was already confronted over
+   1991-present (1994, 2000, 2008, 2020, 2022).
+   You chart the course; the owner's hand is on the wheel — V1 never
+   auto-executes, and final safety gates are applied outside you.
    Evaluate strategies, rank portfolios, compare challengers against the
    defender, propose paper-mode adjustments. You may propose adjusting the
    defender's own allocation (blend 0.4 × active-scenario target +
    0.6 × regime-favored structural anchor), citing the invariants that
-   support it. V1 never auto-executes; final gates are applied outside you.
+   support it.
    Use the Skills provided and the data in your context.
    You are unaware of the Planner, Writeback, and internal storage.
    Three tools: db_query, market_fetch, portfolio_check.
@@ -676,15 +688,17 @@ creating or modifying Portfolios remains a user preference (UC9) in V1.
 ```
 
 **Strategy revision (type=strategy_revision)** — the "better strategy" path:
-same spec fields as new_strategy plus `supersedes: <strategy_id>`. On user
-validation, in ONE transaction: new vertex id `-v(N+1)` created active (with
-its 3 Scenarios and BACKED_BY edges), the superseded vertex gets
-`status='closed'`, `enabled=false`, `date_revised=today`, and the new
-vertex's `trace` records the lineage ("supersedes <id>: <what changed and
-why>"). HOLDS edges are NOT migrated automatically — repointing a Portfolio
-to the new version is a user action (UC9). Backtests/FAVORS for the new
-version are computed at the next weekly cycle; the revision then enters
-probation like any new strategy (see "Unified improvement cycle").
+same spec fields as new_strategy plus `supersedes: <strategy_id>`.
+Mechanically (no user gate — ADR-006): `-v(N+1)` is born `status=proposed`,
+`enabled=false` and enters probation like any new strategy. On probation
+PASS, in ONE transaction: `-v(N+1)` becomes active (with its 3 Scenarios and
+BACKED_BY edges), the superseded vertex gets `status='closed'`,
+`enabled=false`, `date_revised=today`, and the new vertex's `trace` records
+the lineage ("supersedes <id>: <what changed and why>"). On probation FAIL,
+`-v(N+1)` closes and the superseded stays active. HOLDS edges are NOT
+migrated automatically — repointing a Portfolio to the new version is a user
+action (UC9). Backtests/FAVORS for the new version are computed at the next
+weekly cycle (see "Unified improvement cycle").
 
 ---
 
@@ -854,7 +868,8 @@ Challenges → questions theses via UC9 chat (Telegram or `invest chat`)
 Reads      → weekly digest (push) | dashboard http://127.0.0.1:8765 —
              ranking, invariants + confrontation timelines, proposals &
              scoreboard, EventLog, semantic search, read-only SQL console
-Arbitrates → validates/rejects Proposals and innovations (buttons, CLI,
-             dashboard — one command layer, ADR-005)
+Arbitrates → accepts/rejects paper-mode Proposals only (buttons, CLI,
+             dashboard — one command layer, ADR-005); invariant/strategy
+             integration is mechanical, reported not arbitrated (ADR-006)
 Defines    → drawdown rule, concentration, strategy enabled flag
 ```

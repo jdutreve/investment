@@ -172,7 +172,7 @@ SQLite file, while open, is not an interface. Meanwhile the single-writer
 rule must survive any new write path.
 
 **Decision.** One command layer, three fronts:
-- `ops/commands.py` — every user action (accept/reject, yes/no, feed,
+- `ops/commands.py` — every user action (accept/reject proposals, feed,
   note, enable/disable, drawdown, manual runs) = validate →
   UserDecisionEvent → Writeback. The Telegram bot, the `invest` CLI and
   the dashboard are thin clients of this layer.

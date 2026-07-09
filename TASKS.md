@@ -377,7 +377,7 @@ CREATE TABLE IF NOT EXISTS user_profile              (...);
 CREATE TABLE IF NOT EXISTS invariant_author_config   (...);
 CREATE TABLE IF NOT EXISTS allowed_tickers           (...);
 CREATE TABLE IF NOT EXISTS system_thresholds         (...);
-CREATE TABLE IF NOT EXISTS detector_state             (...);  -- hysteresis state (1 row)
+CREATE TABLE IF NOT EXISTS detector_state             (...);  -- hysteresis + chain last-success marker (1 row)
 CREATE TABLE IF NOT EXISTS invariant_confrontations  (...);
 CREATE TABLE IF NOT EXISTS benchmark_valuation        (...);  -- cross_class/cross_strategy benchmark (step 10b)
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
@@ -474,7 +474,7 @@ class InvestmentDB:
     async def query_ts(self, type: str, where: str, limit: int) -> list[dict]: ...
 
     def close(self):
-        self._db.__exit__(None, None, None)
+        self._con.close()
 ```
 
 ---
@@ -1376,8 +1376,25 @@ Skill files (each: purpose, inputs, method, output contract):
   build proposed_allocation = current + 0.4×scenario_delta + 0.6×favors_delta,
   rounded to 2.5, renormalized to 100; cite ≥1 supporting invariant; explain
   the blend in reasoning. Otherwise return null.
-- `skill-interpret-invariants.md` — weight semantics (ceiling, floor, decay),
-  authority tiers, how to cite invariants in reasoning.
+- `skill-interpret-invariants.md` — LEADS with the mental model: invariants
+  are **lighthouses, not orders** — they ORIENT the Worker's reasoning, they
+  do not dictate the decision (the Worker steers, Writeback verifies). Then
+  the operating rules that make the image concrete:
+  • `weight_effective` = the beam's brightness. A refutation dims it; the
+    authority `floor_weight` keeps a Dalio/Marks beacon from ever going fully
+    dark — authority guards against forgetting, never against measured
+    refutation (a beacon ≥4 confrontations with market_score < 0.35 is
+    unusable, floor or not).
+  • `condition` ACTIVE = the beacon lights THIS stretch of water. Weight what
+    applies to today's market; do NOT over-rely on a bright-but-DORMANT
+    invariant — real and trustworthy, simply not on today's course (it waits
+    for its condition, it is not stale).
+  • authority tiers (dalio / marks / other / system) — a self-discovered
+    beacon (system, floor 0.05) is dimmer than a charted one until the sea
+    proves it.
+  • how to cite: when arguing a reallocation, cite invariants that are BOTH
+    bright (weight_effective) AND active (condition holds now) — the exact
+    pair Writeback's gate 6 enforces, so a citation that fails it is wasted.
 
 ### Task 5.3 — UC4 knowledge curator (LLM)
 
@@ -1399,8 +1416,8 @@ on the most active invariants).
 2. weekly UC3 event triage (`skill-triage-events.md` — major/routine
    verdict + enrichment draft, Task 3.2);
 3. weekly Monday 08:10 — sweep + re-curation of existing invariants;
-4. UC0 seed batch (step 6b, default) — whole corpus, interactive CLI
-   validation.
+4. UC0 seed batch (step 6b, default) — whole corpus, matured mechanically
+   over 35y (no user gate — ADR-006).
 
 Output:
 
@@ -1438,10 +1455,10 @@ class InvariantCandidate(BaseModel):
                               #   to the band
     suggested_backed_by: list[dict]  # [{strategy_id, strength}] — strength
                               #   proposed by the curator (default 0.5,
-                              #   Writeback clamps to [0,1]); on user
-                              #   validation Writeback creates the BACKED_BY
-                              #   edges (without this, new invariants would
-                              #   never enter the confrontation loop)
+                              #   Writeback clamps to [0,1]); Writeback creates
+                              #   the BACKED_BY edges at birth, mechanically
+                              #   (without this, new invariants would never
+                              #   enter the confrontation loop)
 
 class CurationResult(BaseModel):
     curations: list[dict]     # AUTONOMOUS: description/example enrichment,
@@ -1490,7 +1507,7 @@ candidates, merges near-duplicates and re-ranks by evidence strength.
 (the quality contract + dedup gate are the convergence pressure, never an
 arbitrary limit). Sanity alert: > `curation_sanity_ceiling` (40) candidates
 for one document → consolidation re-runs with stricter merging and the
-batch is FLAGGED in the validation UI (paraphrase inflation likely) —
+batch is FLAGGED in the digest / EventLog (paraphrase inflation likely) —
 candidates are never silently dropped.
 
 **Done when:** on the seeded DB, the Worker produces a complete WorkerResult
@@ -1634,16 +1651,17 @@ formatting happens HERE only (decimal fractions everywhere else).
 ### Task 6bis.2 — `telegram/bot.py` (UC9)
 
 python-telegram-bot application:
-- Candidate validation is BATCHED: one grouped message per curation run
-  (numbered list, each with a one-line rationale) — `/yes 1,3,5`, `/no 2`,
-  `/yes all`. No per-candidate message flood.
+- New invariants/strategies are REPORTED, never validated (ADR-006): one
+  grouped message per curation run lists what integrated / stayed candidate /
+  was rejected mechanically, each with a one-line rationale. No yes/no
+  buttons — the owner reads; the market and time decide.
 - All handlers dispatch to `ops/commands.py` (Phase 6ter) — the bot is a
   thin front of the same command layer as the CLI and dashboard; it
   exposes a SUBSET of the commands (full set: Task 6ter.2).
 - Callbacks: `[ACCEPT PAPER-TEST]/[REJECT]` → UserDecisionEvent →
   Proposal.user_response (+ paper_started on accept; on reject, prompt for
-  an optional one-line rejection_reason); `[YES]/[NO]` →
-  Invariant status integrated/rejected (+ validated_at).
+  an optional one-line rejection_reason). No invariant/strategy callback —
+  their integration is mechanical (ADR-006), reported not clicked.
 - Chat handler: Worker model + same 3 bridged tools + chat skill; decisions
   persist via Planner Post → Writeback; max ONE ad-hoc UC8 re-run per day
   (enforced by counting today's ad-hoc UC8 EventLog rows before running),
@@ -1676,7 +1694,7 @@ serves a localhost-only API + the dashboard. See DECISIONS.md ADR-005.
 - ALWAYS AVAILABLE, agent up or down: `feed` and `note` (FILESYSTEM drops
   into the inbox — not DB writes; the watcher's first scan drains them at
   next start) and `backup` (reads the source file).
-- AGENT REQUIRED: DB-mutating commands (accept/reject, yes/no,
+- AGENT REQUIRED: DB-mutating commands (accept/reject proposals,
   enable/disable, drawdown), manual runs, and `chat` (LLM keys live in the
   agent) — all through the localhost API → `ops/commands.py` → serialized
   asyncio write path. Agent stopped → explicit refusal message.
@@ -1708,8 +1726,8 @@ an executor (the API/watcher/bot stay responsive); progress is visible via
 
 **`ops/commands.py` invariants:**
 - **Idempotent across fronts**: acting on an already-decided item (a
-  candidate validated on the dashboard, then `/yes` on Telegram) returns
-  its current state — "already integrated via dashboard at 10:42" — and
+  proposal accepted on the dashboard, then `/accept` on Telegram) returns
+  its current state — "already accepted via dashboard at 10:42" — and
   appends NO second UserDecisionEvent.
 - **Run-lock (single-flight)**: {catchup, chain, uc8, replay} share one
   lock — a concurrent request is refused with "already running: <step>".
@@ -1738,7 +1756,6 @@ READ
 
 WRITE (via agent — every action = UserDecisionEvent → Writeback)
   invest accept <proposal_id> | reject <proposal_id> [--reason "..."]
-  invest yes 1,3,5 | no 2           pending invariant candidates
   invest feed <file|url>            deposit into inbox
   invest note "one-line event"      qualitative note (kind=note)
   invest disable|enable <strategy_id>
@@ -1758,7 +1775,7 @@ charts as server-generated inline SVG (NAV lines, weight timelines).
 Pages:
 
 1. **Overview** — regime (type, confidence, tags), defender + NAV
-   sparkline, scoreboard, pending validations, last chain run.
+   sparkline, scoreboard, pending proposals, last chain run.
 2. **Ranking & portfolios** — snapshot table (sortable), portfolio detail
    with NAV chart and allocation.
 3. **Invariants** — filterable table (tag/status/author/weight); detail =
@@ -1770,7 +1787,7 @@ Pages:
 6. **EventLog** — filterable audit tail (type, source_uc, date).
 7. **SQL console** — read-only textarea → table (the power-user escape
    hatch; same guard as /api/sql).
-8. **Actions panel** — candidate validation (YES/NO batched), strategy
+8. **Actions panel** — proposal accept/reject, strategy
    enable/disable, drawdown rule, feed/note upload, manual runs.
 
 **Done when:** with the agent running, `invest status` answers in <1s;
@@ -1851,13 +1868,13 @@ async def test_invariant_dedup_gate():       # candidate cosine ≥ 0.80 vs exis
                                              # vs pending candidate → merged
 async def test_curation_consolidation():     # 3-batch fixture doc → duplicates merged,
                                              # no silent drop; >ceiling → flagged batch
-async def test_new_strategy_innovation():    # validated new_strategy → Strategy(active)
+async def test_new_strategy_innovation():    # new_strategy probation PASS → Strategy(active)
                                              # + 3 Scenarios + BACKED_BY in one tx;
-                                             # rejected → status=closed, enabled=false;
-                                             # next weekly cycle produces its FAVORS
-async def test_strategy_revision():          # validated revision → -v(N+1) active AND
+                                             # probation FAIL → status=closed, enabled=false;
+                                             # next weekly cycle produces its FAVORS (no user gate)
+async def test_strategy_revision():          # revision probation PASS → -v(N+1) active AND
                                              # superseded closed + date_revised in one
-                                             # tx; HOLDS untouched; probation starts
+                                             # tx; HOLDS untouched; mechanical, no user gate
 async def test_proposal_outcome():           # Proposal aged 12w → outcome.verdict set,
                                              # confrontation rows source='proposal' for
                                              # cited invariants; younger → still pending
@@ -2183,4 +2200,5 @@ agent-discovery invariants are absent from the run.
     Portfolio → Strategy with `primary BOOLEAN`; no `strategy_id` scalar.
 22. **Ids** — ULIDs for generated ids (EventLog, confrontations, proposals).
 
-**Total estimated effort:** ~12.5 days for MVP (incl. Phase 9 shadow replay).
+**Total estimated effort:** ~15 days for MVP (incl. Phase 9 shadow replay) —
+matches the MILESTONES.md per-increment sum.

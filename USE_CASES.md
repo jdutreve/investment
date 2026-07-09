@@ -104,9 +104,12 @@ UC8 reads EventLog weekly to assemble its inputs.
     Tags reserved on instances: 'deflation', 'liquidity-tightening',
                    'liquidity-easing', 'market-stress'
 
-4.  Invariant vertices (status='integrated', seed minimum, hand-written —
-    guaranteed baseline even when step 6b is skipped;
-    created BEFORE the corpus steps so SUPPORTS/BACKED_BY targets exist):
+4.  Invariant vertices (status='proposed' at creation, seed minimum,
+    hand-written — guaranteed baseline even when step 6b is skipped;
+    created BEFORE the corpus steps so SUPPORTS/BACKED_BY targets exist).
+    They are matured over 35y at step 11b and become 'integrated' ONLY if
+    time-validated (N_min/θ, not refuted) — belief does not grant
+    integration, history does (ADR-006):
     - inflation-persistence-tips     (dalio, weight 0.85, floor 0.40)
     - falling-growth-duration         (dalio, weight 0.80, floor 0.40)
     - rising-growth-equities          (dalio, weight 0.80, floor 0.40)
@@ -553,9 +556,10 @@ Examples:
   "How has the defender ranked over the last 8 weeks?"
 ```
 
-Proposal buttons ([ACCEPT PAPER-TEST]/[REJECT], [YES]/[NO] for innovations)
-are handled by the same bot: callbacks set `Proposal.user_response` /
-`Invariant.status` via Writeback, with a UserDecisionEvent appended first.
+Proposal buttons ([ACCEPT PAPER-TEST]/[REJECT]) are handled by the same bot:
+callbacks set `Proposal.user_response` via Writeback, with a
+UserDecisionEvent appended first. Innovations (new invariants/strategies)
+have NO button — they integrate mechanically and are only reported (ADR-006).
 On [REJECT] the bot prompts for an optional one-line reason →
 `Proposal.rejection_reason` (fed back into the Worker's context and the
 switch cooldown rule). Pending proposals auto-expire after
