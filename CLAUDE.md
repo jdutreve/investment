@@ -51,7 +51,7 @@ PLANNER (Qwen3-8B, OpenRouter, thinking mode)
   Call 1b       : LLM receives baseline + zoom results, returns PlannerContext
   Call 2        : async, post-Worker, knowledge extraction (guardrail)
 
-WORKER (Sonnet 4.6, Anthropic API)
+WORKER (Sonnet 5, Anthropic API)
   System prompt : investment expert Phase 1 accumulation
   Markdown Skills : strategy evaluation, ranking, indicator interpretation,
                     defender comparison
@@ -130,7 +130,7 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | DB path         | `~/data/investment/investment.db`                             |
 | LLM Framework   | PydanticAI V1 (model-agnostic)                                |
 | Planner LLM     | `qwen/qwen3-8b` via OpenRouter, thinking mode                 |
-| Worker LLM      | `claude-sonnet-4-6` via Anthropic                             |
+| Worker LLM      | `claude-sonnet-5` via Anthropic                               |
 | Market data     | Yahoo Finance + FRED + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY    |
 | Backfill        | MACRO/regime 35y (→1991, ALFRED first-release vintages,       |
 |                 | publication-dated — ADR-003). TRADABLE/benchmark ~1991 too    |
@@ -154,6 +154,134 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
 | Service         | launchd LaunchAgent `com.jp.investment-agent`; weekly chain   |
 |                 | DUE-ON-START at launch/wake (laptop sleep — TASKS Task 0.7)   |
+
+---
+
+## Python & Local Dashboard Dev Standards
+
+State-of-the-art but scoped to this project's stack — no framework not
+already listed above.
+
+### Python (3.13, `uv`-managed)
+- **Zen of Python (PEP 20) governs judgment calls**: explicit over
+  implicit (typed signatures, named `pydantic` fields over positional
+  dicts), simple over clever (no metaclass/decorator magic to save a few
+  lines), flat over nested (early `return`/`raise` over deep `if` nesting),
+  readability counts, and "there should be one obvious way to do it" — one
+  helper per concern instead of parallel ad-hoc variants (e.g. a single
+  `db.transaction()` pattern everywhere, not several). When two approaches
+  are otherwise equal, pick the one a reader understands without tracing
+  execution. `import this` is the tiebreaker, not a slogan.
+- **Tooling**: `uv` for env/deps/lockfile (`uv.lock` committed, plus a
+  committed `.python-version` pinned to `3.13` so `uv` resolves it without
+  ambiguity). `ruff` for lint + format (replaces black/isort/flake8) —
+  rule set explicitly chosen, not the bare default: at minimum
+  `E,F,I,UP,B,SIM,RUF` (`UP`=pyupgrade enforces 3.13 syntax, `B`=bugbear
+  catches common traps, `SIM`=simplify, `I`=import sorting). `ruff check`
+  and `ruff format` in CI/pre-commit. `mypy --strict` on
+  `src/investment/` (loosen only with an inline `# type: ignore[code]`
+  and a reason).
+- **Typing**: full type hints on every function signature (PEP 604 `X | Y`,
+  no `Optional`/`Union` imports). `pydantic` models (already the framework
+  for PlannerContext/WorkerResult/etc.) at every I/O boundary — DB rows,
+  LLM outputs, HTTP payloads — never bare `dict`. Value objects that are
+  loaded once and read many times (thresholds, PlannerContext,
+  WorkerResult) are frozen (`model_config = ConfigDict(frozen=True)`) —
+  makes accidental mutation a type error, not a debugging session.
+- **Time**: all persisted timestamps are UTC (`datetime.now(UTC)`);
+  Europe/Zurich conversion happens only at the presentation edge (digest
+  text, dashboard, CLI output) — never store or compare local time,
+  since the cron/DUE-ON-START logic already reasons in UTC internally.
+- **Numeric precision**: indicators (Sharpe/Sortino/Calmar, NAV, weights)
+  are `float` by design — this is scientific computation over
+  numpy/pandas, not ledger accounting; don't introduce `Decimal` by a
+  "money = Decimal" reflex, it breaks vectorized calculation and buys
+  nothing here.
+- **Async discipline**: the whole process is single-writer asyncio
+  (ADR-004) — never block the event loop; CPU-bound work (backtests,
+  embeddings, replay) goes through `loop.run_in_executor`, matching the
+  "long operations are async jobs" rule already used for `/api/cmd`.
+  No `time.sleep` in async code; no fire-and-forget tasks without a
+  stored handle (leaks are invisible in a long-lived process). External
+  calls (Anthropic, OpenRouter, Yahoo, FRED) go through a bounded
+  `asyncio.Semaphore` per provider and an explicit per-call timeout with
+  exponential-backoff retry — no unbounded fan-out, no indefinite hang.
+- **Structure**: `src/` layout (already in the tree), one module = one
+  responsibility, dependency injection over globals (DB handle injected
+  from `main.py`, per "DB opened once ... injected everywhere").
+- **Idempotency**: every mechanical job (catch-up, chain steps, UC8) must
+  be safe to run twice with the same inputs and produce no duplicate
+  effect — not just a consequence of DUE-ON-START/run-lock, but a design
+  constraint on how each job is written (UPSERT over INSERT, check-before-
+  append on EventLog-adjacent writes).
+- **Startup validation**: `pydantic-settings` must raise at import time if
+  a required key is missing (Anthropic/OpenRouter/Telegram) — fail before
+  the scheduler starts, not mid-way through the Monday 09:00 chain.
+- **Graceful shutdown**: handle `SIGTERM`/`SIGINT` (launchd stop/restart)
+  by letting the in-flight transaction finish and checkpointing the WAL
+  before closing the SQLite connection — never kill the process mid-write.
+- **Schema migrations**: V1 bootstrap uses `CREATE TABLE IF NOT EXISTS`
+  only; the first schema change after go-live needs a numbered, idempotent
+  migration convention (e.g. `migrations/0001_*.sql` + a `schema_version`
+  marker) — decide the convention before the first migration is needed,
+  not while writing it under pressure.
+- **Errors**: no bare `except:`; catch the narrowest exception; the
+  Monday chain's "abort + Telegram alert on failure" rule means unhandled
+  exceptions must surface, not be swallowed.
+- **Logging**: stdlib `logging`, structured (module logger per file,
+  `logger = logging.getLogger(__name__)`), never `print` outside `invest`
+  CLI output. Every log line inside a scheduled run (catch-up, chain,
+  UC8) carries a `run_id`/`job_id` so interleaved output from concurrent
+  asyncio tasks (watcher, scheduler, API) stays traceable.
+- **Tests**: `pytest` + `pytest-asyncio` (already a dep, Task 0.1). Unit
+  tests colocated under `tests/`, mirroring `src/investment/`; one
+  integration test per mechanical job (catch-up, ranking, outcomes) with
+  a throwaway SQLite file, not mocks — this codebase's correctness lives
+  in real calculations (Sharpe/Sortino/Calmar) and real schema
+  constraints (`trace` NOT NULL, FK edges), which mocks would hide.
+  Numeric invariants that must hold across arbitrary inputs (e.g.
+  `weight_effective` always within `[floor, ...]`) get a property-based
+  test (`hypothesis`) in addition to fixed golden-value regression tests
+  — golden values alone won't catch a formula that's wrong only at the
+  edges.
+- **Config/secrets**: `pydantic-settings` reading `.env` (never committed;
+  `.env.example` documents required keys — Anthropic/OpenRouter API keys,
+  Telegram token). No secret ever logged or included in an EventLog
+  payload.
+- **Commits/CI**: `pre-commit` running `ruff check --fix`, `ruff format`,
+  `mypy`, and a secret scanner (`detect-secrets` or `gitleaks`) — a
+  filet against accidentally committing a real `.env` key even in a solo
+  private repo. A GitHub Action (or local `uv run pytest` pre-push hook,
+  given solo dev / private repo) blocking on lint + type + test failures.
+
+### Local web dashboard (`ops/dashboard/`, aiohttp, no build step)
+Per Task 6ter.3: server-rendered HTML + vanilla JS `fetch`, no bundler,
+no CDN, no SPA framework — the standards below fit that constraint, not
+a generic frontend stack. Single local user, `127.0.0.1`-only process:
+no auth/ACL/authorization layer beyond what Task 6ter.1 already defines
+(`X-Ops-Token`) — not a dev standard to layer further.
+- **Escape rendered text**: HTML interpolation auto-escaped (Jinja2
+  autoescape or manual `html.escape`) — the SQL console and knowledge
+  browser render user/LLM-sourced text, which breaks page layout if
+  unescaped even without an attacker in the picture.
+- **No inline event handlers**: vanilla JS attaches listeners via
+  `addEventListener` from a `<script>` block, not `onclick="..."` in
+  markup — cleaner separation of markup and behavior.
+- **Progressive, not reactive**: server renders the full page on load;
+  JS only does polling refresh (status, job progress) and POST actions
+  (accept/reject/run) — no client-side state management, no virtual DOM.
+  Matches "no new framework" and keeps the dashboard debuggable with
+  view-source.
+- **Accessibility**: semantic HTML (`<table>` for the ranking/invariants
+  grids, `<button>` not `<div onclick>`), visible focus states, labels on
+  every form control (drawdown %, SQL textarea) — cheap to get right at
+  server-render time, expensive to retrofit.
+- **SVG charts**: generated server-side (Task 6ter.3 NAV/weight charts) —
+  deterministic, testable with plain assertions on the SVG string, no
+  client charting library dependency.
+- **Errors surfaced, not swallowed**: a failed `/api/cmd` call renders
+  the actual message (e.g. "already running: catchup") in the UI, per the
+  idempotency/run-lock rules in Task 6ter.1 — never a silent no-op.
 
 ---
 

@@ -41,7 +41,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
 | Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
-| Worker          | Sonnet 4.6 via Anthropic                                      |
+| Worker          | Sonnet 5 via Anthropic                                        |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
 | Veille          | UC3 Event Watch (pinned Fed/ECB/SNB press) + user deposits    |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
@@ -70,13 +70,13 @@ of SCP, and **laptop sleep** — scheduled jobs must survive a closed lid
 
 ```bash
 # Homebrew assumed present
-brew install python@3.12 uv git gh tmux
+brew install python@3.13 uv git gh tmux
 
 gh auth login
 git clone https://github.com/jdutreve/investment ~/projets/investment
 ```
 
-**Done when:** python3.12, uv, gh OK.
+**Done when:** python3.13, uv, gh OK.
 
 ---
 
@@ -99,7 +99,7 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 PLANNER_MODEL=qwen/qwen3-8b
 PLANNER_THINKING_BUDGET_PRE=512
 PLANNER_THINKING_BUDGET_POST=1024
-WORKER_MODEL=claude-sonnet-4-6
+WORKER_MODEL=claude-sonnet-5
 EMBEDDING_MODEL=all-MiniLM-L6-v2   # sentence-transformers, in-process, 384 dims
 
 # SQLite ($HOME expanded by config.py)

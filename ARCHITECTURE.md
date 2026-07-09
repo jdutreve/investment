@@ -40,7 +40,7 @@ Filesystem
 
 ## Planner / Worker Asymmetry
 
-| | Planner (Qwen3-8B, OpenRouter) | Worker (Sonnet 4.6, Anthropic) |
+| | Planner (Qwen3-8B, OpenRouter) | Worker (Sonnet 5, Anthropic) |
 |--|--------------------------------|------------------------------|
 | DB access | Direct Python asyncio | tool_call via bridged functions |
 | `_db` | direct, in-process | never — closure only |
