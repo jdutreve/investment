@@ -14,7 +14,7 @@ itself, and improves — application is always the owner's manual decision.
 ## How it decides
 
 ```
-mechanical decides · LLM proposes · the user arbitrates · reality judges
+mechanical decides · LLM proposes · reality judges · the owner executes
 ```
 
 - **Mechanical core (no LLM):** market data (FRED first-release vintages,
