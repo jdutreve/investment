@@ -202,7 +202,7 @@ command layer idempotent across fronts; single-flight run-lock over
 **Status:** accepted.
 **Date:** 2026-07 (supersedes the "Innovation requires user validation" and
 "Never integrated without `user_validated=True`" rules stated across
-CLAUDE.md / USE_CASES / TASKS).
+../CLAUDE.md / USE_CASES / TASKS).
 
 **Context.** The original design gated every new invariant, strategy and
 metric behind an explicit user validation (`status=proposed` → Telegram/CLI
@@ -237,7 +237,7 @@ places real orders**, at will, on reading the digest. That manual-execution
 step is the human boundary. V2 = auto-execution, which would supersede this.
 
 **Consequences.**
-- CLAUDE.md "Curation vs Innovation" collapses: the curation/innovation
+- ../CLAUDE.md "Curation vs Innovation" collapses: the curation/innovation
   distinction no longer implies a user gate — both are mechanical; only the
   author-tier floor and the dedup gate differ.
 - The command layer (ADR-005) stays, but its user actions are **preferences

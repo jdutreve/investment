@@ -50,19 +50,19 @@ semantic search).
 | File | Role |
 |---|---|
 | `CLAUDE.md` | Entry point — rules, schedules, stack (read first) |
-| `REVISION_NOTES.md` | V1 scope, core concepts, ranking rule |
-| `ARCHITECTURE.md` | Regime algorithm, Planner/Worker cycle, improvement cycle |
-| `DATA_MODELS.md` | Schema (13 entities, relations, TS), formulas, weights |
-| `USE_CASES.md` | UC0–UC9, gates, Event Watch |
-| `TASKS.md` | Full build spec, phase by phase |
-| `MILESTONES.md` | **Execution order** — 13 owner-verifiable increments, 4 STOP points |
-| `DECISIONS.md` | ADRs (SQLite, local Mac, vintage discipline, ops layer) |
-| `IMPROVEMENTS.md` | Deferred features (I-N), triggers to revisit |
-| `EXAMPLE.md` | One full cycle traced end-to-end (stagflation 2026) |
+| `docs/REVISION_NOTES.md` | V1 scope, core concepts, ranking rule |
+| `docs/ARCHITECTURE.md` | Regime algorithm, Planner/Worker cycle, improvement cycle |
+| `docs/DATA_MODELS.md` | Schema (13 entities, relations, TS), formulas, weights |
+| `docs/USE_CASES.md` | UC0–UC9, gates, Event Watch |
+| `docs/TASKS.md` | Full build spec, phase by phase |
+| `docs/MILESTONES.md` | **Execution order** — 13 owner-verifiable increments, 4 STOP points |
+| `docs/DECISIONS.md` | ADRs (SQLite, local Mac, vintage discipline, ops layer) |
+| `docs/IMPROVEMENTS.md` | Deferred features (I-N), triggers to revisit |
+| `docs/EXAMPLE.md` | One full cycle traced end-to-end (stagflation 2026) |
 
 ## Getting started
 
-Follow `MILESTONES.md`: M0 (smoke test) → M6 delivers the whole mechanical
+Follow `docs/MILESTONES.md`: M0 (smoke test) → M6 delivers the whole mechanical
 core **and the 35y replay evidence with zero LLM spend**; M7+ adds the
 knowledge factory and the weekly Worker cycle. Each milestone ends with a
 *Definition of Verified* — commands the owner runs and facts the owner can

@@ -205,7 +205,7 @@ questions).
 
 ---
 
-## I-9 — Auto-veille channels (RSS, YouTube, X, podcasts)
+## I-9 — Auto-watch channels (RSS, YouTube, X, podcasts)
 
 **Why deferred (general RSS moved out of V1, 2026-07):** curation of
 CHOSEN sources is the essence; a feed vacuum produces news noise, not

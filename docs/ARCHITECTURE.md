@@ -291,7 +291,7 @@ FROM PROPOSALS (source='proposal') — closes the loop on emitted proposals:
     verdict='lost' → infirmation, severity=1.0
 
 Each confrontation: append invariant_confrontations doc → update counts →
-update_invariant_weights() (weight_effective formula in CLAUDE.md) →
+update_invariant_weights() (weight_effective formula in ../CLAUDE.md) →
 Invariant.updated_at = today (drives recency_factor).
 Severity is recorded but unused in market_score in V1 (IMPROVEMENTS I-24).
 ```
@@ -603,7 +603,7 @@ Event-driven (no nightly cron — the Mac sleeps, ADR-002)
   (market fetch, regime detection, NAV, scenario probabilities: all in
    the Monday chain — decision cadence is weekly)
 
-Weekly (Monday — canonical timeline, identical in CLAUDE.md / USE_CASES.md)
+Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
   (UC2 absorbed — catch-up + snapshot.market_context)
   08:05  UC3 event watch → Document(kind=event) via ingester
   08:10  UC4 knowledge curation → KnowledgeEvent

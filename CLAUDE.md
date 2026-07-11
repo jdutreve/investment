@@ -1,11 +1,11 @@
 # CLAUDE.md — Investment Agent (MVP Core)
 
-See REVISION_NOTES.md for V1 scope, core concepts, ranking rule, and stagflation/deflation tagging.
+See docs/REVISION_NOTES.md for V1 scope, core concepts, ranking rule, and stagflation/deflation tagging.
 
 Read this file before any action. Implement in the order defined in
-MILESTONES.md (incremental, owner-verifiable slices of TASKS.md). Also read ARCHITECTURE.md and DATA_MODELS.md
-before writing any code. See IMPROVEMENTS.md for deferred features and when
-to add them, and DECISIONS.md for the ADRs (engine spike gate, local macOS
+docs/MILESTONES.md (incremental, owner-verifiable slices of docs/TASKS.md). Also read docs/ARCHITECTURE.md and docs/DATA_MODELS.md
+before writing any code. See docs/IMPROVEMENTS.md for deferred features and when
+to add them, and docs/DECISIONS.md for the ADRs (engine spike gate, local macOS
 target, vintage discipline) — never contradict an accepted ADR silently.
 
 ---
@@ -142,16 +142,16 @@ MECHANICAL JOBS (APScheduler, pure Python, no LLM)
 | Currency        | USD for all indicators; CHFUSD=X for display only             |
 | Ingestion       | Telegram bot + local drop → inbox/ (watcher, ~5 min)          |
 | Embeddings      | sentence-transformers in-process, 384 dims (no daemon)        |
-| Veille          | UC3 Event Watch: pinned official sources (Fed/ECB/SNB press,  |
+| Event Watch     | UC3 Event Watch: pinned official sources (Fed/ECB/SNB press,  |
 |                 | LLM triage, bounded-fetch enrichment) + user deposits/notes.  |
 |                 | Quantitative shocks are mechanical (VIX/liquidity tags).      |
-|                 | General auto-veille deferred — I-9/I-26                       |
+|                 | General auto-watch deferred — I-9/I-26                        |
 | Notifications   | Telegram weekly digest (Mon 09:30) + Proposal alerts          |
 | Local ops       | `invest` CLI + dashboard http://127.0.0.1:8765 (aiohttp) —    |
 |                 | reads direct (SQLite WAL), writes via the agent's command     |
 |                 | layer (ADR-005)                                               |
 | Process         | APScheduler, single Python process                            |
-| Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see DECISIONS.md  |
+| Host            | Local MacBook Pro M5 (macOS ARM64), 24 GB — see docs/DECISIONS.md |
 | Service         | launchd LaunchAgent `com.jp.investment-agent`; weekly chain   |
 |                 | DUE-ON-START at launch/wake (laptop sleep — TASKS Task 0.7)   |
 
@@ -382,7 +382,7 @@ jobs) append no EventLog row — they create no vertex/edge.
   - `portfolio_check` : ID format validation, limited exposed fields
 - `WorkerResult` must include `innovations_proposed: list[ImprovementProposal]`
   (empty list if none) and `reallocation_proposed:
-  Optional[ReallocationProposal]` (see DATA_MODELS.md).
+  Optional[ReallocationProposal]` (see docs/DATA_MODELS.md).
 
 ### Unified improvement cycle — proposal → measure → adoption
 - Applies to ALL improvable resources (Proposal, Invariant, Strategy,
@@ -410,7 +410,7 @@ jobs) append no EventLog row — they create no vertex/edge.
   (`status=integrated`, `weight_effective ≥ proposal_invariant_weight_min`,
   not measurably refuted — ≥4 confrontations with market_score < 0.35
   disqualifies, floor or not — AND `condition` ACTIVE now: a dormant
-  invariant does not justify acting on today's market). See USE_CASES.md UC8.
+  invariant does not justify acting on today's market). See docs/USE_CASES.md UC8.
 
 ### Mechanical calculations
 - Sharpe/Sortino/Calmar: pure Python (numpy/pandas), no LLM.
@@ -422,7 +422,7 @@ jobs) append no EventLog row — they create no vertex/edge.
   Portfolio/Backtest/FAVORS.
 - CHFUSD=X applied only for user-facing display.
 - `portfolio_weekly_snapshot` updated after each weekly valuation.
-- All formulas pinned in DATA_MODELS.md "Calculation conventions"
+- All formulas pinned in docs/DATA_MODELS.md "Calculation conventions"
   (annualization 252d, Sortino MAR = rf, NAV monthly rebalancing, cash
   accruing at ^IRX). Two implementations must produce the same numbers.
 
@@ -459,7 +459,7 @@ jobs) append no EventLog row — they create no vertex/edge.
 
 ---
 
-## Entities (conceptual graph: 13 entities, 10 relations — physically 5 M:N tables + 5 FK columns — 3 time-series; V2 adds Adaptation + MODIFIES; see DATA_MODELS.md mapping)
+## Entities (conceptual graph: 13 entities, 10 relations — physically 5 M:N tables + 5 FK columns — 3 time-series; V2 adds Adaptation + MODIFIES; see docs/DATA_MODELS.md mapping)
 
 ```
 VERTEX : Framework, RegimeType, Regime, Invariant, Strategy, Scenario,
@@ -490,7 +490,7 @@ DOCUMENT    : user_profile, invariant_author_config, allowed_tickers,
                duplicated in docs)
 ```
 
-See DATA_MODELS.md for the complete schema and properties.
+See docs/DATA_MODELS.md for the complete schema and properties.
 
 ---
 

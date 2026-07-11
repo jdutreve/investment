@@ -1,4 +1,8 @@
 .DS_Store
 .claude/settings.local.json
 .env
+.venv
+.ruff_cache
+__pycache__
+*.egg-info
 

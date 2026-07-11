@@ -256,7 +256,7 @@ not root scripts — no path ambiguity.
 │       │   │                       include_worker=False = mechanical/go-live gate,
 │       │   │                       True = agentic/M8b best-case screen
 │       │   └── learning.py       ← V2 only (stub)
-│       ├── veille/
+│       ├── watch/
 │       │   └── event_watch.py    ← UC3 (pinned sources + bounded fetch)
 │       ├── ops/
 │       │   ├── api.py            ← aiohttp localhost API (127.0.0.1:8765)
@@ -1165,7 +1165,7 @@ then invoke the curator if ≥1 new Document was created. First scan
 at app start drains deposits made while the Mac was off. Failures move the
 file to `inbox/failed/` + ErrorEvent (never crash the loop).
 
-### Task 3.2 — `veille/event_watch.py` (UC3 Event Watch)
+### Task 3.2 — `watch/event_watch.py` (UC3 Event Watch)
 
 NOT a feed vacuum (general RSS stays out — I-9/I-26): a narrow weekly watch
 over PINNED official sources — a static `EVENT_SOURCES` constant in
@@ -1474,7 +1474,7 @@ class CurationResult(BaseModel):
 ```
 
 Persisted via Writeback (KnowledgeEvent → EventLog first). Curation vs
-Innovation boundary and author-tier rule per CLAUDE.md. The same curator
+Innovation boundary and author-tier rule per ../CLAUDE.md. The same curator
 serves the four callers above — for all of them the candidates mature
 MECHANICALLY over 35y (no user validation — ADR-006); the UC0 seed pass runs
 the same way (default; skip with `--no-curate` — see USE_CASES.md step 6b).

@@ -27,7 +27,7 @@ Event-driven — no nightly cron (the Mac sleeps at night)
 Weekly (Monday 08:00 when running + DUE-ON-START at launch/wake — one
 sequential chain: each step starts only after the previous one succeeds;
 on failure the chain aborts, emits an ErrorEvent and sends a Telegram
-alert. Times in CLAUDE.md are indicative.)
+alert. Times in ../CLAUDE.md are indicative.)
   UC1  Market Feed (CATCH-UP) → MarketData TS for all days since last
                               run + regime detector step (new prints) + NAV
                               catch-up + expiry sweep (also runs on-demand
@@ -323,7 +323,7 @@ the constant — complexify to runtime config only if a real need appears):
 
 The user note channel (one-line Telegram messages → `kind=note`) remains
 as a complement. Quantitative shocks stay mechanical (VIX/liquidity tags).
-General auto-veille (broad RSS, YouTube/X) stays deferred — I-9/I-26.
+General auto-watch (broad RSS, YouTube/X) stays deferred — I-9/I-26.
 **Output:** inbox deposits → Document(kind=event) (audited by
 IngestionEvent).
 **User action:** None, except answering `needs-user-input` flags.
