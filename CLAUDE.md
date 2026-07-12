@@ -10,6 +10,66 @@ target, vintage discipline) — never contradict an accepted ADR silently.
 
 ---
 
+## Working Principles
+
+These govern HOW to work on this repo, on top of WHAT to build (the rest
+of this file and docs/).
+
+- **Ask when in doubt.** If a requirement, scope boundary, or design
+  choice isn't settled by an accepted ADR or spec, stop and ask the
+  owner instead of guessing. A silent wrong guess on a 13-entity,
+  10-relation, multi-LLM-stage system is expensive to unwind later —
+  cheaper to ask up front.
+- **Simple by default, no over-engineering.** Ship the smallest
+  implementation that satisfies the current milestone's Definition of
+  Verified. No speculative abstractions, no config knobs for
+  hypothetical future needs, no framework beyond what's already listed
+  in Stack. Three similar lines beat a premature helper.
+- **Comment intent and execution context, not mechanics.** This is a
+  solo project the owner must be able to audit alone, months later:
+  comment the WHY — which ADR/Task/use-case a piece of logic serves,
+  what time slot it runs in the Monday chain, what edge case or
+  constraint it protects against — not what the code already says by
+  being read.
+- **Readable and understandable by a human, first.** When two
+  implementations are otherwise equivalent, pick the one the owner can
+  verify by eye without tracing execution (PEP 20 already says this for
+  Python syntax in the Dev Standards below — this is the same principle
+  applied to the whole codebase, not just style).
+- **Reference the specs from the code.** Docstrings/comments should
+  point back to the source of truth (e.g. `# ADR-004`, `# see
+  ARCHITECTURE.md "Invariant confrontation rule"`, `# Task 1.1`, `#
+  UC8`) so a reader can jump from a line of code to the paragraph that
+  mandated it, and spec drift is visible at review time.
+- **No dead code, no speculative stubs.** A milestone slice is either
+  fully done or not present — no `TODO: implement later`, no code
+  commented out "just in case". If something is deferred, it belongs in
+  docs/IMPROVEMENTS.md (with its trigger), not as an inert stub in `src/`.
+- **Prefer solid and proven over clever.** Within the already-approved
+  dependencies (Stack), pick the standard, well-trodden way to use a
+  library over an exotic or bleeding-edge pattern, even when the clever
+  version is shorter. Boring code is what a solo owner can still debug
+  a year from now.
+- **Delete, don't disable.** Obsolete code (a throwaway spike, a
+  milestone superseded by a later one) is removed outright, never left
+  commented out or gated behind a flag — the repo should always reflect
+  what is actually true, not what used to be true.
+- **State assumptions explicitly when the spec is silent.** This should
+  be rare — most calls are covered by "ask when in doubt" — but if a
+  decision must be made to keep moving and no ADR/spec settles it, write
+  the assumption down (a comment plus a line in the commit message)
+  instead of picking silently.
+- **Confirm before anything hard to reverse or system-wide.** Installing
+  dependencies, editing dotfiles or launchd, deleting data — describe
+  the blast radius and wait for a go-ahead, even when the owner has
+  approved similar actions before in this session.
+- **Traceability of non-obvious choices.** Any judgment call worth
+  discussing gets a one-line "why" in the commit message, not only in
+  the chat — the commit history has to carry the reasoning on its own,
+  independent of any particular conversation.
+
+---
+
 ## Objective
 
 Build capital for retirement (Phase 1: accumulation only).
@@ -502,7 +562,7 @@ git commit -m "feat: Phase N — description"
 git push origin main
 ```
 
-Private repo, solo dev — no PR. `gh` CLI sufficient.
+Public repo, solo dev — no PR. `gh` CLI sufficient.
 
 ---
 
