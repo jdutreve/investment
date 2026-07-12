@@ -150,7 +150,10 @@ class InvestmentDB:
         return await self._call(_run)
 
     async def upsert_vertex(self, type: str, id: str, props: dict[str, Any]) -> str:
-        """Idempotent INSERT-or-REPLACE by id — UC0 seed re-runs safely."""
+        """Idempotent by id — UC0 seed re-runs safely. Uses ON CONFLICT DO
+        UPDATE rather than INSERT OR REPLACE (which deletes-then-reinserts
+        the row) so `created_at` — set once on the first insert — survives
+        every later re-upsert instead of being bumped to "now" each time."""
         if type not in TRACE_EXEMPT and not props.get("trace"):
             raise ValueError(f"trace mandatory for {type}")
         self._require_valid_table(type)
@@ -160,7 +163,16 @@ class InvestmentDB:
             row["id"] = id
             cols = list(row.keys())
             placeholders = ", ".join(f":{c}" for c in cols)
-            stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
+            update_cols = [c for c in cols if c not in ("id", "created_at")]
+            conflict_action = (
+                f"DO UPDATE SET {', '.join(f'{c} = excluded.{c}' for c in update_cols)}"
+                if update_cols
+                else "DO NOTHING"
+            )
+            stmt = (
+                f"INSERT INTO {type} ({', '.join(cols)}) VALUES ({placeholders}) "
+                f"ON CONFLICT(id) {conflict_action}"
+            )
             self._con.execute(stmt, row)
             return id
 

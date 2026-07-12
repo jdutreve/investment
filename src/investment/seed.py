@@ -173,7 +173,9 @@ async def _seed_portfolios(db: InvestmentDB) -> int:
     for portfolio_id, strategy_id, is_primary in HOLDS_EDGES:
         await db.create_edge(
             "holds", portfolio_id, strategy_id,
-            {"is_primary": is_primary, "weight": 100.0, "since": today},
+            # 0-1 fraction, not a percent — matches every other "weight"-like
+            # field in this schema (Invariant.weight_*, BACKED_BY.strength).
+            {"is_primary": is_primary, "weight": 1.0, "since": today},
         )
     for portfolio_id, regime_type_id, rationale in DESIGNED_FOR_EDGES:
         await db.create_edge(
