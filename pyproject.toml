@@ -1,7 +1,7 @@
 [project]
 name = "investment"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local investment agent — regime-aware portfolio ranking, digest, and paper-mode proposals (V1)"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -27,7 +27,7 @@ dependencies = [
 ]
 
 [project.scripts]
-investment = "investment:main"
+invest = "investment.ops.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.28,<0.12.0"]
