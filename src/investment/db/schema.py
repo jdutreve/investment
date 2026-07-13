@@ -6,9 +6,9 @@ tables. Types: STRING->TEXT, FLOAT->REAL, BOOLEAN->BOOLEAN (SQLite: NUMERIC
 affinity, stored 0/1), MAP/STRING[]->TEXT (JSON1), DATE/DATETIME->TEXT
 (ISO-8601), FLOAT[384]->BLOB (float32, see docs/TASKS.md Phase 1bis).
 
-`CREATE TABLE IF NOT EXISTS` only for V1 bootstrap (docs/CLAUDE.md
-"Schema migrations") — a numbered migration convention starts at the first
-post-go-live schema change, not before.
+`CREATE TABLE IF NOT EXISTS` only for V1 bootstrap (CLAUDE.md "Dev
+standards" schema rule) — a numbered migration convention starts at the
+first post-go-live schema change, not before.
 """
 
 SCHEMA_SQL = """

@@ -2202,3 +2202,46 @@ agent-discovery invariants are absent from the run.
 
 **Total estimated effort:** ~15 days for MVP (incl. Phase 9 shadow replay) —
 matches the MILESTONES.md per-increment sum.
+
+---
+
+## Definition of Done (V1) — moved from CLAUDE.md
+
+1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
+   other 5 relations are FK columns), 3 TS tables and 10 document tables
+   (incl. `benchmark_valuation`, the cross_class/cross_strategy benchmark);
+   historical Regime instances from the 35y backfill; seed data; invariants
+   MATURED over 35y and scenario probabilities WARM-STARTED over 35y (go-live
+   with matured knowledge, not cold); a clean invariant-contradiction check;
+   and the first `portfolio_weekly_snapshot` row.
+2. `update_ratios()` (Monday 08:00 catch-up) populates PortfolioNAV TS for
+   every trading day (USD).
+3. `detect_regime()` creates/updates a Regime vertex with `is_current=true`
+   using level/speed/acceleration, with hysteresis and a computed confidence.
+4. After Dalio corpus ingestion + the default seed curation pass (skip
+   with `--no-curate`): 10+ Passage vertices, and extracted Invariants
+   carrying `author='dalio'` (floor 0.40), each with a machine-readable
+   `condition`+`effect`, matured over 35y (market_score set), linked by
+   SUPPORTS edges — no user validation (ADR-006).
+5. Full weekly cycle: MarketData/EventLog ingestion → Worker → Evaluation →
+   Scenario update → Proposal (if gate passed).
+6. `source=agent-discovery` Invariant is persisted, matured mechanically over
+   35y like any other, and surfaced in the digest — no user-validation gate
+   (ADR-006).
+7. `weight_effective` of an agent-discovery invariant grows after mechanical
+   market confirmations (ARCHITECTURE "Invariant confrontation rule").
+8. `learn_from_adaptations()` (V2) propagates `performance_3m` to BACKED_BY invariants.
+9. Every EventLog append precedes its corresponding entity/relation commit.
+10. Writeback blocks any Proposal (switch or reallocation) whose implied
+    allocation violates the binding user caps.
+11. The Worker can emit a reallocation Proposal for the defender that passes
+    the mechanical gates and renders in the digest with old vs new
+    allocation and reasoning.
+12. The Phase 9 shadow replay produces a 35y `replay_report` with zero
+    point-in-time violations, and `main.py` refuses to enable the weekly
+    proposal cycle when the report shows no net value-add on the validation
+    window (override `--force-live`).
+13. A Proposal older than `proposal_outcome_weeks` carries an
+    `outcome.verdict` (won/lost), its cited invariants show a matching
+    `invariant_confrontations` row with `source='proposal'`, and the digest
+    renders the scoreboard (hit-rate, paper-tests, probations).

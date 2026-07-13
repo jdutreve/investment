@@ -237,7 +237,8 @@ places real orders**, at will, on reading the digest. That manual-execution
 step is the human boundary. V2 = auto-execution, which would supersede this.
 
 **Consequences.**
-- ../CLAUDE.md "Curation vs Innovation" collapses: the curation/innovation
+- The former "Curation vs Innovation" rule (once a CLAUDE.md section, now
+  folded into its "No user gate" rule) collapses: the curation/innovation
   distinction no longer implies a user gate — both are mechanical; only the
   author-tier floor and the dedup gate differ.
 - The command layer (ADR-005) stays, but its user actions are **preferences

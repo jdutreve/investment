@@ -10,7 +10,7 @@ Transactions: the connection runs in true autocommit mode
 while `transaction()` issues an explicit BEGIN/COMMIT/ROLLBACK to group
 several calls atomically on the same connection — this is what lets
 `append_event()` (EventLog) and the related vertex/edge commit land in one
-all-or-nothing unit, per CLAUDE.md "EventLog — source of truth for UC8".
+all-or-nothing unit, per the CLAUDE.md "EventLog" rule.
 """
 
 import asyncio
@@ -116,7 +116,8 @@ class InvestmentDB:
     async def query_ts(self, type: str, where: str, limit: int) -> list[dict[str, Any]]:
         """Trusted-caller-only: `where` is interpolated raw (no LLM-facing
         caller uses this — the Worker's bridged `market_fetch` tool has its
-        own separate whitelist, per CLAUDE.md 'Bridged functions')."""
+        own separate whitelist, per the Worker bridged-tools rule in
+        CLAUDE.md 'Architecture in one screen')."""
         self._require_valid_table(type)
 
         def _run() -> list[dict[str, Any]]:
@@ -297,8 +298,8 @@ class InvestmentDB:
     # -- lifecycle -----------------------------------------------------
 
     async def close(self) -> None:
-        """Checkpoints the WAL before closing (CLAUDE.md 'Graceful
-        shutdown') — never drop the connection mid-write."""
+        """Checkpoints the WAL before closing (CLAUDE.md 'Dev standards'
+        shutdown rule) — never drop the connection mid-write."""
 
         def _run() -> None:
             self._con.execute("PRAGMA wal_checkpoint(TRUNCATE)")

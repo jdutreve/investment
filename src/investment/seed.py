@@ -11,7 +11,7 @@ maturation/warm-start), 12-13 (NAV/snapshot) are added by later milestones
 not silently omitted.
 
 UC0 is the one documented exemption to the "EventLog precedes commit" rule
-(docs/CLAUDE.md "EventLog — source of truth for UC8"): the closing
+(CLAUDE.md "EventLog" rule): the closing
 SeedEvent is a summary appended AFTER the vertices it describes, not before.
 """
 
@@ -127,7 +127,7 @@ async def _seed_invariants(db: InvestmentDB) -> int:
     """Step 4 — status='proposed'; matured over 35y at M5 (ADR-006: belief
     does not grant integration, history does). market_score/recency_factor
     default to 1.0 pre-confrontation; weight_effective follows the pinned
-    formula (docs/CLAUDE.md 'Invariants — weight model')."""
+    formula (CLAUDE.md 'Invariant weight model')."""
     for inv in INVARIANTS:
         props = _without_id(inv)
         props["market_score"] = 1.0
@@ -217,8 +217,8 @@ async def run_seed(settings: Settings) -> None:
 
 def main() -> None:
     # pydantic-settings populates required fields from .env at runtime;
-    # mypy can't see that, hence the ignore (CLAUDE.md "loosen only with
-    # an inline # type: ignore[code] and a reason").
+    # mypy can't see that, hence the inline ignore + reason (CLAUDE.md
+    # "Dev standards" mypy rule).
     settings = Settings()  # type: ignore[call-arg]
     asyncio.run(run_seed(settings))
 

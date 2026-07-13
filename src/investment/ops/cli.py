@@ -5,8 +5,8 @@ exist (M9-M10); this is the "falls back to direct read-only SQLite when
 the agent is down" path, used unconditionally for now since there is no
 agent process yet.
 
-Reads are direct on SQLite, read-only (docs/CLAUDE.md "User interfaces —
-one command layer": writes only ever go through the running agent).
+Reads are direct on SQLite, read-only (ADR-005 one-command-layer rule:
+writes only ever go through the running agent — see docs/DECISIONS.md).
 """
 
 import argparse
@@ -27,7 +27,7 @@ _STATUS_ENTITY_COUNTS = (
 
 class _Ansi:
     """Plain ANSI escapes — no new dependency for a handful of colors
-    (CLAUDE.md 'no framework not already listed'). Never applied to
+    (CLAUDE.md Stack: nothing beyond the listed frameworks). Never applied to
     --json output: that has to stay valid, unescaped JSON for scripting
     (`| jq`, `| python -c ...`)."""
 

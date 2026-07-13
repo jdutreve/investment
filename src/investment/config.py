@@ -1,7 +1,7 @@
 """Typed settings loaded from .env — see .env.example for the full key list.
 
 Fails at import time (pydantic-settings) if a required key is missing,
-per CLAUDE.md "Startup validation": before the scheduler starts, not
+per CLAUDE.md "Dev standards": before the scheduler starts, not
 mid-way through the Monday chain.
 """
 
