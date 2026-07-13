@@ -80,6 +80,18 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "T10Y2Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
     {"ticker": "UNRATE", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 7},
     {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct", "availability_lag_days": 16},
+    # GLOBAL_LIQUIDITY components (docs/TASKS.md GLOBAL_LIQUIDITY_COMPONENTS) — non-revised
+    # in practice (ADR-003 consequences), current-vintage fetch. Lag estimates: WALCL/
+    # ECBASSETSW weekly releases (few days); M2SL monthly (~2w, FRED's own calendar);
+    # JPNASSETS (BoJ) monthly with a longer lag (~1m).
+    {"ticker": "M2SL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 17},
+    {"ticker": "WALCL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 5},
+    {"ticker": "ECBASSETSW", "asset_class": "MACRO", "currency": "EUR", "source": "fred", "transform": "none", "availability_lag_days": 5},
+    {"ticker": "JPNASSETS", "asset_class": "MACRO", "currency": "JPY", "source": "fred", "transform": "none", "availability_lag_days": 30},
+    # FX helpers for the GLOBAL_LIQUIDITY USD-conversion (market/liquidity.py usd_convert)
+    # — same pattern as CHFUSD=X (display-only elsewhere).
+    {"ticker": "EURUSD=X", "asset_class": "FX", "currency": "USD", "source": "yahoo", "transform": "none"},
+    {"ticker": "JPY=X", "asset_class": "FX", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO", "currency": "USD", "source": "composite", "transform": "composite"},
     {"ticker": "GLOBAL_LIQUIDITY", "asset_class": "GLOBAL_LIQUIDITY", "currency": "USD", "source": "composite", "transform": "composite"},
 ]
@@ -128,8 +140,18 @@ ALL_WEATHER_BENCHMARK: dict[str, float] = {
 }
 
 # Longer-history TOTAL-RETURN series spliced BEFORE each ETF's inception so
-# the tradable backtest/benchmark/replay can reach back to ~1991. Used at
-# M2 (market fetcher) — kept here as reference data, not yet applied at M1.
+# the tradable backtest/benchmark/replay can reach back to ~1991. Used at M2
+# (market/fetcher.py + market/splice.py).
+#
+# Verified at M2 build time (docs/TASKS.md "VERIFY availability + inception"):
+# every proxy below round-trips through yfinance except the originally-pinned
+# gold/commodity sources. GOLDAMGBD228NLBM (LBMA gold fixing) is a
+# discontinued FRED series — the fetch may 404; splice.py's per-ticker
+# try/except falls back to the ETF-only floor if so (SPLICE RULE: a failing
+# pair is rejected, not silently spliced). SPGSCITR ("index" source) is not
+# freely available — commodities use the pinned fallback, ^BCOM (Bloomberg
+# Commodity Index, Yahoo, verified live back to 1991), not the 1970 GSCI
+# floor originally hoped for.
 HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "SPY": ("VFINX", "yahoo", 1976),
     "VTI": ("VFINX", "yahoo", 1976),
@@ -138,8 +160,8 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "SHY": ("VFISX", "yahoo", 1991),
     "TIP": ("VIPSX", "yahoo", 2000),
     "GLD": ("GOLDAMGBD228NLBM", "fred", 1968),
-    "DBC": ("SPGSCITR", "index", 1970),
-    "DJP": ("SPGSCITR", "index", 1970),
+    "DBC": ("^BCOM", "yahoo", 1991),
+    "DJP": ("^BCOM", "yahoo", 1991),
     "BIL": ("TB3MS", "fred", 1934),
 }
 

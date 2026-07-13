@@ -2,13 +2,18 @@
 
 Real SQLite files, no mocks (CLAUDE.md "Tests": this codebase's correctness
 lives in real schema constraints — trace NOT NULL, FK edges, the defender
-unique index — which mocks would hide).
+unique index — which mocks would hide). The one external-I/O boundary
+(Yahoo/FRED, step 9 — M2) is not the DB; these M1-scope tests inject a
+synthetic `fetch_raw` stub via `run_seed`'s injection point so a unit test
+never makes a live network call (see tests/test_market.py for step 9 itself).
 """
 
 import itertools
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
+import pandas as pd
 import pytest
 
 from investment.config import Settings
@@ -49,6 +54,14 @@ def _test_settings(tmp_path: Path) -> Settings:
     )  # type: ignore[call-arg]
 
 
+async def _stub_fetch_raw(ticker_row: Any, api_key: str, start: date | None) -> pd.Series:
+    """Synthetic ~2y daily series — enough for splice.py's 1y-overlap floor —
+    identical shape for every ticker/proxy so this M1-scope suite never
+    touches the network (M2 step 9 itself is exercised in test_market.py)."""
+    dates = pd.date_range(end=date.today() - timedelta(days=1), periods=800, freq="D")
+    return pd.Series(100.0 + 0.01 * range(800), index=dates)
+
+
 async def test_schema_creates_all_31_tables(db: InvestmentDB) -> None:
     rows = await db.query("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {row["name"] for row in rows}
@@ -85,8 +98,13 @@ async def test_transaction_rolls_back_event_and_vertex_atomically(db: Investment
 
 async def test_upsert_preserves_created_at_and_advances_updated_at(db: InvestmentDB) -> None:
     props = {
-        "title": "t", "description": "v1", "source": "s", "status": "proposed",
-        "weight_initial": 0.8, "floor_weight": 0.4, "trace": "t",
+        "title": "t",
+        "description": "v1",
+        "source": "s",
+        "status": "proposed",
+        "weight_initial": 0.8,
+        "floor_weight": 0.4,
+        "trace": "t",
     }
     await db.upsert_vertex("invariant", "i1", props)
     first = (await db.query("SELECT created_at, updated_at FROM invariant WHERE id='i1'"))[0]
@@ -119,9 +137,16 @@ async def test_append_ts_idempotent(db: InvestmentDB) -> None:
 async def test_single_defender_enforced_by_db(db: InvestmentDB) -> None:
     await db.upsert_vertex("framework", "4s", {"name": "f", "enabled": True, "trace": "t"})
     common = {
-        "name": "p", "framework_id": "4s", "enabled": True, "currency": "CHF",
-        "benchmark": "aw", "allocation": {"SPY": 100}, "max_drawdown_rule": -15.0,
-        "max_single_asset_pct": 40.0, "phase": "accumulation", "trace": "t",
+        "name": "p",
+        "framework_id": "4s",
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "aw",
+        "allocation": {"SPY": 100},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "trace": "t",
     }
     await db.upsert_vertex("portfolio", "p1", {**common, "defender": True})
     with pytest.raises(Exception, match="UNIQUE"):
@@ -131,23 +156,37 @@ async def test_single_defender_enforced_by_db(db: InvestmentDB) -> None:
 async def test_seed_idempotent_two_runs(tmp_path: Path) -> None:
     """M1 Definition of Verified: re-run seed → zero duplicates, 2 SeedEvents."""
     settings = _test_settings(tmp_path)
-    await run_seed(settings)
-    await run_seed(settings)
+    await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
+    await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
 
     db = InvestmentDB(settings.db_path)
     try:
         counts = {
             table: (await db.query(f"SELECT COUNT(*) AS n FROM {table}"))[0]["n"]
-            for table in ("framework", "regime_type", "invariant", "strategy",
-                          "scenario", "portfolio", "backed_by", "holds", "designed_for")
+            for table in (
+                "framework",
+                "regime_type",
+                "invariant",
+                "strategy",
+                "scenario",
+                "portfolio",
+                "backed_by",
+                "holds",
+                "designed_for",
+            )
         }
         assert counts == {
-            "framework": 3, "regime_type": 5, "invariant": 6, "strategy": 4,
-            "scenario": 12, "portfolio": 7, "backed_by": 6, "holds": 7, "designed_for": 4,
+            "framework": 3,
+            "regime_type": 5,
+            "invariant": 6,
+            "strategy": 4,
+            "scenario": 12,
+            "portfolio": 7,
+            "backed_by": 6,
+            "holds": 7,
+            "designed_for": 4,
         }
-        events = await db.query(
-            "SELECT COUNT(*) AS n FROM event_log WHERE type='SeedEvent'"
-        )
+        events = await db.query("SELECT COUNT(*) AS n FROM event_log WHERE type='SeedEvent'")
         assert events[0]["n"] == 2
         defenders = await db.query("SELECT COUNT(*) AS n FROM portfolio WHERE defender=1")
         assert defenders[0]["n"] == 1
@@ -161,7 +200,7 @@ async def test_seed_allocations_respect_binding_caps(tmp_path: Path) -> None:
     import json
 
     settings = _test_settings(tmp_path)
-    await run_seed(settings)
+    await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
     db = InvestmentDB(settings.db_path)
     try:
         for row in await db.query("SELECT id, allocation, max_single_asset_pct FROM portfolio"):

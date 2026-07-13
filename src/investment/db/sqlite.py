@@ -57,10 +57,7 @@ def _jsonify(props: dict[str, Any]) -> dict[str, Any]:
     """MAP/STRING[] columns are stored as JSON1 TEXT (DATA_MODELS.md 'Physical
     mapping'): any dict/list value is serialized on write, uniformly,
     regardless of destination column."""
-    return {
-        k: (json.dumps(v) if isinstance(v, dict | list) else v)
-        for k, v in props.items()
-    }
+    return {k: (json.dumps(v) if isinstance(v, dict | list) else v) for k, v in props.items()}
 
 
 class InvestmentDB:
@@ -74,9 +71,7 @@ class InvestmentDB:
         # thread calls __init__) but every subsequent use is routed through
         # the single worker thread above — sqlite3's own affinity guard
         # would otherwise reject that (see spike_sqlite.py check #5).
-        self._con = sqlite3.connect(
-            self._db_path, check_same_thread=False, isolation_level=None
-        )
+        self._con = sqlite3.connect(self._db_path, check_same_thread=False, isolation_level=None)
         self._con.row_factory = sqlite3.Row
         for pragma in ("journal_mode=WAL", "synchronous=NORMAL", "foreign_keys=ON"):
             self._con.execute(f"PRAGMA {pragma}")
@@ -276,6 +271,37 @@ class InvestmentDB:
             placeholders = ", ".join(f":{c}" for c in cols)
             stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
             self._con.execute(stmt, row)
+
+        await self._call(_run)
+
+    async def append_ts_batch(self, type: str, rows: list[dict[str, Any]]) -> None:
+        """Batched idempotent append (INSERT OR REPLACE, executemany, one
+        transaction) — the throughput path validated in spike_sqlite.py
+        check #3 (200k rows < 2 min); `append_ts` alone would pay one
+        executor round-trip per row, far too slow for a 35y backfill across
+        ~20 series (docs/TASKS.md Task 2.1). Each row must already contain
+        `ts` (date.isoformat()) plus every tag/field column."""
+        if type not in TS_TABLES:
+            raise ValueError(f"not a time-series table: {type!r}")
+        if not rows:
+            return
+
+        def _run() -> None:
+            cols = list(rows[0].keys())
+            placeholders = ", ".join(f":{c}" for c in cols)
+            stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
+            # Explicit BEGIN/COMMIT (isolation_level=None means the connection
+            # is otherwise in true autocommit — see class docstring): without
+            # it, executemany would fsync once per row instead of once for
+            # the whole batch, defeating the throughput this method exists for.
+            self._con.execute("BEGIN")
+            try:
+                self._con.executemany(stmt, rows)
+            except Exception:
+                self._con.rollback()
+                raise
+            else:
+                self._con.commit()
 
         await self._call(_run)
 

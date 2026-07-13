@@ -37,6 +37,7 @@ build-backend = "uv_build"
 dev = [
     "httpx>=0.28.1",
     "mypy>=2.2.0",
+    "pandas-stubs>=3.0.3.260530",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.21",
@@ -62,3 +63,10 @@ asyncio_mode = "auto"
 
 [tool.mypy]
 strict = true
+
+# yfinance ships no py.typed marker and no stub package exists (unlike
+# pandas, covered by pandas-stubs) — every call through it is Any regardless,
+# so a per-call `type: ignore` would be noise, not signal.
+[[tool.mypy.overrides]]
+module = "yfinance"
+ignore_missing_imports = true
