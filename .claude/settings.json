@@ -14,7 +14,15 @@
       "Read(//Users/jdutreve/projets/**)",
       "Bash(grep -rn \"rates \\\\`\\\\|rates:\\\\|; rates\\\\|rates \\(\\\\| rates,\" EXAMPLE.md)",
       "Bash(grep -viE \"^$\")",
-      "Bash(grep -Eo \"[a-z_]+[^A-Za-z]{1,4}[0-9]+\\\\.?[0-9]*\")"
+      "Bash(grep -Eo \"[a-z_]+[^A-Za-z]{1,4}[0-9]+\\\\.?[0-9]*\")",
+      "Bash(uv run ruff check *)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run invest invariants *)",
+      "Bash(uv run invest sql *)",
+      "Bash(uv run invest status *)",
+      "Bash(uv run ruff format --check *)",
+      "Bash(uv run python spike_sqlite.py)"
     ]
   }
 }

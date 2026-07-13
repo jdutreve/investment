@@ -13,6 +13,7 @@ the other liquidity components — ADR-003 consequences), dated at
 """
 
 import asyncio
+import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import date, timedelta
@@ -26,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 FRED_TIMEOUT_SECONDS = 30.0
+
+# LBMA's own AM gold fixing feed — free, no key, genuinely daily
+# (business-day, ~252/y). This is the same underlying data FRED used to
+# redistribute as GOLDAMGBD228NLBM before discontinuing it (~2021 licensing
+# change, docs/db/seed_data.py HISTORY_PROXIES) — straight from the source
+# instead. Verified live at M2 build time against known price levels (the
+# 1980-01-21 spike, 2008 GFC, 2020 COVID dip, 2022 Ukraine spike).
+LBMA_GOLD_AM_URL = "https://prices.lbma.org.uk/json/gold_am.json"
+LBMA_TIMEOUT_SECONDS = 30.0
 
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_BASE_SECONDS = 60.0
@@ -167,6 +177,38 @@ async def fetch_fred_series(series_id: str, api_key: str, start: date, lag_days:
     return parse_fred_current(obs, lag_days)
 
 
+# -- LBMA (gold) -----------------------------------------------------------
+
+
+def parse_lbma_gold_json(raw: bytes) -> pd.Series:
+    """Each record is `{"d": "YYYY-MM-DD", "v": [usd, gbp, eur]}` (eur is
+    null before 1999). USD (index 0) is what this project uses everywhere
+    else — no publication-vintage concept here (unlike FRED/ALFRED): this
+    is a live market fixing, known the same day it's set."""
+    records = json.loads(raw)
+    prices: dict[date, float] = {}
+    for record in records:
+        usd = record["v"][0]
+        if usd is None:
+            continue
+        prices[date.fromisoformat(record["d"])] = float(usd)
+    return _series_from_date_map(prices)
+
+
+async def fetch_lbma_gold_daily() -> pd.Series:
+    async def _call() -> pd.Series:
+        timeout = aiohttp.ClientTimeout(total=LBMA_TIMEOUT_SECONDS)
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(LBMA_GOLD_AM_URL) as resp,
+        ):
+            resp.raise_for_status()
+            raw = await resp.read()
+        return parse_lbma_gold_json(raw)
+
+    return await _with_retry(_call, label="lbma:gold")
+
+
 # -- shared --------------------------------------------------------------
 
 
@@ -189,4 +231,6 @@ async def fetch_raw_series(
     if source == "fred":
         lag_days = int(ticker_row.get("availability_lag_days") or 0)
         return await fetch_fred_series(ticker, api_key, start or date(1900, 1, 1), lag_days)
+    if source == "lbma":
+        return await fetch_lbma_gold_daily()
     raise ValueError(f"unsupported source for raw fetch: {source!r}")

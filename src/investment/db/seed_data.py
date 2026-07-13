@@ -144,11 +144,12 @@ ALL_WEATHER_BENCHMARK: dict[str, float] = {
 # (market/fetcher.py + market/splice.py).
 #
 # Verified at M2 build time (docs/TASKS.md "VERIFY availability + inception"):
-# every proxy below round-trips through yfinance except the originally-pinned
-# gold/commodity sources. GOLDAMGBD228NLBM (LBMA gold fixing) is a
-# discontinued FRED series — the fetch may 404; splice.py's per-ticker
-# try/except falls back to the ETF-only floor if so (SPLICE RULE: a failing
-# pair is rejected, not silently spliced). SPGSCITR ("index" source) is not
+# every proxy below round-trips live except the originally-pinned gold/
+# commodity sources. GOLDAMGBD228NLBM (FRED's redistribution of the LBMA
+# gold fixing) was discontinued (~2021 licensing change) — GLD now sources
+# straight from LBMA's own public feed instead (market/fetcher.py
+# LBMA_GOLD_AM_URL; free, no key, genuinely daily, verified live back to
+# 1968-01-02 against known price levels). SPGSCITR ("index" source) is not
 # freely available — commodities use the pinned fallback, ^BCOM (Bloomberg
 # Commodity Index, Yahoo, verified live back to 1991), not the 1970 GSCI
 # floor originally hoped for.
@@ -159,7 +160,7 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "IEF": ("VBMFX", "yahoo", 1986),
     "SHY": ("VFISX", "yahoo", 1991),
     "TIP": ("VIPSX", "yahoo", 2000),
-    "GLD": ("GOLDAMGBD228NLBM", "fred", 1968),
+    "GLD": ("LBMA_GOLD_AM", "lbma", 1968),
     "DBC": ("^BCOM", "yahoo", 1991),
     "DJP": ("^BCOM", "yahoo", 1991),
     "BIL": ("TB3MS", "fred", 1934),

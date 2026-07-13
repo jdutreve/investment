@@ -212,6 +212,54 @@ def test_splice_rejects_a_gap_artifact() -> None:
         splice.splice_level_series("ETF", "PROXY", etf_level, proxy_level)
 
 
+def test_splice_with_resampled_validation_recovers_from_fixing_time_noise() -> None:
+    """Mirrors the real LBMA/GLD case verified live at M2 build time: a
+    proxy that IS genuinely daily, but whose daily returns are dominated by
+    independent same-day noise (a fixing-time mismatch, not a data
+    problem) relative to a shared monthly-scale trend. Plain daily
+    validation must reject it; resampled validation must accept it AND
+    preserve native daily resolution in the constructed series (no
+    downsampling)."""
+    n_months = 100
+    month_starts = pd.date_range("2000-01-01", periods=n_months, freq="MS")
+    rng = np.random.default_rng(11)
+    monthly_shock = np.cumsum(rng.normal(0.0, 0.06, n_months))
+
+    dates: list[pd.Timestamp] = []
+    trend: list[float] = []
+    for i, month_start in enumerate(month_starts):
+        business_days = pd.date_range(month_start, month_start + pd.offsets.MonthEnd(0), freq="B")
+        dates.extend(business_days)
+        trend.extend([monthly_shock[i]] * len(business_days))
+    idx = pd.DatetimeIndex(dates)
+    trend_series = pd.Series(trend, index=idx)
+
+    # Calibrated so daily corr lands well below 0.95 but monthly corr clears
+    # it (empirically checked against these exact seeds/params) — the same
+    # qualitative gap observed live for GLD vs the real LBMA feed.
+    daily_noise_sigma = 0.008
+    proxy_level = 100.0 * np.exp(trend_series + rng.normal(0, daily_noise_sigma, len(idx)))
+    etf_level_full = 100.0 * np.exp(trend_series + rng.normal(0, daily_noise_sigma, len(idx)))
+    etf_level = etf_level_full.iloc[len(idx) // 2 :]
+
+    with pytest.raises(splice.SpliceArtifactError):
+        splice.splice_level_series("ETF", "PROXY", etf_level, proxy_level)
+
+    spliced, report = splice.splice_with_resampled_validation(
+        "ETF", "PROXY", etf_level, proxy_level
+    )
+    assert report.periods_per_year == 12
+    assert report.return_corr >= splice.MIN_RETURN_CORR
+
+    # Native daily resolution preserved pre-join, not downsampled to monthly.
+    join_date = etf_level.index.min()
+    pre_join_rows = spliced.loc[:join_date]
+    pre_join_months = (join_date.year - proxy_level.index.min().year) * 12 + (
+        join_date.month - proxy_level.index.min().month
+    )
+    assert len(pre_join_rows) > pre_join_months * 5  # business-day density, not monthly
+
+
 # -- fetcher.py (parsing only — no network) --------------------------------
 
 
@@ -249,3 +297,20 @@ def test_forward_fill_gaps_respects_max_days() -> None:
     assert out.iloc[1:6].tolist() == [1.0] * 5
     assert pd.isna(out.iloc[6])
     assert out.iloc[7] == 2.0
+
+
+def test_parse_lbma_gold_json_uses_usd_and_skips_null() -> None:
+    """Real LBMA feed shape: `{"d": "...", "v": [usd, gbp, eur]}` — eur is
+    null before 1999; a day with a null USD (holiday placeholder) is
+    skipped rather than stored as 0.0."""
+    raw = (
+        b'[{"is_cms_locked":0,"d":"1968-01-02","v":[35.18,14.64,null]},'
+        b'{"is_cms_locked":0,"d":"1968-01-03","v":[35.16,14.62,null]},'
+        b'{"is_cms_locked":0,"d":"1999-01-04","v":[287.85,173.5,null]},'
+        b'{"is_cms_locked":0,"d":"2020-01-06","v":[null,null,null]}]'
+    )
+    out = fetcher.parse_lbma_gold_json(raw)
+    assert len(out) == 3
+    assert out.loc[pd.Timestamp("1968-01-02")] == 35.18
+    assert out.loc[pd.Timestamp("1999-01-04")] == 287.85
+    assert pd.Timestamp("2020-01-06") not in out.index
