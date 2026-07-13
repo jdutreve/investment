@@ -41,3 +41,24 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.21",
 ]
+
+# Rule set explicitly chosen per CLAUDE.md "Python Dev Standards" — not the
+# bare default: UP enforces 3.13 syntax, B catches common traps, SIM
+# simplifies, I sorts imports.
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tabular seed data (ALLOWED_TICKERS, edges): one aligned row per line is
+# the readable form; wrapping each dict would destroy the table.
+"src/investment/db/seed_data.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.mypy]
+strict = true

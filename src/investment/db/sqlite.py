@@ -82,6 +82,11 @@ class InvestmentDB:
             self._con.execute(f"PRAGMA {pragma}")
         self._con.executescript(SCHEMA_SQL)
         self._columns_cache: dict[str, set[str]] = {}
+        # Monotonic floor for event ids, re-seeded from the DB so the
+        # canonical append order survives restarts (and clock steps between
+        # them) — see _next_event_id().
+        row = self._con.execute("SELECT MAX(id) FROM event_log").fetchone()
+        self._last_event_id: str = row[0] or ""
 
     async def _call(self, fn: Callable[[], _T]) -> _T:
         loop = asyncio.get_running_loop()
@@ -208,6 +213,22 @@ class InvestmentDB:
 
         await self._call(_run)
 
+    def _next_event_id(self) -> str:
+        """Strictly-increasing ULID for event_log.id — THE canonical append
+        order (DATA_MODELS.md 'Ordering semantics'), so monotonicity is a
+        hard guarantee, enforced here rather than trusted to the library:
+        python-ulid samples the clock twice (timestamp in __init__,
+        monotonicity decision in the provider), so a ULID minted as the
+        millisecond ticks over can sort BELOW its predecessor. If that
+        happens, take last_id + 1 (128-bit increment) instead. Only ever
+        called on the single executor thread — no locking needed."""
+        candidate = str(ULID())
+        if candidate <= self._last_event_id:
+            bumped = int.from_bytes(ULID.from_str(self._last_event_id).bytes, "big") + 1
+            candidate = str(ULID.from_bytes(bumped.to_bytes(16, "big")))
+        self._last_event_id = candidate
+        return candidate
+
     async def append_event(
         self,
         type: str,
@@ -222,7 +243,7 @@ class InvestmentDB:
         today. See docs/DATA_MODELS.md 'Ordering semantics'."""
 
         def _run() -> str:
-            event_id = str(ULID())
+            event_id = self._next_event_id()
             self._con.execute(
                 "INSERT INTO event_log (id, ts, event_date, type, source_uc, source_id, payload) "
                 "VALUES (:id, :ts, :event_date, :type, :source_uc, :source_id, :payload)",

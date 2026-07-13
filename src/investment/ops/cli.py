@@ -10,6 +10,7 @@ one command layer": writes only ever go through the running agent).
 """
 
 import argparse
+import contextlib
 import json
 import os
 import sqlite3
@@ -70,10 +71,8 @@ def _unnest_json_columns(row: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in row.items():
         if isinstance(value, str) and value[:1] in "[{":
-            try:
+            with contextlib.suppress(ValueError):
                 value = json.loads(value)
-            except ValueError:
-                pass
         result[key] = value
     return result
 
