@@ -421,17 +421,17 @@ SCENARIOS: list[dict[str, object]] = [
     {"id": "sc-bt-bull", "strategy_id": "barbell-taleb", "name": "bull",
      "probability": 30,
      "triggers": ["^VIX < 15", "GROWTH_COMPOSITE > 102"],
-     "target_allocation": {"SHY": 30, "BIL": 25, "IEF": 20, "SPY": 25},
+     "target_allocation": {"SHY": 30, "cash": 25, "IEF": 20, "SPY": 25},
      "currency": "USD", "trace": "Calm bull — slightly more convex sleeve."},
     {"id": "sc-bt-base", "strategy_id": "barbell-taleb", "name": "base",
      "probability": 45,
      "triggers": ["^VIX 15-25"],
-     "target_allocation": {"SHY": 35, "BIL": 30, "IEF": 20, "SPY": 15},
+     "target_allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
      "currency": "USD", "trace": "Base case — matches seed allocation."},
     {"id": "sc-bt-bear", "strategy_id": "barbell-taleb", "name": "bear",
      "probability": 25,
      "triggers": ["^VIX > 25"],
-     "target_allocation": {"SHY": 40, "BIL": 35, "IEF": 20, "SPY": 5},
+     "target_allocation": {"SHY": 40, "cash": 35, "IEF": 20, "SPY": 5},
      "currency": "USD", "trace": "Tail risk — more safety sleeve."},
     # momentum-macro — full tactical rotation, capped at the 40% user rule
     {"id": "sc-mm-bull", "strategy_id": "momentum-macro", "name": "bull",
@@ -504,11 +504,17 @@ PORTFOLIOS: list[dict[str, object]] = [
      "name": "Barbell Taleb Defensive",
      "framework_id": "4seasons", "defender": False, "enabled": True,
      "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SHY": 35, "BIL": 30, "IEF": 20, "SPY": 15},
+     "allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
      "max_drawdown_rule": -10.0,
      "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 100.0,
-     "trace": "85% safety split across SHY/BIL/IEF (binding 40% cap) + 15% convex."},
+     "trace": "85% safety split across SHY/cash/IEF (binding 40% cap) + 15% "
+              "convex. BIL swapped for 'cash' (docs/MILESTONES.md M2 DoV): "
+              "'cash' accrues at rf_daily from ^IRX directly (no ETF fetch, "
+              "no splice needed, floors at 1960) — the exact same economic "
+              "role BIL played, and BIL itself has no viable proxy at any "
+              "resolution tested (TB3MS monthly/daily-compounded, VFISX "
+              "direct/monthly: 0.09-0.30 correlation, all rejected)."},
     {"id": "momentum-macro-rotation",
      "name": "Momentum Macro Rotation",
      "framework_id": "4seasons", "defender": False, "enabled": True,
