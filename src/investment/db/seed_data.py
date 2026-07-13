@@ -189,6 +189,11 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "DBC": ("^BCOM", "yahoo", 1991),
     "DJP": ("^BCOM", "yahoo", 1991),
     "BIL": ("TB3MS", "fred", 1934),
+    # FDIVX (Fidelity Diversified International, since 1991-12-27) — clears
+    # the STANDARD 0.95 correlation bar (0.954), no exception needed. Beat
+    # SCINX/PRITX/VWIGX/AEPGX (all older but 0.91-0.94, would need the
+    # named 0.94 exception) and VGTSX (cleaner at 0.961 but only 1996).
+    "EFA": ("FDIVX", "yahoo", 1991),
 }
 
 # ---------------------------------------------------------------------------
