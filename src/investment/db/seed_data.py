@@ -131,12 +131,22 @@ SIGNAL_ALIASES: dict[str, str] = {
 # 60/40 everywhere). Classic Dalio All Weather allocation, regime-agnostic
 # by design (a fair yardstick in any regime). Id "all-weather-USD";
 # monthly-rebalanced, USD.
+#
+# Commodity sleeve is DJP, not DBC (verified live at M2 build time): DBC's
+# "Optimum Yield" roll strategy diverges persistently from every available
+# free commodity-index proxy (correlation ~0.88 with ^BCOM even excluding
+# outlier days, checked year by year over its whole history — not a
+# fixable data-quality issue) and DBC isn't held by any actual seeded
+# portfolio anyway. DJP tracks the plain Bloomberg Commodity Index, splices
+# cleanly with ^BCOM back to 1991, and IS what the seeded portfolios hold —
+# using it here too means the benchmark's own floor stops being held back
+# by an unused ticker.
 ALL_WEATHER_BENCHMARK: dict[str, float] = {
     "VTI": 0.30,
     "TLT": 0.40,
     "IEF": 0.15,
     "GLD": 0.075,
-    "DBC": 0.075,
+    "DJP": 0.075,
 }
 
 # Longer-history TOTAL-RETURN series spliced BEFORE each ETF's inception so
@@ -153,11 +163,26 @@ ALL_WEATHER_BENCHMARK: dict[str, float] = {
 # freely available — commodities use the pinned fallback, ^BCOM (Bloomberg
 # Commodity Index, Yahoo, verified live back to 1991), not the 1970 GSCI
 # floor originally hoped for.
+#
+# IEF: VFITX (Vanguard Intermediate-Term TREASURY), not VBMFX (Vanguard
+# Total Bond Market — a broad aggregate fund with corporate/MBS exposure,
+# a worse conceptual match for IEF's pure 7-10y treasury band) — tested
+# both live, VFITX wins (0.945 vs 0.911 correlation) though still needs
+# the relaxed MIN_RETURN_CORR (splice.py) to clear the gate.
+# SHY: same proxy, but routed through splice.splice_with_resampled_
+# validation (see seed.py RESAMPLED_VALIDATION_TICKERS) — SHY's own
+# ultra-low volatility makes daily-return correlation noisy regardless of
+# proxy choice; validated at monthly resolution instead (0.963).
+# BIL: no working proxy found. Tried TB3MS monthly-compounded (0.23),
+# TB3MS's daily FRED sibling DTB3 compounded (0.30), VFISX directly
+# (0.09), and VFISX at monthly resolution (0.27) — BIL's own distribution/
+# NAV-reset pattern doesn't track any of them at any resolution tested.
+# Floors at its own ETF inception (2007).
 HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "SPY": ("VFINX", "yahoo", 1976),
     "VTI": ("VFINX", "yahoo", 1976),
     "TLT": ("VUSTX", "yahoo", 1986),
-    "IEF": ("VBMFX", "yahoo", 1986),
+    "IEF": ("VFITX", "yahoo", 1986),
     "SHY": ("VFISX", "yahoo", 1991),
     "TIP": ("VIPSX", "yahoo", 2000),
     "GLD": ("LBMA_GOLD_AM", "lbma", 1968),
@@ -359,17 +384,17 @@ SCENARIOS: list[dict[str, object]] = [
     {"id": "sc-4s-bull", "strategy_id": "four-seasons-rp", "name": "bull",
      "probability": 35,
      "triggers": ["CPI_YOY < 2.5", "GROWTH_COMPOSITE > 102", "Fed dovish"],
-     "target_allocation": {"SPY": 35, "TLT": 25, "GLD": 15, "TIP": 15, "DJP": 5, "cash": 5},
+     "target_allocation": {"SPY": 35, "TLT": 25, "GLD": 15, "IEF": 15, "DJP": 5, "cash": 5},
      "currency": "USD", "trace": "Goldilocks scenario for 4 Seasons."},
     {"id": "sc-4s-base", "strategy_id": "four-seasons-rp", "name": "base",
      "probability": 45,
      "triggers": ["CPI_YOY 2.5-3.5", "Fed pause"],
-     "target_allocation": {"SPY": 30, "TLT": 30, "GLD": 10, "TIP": 20, "DJP": 7.5, "cash": 2.5},
+     "target_allocation": {"SPY": 30, "TLT": 30, "GLD": 10, "IEF": 20, "DJP": 7.5, "cash": 2.5},
      "currency": "USD", "trace": "Base case for 4 Seasons."},
     {"id": "sc-4s-bear", "strategy_id": "four-seasons-rp", "name": "bear",
      "probability": 20,
      "triggers": ["^VIX > 25", "CPI_YOY > 4 AND GROWTH_COMPOSITE < 98"],
-     "target_allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
+     "target_allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
      "currency": "USD", "trace": "Stagflation/stress scenario."},
     # permanent-browne — fixed allocation across scenarios, by design
     {"id": "sc-pb-bull", "strategy_id": "permanent-browne", "name": "bull",
@@ -426,15 +451,22 @@ PORTFOLIOS: list[dict[str, object]] = [
      "name": "4 Seasons Balanced Defender",
      "framework_id": "4seasons", "defender": True, "enabled": True,
      "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"TIP": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
+     "allocation": {"IEF": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 97.5,
-     "trace": "Initial defender — standard 4 Seasons balanced."},
+     "trace": "Initial defender — standard 4 Seasons balanced. TIP swapped "
+              "for IEF (docs/MILESTONES.md M2 DoV): TIPS didn't exist "
+              "before 1997, so no free proxy can extend TIP's own history "
+              "past its 2003 ETF inception (VIPSX/VAIPX/PRTNX/ACITX all "
+              "tried, none clear the splice gate cleanly) — IEF is the "
+              "closest behavioral match found (corr 0.77 vs TIP, similar "
+              "vol/drawdown; gold/commodities correlate at only 0.09-0.26 "
+              "and are 3x more volatile) and already reaches 1991."},
     {"id": "4s-stagflation-defensive",
      "name": "4 Seasons Stagflation Defensive",
      "framework_id": "4seasons", "defender": False, "enabled": True,
      "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"TIP": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
+     "allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 97.5,
      "trace": "Designed for falling-growth-rising-inflation."},
@@ -442,7 +474,7 @@ PORTFOLIOS: list[dict[str, object]] = [
      "name": "4 Seasons Rising-Growth Equity Tilt",
      "framework_id": "4seasons", "defender": False, "enabled": True,
      "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SPY": 40, "EFA": 10, "TLT": 15, "GLD": 10, "TIP": 15, "DJP": 5, "cash": 5},
+     "allocation": {"SPY": 40, "EFA": 10, "TLT": 15, "GLD": 10, "IEF": 15, "DJP": 5, "cash": 5},
      "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
      "phase": "accumulation", "fx_usd_exposure": 95.0,
      "trace": "Designed for rising-growth quadrants. SPY capped at the "

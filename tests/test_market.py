@@ -157,8 +157,9 @@ def test_compute_global_liquidity_nan_until_all_components_present() -> None:
 
 
 def test_splice_continuity() -> None:
-    """M2 DoV 'splice ARTIFACT gate (#3)': overlap return-corr >= 0.95 and
-    no >3sigma gap at the join; the spliced level shows no join spike."""
+    """M2 DoV 'splice ARTIFACT gate (#3)': overlap return-corr >=
+    MIN_RETURN_CORR and no >3sigma gap at the join; the spliced level
+    shows no join spike."""
     idx = _dates("2000-01-01", 252 * 3, freq="B")
     shared_returns = _synthetic_returns(len(idx), seed=42)
     proxy_level = pd.Series(100.0 * np.cumprod(1 + shared_returns), index=idx)
@@ -171,7 +172,7 @@ def test_splice_continuity() -> None:
     spliced, report = splice.splice_level_series("ETF", "PROXY", etf_level, proxy_level)
 
     assert report.return_corr >= splice.MIN_RETURN_CORR
-    assert report.max_gap_sigma <= splice.MAX_GAP_SIGMA
+    assert report.gap_sigma_p999 <= splice.MAX_GAP_SIGMA
     assert spliced.index.min() == proxy_level.index[1]  # 1st row lost to pct_change()
     assert spliced.index.max() == etf_level.index.max()
 
@@ -208,8 +209,33 @@ def test_splice_rejects_a_gap_artifact() -> None:
     etf_returns = shared_returns.copy()
     etf_returns[100] += 0.20  # a single-day data artifact, far beyond 3 sigma
     etf_level = pd.Series(100.0 * np.cumprod(1 + etf_returns), index=idx)
-    with pytest.raises(splice.SpliceArtifactError, match="max_gap_sigma"):
+    with pytest.raises(splice.SpliceArtifactError, match="gap_sigma_p999"):
         splice.splice_level_series("ETF", "PROXY", etf_level, proxy_level)
+
+
+def test_splice_gap_check_is_robust_to_a_single_outlier_day() -> None:
+    """Mirrors the real TLT/VUSTX and DJP/^BCOM cases verified live at M2
+    build time: a clean ~20y daily history (correlation ~0.99) with
+    exactly ONE unusually large day (an ETN pricing wobble, say) must NOT
+    fail the gate — a single day out of thousands deciding pass/fail off
+    the raw max is exactly the extreme-value-statistics trap this module's
+    gap metric was already redesigned once to avoid (see
+    splice_level_series's docstring); the 99.9th percentile absorbs it."""
+    rng = np.random.default_rng(99)
+    n = 5000
+    shared = rng.normal(0.0003, 0.01, n)
+    idio_sigma = 0.001
+    proxy_returns = shared + rng.normal(0, idio_sigma, n)
+    etf_returns = shared + rng.normal(0, idio_sigma, n)
+    etf_returns[2500] += 0.03  # one unusually large day, not a run of bad data
+
+    idx = pd.bdate_range("2000-01-01", periods=n)
+    proxy_level = pd.Series(100.0 * np.cumprod(1 + proxy_returns), index=idx)
+    etf_level = pd.Series(100.0 * np.cumprod(1 + etf_returns), index=idx)
+
+    _, report = splice.splice_level_series("ETF", "PROXY", etf_level, proxy_level)
+    assert report.return_corr >= splice.MIN_RETURN_CORR
+    assert report.gap_sigma_p999 <= splice.MAX_GAP_SIGMA
 
 
 def test_splice_with_resampled_validation_recovers_from_fixing_time_noise() -> None:

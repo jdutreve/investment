@@ -62,12 +62,16 @@ FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series
 # CLAUDE.md "state assumptions explicitly").
 RATE_PROXIES = frozenset({"TB3MS"})
 
-# Sources whose daily RETURNS are too fixing-time-noisy to validate directly
-# against the ETF's own close, even though the source itself is genuinely
-# daily — see splice.splice_with_resampled_validation (verified live at M2
-# build time for "lbma": GLD vs the LBMA gold fixing correlates ~0.3-0.65 on
-# daily returns but 0.957 at monthly resolution).
-RESAMPLED_VALIDATION_SOURCES = frozenset({"lbma"})
+# ETFs whose daily RETURNS are too noisy (vs their proxy) to validate at
+# daily resolution, even though the proxy itself is genuinely daily — see
+# splice.splice_with_resampled_validation. Keyed by the ETF ticker, not the
+# proxy's source: SHY's proxy (VFISX) is fetched the same "yahoo" way as
+# every clean daily pair, but SHY's own ultra-low volatility (~1.5%/y)
+# means day-to-day noise swamps the correlation signal — verified live at
+# M2 build time: SHY vs VFISX correlates 0.81 daily but 0.963 at monthly
+# resolution. GLD's case is different in cause (a fixing-time mismatch,
+# not low volatility) but identical in mechanism and fix.
+RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY"})
 
 # Steps deferred to later milestones (docs/MILESTONES.md "Incremental seed").
 DEFERRED_STEPS = {
@@ -320,7 +324,7 @@ async def _seed_market_data(
                     proxy_raw = _rate_to_level(proxy_raw)
                 splice_fn = (
                     splice.splice_with_resampled_validation
-                    if proxy_source in RESAMPLED_VALIDATION_SOURCES
+                    if ticker in RESAMPLED_VALIDATION_TICKERS
                     else splice.splice_level_series
                 )
                 level, report = splice_fn(ticker, proxy_ticker, raw, proxy_raw)
