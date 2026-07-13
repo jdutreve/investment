@@ -115,9 +115,19 @@ async def fetch_fred_observations(
         "file_type": "json",
         "output_type": str(output_type),
         "observation_start": observation_start,
-        "realtime_start": "1776-07-04",
-        "realtime_end": "9999-12-31",
     }
+    if output_type == 2:
+        # ALFRED first-release needs the FULL vintage history to find each
+        # observation's earliest one — but FRED caps the response at 2000
+        # vintage dates for the requested window; only widen the window for
+        # output_type=2 (current-vintage output_type=1 needs no override at
+        # all — its default realtime_start=today IS "current vintage").
+        # A frequently-revised DAILY series (T10Y2Y: 3075 vintages over its
+        # history) hits this cap even at output_type=1 if the window is
+        # widened unconditionally — verified live at M2 build time (400
+        # "exceeds the maximum number of vintage dates allowed").
+        params["realtime_start"] = "1776-07-04"
+        params["realtime_end"] = "9999-12-31"
 
     async def _call() -> list[dict[str, str]]:
         timeout = aiohttp.ClientTimeout(total=FRED_TIMEOUT_SECONDS)
@@ -133,35 +143,47 @@ async def fetch_fred_observations(
 
 
 def parse_fred_current(observations: list[dict[str, str]], lag_days: int) -> pd.Series:
-    """Current-vintage series, dated at `realtime_start` (fallback:
-    reference date + `lag_days` — ADR-003)."""
+    """Current-vintage series (`output_type=1`): every row shares the SAME
+    `realtime_start` — the snapshot time (today), not each observation's
+    own publication date — verified live at M2 build time. Using it as the
+    dating key collapses the whole series onto one row (a real bug this
+    fixes). Per-observation `realtime_start` is only meaningful for
+    ALFRED's per-vintage `output_type=2` (see `parse_alfred_first_release`)
+    — here the only dating available is reference date + the fixed
+    `availability_lag_days` fallback (ADR-003)."""
     rows: dict[date, float] = {}
     for obs in observations:
         if obs["value"] == ".":
             continue
         ref_date = date.fromisoformat(obs["date"])
-        pub_raw = obs.get("realtime_start")
-        pub_date = date.fromisoformat(pub_raw) if pub_raw else ref_date + timedelta(days=lag_days)
-        rows[pub_date] = float(obs["value"])
+        rows[ref_date + timedelta(days=lag_days)] = float(obs["value"])
     return _series_from_date_map(rows)
 
 
 def parse_alfred_first_release(observations: list[dict[str, str]]) -> pd.Series:
-    """`output_type=2` returns one row per (reference date, vintage) pair —
-    every value change ever recorded. The first release per reference date
-    is the row with the EARLIEST `realtime_start`; that `realtime_start` IS
-    the true publication date (ADR-003)."""
-    by_ref: dict[date, tuple[date, float]] = {}
-    for obs in observations:
-        if obs["value"] == ".":
+    """`output_type=2` ("Observations by Vintage Date, All Observations")
+    is WIDE, not long, verified live at M2 build time against the real
+    API (undocumented in FRED's own examples, which only show output_type
+    1/3): one row per REFERENCE date, every non-'date' key named
+    `<series_id>_<vintage_date YYYYMMDD>` holding the value as known as of
+    that vintage. The first release is the value in the EARLIEST-dated
+    column; that column's date suffix IS the true publication date
+    (ADR-003)."""
+    prices: dict[date, float] = {}
+    for row in observations:
+        vintages = [
+            (key.rsplit("_", 1)[-1], value)
+            for key, value in row.items()
+            if key != "date" and value not in (".", None)
+        ]
+        if not vintages:
             continue
-        ref_date = date.fromisoformat(obs["date"])
-        pub_date = date.fromisoformat(obs["realtime_start"])
-        value = float(obs["value"])
-        earliest = by_ref.get(ref_date)
-        if earliest is None or pub_date < earliest[0]:
-            by_ref[ref_date] = (pub_date, value)
-    return _series_from_date_map({pub: value for pub, value in by_ref.values()})
+        earliest_vintage, value = min(vintages, key=lambda item: item[0])
+        pub_date = date.fromisoformat(
+            f"{earliest_vintage[:4]}-{earliest_vintage[4:6]}-{earliest_vintage[6:8]}"
+        )
+        prices[pub_date] = float(value)
+    return _series_from_date_map(prices)
 
 
 async def fetch_fred_series(series_id: str, api_key: str, start: date, lag_days: int) -> pd.Series:

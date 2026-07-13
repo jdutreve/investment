@@ -264,10 +264,17 @@ def test_splice_with_resampled_validation_recovers_from_fixing_time_noise() -> N
 
 
 def test_parse_alfred_first_release_picks_earliest_vintage() -> None:
+    """FRED's real `output_type=2` shape (verified live at M2 build time,
+    undocumented in FRED's own API examples): WIDE, one row per reference
+    date, every non-'date' key named `<series>_<vintage YYYYMMDD>`."""
     observations = [
-        {"date": "2020-01-01", "realtime_start": "2020-02-15", "value": "100.0"},
-        {"date": "2020-01-01", "realtime_start": "2020-03-20", "value": "100.5"},
-        {"date": "2020-02-01", "realtime_start": "2020-03-14", "value": "101.0"},
+        {
+            "date": "2020-01-01",
+            "CPIAUCSL_20200215": "100.0",
+            "CPIAUCSL_20200320": "100.5",  # later revision — must be ignored
+        },
+        {"date": "2020-02-01", "CPIAUCSL_20200314": "101.0"},
+        {"date": "2020-03-01", "CPIAUCSL_20200410": "."},  # missing — skipped
     ]
     out = fetcher.parse_alfred_first_release(observations)
     assert len(out) == 2
@@ -275,14 +282,20 @@ def test_parse_alfred_first_release_picks_earliest_vintage() -> None:
     assert out.loc[pd.Timestamp("2020-03-14")] == 101.0
 
 
-def test_parse_fred_current_uses_realtime_start_or_lag_fallback() -> None:
+def test_parse_fred_current_dates_by_lag_not_realtime_start() -> None:
+    """Regression guard for a real bug: `output_type=1`'s `realtime_start`
+    is the SAME snapshot date (today) on every row regardless of the
+    observation's own reference date — verified live at M2 build time.
+    Using it as the dating key collapsed the whole series onto one row.
+    The only usable dating here is reference date + availability_lag_days."""
     observations = [
-        {"date": "2020-01-01", "realtime_start": "2020-01-05", "value": "5.0"},
-        {"date": "2020-02-01", "realtime_start": "", "value": "5.2"},
+        {"date": "2020-01-01", "realtime_start": "2026-07-13", "value": "5.0"},
+        {"date": "2020-02-01", "realtime_start": "2026-07-13", "value": "5.2"},
     ]
     out = fetcher.parse_fred_current(observations, lag_days=7)
-    assert out.loc[pd.Timestamp("2020-01-05")] == 5.0
-    assert out.loc[pd.Timestamp("2020-02-08")] == 5.2  # 2020-02-01 + 7d fallback
+    assert len(out) == 2
+    assert out.loc[pd.Timestamp("2020-01-08")] == 5.0  # 2020-01-01 + 7d
+    assert out.loc[pd.Timestamp("2020-02-08")] == 5.2  # 2020-02-01 + 7d
 
 
 def test_parse_fred_current_skips_missing_values() -> None:
