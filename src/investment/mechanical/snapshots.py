@@ -12,7 +12,6 @@ core (`rank_portfolios`, directly unit-testable) and a thin async DB layer
 import dataclasses
 import json
 from datetime import date
-from functools import cmp_to_key
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
@@ -57,18 +56,62 @@ def _gap_to_defender(row: ValuationRow, defender: ValuationRow) -> dict[str, flo
     return {field: delta(getattr(row, field), getattr(defender, field)) for field in GAP_FIELDS}
 
 
-def rank_portfolios(rows: list[ValuationRow], tiebreak_window: float) -> list[RankedRow]:
-    """docs/DATA_MODELS.md 'Ranking rule': `sortino_rolling` DESC; tie-break
-    WITHIN `tiebreak_window` = `calmar_rolling` DESC; final tie-break =
-    `max_drawdown` (less negative wins). `calmar_rolling < 1.0` is demoted to
-    the bottom regardless of Sortino.
+def _indicator(value: float | None) -> float:
+    """A missing indicator ranks last on every key (never silently 0.0, which
+    would beat a legitimately negative Sortino)."""
+    return value if value is not None else float("-inf")
 
-    The "within window" tie-break is a fuzzy (relative) comparison, not a
-    stable sort key, so this uses a comparator (`cmp_to_key`) rather than a
-    tuple key — the spec is silent on whether that can produce a non-transitive
-    order across many close values (a known property of any "tie within X"
-    rule); accepted as the literal reading of the pinned rule (CLAUDE.md
-    'state assumptions explicitly')."""
+
+def _order_by_rule(rows: list[ValuationRow], tiebreak_window: float) -> list[ValuationRow]:
+    """The Sortino-GROUPED order of docs/DATA_MODELS.md 'Ranking rule'.
+
+    Walking down the Sortino-sorted list, a portfolio stays in the current
+    group while it is within `tiebreak_window` of that GROUP'S LEADER (the
+    group's highest Sortino); otherwise it opens a new group and leads it.
+    Ordering is then the plain tuple key `(group, -calmar, -max_drawdown)`.
+
+    The grouping is what makes this a real total order, and is the reason
+    ranking is not a pairwise comparator: "tied within 0.02" is NOT transitive
+    (Sortinos 1.00 / 1.015 / 1.03 — A ties B, B ties C, but C beats A
+    outright), so under a pairwise reading no consistent ranking exists and the
+    result depends on the order rows happen to be compared in. Anchoring each
+    group to its leader removes the cycle by construction, which the Phase 9
+    replay needs: it calibrates thresholds on this output over thousands of
+    weekly rankings (docs/MILESTONES.md M6)."""
+    by_sortino = sorted(rows, key=lambda r: -_indicator(r.sortino_rolling))
+
+    grouped: list[tuple[int, ValuationRow]] = []
+    group = 0
+    leader: float | None = None
+    for row in by_sortino:
+        sortino = _indicator(row.sortino_rolling)
+        # `leader - sortino` is nan when both are -inf (all-missing Sortinos);
+        # nan > window is False, so they stay one group — which is right, they
+        # are equally unranked.
+        if leader is None:
+            leader = sortino
+        elif leader - sortino > tiebreak_window:
+            group += 1
+            leader = sortino
+        grouped.append((group, row))
+
+    def sort_key(entry: tuple[int, ValuationRow]) -> tuple[int, float, float]:
+        group_index, row = entry
+        return (group_index, -_indicator(row.calmar_rolling), -_indicator(row.max_drawdown))
+
+    # sorted() is stable, so rows tied on the whole key keep their Sortino
+    # order, and below that the caller's input order — deterministic because
+    # `_valuation_rows` pins it with ORDER BY portfolio.id.
+    return [row for _, row in sorted(grouped, key=sort_key)]
+
+
+def rank_portfolios(rows: list[ValuationRow], tiebreak_window: float) -> list[RankedRow]:
+    """docs/DATA_MODELS.md 'Ranking rule': `sortino_rolling` DESC, Sortino ties
+    GROUPED against the group leader (see `_order_by_rule`); within a group
+    `calmar_rolling` DESC, then `max_drawdown` (less negative wins).
+    `calmar_rolling < 1.0` is demoted below every eligible row regardless of
+    Sortino (Invariant#calmar-accumulation gate) — the demoted rows are ranked
+    among themselves by the same rule."""
     if not rows:
         return []
     defender = next((r for r in rows if r.defender), None)
@@ -78,23 +121,8 @@ def rank_portfolios(rows: list[ValuationRow], tiebreak_window: float) -> list[Ra
     def eligible(r: ValuationRow) -> bool:
         return (r.calmar_rolling or 0.0) >= 1.0
 
-    def compare(a: ValuationRow, b: ValuationRow) -> int:
-        sortino_a = a.sortino_rolling if a.sortino_rolling is not None else float("-inf")
-        sortino_b = b.sortino_rolling if b.sortino_rolling is not None else float("-inf")
-        if abs(sortino_a - sortino_b) > tiebreak_window:
-            return -1 if sortino_a > sortino_b else 1
-        calmar_a = a.calmar_rolling if a.calmar_rolling is not None else float("-inf")
-        calmar_b = b.calmar_rolling if b.calmar_rolling is not None else float("-inf")
-        if calmar_a != calmar_b:
-            return -1 if calmar_a > calmar_b else 1
-        mdd_a = a.max_drawdown if a.max_drawdown is not None else float("-inf")
-        mdd_b = b.max_drawdown if b.max_drawdown is not None else float("-inf")
-        if mdd_a != mdd_b:
-            return -1 if mdd_a > mdd_b else 1
-        return 0
-
-    ordered = sorted((r for r in rows if eligible(r)), key=cmp_to_key(compare)) + sorted(
-        (r for r in rows if not eligible(r)), key=cmp_to_key(compare)
+    ordered = _order_by_rule([r for r in rows if eligible(r)], tiebreak_window) + _order_by_rule(
+        [r for r in rows if not eligible(r)], tiebreak_window
     )
 
     return [

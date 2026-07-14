@@ -911,11 +911,29 @@ CREATE TABLE IF NOT EXISTS replay_report (...);
 
 Ranking rule (applies to snapshot rows):
 1. primary key = `sortino_rolling` DESC
-2. tie-break (within 0.02) = `calmar_rolling` DESC
-3. final tie-break = `max_drawdown` (less negative wins)
+2. Sortino ties are **grouped, not compared pairwise**: walking down the
+   Sortino-sorted list, a row stays in the current group while it is within
+   `ranking_tiebreak_window` (0.02) of that **group's LEADER** (the group's
+   highest Sortino); otherwise it opens a new group and becomes its leader
+3. within a group = `calmar_rolling` DESC
+4. final tie-break = `max_drawdown` (less negative wins)
+
+The grouping in (2) is what makes this a total order, and is why ranking is not
+implemented as a pairwise comparator. A pairwise "tied within 0.02" test is not
+transitive — Sortinos 1.00 / 1.015 / 1.03: A ties B and B ties C, but C beats A
+outright (0.03 > 0.02) — so the pairwise reading admits **no** consistent
+ranking, and the output follows whatever order rows are compared in (measured
+at M4: 3 different rankings from the same 5 portfolios, decided by SQLite's row
+order). Anchoring each group to its leader reduces the rule to the plain sort
+key `(group, −calmar_rolling, −max_drawdown)`: transitive by construction, and
+reproducible — the Phase 9 replay calibrates thresholds on this output over
+thousands of weekly rankings, so a ranking that can shuffle without a data
+change is not evidence. `snapshots._valuation_rows` additionally pins its input
+with `ORDER BY portfolio.id`, so rows tied on the whole key resolve stably too.
 
 Snapshots with `calmar_rolling < 1.0` are demoted to the bottom regardless of
-Sortino (Invariant#calmar-accumulation gate). A `max_drawdown` breaching the
+Sortino (Invariant#calmar-accumulation gate); the demoted rows are ranked among
+themselves by the same rule. A `max_drawdown` breaching the
 **user** rule (-15%) keeps the row in the ranking but excludes the portfolio
 from the defender role and from proposal candidacy.
 

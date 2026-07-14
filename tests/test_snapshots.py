@@ -2,6 +2,8 @@
 rule'; docs/TASKS.md Phase 8 `test_portfolio_ranking`) — no DB, no I/O.
 """
 
+import itertools
+
 import pytest
 
 from investment.mechanical.snapshots import ValuationRow, rank_portfolios
@@ -105,6 +107,45 @@ def test_gap_to_defender_null_only_for_defender() -> None:
     assert challenger_row.gap_to_defender["sortino_rolling"] == pytest.approx(0.5)
     assert challenger_row.gap_to_defender["calmar_rolling"] == pytest.approx(0.5)
     assert challenger_row.gap_to_defender["max_drawdown"] == pytest.approx(0.05)
+
+
+def test_sortino_chain_is_grouped_against_the_leader_not_pairwise() -> None:
+    """The case that motivated the grouped rule (docs/DATA_MODELS.md 'Ranking
+    rule'): Sortinos 1.00 / 1.015 / 1.03 chain pairwise — A ties B (0.015), B
+    ties C (0.015), but C beats A outright (0.03 > 0.02). Under a pairwise
+    "tied within 0.02" comparator no consistent order exists. Grouping against
+    the LEADER resolves it: C leads, B is within 0.02 of C so joins it, A is
+    0.03 below the leader so opens its own group — and A ranks last despite
+    having the best Calmar, because it is NOT tied with the leader."""
+    rows = [
+        _row("A_low_sortino_best_calmar", defender=True, sortino=1.00, calmar=9.0),
+        _row("B_mid", sortino=1.015, calmar=2.0),
+        _row("C_top", sortino=1.03, calmar=1.5),
+    ]
+    ranked = rank_portfolios(rows, TIEBREAK_WINDOW)
+
+    # C leads its group; B is tied with C (within 0.02 of it) and wins the
+    # group on calmar 2.0 > 1.5. A trails in its own group.
+    assert [rr.row.portfolio_id for rr in ranked] == ["B_mid", "C_top", "A_low_sortino_best_calmar"]
+
+
+def test_ranking_is_invariant_to_input_order() -> None:
+    """Transitivity, stated as the property that actually matters: the ranking
+    must not depend on the order rows arrive in. This is what a pairwise
+    within-window comparator could not guarantee, and what the Phase 9 replay
+    needs (M6 calibrates thresholds on this output)."""
+    rows = [
+        _row("defender", defender=True, sortino=1.00, calmar=9.0),
+        _row("b", sortino=1.015, calmar=2.0),
+        _row("c", sortino=1.03, calmar=1.5),
+        _row("d", sortino=1.04, calmar=3.0),
+        _row("e", sortino=0.50, calmar=1.1),
+    ]
+    expected = [rr.row.portfolio_id for rr in rank_portfolios(rows, TIEBREAK_WINDOW)]
+
+    for permutation in itertools.permutations(rows):
+        got = [rr.row.portfolio_id for rr in rank_portfolios(list(permutation), TIEBREAK_WINDOW)]
+        assert got == expected, f"ranking changed under input permutation: {got} != {expected}"
 
 
 def test_rank_portfolios_requires_a_defender() -> None:

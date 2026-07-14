@@ -114,8 +114,14 @@ Weight-like fields are 0–1 fractions everywhere. Every invariant matures over
 35y at birth; details: docs/ARCHITECTURE.md "Birth maturation".
 
 **Ranking rule** — all enabled portfolios ranked together, defender included,
-never privileged. Sort: `sortino_rolling` DESC; tie-break within 0.02:
-`calmar_rolling` DESC; then `max_drawdown` (less negative wins).
+never privileged. Sort: `sortino_rolling` DESC, with Sortino ties GROUPED, not
+compared pairwise: a row joins the current group while within 0.02 of that
+group's LEADER (highest Sortino), else opens a new group and leads it. Within
+a group: `calmar_rolling` DESC, then `max_drawdown` (less negative wins).
+A *pairwise* "tied within 0.02" test is NOT transitive (1.00/1.015/1.03: A ties
+B, B ties C, C beats A) — it admits no consistent order and the result follows
+row order; grouping makes the key `(group, −calmar, −max_drawdown)`, a total
+order (M4).
 `calmar_rolling < 1.0` → demoted to bottom. Breaching the user drawdown rule
 keeps the row ranked but excludes it from defender role and proposal candidacy.
 
