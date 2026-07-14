@@ -177,6 +177,14 @@ async def _market_context(db: InvestmentDB) -> dict[str, Any]:
 
 
 async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
+    """ORDER BY portfolio.id is load-bearing, not cosmetic: SQLite guarantees
+    no row order without it, and `rank_portfolios`' tie-break is a WINDOW
+    comparison ("within `ranking_tiebreak_window`"), which is not transitive —
+    so the ranking of near-tied portfolios can depend on the order they arrive
+    in. A stable, content-independent input order makes the ranking
+    reproducible run-to-run and, above all, replayable (Phase 9 / M6 calibrates
+    thresholds on this output; a ranking that can shuffle under a VACUUM or a
+    query-planner change is not evidence)."""
     rows = await db.query(
         "SELECT portfolio.id, portfolio.defender, portfolio.framework_id, portfolio.allocation, "
         "portfolio.sharpe_rolling, portfolio.sortino_rolling, portfolio.calmar_rolling, "
@@ -187,7 +195,7 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
         "(SELECT strategy_id FROM holds "
         " WHERE holds.portfolio_id = portfolio.id AND holds.is_primary = 1 LIMIT 1) "
         " AS primary_strategy_id "
-        "FROM portfolio WHERE enabled = 1"
+        "FROM portfolio WHERE enabled = 1 ORDER BY portfolio.id"
     )
     return [
         ValuationRow(
