@@ -3,15 +3,18 @@
 Idempotent: every vertex/edge write is an UPSERT (or an idempotent
 INSERT OR REPLACE for the market_data TS), safe to re-run.
 
-M1+M2+M3 scope: steps 1-5, 7, 8 (the static graph — reference tables,
+M1+M2+M3+M4 scope: steps 1-5, 7, 8 (the static graph — reference tables,
 Framework, RegimeType, Invariant, Strategy + BACKED_BY, Scenario, Portfolio
 + HOLDS/DESIGNED_FOR), step 9 (MarketData TS backfill: Yahoo + FRED/ALFRED,
-HISTORY_PROXIES splice, GROWTH_COMPOSITE/GLOBAL_LIQUIDITY composites), and
-step 10 (historical Regime materialization — market/regime.py `detect()`,
-the same code path the live catch-up uses). Steps 6/6b (corpus), 10b
-(benchmark valuation), 11/11b/11c (backtests/FAVORS/maturation/warm-start),
-12-13 (NAV/snapshot) are added by later milestones (docs/MILESTONES.md
-"Incremental seed") — this run logs them as SKIPPED, not silently omitted.
+HISTORY_PROXIES splice, GROWTH_COMPOSITE/GLOBAL_LIQUIDITY composites), step
+10 (historical Regime materialization — market/regime.py `detect()`, the
+same code path the live catch-up uses), step 12 (PortfolioNAV TS backfill —
+mechanical/ratios.py `backfill_nav`) and step 13 (UC6 valuation + UC7
+ranking bootstrap — mechanical/ratios.py `value_portfolios` +
+mechanical/snapshots.py `build_snapshot`). Steps 6/6b (corpus), 10b
+(benchmark valuation), 11/11b/11c (backtests/FAVORS/maturation/warm-start)
+are added by later milestones (docs/MILESTONES.md "Incremental seed") — this
+run logs them as SKIPPED, not silently omitted.
 
 UC0 is the one documented exemption to the "EventLog precedes commit" rule
 (CLAUDE.md "EventLog" rule): the closing
@@ -29,6 +32,7 @@ import pandas as pd
 
 from investment.config import Settings
 from investment.db.seed_data import (
+    ALL_WEATHER_BENCHMARK,
     ALLOWED_TICKERS,
     BACKED_BY_EDGES,
     DESIGNED_FOR_EDGES,
@@ -45,6 +49,7 @@ from investment.db.seed_data import (
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
+from investment.mechanical import ratios, snapshots
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -76,8 +81,6 @@ DEFERRED_STEPS = {
     "11": "initial Backtests + FAVORS (M5)",
     "11b": "invariant birth maturation over 35y (M5)",
     "11c": "scenario probability warm-start over 35y (M5)",
-    "12": "PortfolioNAV TS backfill (M4)",
-    "13": "portfolio_weekly_snapshot bootstrap (M4)",
 }
 
 
@@ -369,6 +372,36 @@ async def _materialize_regimes(db: InvestmentDB) -> dict[str, Any]:
     return {"regime_episodes": len(commits)}
 
 
+async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
+    """Step 12 (M4): PortfolioNAV TS backfill — the ALL_WEATHER_BENCHMARK
+    synthetic series FIRST (so per-portfolio vs_benchmark can read it back,
+    mechanical/ratios.py `backfill_nav` docstring), then one series per
+    Portfolio, from the date all constituents exist (docs/TASKS.md Task
+    1ter.7 item 4)."""
+    window = int(SYSTEM_THRESHOLDS["rolling_window_days"])
+    results: dict[str, Any] = {
+        ratios.ALL_WEATHER_ID: dataclasses.asdict(
+            await ratios.backfill_nav(db, ratios.ALL_WEATHER_ID, ALL_WEATHER_BENCHMARK, window)
+        )
+    }
+    for pf in PORTFOLIOS:
+        allocation = cast("dict[str, float]", pf["allocation"])
+        result = await ratios.backfill_nav(db, _vertex_id(pf), allocation, window)
+        results[_vertex_id(pf)] = dataclasses.asdict(result)
+    return results
+
+
+async def _seed_snapshot(db: InvestmentDB) -> dict[str, Any]:
+    """Step 13 (M4): UC6 valuation (updates Portfolio vertices from the
+    PortfolioNAV TS just backfilled) + UC7 ranking bootstrap
+    (portfolio_weekly_snapshot, one row per enabled Portfolio for the seed
+    date, docs/TASKS.md Task 1ter.7 item 5)."""
+    window = int(SYSTEM_THRESHOLDS["rolling_window_days"])
+    valuations = await ratios.value_portfolios(db, window)
+    ranked = await snapshots.build_snapshot(db, SYSTEM_THRESHOLDS["ranking_tiebreak_window"])
+    return {"portfolios_valued": len(valuations), "snapshot_rows": len(ranked)}
+
+
 async def run_seed(
     settings: Settings,
     *,
@@ -392,6 +425,8 @@ async def run_seed(
             db, settings, fetch_raw=fetch_raw, yahoo_rate_limit_seconds=yahoo_rate_limit_seconds
         )
         inventory["regime"] = await _materialize_regimes(db)
+        inventory["portfolio_nav"] = await _seed_portfolio_nav(db)
+        inventory["snapshot"] = await _seed_snapshot(db)
 
         for step, reason in DEFERRED_STEPS.items():
             logger.warning("UC0 step %s SKIPPED (%s)", step, reason)

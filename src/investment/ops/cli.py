@@ -1,8 +1,8 @@
 """`invest` CLI (docs/TASKS.md Task 6ter.2) — partial: `sql`, `status`,
-`invariants`. The rest of the command set (ranking, proposals,
-accept/reject, chat, ...) arrives once ops/api.py and the agent process
-exist (M9-M10); this is the "falls back to direct read-only SQLite when
-the agent is down" path, used unconditionally for now since there is no
+`invariants`, `regime`, `ranking`, `nav`. The rest of the command set
+(proposals, accept/reject, chat, ...) arrives once ops/api.py and the agent
+process exist (M9-M10); this is the "falls back to direct read-only SQLite
+when the agent is down" path, used unconditionally for now since there is no
 agent process yet.
 
 Reads are direct on SQLite, read-only (ADR-005 one-command-layer rule:
@@ -24,7 +24,12 @@ from investment.market.regime import RegimeThresholds, SeriesHistory
 from investment.market.regime import audit as regime_audit
 
 _STATUS_ENTITY_COUNTS = (
-    "framework", "regime_type", "invariant", "strategy", "scenario", "portfolio",
+    "framework",
+    "regime_type",
+    "invariant",
+    "strategy",
+    "scenario",
+    "portfolio",
 )
 
 
@@ -91,9 +96,11 @@ def cmd_sql(db_path: Path, query: str, as_json: bool) -> None:
         con.close()
 
     if as_json:
-        print(json.dumps(
-            [_unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
-        ))
+        print(
+            json.dumps(
+                [_unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
+            )
+        )
         return
 
     if not rows:
@@ -132,9 +139,7 @@ def cmd_invariants(
     params: dict[str, str] = {}
     con = _connect_readonly(db_path)
     if regime is not None:
-        where.append(
-            "EXISTS (SELECT 1 FROM json_each(invariant.tags) WHERE value = :regime_tag)"
-        )
+        where.append("EXISTS (SELECT 1 FROM json_each(invariant.tags) WHERE value = :regime_tag)")
         params["regime_tag"] = f"regime:{_resolve_regime_type_id(con, regime)}"
     if tag is not None:
         where.append("EXISTS (SELECT 1 FROM json_each(invariant.tags) WHERE value = :tag)")
@@ -158,9 +163,11 @@ def cmd_invariants(
         con.close()
 
     if as_json:
-        print(json.dumps(
-            [_unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
-        ))
+        print(
+            json.dumps(
+                [_unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
+            )
+        )
         return
 
     if not rows:
@@ -178,9 +185,7 @@ def cmd_invariants(
 def cmd_status(db_path: Path, as_json: bool) -> None:
     con = _connect_readonly(db_path)
     try:
-        defender = con.execute(
-            "SELECT id, name FROM portfolio WHERE defender = 1"
-        ).fetchone()
+        defender = con.execute("SELECT id, name FROM portfolio WHERE defender = 1").fetchone()
         last_chain = con.execute(
             "SELECT last_chain_success FROM detector_state WHERE id = 'singleton'"
         ).fetchone()
@@ -195,12 +200,18 @@ def cmd_status(db_path: Path, as_json: bool) -> None:
         con.close()
 
     if as_json:
-        print(json.dumps({
-            "defender": dict(defender) if defender else None,
-            "last_chain_success": last_chain["last_chain_success"] if last_chain else None,
-            "pending_proposals": pending["n"],
-            "seed_counts": counts,
-        }, indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "defender": dict(defender) if defender else None,
+                    "last_chain_success": last_chain["last_chain_success"] if last_chain else None,
+                    "pending_proposals": pending["n"],
+                    "seed_counts": counts,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return
 
     defender_text = f"{defender['name']} ({defender['id']})" if defender else "(none)"
@@ -300,6 +311,115 @@ def cmd_regime_audit(db_path: Path, as_json: bool) -> None:
     print(f"{_label('suppressed by hysteresis:')} {_value(str(report.suppressed_switches))}")
 
 
+_SPARKLINE_CHARS = "▁▂▃▄▅▆▇█"
+
+
+def _sparkline(values: list[float], width: int = 60) -> str:
+    """Terminal sparkline (docs/MILESTONES.md M4 'invest nav <id> terminal
+    sparkline') — evenly-sampled down to `width` points, scaled to the
+    series' own min/max."""
+    if not values:
+        return ""
+    if len(values) > width:
+        step = len(values) / width
+        values = [values[int(i * step)] for i in range(width)]
+    lo, hi = min(values), max(values)
+    span = hi - lo or 1.0
+    last = len(_SPARKLINE_CHARS) - 1
+    return "".join(_SPARKLINE_CHARS[min(last, int((v - lo) / span * last))] for v in values)
+
+
+def cmd_ranking(db_path: Path, snapshot_date: str | None, as_json: bool) -> None:
+    """docs/TASKS.md Task 6ter.2 `invest ranking [--date D]` — the latest (or
+    a given date's) portfolio_weekly_snapshot table."""
+    con = _connect_readonly(db_path)
+    try:
+        if snapshot_date is None:
+            latest = con.execute("SELECT MAX(date) AS d FROM portfolio_weekly_snapshot").fetchone()
+            snapshot_date = latest["d"] if latest else None
+        rows = (
+            []
+            if snapshot_date is None
+            else [
+                dict(row)
+                for row in con.execute(
+                    "SELECT rank, portfolio_id, defender, sortino_rolling, calmar_rolling, "
+                    "max_drawdown, recommendation, gap_to_defender FROM portfolio_weekly_snapshot "
+                    "WHERE date = ? ORDER BY rank",
+                    (snapshot_date,),
+                ).fetchall()
+            ]
+        )
+    finally:
+        con.close()
+
+    if as_json:
+        print(json.dumps([_unnest_json_columns(row) for row in rows], indent=2, ensure_ascii=False))
+        return
+
+    if not rows:
+        print(_c("(no snapshot yet — run the seed or the weekly chain first)", _Ansi.DIM))
+        return
+    print(f"{_label('date:')} {_value(str(snapshot_date))}")
+    header = (
+        f"{'rank':4s} {'portfolio':30s} {'def':3s} {'sortino':8s} {'calmar':8s} "
+        f"{'max_dd':8s} recommendation"
+    )
+    print(_c(header, _Ansi.BOLD, _Ansi.CYAN))
+    for row in rows:
+        defender_mark = "*" if row["defender"] else ""
+        sortino = f"{row['sortino_rolling']:.2f}" if row["sortino_rolling"] is not None else "-"
+        calmar = f"{row['calmar_rolling']:.2f}" if row["calmar_rolling"] is not None else "-"
+        mdd = f"{row['max_drawdown']:.3f}" if row["max_drawdown"] is not None else "-"
+        print(
+            f"{row['rank']:<4d} {row['portfolio_id']:30s} {defender_mark:3s} "
+            f"{sortino:8s} {calmar:8s} {mdd:8s} {row['recommendation']}"
+        )
+
+
+def cmd_nav(db_path: Path, portfolio_id: str, as_json: bool) -> None:
+    """docs/TASKS.md Task 6ter.2 `invest nav <portfolio_id>` — NAV series +
+    terminal sparkline (docs/MILESTONES.md M4)."""
+    con = _connect_readonly(db_path)
+    try:
+        rows = [
+            dict(row)
+            for row in con.execute(
+                "SELECT ts, nav, daily_return, sharpe_rolling, sortino_rolling, calmar_rolling, "
+                "drawdown, vs_benchmark FROM portfolio_nav WHERE portfolio_id = ? ORDER BY ts",
+                (portfolio_id,),
+            ).fetchall()
+        ]
+    finally:
+        con.close()
+
+    if as_json:
+        print(json.dumps(rows, indent=2, ensure_ascii=False))
+        return
+
+    if not rows:
+        print(_c(f"(no NAV history for {portfolio_id})", _Ansi.DIM))
+        return
+    latest = rows[-1]
+    print(f"{_label('portfolio:')} {_value(portfolio_id)}")
+    date_range = f"{rows[0]['ts']} -> {latest['ts']} ({len(rows)} rows)"
+    print(f"{_label('range:')} {_value(date_range)}")
+    nav_str = f"{latest['nav']:.2f}"
+    print(f"{_label('nav:')} {_value(nav_str)}")
+    for key in (
+        "daily_return",
+        "sharpe_rolling",
+        "sortino_rolling",
+        "calmar_rolling",
+        "drawdown",
+        "vs_benchmark",
+    ):
+        val = latest[key]
+        print(f"{_label(key + ':')} {_value(f'{val:.4f}') if val is not None else '-'}")
+    navs = [row["nav"] for row in rows if row["nav"] is not None]
+    print(f"{_label('sparkline:')} {_c(_sparkline(navs), _Ansi.CYAN)}")
+
+
 def main() -> None:
     settings = Settings()  # type: ignore[call-arg]  # populated from .env at runtime
     parser = argparse.ArgumentParser(prog="invest")
@@ -332,20 +452,34 @@ def main() -> None:
     )
     regime_parser.add_argument("--json", action="store_true", help="output as JSON")
 
+    ranking_parser = subparsers.add_parser(
+        "ranking", help="latest (or --date) portfolio_weekly_snapshot table"
+    )
+    ranking_parser.add_argument("--date", help="ISO date; defaults to the latest snapshot")
+    ranking_parser.add_argument("--json", action="store_true", help="output as JSON")
+
+    nav_parser = subparsers.add_parser(
+        "nav", help="NAV series + terminal sparkline for a portfolio"
+    )
+    nav_parser.add_argument("portfolio_id")
+    nav_parser.add_argument("--json", action="store_true", help="output as JSON")
+
     args = parser.parse_args()
     if args.command == "sql":
         cmd_sql(settings.db_path, args.query, args.json)
     elif args.command == "status":
         cmd_status(settings.db_path, args.json)
     elif args.command == "invariants":
-        cmd_invariants(
-            settings.db_path, args.regime, args.tag, args.status, args.top, args.json
-        )
+        cmd_invariants(settings.db_path, args.regime, args.tag, args.status, args.top, args.json)
     elif args.command == "regime":
         if args.audit:
             cmd_regime_audit(settings.db_path, args.json)
         else:
             cmd_regime(settings.db_path, args.history, args.json)
+    elif args.command == "ranking":
+        cmd_ranking(settings.db_path, args.date, args.json)
+    elif args.command == "nav":
+        cmd_nav(settings.db_path, args.portfolio_id, args.json)
 
 
 if __name__ == "__main__":
