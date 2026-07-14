@@ -371,6 +371,14 @@ CREATE TABLE IF NOT EXISTS system_thresholds (
 CREATE TABLE IF NOT EXISTS detector_state (
   id                      TEXT PRIMARY KEY,
   candidate_type          TEXT,
+  candidate_start_ts      TEXT,              -- date the current candidate streak
+                                              --   began (M3 addition, beyond the
+                                              --   TASKS.md DDL): backdates a
+                                              --   confirmed regime's start_date to
+                                              --   the streak's first print, so
+                                              --   'detector lag' (start_date ->
+                                              --   created_at) is a real, bounded
+                                              --   number, not always zero.
   consecutive_prints      INTEGER NOT NULL DEFAULT 0,
   last_print_ts_growth    TEXT,
   last_print_ts_inflation TEXT,

@@ -11,6 +11,7 @@ writes only ever go through the running agent — see docs/DECISIONS.md).
 
 import argparse
 import contextlib
+import dataclasses
 import json
 import os
 import sqlite3
@@ -19,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from investment.config import Settings
+from investment.market.regime import RegimeThresholds, SeriesHistory
+from investment.market.regime import audit as regime_audit
 
 _STATUS_ENTITY_COUNTS = (
     "framework", "regime_type", "invariant", "strategy", "scenario", "portfolio",
@@ -210,6 +213,93 @@ def cmd_status(db_path: Path, as_json: bool) -> None:
     print(f"{_label('seed counts:')} {_value(str(counts))}")
 
 
+def _fetch_regime_rows(con: sqlite3.Connection, history: bool) -> list[dict[str, Any]]:
+    where = "" if history else "WHERE regime.is_current = 1"
+    query = (
+        "SELECT regime.id, regime.regime_type_id, regime_type.name, "
+        "regime.start_date, regime.end_date, regime.confidence, regime.tags, "
+        "regime.is_current "
+        "FROM regime JOIN regime_type ON regime_type.id = regime.regime_type_id "
+        f"{where} ORDER BY regime.start_date"
+    )
+    return [dict(row) for row in con.execute(query).fetchall()]
+
+
+def cmd_regime(db_path: Path, history: bool, as_json: bool) -> None:
+    """docs/MILESTONES.md M3 DoV `invest regime --history` — episodes ranked
+    chronologically (or just the current one, without --history)."""
+    con = _connect_readonly(db_path)
+    try:
+        rows = _fetch_regime_rows(con, history)
+    finally:
+        con.close()
+
+    if as_json:
+        print(json.dumps([_unnest_json_columns(row) for row in rows], indent=2, ensure_ascii=False))
+        return
+
+    if not rows:
+        print(_c("(no regime history — run the seed or catch-up first)", _Ansi.DIM))
+        return
+    header = f"{'name':32s} {'start':10s} {'end':10s} {'conf':5s} tags"
+    print(_c(header, _Ansi.BOLD, _Ansi.CYAN))
+    for row in rows:
+        tags = ", ".join(json.loads(row["tags"])) if row["tags"] else ""
+        end = row["end_date"] or ("current" if row["is_current"] else "-")
+        conf = f"{row['confidence']:.0f}" if row["confidence"] is not None else "-"
+        print(f"{row['name']:32s} {row['start_date']:10s} {end:10s} {conf:5s} {tags}")
+
+
+def _series_history(con: sqlite3.Connection, ticker: str) -> SeriesHistory:
+    rows = [
+        dict(row)
+        for row in con.execute(
+            "SELECT ts, level, speed, acceleration FROM market_data WHERE ticker = ? ORDER BY ts",
+            (ticker,),
+        ).fetchall()
+    ]
+    return SeriesHistory(ts=[row["ts"] for row in rows], rows=rows)
+
+
+def cmd_regime_audit(db_path: Path, as_json: bool) -> None:
+    """docs/MILESTONES.md M3 DoV 'STABILITY AUDIT (#4)' — an independent,
+    from-scratch replay of the full market_data history via the pure
+    `regime.audit()` (no `InvestmentDB`: reads stay on the CLI's read-only
+    connection, per ADR-005)."""
+    con = _connect_readonly(db_path)
+    try:
+        threshold_rows = [
+            dict(row) for row in con.execute("SELECT key, value FROM system_thresholds").fetchall()
+        ]
+        thresholds = RegimeThresholds.from_rows(threshold_rows)
+        growth = _series_history(con, "GROWTH_COMPOSITE")
+        inflation = _series_history(con, "CPIAUCSL")
+        liquidity = _series_history(con, "GLOBAL_LIQUIDITY")
+        vix = _series_history(con, "^VIX")
+    finally:
+        con.close()
+
+    report = regime_audit(growth, inflation, liquidity, vix, thresholds)
+
+    if as_json:
+        print(json.dumps(dataclasses.asdict(report), indent=2, ensure_ascii=False))
+        return
+
+    whipsaw_color = _Ansi.YELLOW if report.whipsaw_count else _Ansi.CYAN
+    median = f"{report.median_episode_days:.0f}d" if report.median_episode_days is not None else "-"
+    lag = f"{report.mean_detector_lag_days:.0f}d / {report.max_detector_lag_days}d"
+
+    print(f"{_label('episodes:')} {_value(str(report.episode_count))}")
+    print(
+        f"{_label('whipsaws (reversed <=3mo):')} "
+        f"{_c(str(report.whipsaw_count), _Ansi.BOLD, whipsaw_color)}"
+    )
+    print(f"{_label('median episode length:')} {_value(median)}")
+    print(f"{_label('detector lag (mean / max):')} {_value(lag)}")
+    print(f"{_label('raw candidate switches:')} {_value(str(report.raw_candidate_switches))}")
+    print(f"{_label('suppressed by hysteresis:')} {_value(str(report.suppressed_switches))}")
+
+
 def main() -> None:
     settings = Settings()  # type: ignore[call-arg]  # populated from .env at runtime
     parser = argparse.ArgumentParser(prog="invest")
@@ -233,6 +323,15 @@ def main() -> None:
     invariants_parser.add_argument("--top", type=int, help="limit to the top N")
     invariants_parser.add_argument("--json", action="store_true", help="output as JSON")
 
+    regime_parser = subparsers.add_parser(
+        "regime", help="current regime, --history for all episodes, --audit for M3 stability audit"
+    )
+    regime_parser.add_argument("--history", action="store_true", help="list every episode")
+    regime_parser.add_argument(
+        "--audit", action="store_true", help="stability audit (whipsaws, lag, hysteresis)"
+    )
+    regime_parser.add_argument("--json", action="store_true", help="output as JSON")
+
     args = parser.parse_args()
     if args.command == "sql":
         cmd_sql(settings.db_path, args.query, args.json)
@@ -242,6 +341,11 @@ def main() -> None:
         cmd_invariants(
             settings.db_path, args.regime, args.tag, args.status, args.top, args.json
         )
+    elif args.command == "regime":
+        if args.audit:
+            cmd_regime_audit(settings.db_path, args.json)
+        else:
+            cmd_regime(settings.db_path, args.history, args.json)
 
 
 if __name__ == "__main__":

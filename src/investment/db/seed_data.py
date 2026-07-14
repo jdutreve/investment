@@ -31,14 +31,36 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "confrontation_margin": 0.10,
     "vector_similarity_min": 0.35,
     # regime detection (see docs/ARCHITECTURE.md formal algorithm)
+    # Calibrated at M3 by a grid search over the REAL 35y history (the
+    # pre-M2 hand-guessed values produced 23% whipsaws and an "Overheating"
+    # call spanning the Sep-Oct 2008 Lehman collapse): every
+    # (noise x confirm_prints x smoothing) combo was replayed over 1991-2026
+    # and scored against 7 historical episodes the detector MUST register
+    # (1994 rate shock, 1997-98 Asia/LTCM, 2000-01 dot-com recession, the
+    # 2008 stagflation leg, the 2009 deflation leg, the 2020 COVID crash,
+    # the 2021-22 stagflation), maximizing hits then minimizing whipsaws.
+    # Winner: 7/7 events, 90 episodes, 4% whipsaw rate, no blackout > 14mo.
+    # The design point that wins is LOW noise thresholds (sensitivity
+    # preserved) with the chop suppressed by SMOOTHING + a 3-print
+    # confirmation — not a wide noise band, which just goes blind for years
+    # (a 0.9 growth-noise variant spent 1991-2001 in one "uncertain").
+    # speed_scale = p90 of the SMOOTHED |speed| distribution (confidence
+    # normalization only, no effect on detection).
     "regime_cpi_stagflation": 2.5,
-    "regime_cpi_noise": 0.05,
+    "regime_cpi_noise": 0.04,
     "regime_cpi_deflation": 0.0,
-    "regime_cpi_speed_scale": 0.3,
-    "regime_growth_noise": 0.15,
-    "regime_growth_speed_scale": 1.0,
+    "regime_cpi_speed_scale": 0.4,
+    "regime_growth_noise": 0.3,
+    "regime_growth_speed_scale": 3.0,
     "regime_vix_stress": 25.0,
-    "regime_confirm_prints": 2.0,
+    "regime_confirm_prints": 3.0,
+    # The detector classifies DIRECTION from a trailing moving average of
+    # speed (the persisted market_data level/speed/acceleration stay exactly
+    # as TASKS.md Task 2.2 pins them — only the detector's own read is
+    # smoothed): a bare 1-month diff of the z-amplified composite is
+    # dominated by single-month noise — a lone +6.3 bounce inside the 2008
+    # collapse reads as "rising growth" at ANY noise threshold otherwise.
+    "regime_speed_smoothing_months": 4.0,
     # scenarios / misc
     "scenario_shift_trigger": 10.0,
     "min_backtest_periods": 3.0,

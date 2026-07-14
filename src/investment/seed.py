@@ -3,12 +3,13 @@
 Idempotent: every vertex/edge write is an UPSERT (or an idempotent
 INSERT OR REPLACE for the market_data TS), safe to re-run.
 
-M1+M2 scope: steps 1-5, 7, 8 (the static graph — reference tables,
+M1+M2+M3 scope: steps 1-5, 7, 8 (the static graph — reference tables,
 Framework, RegimeType, Invariant, Strategy + BACKED_BY, Scenario, Portfolio
-+ HOLDS/DESIGNED_FOR) plus step 9 (MarketData TS backfill: Yahoo + FRED/
-ALFRED, HISTORY_PROXIES splice, GROWTH_COMPOSITE/GLOBAL_LIQUIDITY
-composites). Steps 6/6b (corpus), 10/10b (regime materialization +
-benchmark valuation), 11/11b/11c (backtests/FAVORS/maturation/warm-start),
++ HOLDS/DESIGNED_FOR), step 9 (MarketData TS backfill: Yahoo + FRED/ALFRED,
+HISTORY_PROXIES splice, GROWTH_COMPOSITE/GLOBAL_LIQUIDITY composites), and
+step 10 (historical Regime materialization — market/regime.py `detect()`,
+the same code path the live catch-up uses). Steps 6/6b (corpus), 10b
+(benchmark valuation), 11/11b/11c (backtests/FAVORS/maturation/warm-start),
 12-13 (NAV/snapshot) are added by later milestones (docs/MILESTONES.md
 "Incremental seed") — this run logs them as SKIPPED, not silently omitted.
 
@@ -43,7 +44,7 @@ from investment.db.seed_data import (
     SYSTEM_THRESHOLDS,
 )
 from investment.db.sqlite import InvestmentDB
-from investment.market import derivatives, fetcher, growth, liquidity, splice
+from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -71,7 +72,6 @@ RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY"})
 DEFERRED_STEPS = {
     "6": "corpus seed (M7)",
     "6b": "initial curation pass (M7)",
-    "10": "historical Regime materialization (M3)",
     "10b": "benchmark_valuation materialization (M5)",
     "11": "initial Backtests + FAVORS (M5)",
     "11b": "invariant birth maturation over 35y (M5)",
@@ -360,6 +360,15 @@ async def _seed_market_data(
     }
 
 
+async def _materialize_regimes(db: InvestmentDB) -> dict[str, Any]:
+    """Step 10: historical Regime materialization — `market/regime.py`'s
+    `detect()` is ONE code path shared by UC0 (this call, over the full 35y
+    backfill step 9 just persisted), the Phase 9 replay, the Monday catch-up,
+    and the on-demand UC9 prelude (docs/DATA_MODELS.md Regime entity)."""
+    commits = await regime.detect(db)
+    return {"regime_episodes": len(commits)}
+
+
 async def run_seed(
     settings: Settings,
     *,
@@ -382,6 +391,7 @@ async def run_seed(
         inventory["market_data"] = await _seed_market_data(
             db, settings, fetch_raw=fetch_raw, yahoo_rate_limit_seconds=yahoo_rate_limit_seconds
         )
+        inventory["regime"] = await _materialize_regimes(db)
 
         for step, reason in DEFERRED_STEPS.items():
             logger.warning("UC0 step %s SKIPPED (%s)", step, reason)
