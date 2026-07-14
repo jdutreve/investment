@@ -71,16 +71,20 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "EFA", "asset_class": "INTL_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "EEM", "asset_class": "EM_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "SHY", "asset_class": "US_TREASURY_1_3", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "BIL", "asset_class": "US_TBILL", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "DBC", "asset_class": "COMMODITIES", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^IRX", "asset_class": "RISK_FREE", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^VIX", "asset_class": "VOLATILITY", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "CHFUSD=X", "asset_class": "FX", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct", "availability_lag_days": 13},
+    # Revised macro series (ADR-003): fetched as ALFRED first-release vintages
+    # (market/fetcher.py REVISED_SERIES), so each observation is dated at its
+    # true vintage publication date — NO availability_lag_days applies (it is a
+    # fallback only for the current-vintage path, which these never take).
+    {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
+    {"ticker": "UNRATE", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none"},
+    {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
+    # Non-revised (current-vintage fetch): dated at reference date + availability_lag_days.
     {"ticker": "T10Y2Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
-    {"ticker": "UNRATE", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 7},
-    {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct", "availability_lag_days": 16},
-    # GLOBAL_LIQUIDITY components (docs/TASKS.md GLOBAL_LIQUIDITY_COMPONENTS) — non-revised
+    # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch. Lag estimates: WALCL/
     # ECBASSETSW weekly releases (few days); M2SL monthly (~2w, FRED's own calendar);
     # JPNASSETS (BoJ) monthly with a longer lag (~1m).
@@ -88,10 +92,13 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "WALCL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 5},
     {"ticker": "ECBASSETSW", "asset_class": "MACRO", "currency": "EUR", "source": "fred", "transform": "none", "availability_lag_days": 5},
     {"ticker": "JPNASSETS", "asset_class": "MACRO", "currency": "JPY", "source": "fred", "transform": "none", "availability_lag_days": 30},
-    # FX helpers for the GLOBAL_LIQUIDITY USD-conversion (market/liquidity.py usd_convert)
-    # — same pattern as CHFUSD=X (display-only elsewhere).
-    {"ticker": "EURUSD=X", "asset_class": "FX", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "JPY=X", "asset_class": "FX", "currency": "USD", "source": "yahoo", "transform": "none"},
+    # FX helpers for the GLOBAL_LIQUIDITY USD-conversion (market/liquidity.py
+    # usd_convert). FRED, not Yahoo: DEXUSEU (USD per EUR, from 1999) and DEXJPUS
+    # (JPY per USD, from 1971) reach back far enough that WALCL (2002) — not the
+    # FX feed — sets the composite's floor; Yahoo's EURUSD=X/JPY=X only start
+    # ~2003 and would have gated the composite two years late (skipna=False).
+    {"ticker": "DEXUSEU", "asset_class": "FX", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    {"ticker": "DEXJPUS", "asset_class": "FX", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
     {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO", "currency": "USD", "source": "composite", "transform": "composite"},
     {"ticker": "GLOBAL_LIQUIDITY", "asset_class": "GLOBAL_LIQUIDITY", "currency": "USD", "source": "composite", "transform": "composite"},
 ]
@@ -107,11 +114,17 @@ BENCHMARK_CLASSES: dict[str, list[str]] = {
     "gold-commodities": ["GOLD", "COMMODITIES"],
     "cash": ["US_TBILL"],
 }
+# The US_TBILL sleeve carries no fetchable ticker: it is represented by the
+# synthetic 'cash' asset, which accrues at rf_daily from ^IRX (docs/TASKS.md
+# NAV conventions; reallocation gate allows "... or 'cash'") and floors at
+# 1960. BIL (the former US_TBILL ETF) was retired — same economic role, worse
+# history (2007), and no viable HISTORY_PROXIES splice at any resolution
+# tested. The cash cross_class benchmark (M5) reads that synthetic series.
 # Excluded (not investable sleeves): MACRO, GLOBAL_LIQUIDITY, VOLATILITY, FX,
 # RISK_FREE (^IRX is the risk-free RATE, not an asset).
 
 DERIVED_SIGNALS: dict[str, str] = {
-    "GROWTH_COMPOSITE": "INDPRO,UNRATE (see GROWTH_COMPOSITE_COMPONENTS)",
+    "GROWTH_COMPOSITE": "INDPRO,UNRATE (see market/growth.py)",
     "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
     "real_rate": "irx - CPIAUCSL(yoy_pct)   # nominal short rate minus inflation",
 }
@@ -173,11 +186,10 @@ ALL_WEATHER_BENCHMARK: dict[str, float] = {
 # validation (see seed.py RESAMPLED_VALIDATION_TICKERS) — SHY's own
 # ultra-low volatility makes daily-return correlation noisy regardless of
 # proxy choice; validated at monthly resolution instead (0.963).
-# BIL: no working proxy found. Tried TB3MS monthly-compounded (0.23),
-# TB3MS's daily FRED sibling DTB3 compounded (0.30), VFISX directly
-# (0.09), and VFISX at monthly resolution (0.27) — BIL's own distribution/
-# NAV-reset pattern doesn't track any of them at any resolution tested.
-# Floors at its own ETF inception (2007).
+# (BIL, the former US_TBILL ETF, was retired rather than spliced: no working
+# proxy at any resolution tested — TB3MS monthly/daily-compounded 0.23/0.30,
+# VFISX direct/monthly 0.09/0.27 — and the synthetic 'cash' asset already
+# covers the same sleeve with a 1960 floor. See BENCHMARK_CLASSES above.)
 HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "SPY": ("VFINX", "yahoo", 1976),
     "VTI": ("VFINX", "yahoo", 1976),
@@ -188,7 +200,6 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     "GLD": ("LBMA_GOLD_AM", "lbma", 1968),
     "DBC": ("^BCOM", "yahoo", 1991),
     "DJP": ("^BCOM", "yahoo", 1991),
-    "BIL": ("TB3MS", "fred", 1934),
     # FDIVX (Fidelity Diversified International, since 1991-12-27) — clears
     # the STANDARD 0.95 correlation bar (0.954), no exception needed. Beat
     # SCINX/PRITX/VWIGX/AEPGX (all older but 0.91-0.94, would need the
@@ -254,7 +265,7 @@ INVARIANTS: list[dict[str, object]] = [
     {"id": "inv-falling-growth-duration",
      "title": "Falling growth favors duration and cash-like defense",
      "description": "Contracting growth with rate-cut expectations supports long "
-                    "duration (TLT) and cash equivalents (BIL).",
+                    "duration (TLT) and the cash sleeve.",
      "example": "2008 H2, 2019 H2: TLT strongly positive as growth rolled over.",
      "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
      "author": "dalio", "status": "proposed",
@@ -262,7 +273,7 @@ INVARIANTS: list[dict[str, object]] = [
      "effect": {"handle": "asset-class:bonds", "metric": "return",
                 "method": "cross_class", "direction": "outperform"},
      "tags": ["duration", "recession",
-              "asset:TLT", "asset:BIL",
+              "asset:TLT", "asset:cash",
               "regime:falling-growth-falling-inflation"],
      "weight_initial": 0.80, "floor_weight": 0.40,
      "trace": "Dalio Principles; recession playbook."},
@@ -348,8 +359,8 @@ STRATEGIES: list[dict[str, object]] = [
      "trace": "Simplicity baseline; low historical drawdown."},
     {"id": "barbell-taleb",
      "title": "Barbell Taleb",
-     "description": "~85% safety (short/intermediate Treasuries, split across "
-                    "SHY/BIL/IEF to respect the 40% single-asset cap) + ~15% "
+     "description": "~85% safety (short/intermediate Treasuries plus cash, split "
+                    "across SHY/cash/IEF to respect the 40% single-asset cap) + ~15% "
                     "convexity (equity sleeve) to capture upside while bounding downside.",
      "regime_type_id": None, "framework_id": "4seasons",
      "status": "active", "enabled": True, "conviction": 45,

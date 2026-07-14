@@ -21,8 +21,8 @@ _JPY_TICKERS = frozenset({"JPNASSETS"})
 
 
 def usd_convert(ticker: str, series: pd.Series, eurusd: pd.Series, usdjpy: pd.Series) -> pd.Series:
-    """`eurusd` = USD per EUR (Yahoo EURUSD=X); `usdjpy` = JPY per USD
-    (Yahoo JPY=X). Non-FX-denominated components pass through unchanged."""
+    """`eurusd` = USD per EUR (FRED DEXUSEU); `usdjpy` = JPY per USD
+    (FRED DEXJPUS). Non-FX-denominated components pass through unchanged."""
     if ticker in _EUR_TICKERS:
         fx = eurusd.reindex(series.index, method="ffill")
         return series * fx

@@ -56,12 +56,6 @@ SCHEMA_VERSION = "1"
 # the real fetcher; tests pass a synthetic stub.
 FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series]]
 
-# TB3MS (BIL's HISTORY_PROXIES entry) is a monthly ANNUALIZED T-bill rate,
-# not a level — compounded into a synthetic cash total-return index so it
-# can splice like every other proxy (judgment call, no cleaner free source;
-# CLAUDE.md "state assumptions explicitly").
-RATE_PROXIES = frozenset({"TB3MS"})
-
 # ETFs whose daily RETURNS are too noisy (vs their proxy) to validate at
 # daily resolution, even though the proxy itself is genuinely daily — see
 # splice.splice_with_resampled_validation. Keyed by the ETF ticker, not the
@@ -219,24 +213,6 @@ async def _seed_portfolios(db: InvestmentDB) -> int:
     return len(PORTFOLIOS)
 
 
-def _rate_to_level(annual_rate_pct: pd.Series) -> pd.Series:
-    """TB3MS (BIL's HISTORY_PROXIES entry) is a MONTHLY annualized T-bill
-    rate, not a level. Upsampled here to a daily calendar grid (forward-
-    filled — the rate is only known once a month) and compounded at the
-    project's own rf_daily convention (docs/DATA_MODELS.md 'Calculation
-    conventions': rf_daily = (1 + rate/100)^(1/252) - 1): splice.py's
-    overlap check needs genuine day-level granularity to intersect against
-    BIL's own daily trading-day index — a monthly-cadence level (the
-    original version of this function) can supply at most ~12
-    overlapping days/year against BIL's ~252, always failing the 1y-overlap
-    floor regardless of data quality."""
-    rate = annual_rate_pct.sort_index()
-    daily_index = pd.date_range(rate.index.min(), date.today(), freq="D")
-    daily_rate = rate.reindex(daily_index, method="ffill")
-    daily_growth = (1.0 + daily_rate / 100.0) ** (1.0 / 252.0)
-    return 100.0 * daily_growth.cumprod()
-
-
 def _rows_from_derivatives(
     ticker: str, asset_class: str, currency: str, deriv: pd.DataFrame, start: date | None
 ) -> list[dict[str, Any]]:
@@ -320,8 +296,6 @@ async def _seed_market_data(
                     "availability_lag_days": 0,
                 }
                 proxy_raw = await fetch_raw(proxy_row, api_key, None)
-                if proxy_ticker in RATE_PROXIES:
-                    proxy_raw = _rate_to_level(proxy_raw)
                 splice_fn = (
                     splice.splice_with_resampled_validation
                     if ticker in RESAMPLED_VALIDATION_TICKERS
@@ -361,8 +335,8 @@ async def _seed_market_data(
         skipped["GROWTH_COMPOSITE"] = "missing INDPRO/UNRATE inputs"
 
     liquidity_tickers = ("M2SL", "WALCL", "ECBASSETSW", "JPNASSETS")
-    if all(t in transformed for t in (*liquidity_tickers, "EURUSD=X", "JPY=X")):
-        eurusd, usdjpy = transformed["EURUSD=X"], transformed["JPY=X"]
+    if all(t in transformed for t in (*liquidity_tickers, "DEXUSEU", "DEXJPUS")):
+        eurusd, usdjpy = transformed["DEXUSEU"], transformed["DEXJPUS"]
         usd_components = {
             t: liquidity.usd_convert(t, transformed[t], eurusd, usdjpy) for t in liquidity_tickers
         }

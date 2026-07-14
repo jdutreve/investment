@@ -115,11 +115,11 @@ SOURCES_PATH=$HOME/data/investment/sources/corpus
 # Market data
 FRED_API_KEY=...   # free key — required for FRED/ALFRED REST (first-release vintages)
 MARKET_BACKFILL_YEARS=35   # MACRO/regime backfill (→1991, adds the 1994 bond crash). Tradable/benchmark reaches ~1991 too via HISTORY_PROXIES (proxies span to 1968-86, margin). TIPS floor 2000, liquidity 2002 (those signals only).
-YAHOO_FINANCE_TICKERS=TIP,TLT,GLD,DJP,SPY,VTI,QQQ,EFA,EEM,IEF,SHY,BIL,DBC,CHFUSD=X,^IRX,^VIX
-FRED_SERIES=CPIAUCSL,T10Y2Y,UNRATE,INDPRO
-GROWTH_COMPOSITE_COMPONENTS=INDPRO,UNRATE
-GLOBAL_LIQUIDITY_COMPONENTS=M2SL,WALCL,ECBASSETSW,JPNASSETS
-REAL_RATE_COMPONENTS=^IRX,CPIAUCSL   # real_rate = ^IRX − CPIAUCSL(yoy) — derived signal for conditions
+# The fetch universe (tickers/sources/transforms/lags) and the composite +
+# derived-signal definitions are NOT env-driven: they live in db/seed_data.py
+# (ALLOWED_TICKERS is authoritative — see Task 2.1: the fetcher is "driven by
+# the allowed_tickers documents"). A future env-configurable fetch is deferred
+# (docs/IMPROVEMENTS.md).
 
 # Local ops
 LOCAL_API_PORT=8765   # bound to 127.0.0.1 only
@@ -140,7 +140,9 @@ chmod 600 ~/projets/investment/.env
 ```
 
 Notes: VIX comes from Yahoo `^VIX` only (VIXCLS dropped — single source).
-`ECBASSETSW` and `JPNASSETS` are the FRED ids for ECB and BoJ total assets.
+`ECBASSETSW` and `JPNASSETS` are the FRED ids for ECB and BoJ total assets;
+their USD conversion uses FRED `DEXUSEU`/`DEXJPUS` (from 1999/1971 — longer than
+Yahoo's ~2003 FX, so WALCL 2002 stays the composite's binding floor).
 
 ---
 
@@ -554,7 +556,6 @@ ALLOWED_TICKERS = [
     {"ticker": "EFA",  "asset_class": "INTL_EQUITY",      "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "EEM",  "asset_class": "EM_EQUITY",        "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "SHY",  "asset_class": "US_TREASURY_1_3",  "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "BIL",  "asset_class": "US_TBILL",         "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "DBC",  "asset_class": "COMMODITIES",      "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^IRX", "asset_class": "RISK_FREE",        "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^VIX", "asset_class": "VOLATILITY",       "currency": "USD", "source": "yahoo", "transform": "none"},
@@ -582,6 +583,10 @@ BENCHMARK_CLASSES = {
     "gold-commodities":    ["GOLD", "COMMODITIES"],
     "cash":                ["US_TBILL"],
 }
+# US_TBILL carries no fetchable ticker: the synthetic 'cash' asset (accrues at
+# rf_daily from ^IRX, floors 1960) represents this sleeve, and the cash
+# cross_class benchmark reads that series. BIL (the former US_TBILL ETF) was
+# retired — same role, 2007 floor, no viable HISTORY_PROXIES splice.
 # Excluded (not investable sleeves): MACRO, GLOBAL_LIQUIDITY, VOLATILITY, FX,
 # RISK_FREE (^IRX is the risk-free RATE, not an asset).
 
@@ -589,7 +594,7 @@ BENCHMARK_CLASSES = {
 # seed step 10b, usable in invariant `condition` predicates (the signal
 # registry = collected series + these + 'regime'):
 DERIVED_SIGNALS = {
-    "GROWTH_COMPOSITE": "INDPRO,UNRATE (see GROWTH_COMPOSITE_COMPONENTS)",
+    "GROWTH_COMPOSITE": "INDPRO,UNRATE (see market/growth.py)",
     "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
     "real_rate":        "irx − CPIAUCSL(yoy_pct)   # nominal short rate minus inflation",
 }
@@ -615,45 +620,54 @@ ALL_WEATHER_BENCHMARK = {          # id "all-weather-USD"; monthly-rebalanced, U
     "TLT": 0.40,                   # long-term bonds
     "IEF": 0.15,                   # intermediate bonds
     "GLD": 0.075,                  # gold
-    "DBC": 0.075,                  # commodities
+    "DJP": 0.075,                  # commodities (DJP, not DBC — DBC's OY roll tracks
+                                   #   ^BCOM only 0.878 and no seeded portfolio holds it;
+                                   #   DJP splices cleanly to 1991 and IS what portfolios hold)
 }
 # vs_benchmark = portfolio total_return − ALL_WEATHER_BENCHMARK total_return
 # over the same window (same NAV conventions as any portfolio).
 
-# HISTORY_PROXIES (pinned) — longer-history TOTAL-RETURN series spliced BEFORE
-# each ETF's inception so the tradable backtest/benchmark/replay can reach back
-# to ~1991 (35y: dot-com cycle + the 1994 bond crash), not ETF inception (~2004-06).
-# BACKTEST-ONLY: proxies are mutual funds / indices, NOT tradable — the LIVE fetcher
-# uses the ETF only. Verify availability + inception at build (M2).
-HISTORY_PROXIES = {                 # etf : (proxy, source, inception)  — all VERIFY at M2
+# HISTORY_PROXIES (as SHIPPED — mirror of db/seed_data.py, which is the
+# authoritative source) — longer-history TOTAL-RETURN series spliced BEFORE each
+# ETF's inception so the tradable backtest/benchmark/replay can reach back to
+# ~1991 (35y: dot-com cycle + the 1994 bond crash), not ETF inception (~2004-06).
+# BACKTEST-ONLY: proxies are mutual funds / indices, NOT tradable — the LIVE
+# fetcher uses the ETF only. All entries below were verified live at M2 build
+# time (several pre-build guesses were corrected then — see the per-line notes).
+HISTORY_PROXIES = {                 # etf : (proxy, source, inception)
     "SPY": ("VFINX", "yahoo", 1976),  # Vanguard 500 (total-return fund) — older than SPY
     "VTI": ("VFINX", "yahoo", 1976),  #   (equity class proxy)
     "TLT": ("VUSTX", "yahoo", 1986),  # Vanguard Long-Term Treasury
-    "IEF": ("VBMFX", "yahoo", 1986),  # Vanguard Total Bond (aggregate) — intermediate
-                                      #   proxy with margin (slight credit vs pure 7-10y)
-    "SHY": ("VFISX", "yahoo", 1991),  # Vanguard Short-Term Treasury (SHY not in the
-                                      #   All Weather benchmark → floors SHY portfolios only)
+    "IEF": ("VFITX", "yahoo", 1986),  # Vanguard Intermediate-Term Treasury (was VBMFX —
+                                      #   VFITX is a cleaner 7-10y match, 0.945 vs 0.911)
+    "SHY": ("VFISX", "yahoo", 1991),  # Vanguard Short-Term Treasury — validated at MONTHLY
+                                      #   resolution (0.963); daily too noisy at SHY's low vol
     "TIP": ("VIPSX", "yahoo", 2000),  # Vanguard Inflation-Protected — HARD floor
-                                      #   (US TIPS did not exist before 1997; NOT
-                                      #    in the All Weather benchmark)
-    "GLD": ("GOLDAMGBD228NLBM", "fred", 1968),  # LBMA gold fixing via FRED → 1968
-    "DBC": ("SPGSCITR", "index", 1970),  # S&P GSCI Total Return → 1970. VERIFY source
-    "DJP": ("SPGSCITR", "index", 1970),  #   (Yahoo ^SPGSCI is spot; prefer TR — else
-                                      #    ^BCOM 1991, else commodities floor 2006)
-    "BIL": ("TB3MS", "fred", 1934),   # 3M T-bill rate via FRED → cash return
-}
+                                      #   (US TIPS did not exist before 1997)
+    "GLD": ("LBMA_GOLD_AM", "lbma", 1968),  # LBMA AM gold fixing, own feed (FRED's
+                                      #   GOLDAMGBD228NLBM was discontinued ~2021) — validated
+                                      #   at MONTHLY resolution (0.957; fixing-time daily noise)
+    "DBC": ("^BCOM", "yahoo", 1991),  # Bloomberg Commodity Index (SPGSCITR unavailable free;
+    "DJP": ("^BCOM", "yahoo", 1991),  #   DBC's own OY roll only 0.878 → DBC held by nothing)
+    "EFA": ("FDIVX", "yahoo", 1991),  # Fidelity Diversified Intl — clears the standard 0.95
+}                                     #   bar (0.954), no exception needed
+# (No BIL entry: the US_TBILL sleeve is the synthetic 'cash' asset, not an ETF —
+#  BIL was retired, no viable proxy at any resolution tested.)
 # SPLICE RULE: work in RETURNS, not levels. series(t) = proxy total-return for
 #   t < ETF.inception, ETF adjusted-close return for t >= inception; then
 #   cumulate. RATIO-CHAIN at the join (rescale so the level is continuous — no
 #   step). ARTIFACT GATE (#3, verified at M2): in the OVERLAP window (proxy AND
-#   ETF both live, ≥1y after inception) assert daily-return correlation ≥ 0.95
-#   and no single-day |return gap| > 3σ at the join; a failing pair is rejected
-#   (fall back to a shorter floor) rather than silently splicing an artifact.
-# TRADABLE FLOOR: equities 1976 · bonds 1986 · gold 1968 · cash 1934 · commodities
-#   1970 (if GSCI TR resolves) → the All Weather benchmark (VTI/TLT/IEF/GLD/DBC,
-#   no TIPS) clears 1991 with MARGIN. The one verify-gate is the COMMODITY TR
-#   source; fallback ^BCOM (1991, tight), else commodities floor 2006. TIPS-
-#   holding portfolios floor at 2000; liquidity-conditioned invariants at 2002.
+#   ETF both live, ≥1y after inception) assert return correlation ≥ 0.94 (0.95
+#   standard; the relaxed 0.94 covers only the named IEF/TIP mutual-fund-tracking
+#   cases) and the 99.9th-percentile |return gap| ≤ 3σ of the pair's own return
+#   volatility; a failing pair is rejected (fall back to a shorter floor) rather
+#   than silently splicing an artifact. GLD/SHY validate on a MONTHLY-resampled
+#   view (daily returns too noisy) but construct from NATIVE daily data.
+# TRADABLE FLOOR (as shipped): equities 1976 · long/intermediate bonds 1986 ·
+#   gold 1968 · commodities 1991 (^BCOM) · intl equity 1991 (EFA) → the All
+#   Weather benchmark (VTI/TLT/IEF/GLD/DJP, no TIPS) clears 1991 with MARGIN.
+#   TIPS-holding portfolios floor at 2000; liquidity-conditioned invariants at
+#   ~2002 (WALCL). The synthetic 'cash' sleeve accrues from ^IRX, floors 1960.
 ```
 
 ---
@@ -778,7 +792,7 @@ INVARIANTS = [
     {"id": "inv-falling-growth-duration",
      "title": "Falling growth favors duration and cash-like defense",
      "description": "Contracting growth with rate-cut expectations supports long "
-                    "duration (TLT) and cash equivalents (BIL).",
+                    "duration (TLT) and the cash sleeve.",
      "example": "2008 H2, 2019 H2: TLT strongly positive as growth rolled over.",
      "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
      "author": "dalio", "status": "proposed",
@@ -786,7 +800,7 @@ INVARIANTS = [
      "effect": {"handle": "asset-class:bonds", "metric": "return",
                 "method": "cross_class", "direction": "outperform"},
      "tags": ["duration", "recession",
-              "asset:TLT", "asset:BIL",
+              "asset:TLT", "asset:cash",
               "regime:falling-growth-falling-inflation"],
      "weight_initial": 0.80, "floor_weight": 0.40,
      "trace": "Dalio Principles; recession playbook."},
@@ -881,8 +895,8 @@ STRATEGIES = [
      "trace": "Simplicity baseline; low historical drawdown."},
     {"id": "barbell-taleb",
      "title": "Barbell Taleb",
-     "description": "~85% safety (short/intermediate Treasuries, split across "
-                    "SHY/BIL/IEF to respect the 40% single-asset cap) + ~15% "
+     "description": "~85% safety (short/intermediate Treasuries plus cash, split "
+                    "across SHY/cash/IEF to respect the 40% single-asset cap) + ~15% "
                     "convexity (equity sleeve) to capture upside while bounding downside.",
      "regime_type_id": None, "framework_id": "4seasons",
      "status": "active", "enabled": True, "conviction": 45,
@@ -987,11 +1001,11 @@ PORTFOLIOS = [
      "name": "Barbell Taleb Defensive",
      "framework_id": "4seasons", "defender": False, "enabled": True,
      "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SHY": 35, "BIL": 30, "IEF": 20, "SPY": 15},
+     "allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
      "max_drawdown_rule": -10.0,          # stricter than user rule — OK
      "max_single_asset_pct": 40.0,        # was 70 — now complies with binding cap
      "phase": "accumulation", "fx_usd_exposure": 100.0,
-     "trace": "85% safety split across SHY/BIL/IEF (binding 40% cap) + 15% convex."},
+     "trace": "85% safety split across SHY/cash/IEF (binding 40% cap) + 15% convex."},
     {"id": "momentum-macro-rotation",
      "name": "Momentum Macro Rotation",
      "framework_id": "4seasons", "defender": False, "enabled": True,
@@ -1026,10 +1040,11 @@ DESIGNED_FOR_EDGES = [
 
 ```python
 # 1. MarketData TS backfill: 35y for FRED/composites (→1991); ETFs from
-#    inception (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, BIL 2007), SPLICED
-#    with HISTORY_PROXIES (VFINX 1976; VUSTX/VBMFX 1986; gold+cash via FRED
-#    GOLDAMGBD228NLBM 1968 / TB3MS 1934; commodities S&P GSCI TR 1970) back to
-#    ~1991 for the tradable/benchmark layer. Apply per-series transforms
+#    inception (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006), SPLICED with
+#    HISTORY_PROXIES (as shipped — db/seed_data.py: VFINX 1976; VUSTX/VFITX
+#    1986; LBMA gold feed 1968; commodities ^BCOM 1991) back to ~1991 for the
+#    tradable/benchmark layer. The US_TBILL sleeve is the synthetic 'cash'
+#    asset (no ETF splice). Apply per-series transforms
 #    (DATA_MODELS.md), compute level/speed/acceleration.
 #    GROWTH_COMPOSITE (market/growth.py) and GLOBAL_LIQUIDITY
 #    (market/liquidity.py) computed over the full history.

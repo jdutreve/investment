@@ -10,19 +10,14 @@ from pathlib import Path
 from typing import Annotated
 
 from pydantic import BeforeValidator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _expand_path(v: str) -> Path:
     return Path(os.path.expandvars(v))
 
 
-def _split_csv(v: str) -> list[str]:
-    return [item.strip() for item in v.split(",")]
-
-
 ExpandedPath = Annotated[Path, BeforeValidator(_expand_path)]
-CsvList = Annotated[list[str], NoDecode, BeforeValidator(_split_csv)]
 
 
 class Settings(BaseSettings):
@@ -50,14 +45,12 @@ class Settings(BaseSettings):
     inbox_path: ExpandedPath
     sources_path: ExpandedPath
 
-    # Market data
+    # Market data — the fetch universe (tickers, sources, transforms, lags) and
+    # the composite/derived-signal definitions live in db/seed_data.py
+    # (ALLOWED_TICKERS is authoritative — TASKS.md Task 2.1: the fetcher is
+    # "driven by the allowed_tickers documents"), NOT in .env.
     fred_api_key: str
     market_backfill_years: int = 35
-    yahoo_finance_tickers: CsvList
-    fred_series: CsvList
-    growth_composite_components: CsvList
-    global_liquidity_components: CsvList
-    real_rate_components: CsvList
 
     # Local ops
     local_api_port: int = 8765

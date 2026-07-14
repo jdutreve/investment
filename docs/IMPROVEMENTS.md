@@ -544,6 +544,30 @@ market_score aggregates confirm/infirm across all of them.
 
 ---
 
+## I-29 — Env-configurable fetch universe
+
+**Why deferred:** the fetch universe (which tickers, sources, transforms,
+availability lags) and the composite/derived-signal definitions are pinned in
+`db/seed_data.py` (`ALLOWED_TICKERS`, `HISTORY_PROXIES`, `DERIVED_SIGNALS`) —
+Task 2.1 makes the fetcher "driven by the allowed_tickers documents". An
+earlier design also exposed `YAHOO_FINANCE_TICKERS`/`FRED_SERIES`/
+`*_COMPONENTS` as `.env` vars, but nothing ever read them (the seed drives off
+`ALLOWED_TICKERS`); required-but-unused, they only invited silent drift (BIL
+lingered in the env list after being retired everywhere else). Removed at M2
+rather than left as inert config (CLAUDE.md: no dead config).
+
+**Trigger to add:** when the universe must change per-deployment WITHOUT a code
+edit + re-seed — e.g. a second user with a different investable set, or A/B
+running two universes. Until then, editing `ALLOWED_TICKERS` and re-seeding is
+the single, authoritative path.
+
+**Spec:** a startup reconciler that reads an optional `.env` override, diffs it
+against `allowed_tickers`, and applies adds/deactivations through the running
+agent (never a raw table write) — with a divergence check so the env and the
+table cannot silently disagree.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:

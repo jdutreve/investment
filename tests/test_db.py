@@ -46,11 +46,6 @@ def _test_settings(tmp_path: Path) -> Settings:
         db_path=tmp_path / "seed.db",
         inbox_path=tmp_path / "inbox",
         sources_path=tmp_path / "sources",
-        yahoo_finance_tickers="SPY",
-        fred_series="CPIAUCSL",
-        growth_composite_components="INDPRO,UNRATE",
-        global_liquidity_components="M2SL",
-        real_rate_components="^IRX,CPIAUCSL",
     )  # type: ignore[call-arg]
 
 

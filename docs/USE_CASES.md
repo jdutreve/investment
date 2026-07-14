@@ -166,7 +166,7 @@ UC8 reads EventLog weekly to assemble its inputs.
     - 35y history for macro/FRED series (→1991); ETFs from inception, spliced
       with HISTORY_PROXIES back to ~1991 for the tradable/benchmark layer
       (proxies span to 1968-86 → margin; commodity TR source the verify-gate)
-      (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, BIL 2007, ...)
+      (SPY 1993, GLD/TLT/TIP 2002-04, DJP 2006, EEM 2003, ...)
     - As-known-at-ts (ADR-003): first-release ALFRED vintages for revised
       series, every macro observation indexed at its publication date
     - Computed columns: level, speed (1st derivative), acceleration (2nd),

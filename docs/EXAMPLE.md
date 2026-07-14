@@ -17,7 +17,7 @@ numbers are *indicators* (Sharpe, Sortino, Calmar, max_drawdown, total_return,
 volatility), never "ratios" as a generic field name.
 
 **Reference asset universe** (Phase 1 accumulation, USD-quoted): equities
-`SPY VTI QQQ EFA EEM`; bonds `TLT IEF SHY BIL`; inflation-protected `TIP`;
+`SPY VTI QQQ EFA EEM`; bonds `TLT IEF SHY`; inflation-protected `TIP`;
 gold & commodities `GLD DJP DBC`; cash `cash` (accrues at ^IRX). Currency
 overlay quotes back to CHF for display only.
 

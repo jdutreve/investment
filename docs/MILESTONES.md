@@ -76,9 +76,11 @@ transforms, composites, 35y macro backfill + HISTORY_PROXIES splice.
 - [ ] GROWTH_COMPOSITE through 2008 and 2020 tells the story you know
 - [ ] publication dates spot-checked against the real BLS/Fed calendar
 - [ ] GLOBAL_LIQUIDITY: QE/QT episodes visible (from ~2002, WALCL)
-- [ ] HISTORY_PROXIES resolve (Yahoo: VFINX/VUSTX/VBMFX/VFISX/VIPSX; FRED:
-      GOLDAMGBD228NLBM gold, TB3MS cash; commodities S&P GSCI TR); report the
-      ACTUAL tradable floor (target 1991; commodity TR the gate)
+- [ ] HISTORY_PROXIES resolve (as SHIPPED — db/seed_data.py: Yahoo VFINX/
+      VUSTX/VFITX/VFISX/VIPSX/FDIVX + ^BCOM commodities; LBMA gold feed. The
+      pre-build plan's GOLDAMGBD228NLBM/SPGSCITR/VBMFX guesses were corrected
+      live at M2; BIL's cash sleeve became the synthetic 'cash' asset, not an
+      ETF splice); report the ACTUAL tradable floor (target 1991)
 - [ ] splice ARTIFACT gate (#3): each proxy/ETF overlap has return-corr ≥ 0.95
       and no >3σ gap at the join — `test_splice_continuity` green; no join spike
 
