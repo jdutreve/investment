@@ -568,6 +568,57 @@ table cannot silently disagree.
 
 ---
 
+## I-30 — Authoritative market_data backfill (stale-row pruning)
+
+**Why deferred:** found at M4 while verifying the NAV engine against external
+sources; owner call to log rather than fix, since it does not affect any
+verified result (every series M4/M3 actually read is clean — see below) and
+the fix deletes rows from the live DB.
+
+`append_ts_batch` is `INSERT OR REPLACE` keyed on `(ticker, ts)` and nothing
+ever deletes, so `market_data` accumulates a layer of rows from every code
+version ever run. Two ways it bites:
+- **Retired tickers keep their whole series.** Measured on the live DB at M4:
+  `BIL` 4810 rows, `EURUSD=X` 5867, `JPY=X` 7701 — all three retired at M2
+  (BIL → synthetic `cash`; the Yahoo FX pair → FRED `DEXUSEU`/`DEXJPUS`), all
+  three still present and still reaching 2026-07-13.
+- **Re-dating a series duplicates it instead of moving it.** Any change to
+  `availability_lag_days` (or to the source/frequency) re-dates every
+  observation, writing NEW rows and orphaning the old ones. `M2SL`: 1768 rows
+  where 35y monthly = ~420, as several overlapping copies (a 1294-row weekly
+  block, plus ~2 monthly copies/year in 2024-25, plus a 1990-era value of
+  3332.6 dated 2012-04-26).
+
+**Not affected (verified at M4, not assumed):** the ALFRED first-release series
+are dated by `realtime_start`, which is stable across code versions, so they
+never duplicated — `CPIAUCSL`/`INDPRO`/`UNRATE`/`GROWTH_COMPOSITE` all hold
+418-419 rows (11.7/y = exactly 35y monthly), and the daily tradables hold
+~246 rows/y (exactly the trading calendar). So the regime detector, the NAV
+engine and the ranking all read clean series today. `GLOBAL_LIQUIDITY` is
+rebuilt in-memory from freshly-fetched components each run rather than from
+its stored component rows, so the composite is clean despite `M2SL` not being
+— but that also means the stale `M2SL` rows are a trap for any future consumer
+that reads the component from the DB.
+
+**Trigger to add:** before go-live, OR as soon as anything reads a macro
+component series back from `market_data` (the Worker's `market_fetch` already
+can, and an invariant `condition` on `M2SL` would today read the garbage), OR
+the next time a ticker is retired or an `availability_lag_days` is changed.
+
+**Spec:** make a full backfill authoritative rather than additive, without
+letting the sliding 35y window eat genuine history:
+- per ticker in step 9, after computing the fresh series, delete rows for that
+  ticker WITHIN the fresh series' own date range that are not in it (rows
+  outside the range are older history, deliberately kept);
+- once after the ticker loop, prune tickers absent from `allowed_tickers`;
+- leave `append_ts_batch` itself additive — the Monday catch-up path is
+  genuinely incremental and must never delete.
+Not a blanket `DELETE FROM market_data WHERE ticker=?`: `target_start` is
+`today − 35y` and moves forward every run, so delete-then-insert would discard
+the oldest year of real history on each seed.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:
@@ -575,13 +626,15 @@ If/when adding from this list, prioritize by dependency and impact:
 1. ~~I-20 (PMI source)~~ — **resolved**: GROWTH_COMPOSITE shipped in V1.
 2. ~~I-23 (retrospective learning)~~ — **promoted**: shipped in V1 as
    `outcomes.py` (unified improvement cycle).
-3. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
-4. **I-3 + I-11** (Hypothesis) — closes the epistemic loop, prevents post-hoc bias.
-5. **I-5** (two-tier half-life) — small change, real fairness gain for Dalio-grade.
-6. **I-8** (monthly scorecard) — visibility, builds user trust.
-7. **I-7** (auto-disable) — needed when the strategy library grows.
-8. **I-1** (multi-framework) — only when 4 Seasons shows clear blind spots.
-9. The rest as triggered by real usage.
+3. **I-30** (authoritative backfill) — a correctness fix on real stored data,
+   not a feature; do it before go-live or at the next ticker/lag change.
+4. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
+5. **I-3 + I-11** (Hypothesis) — closes the epistemic loop, prevents post-hoc bias.
+6. **I-5** (two-tier half-life) — small change, real fairness gain for Dalio-grade.
+7. **I-8** (monthly scorecard) — visibility, builds user trust.
+8. **I-7** (auto-disable) — needed when the strategy library grows.
+9. **I-1** (multi-framework) — only when 4 Seasons shows clear blind spots.
+10. The rest as triggered by real usage.
 
 ---
 
