@@ -169,8 +169,14 @@ def test_hysteresis_flip_flop_never_commits() -> None:
     for i in range(20):
         g, infl = _rising_falling_readings(candidates[i % 2])
         result = regime.step(
-            state=state, current=current, print_ts=d, growth=g, inflation=infl,
-            liquidity=_NONE, vix_level=None, thresholds=THRESHOLDS,
+            state=state,
+            current=current,
+            print_ts=d,
+            growth=g,
+            inflation=infl,
+            liquidity=_NONE,
+            vix_level=None,
+            thresholds=THRESHOLDS,
         )
         assert result.commit is None
         state = result.state
@@ -184,16 +190,28 @@ def test_hysteresis_commits_after_two_consecutive_prints_backdated() -> None:
 
     d1 = date(2020, 3, 1)
     r1 = regime.step(
-        state=state, current=current, print_ts=d1, growth=g, inflation=infl,
-        liquidity=_NONE, vix_level=None, thresholds=THRESHOLDS,
+        state=state,
+        current=current,
+        print_ts=d1,
+        growth=g,
+        inflation=infl,
+        liquidity=_NONE,
+        vix_level=None,
+        thresholds=THRESHOLDS,
     )
     assert r1.commit is None  # 1 of 2 confirmations only
     state = r1.state
 
     d2 = date(2020, 4, 1)
     r2 = regime.step(
-        state=state, current=current, print_ts=d2, growth=g, inflation=infl,
-        liquidity=_NONE, vix_level=None, thresholds=THRESHOLDS,
+        state=state,
+        current=current,
+        print_ts=d2,
+        growth=g,
+        inflation=infl,
+        liquidity=_NONE,
+        vix_level=None,
+        thresholds=THRESHOLDS,
     )
     assert r2.commit is not None
     assert r2.commit.regime_type_id == "falling-growth-rising-inflation"
@@ -220,8 +238,14 @@ def test_step_updates_confidence_band_without_type_change() -> None:
     g = _reading(None, 1.0, 1.0)
     infl = _reading(3.0, 1.0, 1.0)
     result = regime.step(
-        state=state, current=current, print_ts=date(2020, 6, 1), growth=g, inflation=infl,
-        liquidity=_NONE, vix_level=None, thresholds=THRESHOLDS,
+        state=state,
+        current=current,
+        print_ts=date(2020, 6, 1),
+        growth=g,
+        inflation=infl,
+        liquidity=_NONE,
+        vix_level=None,
+        thresholds=THRESHOLDS,
     )
     assert result.commit is None
     assert result.update is not None
@@ -238,9 +262,16 @@ def test_events_narrative_carries_raw_speed_not_smoothed() -> None:
 
     def _step(state: regime.DetectorState, day: int) -> regime.StepResult:
         return regime.step(
-            state=state, current=None, print_ts=date(2020, day, 1),
-            growth=smoothed, inflation=smoothed, liquidity=_NONE, vix_level=None,
-            thresholds=THRESHOLDS, growth_raw=raw, inflation_raw=raw,
+            state=state,
+            current=None,
+            print_ts=date(2020, day, 1),
+            growth=smoothed,
+            inflation=smoothed,
+            liquidity=_NONE,
+            vix_level=None,
+            thresholds=THRESHOLDS,
+            growth_raw=raw,
+            inflation_raw=raw,
         )
 
     r1 = _step(regime.EMPTY_STATE, 3)
@@ -270,7 +301,9 @@ async def _seed_minimal(db: InvestmentDB) -> None:
         await db.command(
             "INSERT OR REPLACE INTO system_thresholds (key, value, updated_at) "
             "VALUES (:k, :v, :now)",
-            k=key, v=value, now=now,
+            k=key,
+            v=value,
+            now=now,
         )
 
 
@@ -285,10 +318,15 @@ def _monthly_rows(
     y, m = 1991, 1
     for i in range(months):
         vals = high if (i % period) < (period // 2) else low
-        rows.append({
-            "ticker": ticker, "asset_class": "MACRO", "currency": "USD",
-            "ts": date(y, m, 1).isoformat(), **vals,
-        })
+        rows.append(
+            {
+                "ticker": ticker,
+                "asset_class": "MACRO",
+                "currency": "USD",
+                "ts": date(y, m, 1).isoformat(),
+                **vals,
+            }
+        )
         m += 1
         if m > 12:
             m = 1
@@ -383,17 +421,20 @@ async def test_regime_events_frozen_across_confidence_or_tag_update(tmp_path: Pa
         dates = ["2020-01-15", "2020-02-15", "2020-03-15"]
         for ts in dates:
             await db.append_ts(
-                "market_data", datetime.fromisoformat(ts + "T00:00:00+00:00"),
+                "market_data",
+                datetime.fromisoformat(ts + "T00:00:00+00:00"),
                 {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO", "currency": "USD"},
                 {"level": 105.0, "speed": 2.0, "acceleration": 0.0},
             )
             await db.append_ts(
-                "market_data", datetime.fromisoformat(ts + "T00:00:00+00:00"),
+                "market_data",
+                datetime.fromisoformat(ts + "T00:00:00+00:00"),
                 {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD"},
                 {"level": 3.5, "speed": 0.3, "acceleration": 0.0},
             )
             await db.append_ts(
-                "market_data", datetime.fromisoformat(ts + "T00:00:00+00:00"),
+                "market_data",
+                datetime.fromisoformat(ts + "T00:00:00+00:00"),
                 {"ticker": "^VIX", "asset_class": "VOLATILITY", "currency": "USD"},
                 {"level": 12.0, "speed": 0.0, "acceleration": 0.0},
             )
@@ -404,17 +445,20 @@ async def test_regime_events_frozen_across_confidence_or_tag_update(tmp_path: Pa
         # -> update (not commit). Same growth/inflation direction, so the
         # regime type is unchanged.
         await db.append_ts(
-            "market_data", datetime.fromisoformat("2020-04-15T00:00:00+00:00"),
+            "market_data",
+            datetime.fromisoformat("2020-04-15T00:00:00+00:00"),
             {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO", "currency": "USD"},
             {"level": 105.0, "speed": 2.0, "acceleration": 0.0},
         )
         await db.append_ts(
-            "market_data", datetime.fromisoformat("2020-04-15T00:00:00+00:00"),
+            "market_data",
+            datetime.fromisoformat("2020-04-15T00:00:00+00:00"),
             {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD"},
             {"level": 3.5, "speed": 0.3, "acceleration": 0.0},
         )
         await db.append_ts(
-            "market_data", datetime.fromisoformat("2020-04-15T00:00:00+00:00"),
+            "market_data",
+            datetime.fromisoformat("2020-04-15T00:00:00+00:00"),
             {"ticker": "^VIX", "asset_class": "VOLATILITY", "currency": "USD"},
             {"level": 40.0, "speed": 5.0, "acceleration": 0.0},
         )
@@ -476,12 +520,16 @@ async def test_detect_split_across_calls_matches_single_call(tmp_path: Path) -> 
 def test_audit_over_synthetic_history_reports_bounded_metrics() -> None:
     months = 35 * 12
     growth_rows = _monthly_rows(
-        "GROWTH_COMPOSITE", months, period=6,
+        "GROWTH_COMPOSITE",
+        months,
+        period=6,
         high={"level": 105.0, "speed": 0.5, "acceleration": 0.0},
         low={"level": 95.0, "speed": -0.5, "acceleration": 0.0},
     )
     inflation_rows = _monthly_rows(
-        "CPIAUCSL", months, period=10,
+        "CPIAUCSL",
+        months,
+        period=10,
         high={"level": 3.5, "speed": 0.5, "acceleration": 0.0},
         low={"level": 1.5, "speed": -0.5, "acceleration": 0.0},
     )

@@ -64,9 +64,7 @@ def check_1_persistence() -> None:
     conn = open_db()
     tables = {
         row[0]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
     assert {"event_log", "invariant", "market_data"} <= tables, tables
     row = conn.execute("SELECT title FROM invariant WHERE id='inv-1'").fetchone()
@@ -152,12 +150,8 @@ def check_4_embeddings() -> None:
                 (f"inv-emb-{i}", f"title {i}", "embedding smoke test", "proposed", vec.tobytes()),
             )
 
-    rows = conn.execute(
-        "SELECT id, embedding FROM invariant WHERE id LIKE 'inv-emb-%'"
-    ).fetchall()
-    matrix = np.stack(
-        [np.frombuffer(blob, dtype=np.float32) for _, blob in rows]
-    )
+    rows = conn.execute("SELECT id, embedding FROM invariant WHERE id LIKE 'inv-emb-%'").fetchall()
+    matrix = np.stack([np.frombuffer(blob, dtype=np.float32) for _, blob in rows])
     query = vectors[0]
 
     t0 = time.perf_counter()
@@ -193,8 +187,7 @@ async def check_5_asyncio_harness() -> None:
 
     t0 = time.perf_counter()
     tasks = [
-        loop.run_in_executor(executor, write if i % 2 == 0 else read, i)
-        for i in range(10_000)
+        loop.run_in_executor(executor, write if i % 2 == 0 else read, i) for i in range(10_000)
     ]
     await asyncio.gather(*tasks)
     elapsed = time.perf_counter() - t0

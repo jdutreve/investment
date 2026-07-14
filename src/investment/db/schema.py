@@ -499,15 +499,31 @@ TRACE_EXEMPT = {"passage", "regime_type", "event_log"}
 
 # 13 entity tables, for the M1 Definition of Verified table-count check.
 ENTITY_TABLES = {
-    "framework", "regime_type", "regime", "invariant", "strategy", "scenario",
-    "evaluation", "backtest", "proposal", "portfolio", "document", "passage",
+    "framework",
+    "regime_type",
+    "regime",
+    "invariant",
+    "strategy",
+    "scenario",
+    "evaluation",
+    "backtest",
+    "proposal",
+    "portfolio",
+    "document",
+    "passage",
     "event_log",
 }
 RELATION_TABLES = {"favors", "backed_by", "holds", "designed_for", "supports"}
 TS_TABLES = {"market_data", "scenario_probability", "portfolio_nav"}
 DOCUMENT_TABLES = {
-    "user_profile", "invariant_author_config", "allowed_tickers",
-    "system_thresholds", "detector_state", "invariant_confrontations",
-    "benchmark_valuation", "portfolio_weekly_snapshot", "scenario_calibration",
+    "user_profile",
+    "invariant_author_config",
+    "allowed_tickers",
+    "system_thresholds",
+    "detector_state",
+    "invariant_confrontations",
+    "benchmark_valuation",
+    "portfolio_weekly_snapshot",
+    "scenario_calibration",
     "replay_report",
 }

@@ -13,13 +13,21 @@ import pandas as pd
 MIN_OVERLAP_YEARS = 1.0
 # 0.94, not the textbook-clean 0.95: verified live at M2 build time against
 # every freely available proxy for IEF (VFITX, the best of several
-# candidates: 0.945) and TIP (VIPSX: 0.944) — both consistently a few
+# candidates: 0.945) and TIP (VIPSX: ~0.944) — both consistently a few
 # thousandths short of 0.95 with NO available proxy clearing it (mutual-
 # fund-vs-ETF tracking noise, not a data problem; ruled out a fixing-time-
 # style misalignment via a +/-2 day shift test, unlike gold/SHY). Owner
 # call: accept these two named cases at 0.94 rather than float the bar
 # generally — DBC (0.878) and BIL (0.09-0.30 across 4 different tested
 # proxies) stay well clear of even this relaxed line.
+#
+# In practice the relaxation admits IEF ONLY: re-measured at M4, TIP/VIPSX
+# clears this bar on correlation (0.945) but is rejected by MAX_GAP_SIGMA
+# anyway (gap_sigma_p999 = 3.55), so TIP keeps its own 2003 ETF-inception
+# floor — which is exactly why the defender holds IEF and not TIP (M2 DoV,
+# db/seed_data.py PORTFOLIOS). TIP and DBC are the only HISTORY_PROXIES
+# entries no seeded portfolio or benchmark holds, so neither rejection costs
+# anything today; it would only bite if a Worker reallocation proposed them.
 MIN_RETURN_CORR = 0.94
 MAX_GAP_SIGMA = 3.0
 GAP_PERCENTILE = 0.999

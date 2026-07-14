@@ -21,9 +21,7 @@ ExpandedPath = Annotated[Path, BeforeValidator(_expand_path)]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", frozen=True
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", frozen=True)
 
     # LLMs
     anthropic_api_key: str

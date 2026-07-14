@@ -617,6 +617,20 @@ Not a blanket `DELETE FROM market_data WHERE ticker=?`: `target_start` is
 `today − 35y` and moves forward every run, so delete-then-insert would discard
 the oldest year of real history on each seed.
 
+**Required guard (the reason this is not a 10-minute job).** An authoritative
+delete is only safe if the fresh series is TRUSTWORTHY, and step 9 cannot
+currently tell a complete fetch from a truncated one. Its per-ticker
+`except → continue` catches a fetch that FAILS; it does nothing about a fetch
+that SUCCEEDS with partial data (Yahoo does return short/partial histories on
+a bad day). Fresh-but-truncated + authoritative-delete = permanent loss of
+genuine rows, and the pruning path makes it worse, since a ticker that
+momentarily looks absent would have its whole series dropped. So the fix must
+carry a coverage sanity check BEFORE any delete — e.g. the fresh series must
+cover a plausible fraction of the expected span/row-count for its frequency,
+and any shortfall must abort that ticker's delete (keep the additive write)
+and report, never delete on a hunch. Take a `sqlite3 .backup` first regardless
+(CLAUDE.md: confirm before data deletion).
+
 ---
 
 ## Implementation order recommendation

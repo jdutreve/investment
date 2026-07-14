@@ -57,6 +57,15 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # the readable form; wrapping each dict would destroy the table.
 "src/investment/db/seed_data.py" = ["E501"]
 
+[tool.ruff.format]
+# Same rationale as the E501 ignore above — but `ruff format` is a separate
+# tool and does NOT honour lint per-file-ignores, so it has to be told
+# separately. Without this it reflows every ALLOWED_TICKERS / *_EDGES row
+# into a multi-line dict: ~1072 changed lines, destroying exactly the table
+# the ignore above exists to protect. Excluded so `ruff format --check`
+# stays green and the pre-commit hook can't silently do it.
+exclude = ["src/investment/db/seed_data.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
