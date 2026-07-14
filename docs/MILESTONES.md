@@ -113,11 +113,43 @@ Pinned conventions, snapshot, ranking + **CLI views** (`invest ranking`,
 `invest nav <id>` terminal sparkline — the dashboard pages come at M10).
 
 **Definition of Verified**
-- [ ] golden numbers vs an external source (SPY Sharpe on the window,
+- [x] golden numbers vs an external source (SPY Sharpe on the window,
       All Weather NAV vs Portfolio Visualizer, within tolerance — also
       validates the ALL_WEATHER_BENCHMARK everything is compared to)
-- [ ] `test_nav_conventions_golden` green
-- [ ] first snapshot: defender ranked, gaps computed
+      — done against PV itself, Jan 2017-Dec 2025, SAME tickers/weights, PV
+      `rebalanceType=monthly` + dividends reinvested (method below). All
+      Weather: CAGR 6.05 vs 6.08%, stdev 9.29 vs 9.25%, maxDD -22.54 vs
+      -22.53%, Sharpe 0.42 vs 0.43, Sortino 0.63 vs 0.64. SPY: Sharpe 0.82
+      vs 0.83, maxDD and Sortino exact. Plus SPY calendar-year returns
+      through the engine == SPY adjusted close to 0.00bp, and within 0-4bp
+      of published values (slickcharts/financecharts).
+- [x] `test_nav_conventions_golden` green
+- [x] first snapshot: defender ranked, gaps computed — on the live 35y DB:
+      defender ranks 6/7 (never privileged), gaps null only for the defender,
+      and the Sortino-group tie-break visibly decides barbell (0.99/calmar
+      3.03) above the defender (0.99/calmar 1.12).
+
+**How to re-run the PV check (M6/M8b will want it):** PV is fully automatable
+— no login, and `robots.txt` is `Disallow:` (allow-all). Two traps cost an hour
+at M4, both SILENT:
+- it 403s on a non-browser User-Agent (that alone is what made this look
+  "manual"); send a normal browser UA and it returns 200;
+- POST `backtest-portfolio` with `symbol1..N`/`allocation1_1..`/`total1=100`,
+  `rebalanceType=4` (monthly), `reinvestDividends=true` — the value is the
+  STRING `true`, and anything else (e.g. `1`) silently falls back to **No**,
+  i.e. PRICE return, which for this basket understates CAGR by ~2.1pp/y of
+  dividends. ALWAYS assert the echoed-back `<option ... selected>` and the
+  reported period, never trust the request.
+
+**PV's hard limit — it cannot validate the 35y history.** The anonymous tier
+serves a ROLLING ~10-year window from today, silently: it echoes back whatever
+`startYear` you send while clipping the data (requesting 2007-2016 returns only
+Jul 2016-Dec 2016; every asset, including VTI (live since 2001), reports the
+same `Jan 2017 - ...` floor). So chunking cannot work around it, and a manual
+run hits the same wall without a paid account. The pre-2017 history is
+therefore validated by other means: the exact SPY annual-return match, and
+lazyportfolioetf's 30Y All Weather (CAGR 6.97 vs 7.36%, stdev 7.84 vs 7.51%,
+Sharpe 0.63 vs 0.68 — residuals explained by their IEI/DBC vs our IEF/DJP).
 
 ---
 
