@@ -53,20 +53,31 @@ def _construct_spliced_level(etf_level: pd.Series, proxy_level: pd.Series) -> pd
     resampled (coarser) view instead, so a genuinely-daily-but-noisy proxy
     isn't downsampled just because validation needed a coarser lens.
 
-    The join date itself has no own return in either series (the proxy's
-    side stops the day before; the ETF's return series starts the day
-    AFTER its inception, `.pct_change()` needing a prior ETF price) — a
-    one-row gap at the transition, same as any total-return-index splice.
-    Preferable to inventing a cross-instrument "return" from two different
-    price scales, which is the artifact this whole module exists to
-    prevent."""
+    No cross-instrument return is ever invented: the proxy's own return
+    drives the series UP TO AND INCLUDING the join date, the ETF's own
+    returns drive it strictly AFTER (its `.pct_change()` needs a prior ETF
+    price, so its first return lands the day after inception). The two
+    return series are disjoint by construction and the join date carries a
+    real level.
+
+    The join date's proxy return is deliberately INCLUDED (`<=`, not `<`).
+    Excluding it left the join date with no row at all — a one-row hole in
+    every spliced series. Harmless in isolation, but `append_ts_batch` is
+    INSERT OR REPLACE and never deletes, so a row written there by an
+    EARLIER seed run survived in the hole: for TLT/IEF/SHY that was the raw,
+    un-rescaled ETF price (persisted by seed.py's splice-rejected fallback,
+    which fired while those pairs were still failing the M2 gates), i.e. a
+    ~-91% return followed by a ~+1000% one, straight into every NAV built on
+    them. Caught at M4 by the All Weather external check (docs/MILESTONES.md
+    M4 DoV): 30y stdev read 22.5% against a true ~7.5%, with a -52.7%
+    drawdown bottoming on TLT/IEF's exact 2002-07-30 join date."""
     etf_level = etf_level.sort_index()
     proxy_level = proxy_level.sort_index()
     join_date = etf_level.index.min()
     proxy_returns = proxy_level.pct_change().dropna()
     etf_returns = etf_level.pct_change().dropna()
-    pre_join_returns = proxy_returns.loc[proxy_returns.index < join_date]
-    spliced_returns = pd.concat([pre_join_returns, etf_returns])
+    through_join_returns = proxy_returns.loc[proxy_returns.index <= join_date]
+    spliced_returns = pd.concat([through_join_returns, etf_returns])
     return cumulate_returns(spliced_returns)
 
 

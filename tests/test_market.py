@@ -176,13 +176,45 @@ def test_splice_continuity() -> None:
     assert spliced.index.min() == proxy_level.index[1]  # 1st row lost to pct_change()
     assert spliced.index.max() == etf_level.index.max()
 
-    # RATIO-CHAIN (not a level concatenation): the first real ETF-side
-    # return right after the join is a normal daily move, not an artificial
-    # step from a scale mismatch (the join day itself has no own return —
-    # neither side can compute one across a change of underlying instrument,
-    # same as any total-return-index splice).
-    join_return = spliced.pct_change().loc[etf_level.index[1]]
-    assert abs(join_return) < 5 * 0.01  # 5x the shared series' return sigma
+    # RATIO-CHAIN (not a level concatenation): every return across the
+    # transition is a normal daily move, not an artificial step from a scale
+    # mismatch. Checked on the join day ITSELF and the first ETF-side day
+    # after it — an earlier version of this test probed only index[1],
+    # stepping straight over the one day that was actually broken.
+    for day in (etf_level.index[0], etf_level.index[1]):
+        assert abs(spliced.pct_change().loc[day]) < 5 * 0.01  # 5x the return sigma
+
+
+def test_splice_writes_a_row_at_the_join_date() -> None:
+    """Regression (found at M4 by the All Weather external check): the splice
+    used to emit NO row at the join date. `append_ts_batch` is INSERT OR
+    REPLACE and never deletes, so a stale row from an earlier seed run — for
+    TLT/IEF/SHY, the RAW un-rescaled ETF price left by seed.py's
+    splice-rejected fallback — survived in that hole and injected a ~-91% /
+    ~+1000% return pair into every NAV built on those series.
+
+    Scales are deliberately an order of magnitude apart (proxy ~400 vs ETF
+    ~35, mirroring the real TLT/VUSTX pair) so that a raw ETF price leaking
+    through is unmissable."""
+    idx = pd.bdate_range("2000-01-03", periods=600)
+    shared = _synthetic_returns(len(idx), seed=5)
+    proxy_level = pd.Series(400.0 * np.cumprod(1 + shared), index=idx)
+    etf_full = pd.Series(
+        35.0 * np.cumprod(1 + shared + _synthetic_returns(len(idx), seed=6, mu=0.0, sigma=3e-4)),
+        index=idx,
+    )
+    etf_level = etf_full.iloc[300:]
+    join_date = etf_level.index.min()
+
+    spliced, _ = splice.splice_level_series("ETF", "PROXY", etf_level, proxy_level)
+
+    assert join_date in spliced.index
+    # The join row sits on the PROXY's continuous scale, not the ETF's raw
+    # one: it is a normal step from the previous day, not a ~-91% cliff.
+    prev_level = spliced.loc[spliced.index < join_date].iloc[-1]
+    assert spliced.loc[join_date] == pytest.approx(prev_level, rel=0.05)
+    # No hole anywhere across the transition.
+    assert spliced.loc[join_date:].index.equals(etf_level.index)
 
 
 def test_splice_rejects_low_correlation() -> None:
