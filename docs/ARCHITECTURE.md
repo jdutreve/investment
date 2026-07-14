@@ -195,21 +195,46 @@ replay iterate step() over the archive; the Monday catch-up and the
 on-demand UC9 prelude call it on the prints since the last run):**
 
 ```
-growth_dir    = 'rising'  if GROWTH_COMPOSITE.speed > +regime_growth_noise (0.15)
-              = 'falling' if GROWTH_COMPOSITE.speed < −regime_growth_noise
+-- Direction is classified on a SMOOTHED speed, never on a single print:
+speed_g       = trailing mean of GROWTH_COMPOSITE.speed over the last
+                regime_speed_smoothing_months (4) observations
+speed_i       = trailing mean of CPI_YOY.speed over the same window
+                -- level and acceleration stay the LATEST RAW print
+
+growth_dir    = 'rising'  if speed_g > +regime_growth_noise (0.3)
+              = 'falling' if speed_g < −regime_growth_noise
               = 'flat'    otherwise
-inflation_dir = 'rising'  if CPI_YOY.speed > +regime_cpi_noise (0.05)
+inflation_dir = 'rising'  if speed_i > +regime_cpi_noise (0.04)
                            AND CPI_YOY.level > regime_cpi_stagflation (2.5)
-              = 'rising'  if CPI_YOY.speed > +regime_cpi_noise (level ≤ 2.5 →
+              = 'rising'  if speed_i > +regime_cpi_noise (level ≤ 2.5 →
                            counts as rising only with accel > 0)
-              = 'falling' if CPI_YOY.speed < −regime_cpi_noise
+              = 'falling' if speed_i < −regime_cpi_noise
               = 'flat'    otherwise
 
 candidate = quadrant(growth_dir, inflation_dir)   -- 'uncertain' if any axis flat
 ```
 
+**Why the speed is smoothed (M3):** a bare 1-month diff of a z-score-amplified
+composite is dominated by single-month noise — a lone +6.3 print inside the
+2008 collapse reads as "rising growth" at ANY noise threshold, because it is a
+genuine month-over-month bounce, not a calibration artifact. The smoothing is
+LOCAL TO THE DETECTOR's read of the series: the persisted `market_data`
+level/speed/acceleration stay exactly as TASKS.md Task 2.2 pins them, so every
+other consumer (invariant conditions, the Worker) still sees the raw series.
+Only the direction-classifying speed is smoothed; the CPI stagflation LEVEL
+gate and the `events` narrative read the raw print.
+
+**All values above are M3-calibrated, not chosen** — a grid search over the
+real 35y history scored every (noise × confirm_prints × smoothing) combination
+against 7 episodes the detector must register; the winner takes LOW noise
+thresholds with the chop suppressed by smoothing + a 3-print confirmation
+(7/7 events, 90 episodes, 4% whipsaw). A wide-noise variant instead goes blind
+for years. The full rationale lives at the values themselves, in
+`db/seed_data.py` `SYSTEM_THRESHOLDS` — which is authoritative; the numbers
+quoted here are illustrative and must not be read as the source of truth.
+
 **Hysteresis:** a regime CHANGE is committed only after the same candidate
-quadrant has been produced by `regime_confirm_prints` (2) **consecutive
+quadrant has been produced by `regime_confirm_prints` (3) **consecutive
 monthly observations of each axis**. Both axes are monthly series
 (GROWTH_COMPOSITE from INDPRO/UNRATE, CPI YoY) — a trading-day window would
 be trivially satisfied between prints, so confirmation counts new prints,
@@ -222,7 +247,12 @@ instance and the candidate is tracked in memory. On commit: previous Regime gets
 
 ```
 axis_strength(a) = min(1, |speed_a| / speed_scale_a)     -- scales in thresholds
+                   -- speed_a = the SMOOTHED speed above: *_speed_scale is
+                   -- calibrated to the p90 of the smoothed distribution
 accel_bonus      = 10 if sign(accel)==sign(speed) on BOTH axes else 0
+                   -- accel = the freshest RAW acceleration: an intentional
+                   -- short/long-horizon pairing — "is the latest print still
+                   -- pushing in the sustained direction?"
 confidence       = clamp(50 + 20×axis_strength(growth)
                             + 20×axis_strength(inflation) + accel_bonus, 0, 100)
 ```

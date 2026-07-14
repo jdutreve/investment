@@ -144,7 +144,9 @@ conventions" — two implementations must produce the same numbers. Indicator
 
 **Regimes** — 5 seeded `RegimeType`s (stagflation = alias of
 falling-growth-rising-inflation); deflation is a TAG on Regime instances,
-never a type. Detection on level/speed/acceleration with 2-print hysteresis;
+never a type. Detection on level/speed/acceleration (direction classified on a
+speed smoothed over `regime_speed_smoothing_months`), with
+`regime_confirm_prints`-print hysteresis (M3-calibrated: 3);
 growth axis = GROWTH_COMPOSITE. FAVORS/DESIGNED_FOR point to RegimeType;
 IN_REGIME to Regime instances. Algorithm: docs/ARCHITECTURE.md.
 

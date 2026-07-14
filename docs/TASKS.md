@@ -1977,7 +1977,8 @@ async def shadow_replay(db, start: date, end: date,
       - Regime state as-of t: the historical instances are PIT by construction
         (materialize_history runs the detector forward chronologically with
         hysteresis). Visibility is keyed on the CONFIRMATION date — Regime
-        `created_at` (the commit after the 2-print hysteresis = when it was
+        `created_at` (the commit after the `regime_confirm_prints` hysteresis =
+        when it was
         KNOWN), NOT on start_date (which is back-dated to the data): assert no
         instance whose created_at > t is visible — a regime begun before t but
         not yet confirmed at t must stay invisible, else a few weeks of

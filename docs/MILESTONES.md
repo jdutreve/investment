@@ -96,11 +96,13 @@ Per-print `step()`, hysteresis, `detector_state`, historical episodes.
 - [ ] `invest regime --history`: 1994 rate shock, 2000 dot-com, 2008
       falling-growth, 2021-22 stagflation, plausible transition dates,
       ≥12 episodes (the 35y window adds the 90s)
-- [ ] flip-flop fixture does not switch before 2 concordant prints
+- [ ] flip-flop fixture does not switch before `regime_confirm_prints`
+      concordant prints (M3-calibrated to 3; the unit fixture sets its own)
 - [ ] STABILITY AUDIT (#4) over 35y: whipsaw count (episodes reversed within
       3 months), median episode length, detector lag (start_date → created_at
-      confirmation), and how many candidate switches the 2-print hysteresis
-      suppressed — all reported; whipsaws are rare and lag is bounded
+      confirmation), and how many candidate switches the
+      `regime_confirm_prints` hysteresis suppressed — all reported; whipsaws
+      are rare and lag is bounded
 
 **⚔️ STOP:** every episode is a historical fact you can dispute. Do not
 proceed until the regime history reads true.

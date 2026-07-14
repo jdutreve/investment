@@ -696,7 +696,8 @@ availability_lag_days`), and the 35y backfill stores ALFRED **first-release**
 values for revised series (INDPRO first; CPIAUCSL, UNRATE second).
 Composites and z-scores are computed from these as-known rows. The live
 fetcher (Monday catch-up / on-demand) appends whatever is current at fetch
-time — identical semantics; post-append revisions are ignored (the 2-print hysteresis absorbs
+time — identical semantics; post-append revisions are ignored (the
+`regime_confirm_prints` hysteresis absorbs
 revision noise). This makes `materialize_history` and the Phase 9 replay
 point-in-time by construction: they simply read `ts ≤ t`.
 

@@ -159,9 +159,12 @@ def _rising_falling_readings(candidate: str) -> tuple[regime.AxisReading, regime
 
 
 def test_hysteresis_flip_flop_never_commits() -> None:
-    """Alternating candidates every print never reach 2 CONSECUTIVE prints of
-    the same quadrant -> commit stays None throughout (docs/MILESTONES.md M3
-    DoV 'flip-flop fixture does not switch before 2 concordant prints')."""
+    """Alternating candidates every print never reach `confirm_prints`
+    CONSECUTIVE prints of the same quadrant -> commit stays None throughout
+    (docs/MILESTONES.md M3 DoV 'flip-flop fixture does not switch before
+    regime_confirm_prints concordant prints'). The fixture pins its own
+    confirm_prints=2 to exercise the MECHANISM — production is M3-calibrated
+    to 3, and this test must not re-break when that is recalibrated."""
     state = regime.EMPTY_STATE
     current: regime.CurrentRegime | None = None
     candidates = ["rising-growth-rising-inflation", "falling-growth-falling-inflation"]
