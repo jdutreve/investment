@@ -141,15 +141,36 @@ at M4, both SILENT:
   dividends. ALWAYS assert the echoed-back `<option ... selected>` and the
   reported period, never trust the request.
 
-**PV's hard limit — it cannot validate the 35y history.** The anonymous tier
-serves a ROLLING ~10-year window from today, silently: it echoes back whatever
-`startYear` you send while clipping the data (requesting 2007-2016 returns only
-Jul 2016-Dec 2016; every asset, including VTI (live since 2001), reports the
-same `Jan 2017 - ...` floor). So chunking cannot work around it, and a manual
-run hits the same wall without a paid account. The pre-2017 history is
-therefore validated by other means: the exact SPY annual-return match, and
-lazyportfolioetf's 30Y All Weather (CAGR 6.97 vs 7.36%, stdev 7.84 vs 7.51%,
-Sharpe 0.63 vs 0.68 — residuals explained by their IEI/DBC vs our IEF/DJP).
+**PV has TWO backtesters, and only one is capped — use both.**
+- `backtest-portfolio` (real tickers) is capped for anonymous users at a
+  ROLLING ~10-year window, silently: it echoes back whatever `startYear` you
+  send while clipping the data (requesting 2007-2016 returns only Jul 2016-Dec
+  2016; every ticker, including VTI (live since 2001), reports the same
+  `Jan 2017 - ...` floor). Chunking cannot evade it. This is the ticker-EXACT
+  check → the 2017-2025 numbers above.
+- `backtest-asset-class-allocation` (index series: `TotalStockMarket`,
+  `LongTreasury`, `IntermediateTreasury`, `Gold`, `Commodities`) is **NOT
+  capped** — `startYear` reaches 1972 and it returns the full window. Those
+  sleeves are conceptually exactly what HISTORY_PROXIES stand in for
+  (VFINX / VUSTX / VFITX / LBMA gold), so this is what validates the SPLICED
+  era, which no ticker-based tool ever can (the ETFs did not exist: DJP 2006,
+  GLD 2004, TLT/IEF 2002).
+
+**Spliced-era check (the one that matters, since the splice is where the M4 bug
+was).** PV's only 2007-limited sleeve is `Commodities`; the other four reach
+1972+. So drop the 7.5% commodity sleeve and renormalise (32.43 / 43.24 /
+16.22 / 8.11) — 92.5% of the benchmark over **Jan 1992-Dec 2025 (34y, ~41% of
+it on proxy data)**: CAGR 7.61 vs 7.46%, Sharpe 0.69 vs 0.68, Sortino 1.06 vs
+1.04, stdev 7.78 vs 7.35%, maxDD -25.09 vs -23.19%. The two larger residuals
+are expected and directional, not error: our TLT (20y+, duration ~17) is longer
+than PV's LongTreasury index, so 2022's rate shock hits us harder — the same
+reason lazyportfolioetf's IEI-based variant shows a shallower -20.58%. Before
+the splice fix this same check read stdev 22.5% and maxDD -52.7%, so it is also
+the standing regression test for the splice.
+
+Corroborating, non-PV: SPY calendar-year returns exact vs published, and
+lazyportfolioetf's 30Y All Weather (CAGR 6.97 vs 7.36%, Sharpe 0.63 vs 0.68 —
+residuals explained by their IEI/DBC vs our IEF/DJP).
 
 ---
 
