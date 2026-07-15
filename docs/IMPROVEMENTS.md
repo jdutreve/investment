@@ -720,17 +720,9 @@ ADR-006):
 - `inv-inflation-persistence-tips` (proposed, 9/14 = 0.643): clears θ on the
   point estimate but not the evidence bar — a zero-edge invariant produces
   9-of-14 21% of the time. It held `integrated` under the pre-M5-bis rule.
-  N is the binding constraint, and part of that is FIXABLE, contrary to what
-  this item said before: the inflation-protected class floor is **2003-12**
-  (TIP's own launch), not 2000, because the VIPSX proxy splice is REJECTED —
-  TIP/VIPSX correlates 0.890 daily against MIN_RETURN_CORR 0.94, while
-  correlating 0.9953 monthly. That is the documented GLD/SHY case exactly
-  (`seed.RESAMPLED_VALIDATION_TICKERS`): a mutual fund's 4pm NAV against an
-  intraday-traded ETF is a fixing-time mismatch, not a series that disagrees.
-  seed.py logs it (`step 9: splice TIP/VIPSX rejected, ETF-only floor`) and
-  carries on; nobody read the log. Adding TIP to RESAMPLED_VALIDATION_TICKERS
-  recovers 2000-06..2003-12 — ~14 more quarters, on the one seed invariant
-  whose verdict is gated by N.
+  N is the binding constraint: the inflation-protected class floor is
+  2003-12 (TIP's own ETF inception), not 2000 as this item said before.
+  Whether that floor is movable is I-34; nothing to re-specify HERE.
 - `inv-low-real-yields-favor-gold` (integrated, 53/82 = 0.646, null tail
   0.005) is the only invariant that has earned integration — the only one
   whose evidence excludes the no-condition null.
@@ -799,6 +791,45 @@ the pairwise scan already runs over the integrated set only.
 **Trigger to add:** the first M7 batch containing an `asset:<ticker>`
 invariant whose class also carries a class-level invariant — or simply when
 the integrated set first holds both handle kinds on one class.
+
+---
+
+## I-34 — TIP/VIPSX splice: resampled validation was never tried
+
+**Why deferred:** it re-opens an M2 owner decision, and the upside lands on
+the one thing M6 does not read.
+
+`HISTORY_PROXIES` maps `TIP -> VIPSX (2000)`, and every seed run since M2
+logs `step 9: splice TIP/VIPSX rejected, ETF-only floor`. Measured on the
+real 2003-12..2005-12 overlap: TIP vs VIPSX correlates **0.890 daily**
+(under `MIN_RETURN_CORR` 0.94, hence rejected) but **0.9953 monthly**. That
+profile is the documented GLD case exactly — VIPSX is a mutual fund with one
+NAV struck at 4pm, TIP trades intraday, so the daily clock disagrees, not
+the series — and it is a BETTER monthly fit than SHY/VFISX (0.963), which
+`seed.RESAMPLED_VALIDATION_TICKERS` already accepts. Adding TIP there would
+recover 2000-06..2003-12 for the `inflation-protected` benchmark class,
+~14 quarters, on `inv-inflation-persistence-tips` (9/14) — the one seed
+invariant whose verdict is gated purely by N.
+
+**Why it is NOT filed as a bug (2026-07-15).** M2 already weighed this pair.
+The defender's own trace records the investigation: *"TIPS didn't exist
+before 1997, so no free proxy can extend TIP's own history past its 2003 ETF
+inception (VIPSX/VAIPX/PRTNX/ACITX all tried, none clear the splice gate
+cleanly) — IEF is the closest behavioral match found (corr 0.77 vs TIP...)"*.
+The answer M2 chose was to fix the PORTFOLIO (TIP -> IEF), not the splice
+gate, and the portfolios have run on IEF ever since. Admitting TIP now
+changes an owner decision on a considered trade-off. It was tried and
+reverted at M5-bis for exactly this reason.
+
+**Scope note:** this touches NOTHING M6 consumes. Portfolios hold IEF, so
+`portfolio_nav` already reaches 1986-1991 and the replay window is intact;
+the only consumer of the `inflation-protected` benchmark class is invariant
+confrontation, and the mechanical replay is blind to invariant weights
+(ARCHITECTURE). Pure invariant-evidence upside.
+
+**Trigger to revisit:** whenever I-32's re-specification pass is taken up —
+decide the TIPS floor and the TIPS effect together, since both bear on the
+same invariant. Do not take it alone.
 
 ---
 
