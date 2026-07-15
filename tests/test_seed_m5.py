@@ -13,6 +13,7 @@ does a live network fetch by default).
 import json
 from pathlib import Path
 
+import pandas as pd
 from test_seed_market import _make_stub, _settings
 
 from investment import seed
@@ -225,6 +226,108 @@ async def test_m5_editing_an_invariant_re_matures_it(tmp_path: Path) -> None:
             i=target,
         )
         assert rows[0]["n"] == 0
+    finally:
+        await db.close()
+
+
+async def test_m5_authoritative_write_replaces_orphans(tmp_path: Path) -> None:
+    """docs/IMPROVEMENTS.md I-30 (re-dating half): INSERT OR REPLACE is keyed
+    on (ticker, ts), so re-dating a series writes NEW rows beside the orphaned
+    old ones. Live consequence: M2SL held 1768 rows at 7-day spacing (35y
+    monthly is ~420), and `m2_yoy` read across the copies to produce YoY of
+    -62.6%..+213.9% where reality is about -4%..+27%."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        stale = [
+            {
+                "ticker": "M2SL",
+                "asset_class": "MACRO",
+                "currency": "USD",
+                "ts": d,
+                "level": 100.0,
+                "speed": None,
+                "acceleration": None,
+            }
+            for d in ("2020-01-08", "2020-01-15", "2020-01-22")  # a weekly-dated copy
+        ]
+        await db.append_ts_batch("market_data", stale)
+        fresh = [{**stale[0], "ts": f"2020-0{m}-01", "level": 200.0} for m in range(1, 4)]
+
+        assert await seed._write_series_authoritatively(db, "M2SL", fresh) is None
+        rows = await db.query("SELECT ts, level FROM market_data WHERE ticker='M2SL' ORDER BY ts")
+        assert [r["ts"] for r in rows] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+        assert all(r["level"] == 200.0 for r in rows), "orphaned weekly copy survived"
+    finally:
+        await db.close()
+
+
+async def test_m5_authoritative_write_guard_uses_span_not_row_count(tmp_path: Path) -> None:
+    """The guard must not key on ROW COUNT — that is the signal the bug
+    corrupts. Re-dating INFLATES the stored series (M2SL: 1768 rows for 418
+    real monthly observations), so a count test reads the CLEAN fetch as a
+    76% shortfall and refuses to replace precisely the series that needs it.
+    Shipped that way once; the live run cleaned nothing."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        base = {
+            "ticker": "M2SL",
+            "asset_class": "MACRO",
+            "currency": "USD",
+            "level": 100.0,
+            "speed": None,
+            "acceleration": None,
+        }
+        # Stored: a weekly-dated copy — 3x the rows over the SAME span.
+        polluted = [
+            {**base, "ts": d.date().isoformat()}
+            for d in pd.date_range("2020-01-01", "2020-12-31", freq="W")
+        ]
+        await db.append_ts_batch("market_data", polluted)
+        # Fresh: the real monthly series — far FEWER rows, same span.
+        clean = [
+            {**base, "ts": d.date().isoformat(), "level": 200.0}
+            for d in pd.date_range("2020-01-01", "2020-12-01", freq="MS")
+        ]
+        assert len(clean) < len(polluted) * 0.9, "fixture must trip a row-count guard"
+
+        report = await seed._write_series_authoritatively(db, "M2SL", clean)
+
+        assert report is None, "span still covered — the clean series must replace the copies"
+        rows = await db.query("SELECT COUNT(*) AS n FROM market_data WHERE ticker='M2SL'")
+        assert rows[0]["n"] == len(clean)
+    finally:
+        await db.close()
+
+
+async def test_m5_authoritative_write_guard_refuses_to_wipe_history(tmp_path: Path) -> None:
+    """I-30: "never delete on a hunch". A truncated vendor response must
+    degrade to the old additive behaviour and REPORT — never delete 35y of
+    history because Yahoo returned 100 rows today."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        stored = [
+            {
+                "ticker": "SPY",
+                "asset_class": "US_EQUITY",
+                "currency": "USD",
+                "ts": f"2020-{m:02d}-01",
+                "level": 100.0,
+                "speed": None,
+                "acceleration": None,
+            }
+            for m in range(1, 13)
+        ]
+        await db.append_ts_batch("market_data", stored)
+        truncated = [{**stored[0], "ts": "2021-01-01", "level": 999.0}]
+
+        report = await seed._write_series_authoritatively(db, "SPY", truncated)
+
+        assert report is not None and "delete abandoned" in report
+        rows = await db.query("SELECT COUNT(*) AS n FROM market_data WHERE ticker='SPY'")
+        assert rows[0]["n"] == 13, "history was wiped by a truncated fetch"
     finally:
         await db.close()
 

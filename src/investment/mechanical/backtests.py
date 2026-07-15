@@ -35,6 +35,9 @@ BENCHMARK_KIND_STRATEGY = "strategy"
 BENCHMARK_KIND_ASSET = "asset"
 REAL_RATE_TICKER = "real_rate"
 REAL_YIELD_10Y_TICKER = "real_yield_10y"
+M2_YOY_TICKER = "m2_yoy"
+M2_ACCEL_TICKER = "m2_accel_12m"
+EQUITY_TREND_TICKER = "equity_trend"
 
 # The metrics `period_series_frame` computes — i.e. the ONLY values an
 # `effect.metric` may name (docs/ARCHITECTURE.md VALIDATION GATE: "`metric` a
@@ -214,7 +217,73 @@ async def _materialize_real_rates(db: InvestmentDB, default_lookback_days: int) 
         rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
         await db.append_ts_batch("market_data", rows)
         written[derived_id] = len(rows)
+
+    written.update(await _materialize_broad_money(db, default_lookback_days))
+    written[EQUITY_TREND_TICKER] = await _materialize_equity_trend(db, default_lookback_days)
     return written
+
+
+def _yoy_change(series: pd.Series, days: int = 365) -> pd.Series:
+    """`x(t) - x(t - days)` on the series' own (irregular) calendar, via the
+    latest observation at or before the lagged date — the same as-of read
+    `market/derivatives.py` uses, so a monthly series is not interpolated."""
+    # pandas-stubs types `.index` as a generic Index, which has no
+    # Timedelta arithmetic; these series are always date-indexed.
+    idx = pd.DatetimeIndex(series.index)
+    lagged = series.reindex(idx - pd.Timedelta(days=days), method="ffill")
+    return pd.Series(series.to_numpy() - lagged.to_numpy(), index=idx).dropna()
+
+
+async def _materialize_broad_money(db: InvestmentDB, default_lookback_days: int) -> dict[str, int]:
+    """`m2_yoy` (broad-money GROWTH) and `m2_accel_12m` (is that growth FASTER
+    than a year ago) — db/seed_data.py DERIVED_SIGNALS.
+
+    The 12-month spans are the point: an annual money-growth claim is not
+    expressible through `GLOBAL_LIQUIDITY`, whose speed/acceleration are
+    7-DAY (measured on the real data, the two readings of "positive and
+    accelerating" disagree on 42.7% of days). M2 is the only LIVE broad
+    aggregate — every US M3 series is discontinued (M5)."""
+    m2 = await ratios.load_price(db, "M2SL")
+    if m2.empty:
+        return {M2_YOY_TICKER: 0, M2_ACCEL_TICKER: 0}
+    # Percent growth, not a level difference: M2 grew ~30x since 1959, so an
+    # absolute change is not comparable across the sample.
+    idx = pd.DatetimeIndex(m2.index)
+    lagged = m2.reindex(idx - pd.Timedelta(days=365), method="ffill")
+    yoy = (pd.Series(m2.to_numpy() / lagged.to_numpy() - 1.0, index=idx) * 100.0).dropna()
+    written: dict[str, int] = {}
+    for derived_id, series in ((M2_YOY_TICKER, yoy), (M2_ACCEL_TICKER, _yoy_change(yoy))):
+        if series.empty:
+            written[derived_id] = 0
+            continue
+        deriv = derivatives.compute_derivatives(series, derived_id, default_lookback_days)
+        rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
+        await db.append_ts_batch("market_data", rows)
+        written[derived_id] = len(rows)
+    return written
+
+
+async def _materialize_equity_trend(db: InvestmentDB, default_lookback_days: int) -> int:
+    """`equity_trend` = SPY / SMA10-month(SPY) - 1: >0 iff equities sit above
+    their 10-month average (Faber; Moskowitz-Ooi-Pedersen time-series
+    momentum). SPY carries its HISTORY_PROXIES splice, so this reaches ~1980.
+
+    The SMA is trailing-only (`rolling`), so the signal is knowable on its
+    own date — no look-ahead (ADR-003)."""
+    spy = await ratios.load_price(db, "SPY")
+    if spy.empty:
+        return 0
+    # 210 trading days ~ 10 months. min_periods=window: a trend filter with a
+    # half-formed average is not the claim, and a partial SMA would emit a
+    # confident-looking value from a handful of points.
+    sma = spy.rolling(210, min_periods=210).mean()
+    trend = ((spy / sma - 1.0) * 100.0).dropna()
+    if trend.empty:
+        return 0
+    deriv = derivatives.compute_derivatives(trend, EQUITY_TREND_TICKER, default_lookback_days)
+    rows = _ts_rows(EQUITY_TREND_TICKER, "MACRO", "USD", deriv)
+    await db.append_ts_batch("market_data", rows)
+    return len(rows)
 
 
 async def _class_constituents(db: InvestmentDB, fine_classes: list[str]) -> list[str]:

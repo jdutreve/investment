@@ -196,6 +196,20 @@ DERIVED_SIGNALS: dict[str, str] = {
     # against the 10y, and the two disagree on most of the sample (the short
     # real rate is < 2.5% for 88% of 1991-2026; the long one is not).
     "real_yield_10y": "DGS10 - CPIAUCSL(yoy_pct)  # nominal 10y yield minus inflation",
+    # BROAD-MONEY family. Distinct from GLOBAL_LIQUIDITY, which is a 5y
+    # z-score of CENTRAL-BANK balance sheets + M2: base money and broad money
+    # diverge hard (QE inflates CB assets without proportional deposit
+    # growth), GLOBAL_LIQUIDITY floors at 2003 on WALCL, and its speed/
+    # acceleration are 7-DAY (a wiggle) where a money-growth claim is annual.
+    # M2 is the ONLY live broad aggregate: every US M3 series is discontinued
+    # (OECD MABMM301USM189S ends 2023-11; the Fed's own M3 died in 2006), so
+    # an M3-conditioned invariant cannot be evaluated forward at all.
+    "m2_yoy": "M2SL year-over-year %  # broad money GROWTH, monthly, from 1959",
+    "m2_accel_12m": "m2_yoy - m2_yoy(12m ago)  # is money growth FASTER than a year ago",
+    # Time-series momentum / tactical-allocation trend filter (Faber;
+    # Moskowitz-Ooi-Pedersen): >0 iff price sits above its 10-month SMA.
+    # Confirms that liquidity is actually transmitting into risk-asset prices.
+    "equity_trend": "SPY / SMA10m(SPY) - 1  # equity price vs its 10-month average",
 }
 
 SIGNAL_ALIASES: dict[str, str] = {
@@ -205,6 +219,11 @@ SIGNAL_ALIASES: dict[str, str] = {
     "irx": "^IRX",
     "real_rate": "real_rate",
     "real_yield": "real_yield_10y",
+    # 'liquidity' is CENTRAL-BANK liquidity (GLOBAL_LIQUIDITY); 'broad_money'
+    # is DEPOSIT money (M2). Not variants — see ARCHITECTURE CURATOR RULE 2.
+    "broad_money": "m2_yoy",
+    "broad_money_accel": "m2_accel_12m",
+    "equity_trend": "equity_trend",
     "regime": "regime",
 }
 # The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
@@ -377,19 +396,69 @@ INVARIANTS: list[dict[str, object]] = [
      "tags": ["liquidity", "risk", "indicator:global-liquidity"],
      "weight_initial": 0.75, "floor_weight": 0.35,
      "trace": "Howard Marks memos on cycles and liquidity."},
+    # Owner-supplied revision (2026-07-15) after independent 1991-2025
+    # validation. Conformed on entry; every departure is mechanical:
+    #   signal 'liquidity'      -> 'broad_money' + 'broad_money_accel'. The
+    #     trace specifies OECD M3 YoY with a 12-MONTH acceleration; our
+    #     'liquidity' is a 5y z-score of CB balance sheets + M2 whose
+    #     speed/acceleration are 7-DAY. Measured: the two readings of the
+    #     submitted condition disagree on 42.7% of days, and GLOBAL_LIQUIDITY
+    #     floors at 2003 (WALCL), halving the cited window. M3 itself is
+    #     UNUSABLE — every US series is discontinued (OECD MABMM301USM189S
+    #     ends 2023-11, the Fed's own M3 died 2006), so an M3 condition could
+    #     never be evaluated forward. Owner chose M2 (live, 1959+) as the
+    #     broad-money aggregate: same SHAPE (growth positive + accelerating
+    #     year-over-year), different aggregate, so the 9/10 evidence below
+    #     does NOT transfer and the engine's sweep is an INDEPENDENT test.
+    #   signal 'equity-trend'   -> 'equity_trend' (registry key; the new
+    #     SPY/SMA10m-1 derived signal, added for this invariant)
+    #   metric 'relative_return'-> 'return' (the computed indicator;
+    #     cross_class is ALREADY what makes it relative — third submission
+    #     carrying this; the gate now demotes it rather than crashing)
+    #   weight_initial 0.70     -> 0.75 ('marks' tier floor_min; CLAUDE.md
+    #   floor_weight   0.40     -> 0.35  pins marks = 0.35, 0.40 is dalio)
+    # STRIPPED (ADR-006 — belief does not grant integration):
+    #   status 'integrated' -> 'proposed'; validated_at -> null;
+    #   market_score 0.90 / counts 9-1 / weight_effective 0.63 -> birth
+    #   defaults. The submitted evidence stays in `source`/`trace`.
     {"id": "inv-liquidity-easing-risk",
-     "title": "Easing global liquidity supports risk assets",
-     "description": "GLOBAL_LIQUIDITY speed > 0 historically expands risk-asset "
-                    "multiples.",
-     "example": "2020-2021 QE.",
-     "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
+     "title": "Accelerating broad money confirmed by positive equity trend favors equities",
+     "description": "When broad money growth is positive and accelerating year-over-year, "
+                    "and the equity market remains above its long-term trend, equities tend "
+                    "to outperform cash and usually nominal government bonds. The "
+                    "market-trend condition confirms that monetary liquidity is effectively "
+                    "transmitting into risk-asset prices.",
+     "example": "1991-2025 owner validation (on OECD M3, not the M2 this invariant now "
+                "reads): 10 independent annual signals; the following year's S&P 500 total "
+                "return beat 3-month bills in 10/10 and beat both bills and 10y Treasuries "
+                "in 9/10. Mean 19.4%, worst +5.5%. The UNCONFIRMED liquidity signal gave "
+                "13/16 and included a -36.6% outcome — the trend filter is what removes it.",
+     "source": "Howard Marks — memos on cycles and liquidity; OECD/FRED broad money; "
+               "Damodaran historical returns; Moskowitz, Ooi and Pedersen — Time Series "
+               "Momentum; Faber — A Quantitative Approach to Tactical Asset Allocation",
      "author": "marks", "status": "proposed",
-     "condition": [{"signal": "liquidity", "feature": "speed", "op": ">", "value": 0}],
+     "condition": [{"signal": "broad_money", "feature": "level", "op": ">", "value": 0},
+                   {"signal": "broad_money_accel", "feature": "level", "op": ">", "value": 0},
+                   {"signal": "equity_trend", "feature": "level", "op": ">", "value": 0}],
      "effect": {"handle": "asset-class:equities", "metric": "return",
                 "method": "cross_class", "direction": "outperform"},
-     "tags": ["liquidity", "risk", "indicator:global-liquidity"],
+     "tags": ["liquidity", "risk", "equities", "trend", "momentum",
+              "asset:SPY", "indicator:broad-money", "indicator:equity-trend",
+              "comparator:cash", "comparator:nominal-bonds",
+              "trend:sma10", "horizon:12m", "validation:1991-2025"],
      "weight_initial": 0.75, "floor_weight": 0.35,
-     "trace": "Howard Marks memos on cycles and liquidity."},
+     "trace": "Owner validation on 416 monthly observations 1991-2025 using OECD M3 YoY "
+              "(October reading, 2-month publication lag) and SPY/SMA10m: 10/10 vs bills, "
+              "9/10 vs bills AND 10y (market_score 0.90), mean next-year return 19.4%, "
+              "worst +5.5%, present in every decade. Fisher exact one-sided p ~0.064 vs "
+              "cash, ~0.077 vs both; strong but not conclusive at N=10, and OECD values are "
+              "current-vintage (later revisions possible). Credit spreads were tested and "
+              "dropped: their first derivative shrank the sample and added instability. "
+              "CAVEATS on the engine's own re-test: (a) it reads M2, not M3 — every US M3 "
+              "series is discontinued, so the cited evidence does not transfer and this is "
+              "an independent test; (b) the engine confronts at proposal_outcome_weeks "
+              "(12 WEEKS), not the 12-MONTH horizon validated here (docs/IMPROVEMENTS.md "
+              "I-32)."},
     {"id": "inv-diversification-drawdown",
      "title": "Diversification lowers drawdown but dilutes upside",
      "description": "Cross-asset diversification reduces max_drawdown at the "
