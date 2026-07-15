@@ -237,11 +237,14 @@ reach θ, yet never qualified). That violates this ADR's own doctrine
 `integrated` invariants only, starves the citation loop. The owner's ruling:
 do NOT relax V1 constraints (gate 6 stays integrated-only) — make the engine
 QUALIFY instead. A second mechanical rejection branch is added:
-- `rejected` (inadequate) iff `confrontations ≥ 4` AND the one-sided Wilson
-  upper bound of market_score at `invariant_verdict_confidence` (0.95) is
-  `< θ` — "given ample evidence, this invariant demonstrably cannot reach
-  the bar". Baseline-relative scoring (ARCHITECTURE "Invariant confrontation
-  rule") is what makes this test sound: the null is 0.50 for every handle.
+- `rejected` (inadequate) iff `confrontations ≥ 4` AND a true rate of θ would
+  produce evidence this bad at most `1 − invariant_verdict_confidence` (0.05)
+  of the time — "given ample evidence, this invariant demonstrably cannot
+  reach the bar". Baseline-relative scoring (ARCHITECTURE "Invariant
+  confrontation rule") is what makes this test sound: the null is 0.50 for
+  every handle. (Stated with a Wilson upper bound at M5; restated as the
+  exact binomial tail by the M5-bis amendment below, which leaves this
+  branch's verdicts on the real board unchanged.)
 `proposed` now means exactly one thing — INSUFFICIENT EVIDENCE — and empties
 mechanically as confrontations accrue. The verdict stays stateless
 (recomputed from current counts), so a rejection is as reversible as the
@@ -262,6 +265,55 @@ uncertifiable path now forces `status='proposed'` and clears `validated_at`
 (`mechanical/invariants.py::_force_uncertified`); supplied evidence is kept
 as provenance in `source`/`trace`, never as engine state. Belief does not
 grant integration — including the author's belief about their own invariant.
+
+**Amendment (M5-bis, 2026-07-15) — integration requires EVIDENCE, not just a
+score above θ.** The M5 amendment above put a confidence test on the
+REJECTION branch but left INTEGRATION a bare point test (`N ≥ N_min AND
+score ≥ θ`). That is not a test at all at small N: it gets EASIER the less
+evidence there is. P(score ≥ 0.60 | the invariant has NO edge whatsoever) is
+**50% at N=3** (2 of 3 confirmations is a coin flip), 21% at N=14, 25% at
+N=20, and only 3% at N=82. So the engine was certifying luck, and had already
+done it: `inv-inflation-persistence-tips` sat `integrated` on 9/14 — a 21%
+coin, its interval straddling the null — and realloc gate 6 cites `integrated`
+invariants, so it was one Monday away from a live money proposal on evidence
+indistinguishable from noise. Worse, the incentive ran BACKWARDS: a narrower
+condition yields fewer moments and so passed more easily, meaning the engine
+mechanically **rewarded over-fitting** — the exact pathology it exists to
+catch — with no user gate downstream to intercept it (this ADR). Integration
+now requires both clauses:
+- `integrated` iff `confrontations ≥ N_min` AND `market_score ≥ θ` AND
+  `P(X ≥ confirmations | N, invariant_null_score)` ≤ `1 −
+  invariant_verdict_confidence` (0.05), X binomial — "the 0.50 null is an
+  implausible source of evidence this good". θ asks *is it worth acting on*;
+  the tail asks *do we know it at all*. Both, always.
+Discovered while testing a 12-month horizon for the liquidity invariant: it
+"integrated" at 12/20 = exactly θ, a pass a coin delivers 25% of the time —
+the verdict was tracking N, not skill.
+
+The tails are EXACT (binomial), not the normal-approximation interval the M5
+amendment named: Wilson is liberal at extreme rates with small N, precisely
+where the defect lives — `wilson_lower(3,3) = 0.526 ≥ 0.50` would still have
+integrated a 3-for-3 invariant that a coin reproduces 12.5% of the time. The
+exact tail sets the smallest perfect record at 5/5 (0.031) and leaves every
+rejection on the real board unchanged. Both branches are stated as exact
+tails for one device, not two.
+
+The bar stays REACHABLE — this is not a de-facto ban: a true-0.65 invariant
+qualifies on ~30 moments (~7y of active condition at a 12w horizon), and the
+real gold invariant clears it today at 53/82 (tail 0.005). It is also not an
+absorbing state: as N grows the null tail collapses above θ (integrating) and
+the θ tail collapses below it (rejecting), so "Nothing stays proposed
+forever" still holds — only the measure-zero true rate exactly AT θ stalls.
+Cost, accepted: the board drops from 2 integrated invariants to 1. An
+`integrated` stamp that is 21% noise is worth less than no stamp.
+
+Corollary (`mechanical/invariants.py::maturation_fingerprint`): a verdict
+belongs to the RULE it was earned under, exactly as it belongs to its
+definition. The M5 fingerprint keyed on `(condition, effect)` only, so this
+amendment would have left every already-matured invariant sitting on the
+verdict the OLD bar gave it — including TIPS, the one it exists to catch.
+The fingerprint now digests the verdict rule (horizon, margin, bars,
+confidence, null) too: change a rule, everything re-matures.
 - New strategies auto-enable after mechanical probation
   (`strategy_probation_weeks`); no human gate.
 - The **weekly digest reports** what changed; it never asks. It is a passive

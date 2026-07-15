@@ -53,18 +53,27 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "confrontation_margin_volatility": 0.02,
     "vector_similarity_min": 0.35,
     # time-validation verdict gate (ARCHITECTURE.md "Birth maturation"):
-    # confrontations >= N_min AND market_score >= theta AND not refuted.
+    # confrontations >= N_min AND market_score >= theta AND the Wilson lower
+    # bound clears the null AND not refuted.
     # Documented in DATA_MODELS.md system_thresholds description but missing
     # from this seed until M5 — filled in here.
     "invariant_min_confrontations": 3.0,
     "invariant_time_validation_score": 0.60,
     # Verdict convergence (ADR-006 amendment, M5): one-sided confidence for
-    # the 'inadequate' rejection — rejected iff the Wilson upper bound of
-    # market_score at this confidence is < theta, i.e. the invariant
-    # demonstrably cannot reach the bar. This is what empties the 0.35-0.60
-    # dead middle ("Nothing stays proposed forever"); 'proposed' now means
-    # insufficient evidence only.
+    # BOTH bounds — 'inadequate' rejection when the Wilson upper bound of
+    # market_score is < theta (demonstrably cannot reach the bar), and
+    # integration only when the Wilson lower bound clears the null below.
+    # The upper bound is what empties the 0.35-0.60 dead middle ("Nothing
+    # stays proposed forever"); 'proposed' means insufficient evidence only.
     "invariant_verdict_confidence": 0.95,
+    # The no-condition null of a BASELINE-RELATIVE market_score (a
+    # confirmation means "beat what this handle does anyway", so a
+    # zero-skill invariant scores 0.50 — see invariants.py `baseline_excess`).
+    # Integration requires the Wilson LOWER bound to clear it (ADR-006
+    # amendment, M5-bis): theta alone is a point test that gets EASIER the
+    # less evidence there is — at N_min=3 a zero-edge invariant integrated
+    # on a coin flip, which is how TIPS held 'integrated' on 9/14.
+    "invariant_null_score": 0.50,
     # regime detection (see docs/ARCHITECTURE.md formal algorithm)
     # Calibrated at M3 by a grid search over the REAL 35y history (the
     # pre-M2 hand-guessed values produced 23% whipsaws and an "Overheating"

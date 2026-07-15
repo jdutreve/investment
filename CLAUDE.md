@@ -98,12 +98,16 @@ Exempt: UC0 seed (closing SeedEvent) and pure TS writes.
 
 **No user gate (ADR-006)** — invariants, strategies, scenario probabilities
 and thresholds all mature MECHANICALLY: measure → propose → maturation window
-→ adopt/reject. Invariant verdict (three outcomes, ADR-006 amendment):
-`integrated` iff N_min/θ; `rejected` iff refuted (score < 0.35, N ≥ 4) OR
-inadequate (Wilson upper bound of the score at 95% < θ — demonstrably cannot
-reach the bar); else `proposed` = INSUFFICIENT EVIDENCE only. Belief does not
-grant integration, history does. Nothing stays proposed forever; nothing is
-adopted without measurement. The unified
+→ adopt/reject. Invariant verdict (three outcomes, ADR-006 amendments):
+`integrated` iff N_min AND score ≥ θ AND the 0.50 null produces evidence this
+good ≤ 5% of the time (exact binomial tail — θ alone is a point test that gets
+EASIER at small N: at N=3 a zero-edge invariant integrated on a coin flip);
+`rejected` iff refuted (score < 0.35, N ≥ 4) OR inadequate (N ≥ 4 AND a true
+rate of θ produces evidence this bad ≤ 5% of the time — demonstrably cannot
+reach the bar); else `proposed` = INSUFFICIENT EVIDENCE only. Effect size and
+evidence are BOTH required: θ asks "worth acting on?", the tail asks "do we
+know it at all?". Belief does not grant integration, history does. Nothing
+stays proposed forever; nothing is adopted without measurement. The unified
 improvement cycle (docs/ARCHITECTURE.md) covers Proposals (verdict at +12w),
 strategies (12w probation), scenarios (calibration scoring).
 

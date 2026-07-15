@@ -230,6 +230,89 @@ async def test_m5_editing_an_invariant_re_matures_it(tmp_path: Path) -> None:
         await db.close()
 
 
+async def test_m5_changing_the_verdict_rule_re_matures_everything(tmp_path: Path) -> None:
+    """A verdict belongs to the RULE it was earned under, exactly as it
+    belongs to its definition (ADR-006 M5-bis amendment). The M5 fingerprint
+    keyed on (condition, effect) only, so tightening the integration bar left
+    every already-matured invariant sitting on the verdict the OLD bar gave
+    it — including the ones the new bar exists to catch."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_through_step_10(db, settings)
+        await seed._seed_portfolio_nav(db)
+        await seed._materialize_benchmark_valuation(db)
+        await seed._run_backtests_favors(db)
+        await seed._mature_seed_invariants(db)
+
+        again = {
+            r["invariant_id"]: r for r in (await seed._mature_seed_invariants(db))["invariants"]
+        }
+        assert all(r["skipped_reason"] == "already_matured" for r in again.values())
+
+        # Move a bar. Nothing about any invariant changed — only the rule.
+        await db.command(
+            "UPDATE system_thresholds SET value = 0.55 WHERE key = :k",
+            k="invariant_time_validation_score",
+        )
+        after = {
+            r["invariant_id"]: r for r in (await seed._mature_seed_invariants(db))["invariants"]
+        }
+        assert all(r["skipped_reason"] is None for r in after.values()), (
+            "a rule change must re-mature every invariant, not just edited ones"
+        )
+    finally:
+        await db.close()
+
+
+async def test_m5_validated_at_is_not_a_ratchet(tmp_path: Path) -> None:
+    """`validated_at` is 'null while still a candidate' (docs/DATA_MODELS.md),
+    but only `_force_uncertified` ever cleared it — a verdict that LEFT
+    'integrated' kept the date. The verdict is stateless (recomputed from
+    current counts), so integration is not a ratchet and neither is its date.
+    Surfaced live by the M5-bis rule change: TIPS went 'integrated' ->
+    'proposed' and kept validated_at='2026-07-15'."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_through_step_10(db, settings)
+        await seed._seed_portfolio_nav(db)
+        await seed._materialize_benchmark_valuation(db)
+        await seed._run_backtests_favors(db)
+        # The fixture's liquidity invariant lands on 31/50: score 0.62 clears
+        # theta, but the 0.50 null still produces evidence that good 5.95% of
+        # the time, so at alpha=0.05 the TAIL test alone holds it back. Relax
+        # the confidence to 0.90 and it integrates — which is both what makes
+        # this fixture an 'integrated' one and a live demonstration that the
+        # M5-bis clause is the deciding one here.
+        await db.command(
+            "UPDATE system_thresholds SET value = 0.90 WHERE key = :k",
+            k="invariant_verdict_confidence",
+        )
+        await seed._mature_seed_invariants(db)
+
+        integrated = await db.query(
+            "SELECT id, validated_at FROM invariant WHERE status = 'integrated'"
+        )
+        assert integrated, "fixture must integrate at least one invariant to be meaningful"
+        assert all(r["validated_at"] is not None for r in integrated)
+
+        # Move theta above every score: nothing can stay integrated.
+        await db.command(
+            "UPDATE system_thresholds SET value = 0.99 WHERE key = :k",
+            k="invariant_time_validation_score",
+        )
+        await seed._mature_seed_invariants(db)
+
+        rows = await db.query("SELECT id, status, validated_at FROM invariant")
+        assert not [r for r in rows if r["status"] == "integrated"]
+        assert not [r for r in rows if r["validated_at"] is not None], (
+            "leaving 'integrated' must clear validated_at"
+        )
+    finally:
+        await db.close()
+
+
 async def test_m5_authoritative_write_replaces_orphans(tmp_path: Path) -> None:
     """docs/IMPROVEMENTS.md I-30 (re-dating half): INSERT OR REPLACE is keyed
     on (ticker, ts), so re-dating a series writes NEW rows beside the orphaned

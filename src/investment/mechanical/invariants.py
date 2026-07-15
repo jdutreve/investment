@@ -32,7 +32,6 @@ import hashlib
 import json
 import math
 import operator
-import statistics
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
@@ -111,19 +110,26 @@ def compute_weight_update(
     return score, recency, weight_effective(weight_initial, score, recency, floor_weight)
 
 
-def wilson_upper(confirmations: int, total: int, confidence: float) -> float:
-    """One-sided Wilson score upper bound for the true confirmation rate —
-    the pinned interval convention for the verdict (well-behaved at small N
-    and extreme rates, stdlib-computable; docs/ARCHITECTURE.md
-    TIME-VALIDATION VERDICT)."""
+def _binomial_pmf(successes: int, total: int, rate: float) -> float:
+    return math.comb(total, successes) * rate**successes * (1.0 - rate) ** (total - successes)
+
+
+def binomial_tail_at_least(successes: int, total: int, rate: float) -> float:
+    """`P(X >= successes)` for `X ~ Binomial(total, rate)` — "could a process
+    with this rate have produced evidence THIS good, by luck?". Feeds the
+    INTEGRATED branch against `rate` = the null."""
     if total == 0:
         return 1.0
-    z = statistics.NormalDist().inv_cdf(confidence)
-    p = confirmations / total
-    denominator = 1.0 + z * z / total
-    center = (p + z * z / (2 * total)) / denominator
-    margin = z * math.sqrt(p * (1.0 - p) / total + z * z / (4 * total * total)) / denominator
-    return min(center + margin, 1.0)
+    return sum(_binomial_pmf(k, total, rate) for k in range(successes, total + 1))
+
+
+def binomial_tail_at_most(successes: int, total: int, rate: float) -> float:
+    """`P(X <= successes)` for `X ~ Binomial(total, rate)` — "could a process
+    with this rate have produced evidence THIS bad, by luck?". Feeds the
+    INADEQUATE branch against `rate` = theta."""
+    if total == 0:
+        return 1.0
+    return sum(_binomial_pmf(k, total, rate) for k in range(successes + 1))
 
 
 def time_validation_verdict(
@@ -135,41 +141,72 @@ def time_validation_verdict(
     refuted_min_confrontations: float,
     refuted_score: float,
     verdict_confidence: float,
+    null_score: float,
 ) -> str:
     """'integrated' | 'rejected' | 'proposed' (docs/ARCHITECTURE.md "Birth
-    maturation" TIME-VALIDATION VERDICT; ADR-006 + its M5 amendment —
+    maturation" TIME-VALIDATION VERDICT; ADR-006 + its M5/M5-bis amendments —
     mechanical, no user gate). Three outcomes, checked in order:
 
     - REFUTED (rejected): the effect actively fails when the condition holds
       (point test — arms fast at small N for clearly harmful invariants).
-    - INTEGRATED: point estimate clears theta with at least N_min moments.
-    - INADEQUATE (rejected): the Wilson upper bound of the score at
-      `verdict_confidence` is below theta — given ample evidence, the
-      invariant demonstrably CANNOT reach the bar. This is the branch that
-      empties the 0.35..theta dead middle, where 4 of 6 seed invariants
-      would otherwise sit 'proposed' forever at any N (e.g. 0.545 on N=354,
-      upper bound 0.588) — violating "Nothing stays proposed forever"
-      (ADR-006). By construction it cannot fire while score >= theta
-      (upper > point estimate), so it never races INTEGRATED.
+    - INTEGRATED: the effect is BIG ENOUGH (point estimate clears theta) AND
+      DEMONSTRATED (the null — `null_score`, the no-condition rate of a
+      baseline-relative score — would produce evidence this good less than
+      `1 - verdict_confidence` of the time). Both, because they answer
+      different questions: theta is "is this worth acting on?", the tail
+      test is "do we know it at all, or did a coin land well?".
+    - INADEQUATE (rejected): a true rate of theta would produce evidence
+      this BAD less than `1 - verdict_confidence` of the time — given ample
+      evidence, the invariant demonstrably cannot reach the bar. This is the
+      branch that empties the 0.35..theta dead middle, where 4 of 6 seed
+      invariants would otherwise sit 'proposed' forever at any N (e.g. 0.545
+      on N=354) — violating "Nothing stays proposed forever" (ADR-006). It
+      cannot race INTEGRATED: score >= theta puts the observation at or above
+      theta's own median, so its lower tail is ~0.5, never <= alpha.
 
-    'proposed' now means exactly one thing: INSUFFICIENT EVIDENCE — and it
-    empties mechanically as confrontations accrue (for a true-null invariant
-    the bound crosses theta around N~70). The verdict is STATELESS
-    (recomputed from current counts at every confrontation), so a rejection
-    is as reversible as the evidence that produced it.
+    The tail test is what makes theta mean anything. Alone, a point test gets
+    EASIER the less evidence there is: at n_min=3 an invariant with no edge
+    whatsoever integrated 50% of the time (2 of 3 confirmations is a coin
+    flip), and 21% of the time at N=14 — which is how
+    `inv-inflation-persistence-tips` held an 'integrated' stamp on 9/14.
+    Worse, the incentive ran the wrong way: a narrower condition yields fewer
+    moments and so passed MORE easily, exactly rewarding the over-fitted
+    invariants the engine exists to catch — and under ADR-006 nothing
+    downstream would have caught it. The bar stays reachable: a true 0.65
+    invariant qualifies on ~30 moments (~7y of active condition at a 12w
+    horizon), and the real gold invariant clears it at 53/82 (tail 0.005).
+
+    EXACT tails, not the normal-approximation interval this rule first used:
+    a Wilson bound is liberal at extreme rates with small N, precisely where
+    the defect lives. `wilson_lower(3, 3) = 0.526` would have integrated a
+    3-for-3 invariant that a coin reproduces 12.5% of the time. The exact
+    tail puts the minimum perfect record at 5/5 (0.031) and leaves every
+    rejection on the current board unchanged.
+
+    'proposed' means exactly one thing: INSUFFICIENT EVIDENCE — and it still
+    empties mechanically as confrontations accrue: at a true rate above theta
+    the null's tail collapses (integrating), below theta the theta-tail
+    collapses (rejecting). The verdict is STATELESS (recomputed from current
+    counts at every confrontation), so a rejection is as reversible as the
+    evidence that produced it.
 
     Refutation is checked first: a refuted invariant is never 'integrated'
-    even if it also happens to clear N_min/theta on a stale read (it cannot,
-    by construction — theta > refuted_score — but the order documents the
+    even if it also happens to clear the bars on a stale read (it cannot, by
+    construction — theta > refuted_score — but the order documents the
     precedence)."""
     total = confirmations + infirmations
+    alpha = 1.0 - verdict_confidence
     if total >= refuted_min_confrontations and score < refuted_score:
         return "rejected"
-    if total >= n_min and score >= theta:
+    if (
+        total >= n_min
+        and score >= theta
+        and binomial_tail_at_least(confirmations, total, null_score) <= alpha
+    ):
         return "integrated"
     if (
         total >= refuted_min_confrontations
-        and wilson_upper(confirmations, total, verdict_confidence) < theta
+        and binomial_tail_at_most(confirmations, total, theta) <= alpha
     ):
         return "rejected"
     return "proposed"
@@ -676,12 +713,43 @@ def _align_daily(
 _MATURED_MARKER = " [birth-matured"
 
 
-def definition_fingerprint(condition: list[dict[str, Any]], effect: dict[str, Any] | None) -> str:
-    """A stable digest of the (condition, effect) pair — the ONLY thing a
-    verdict is about. `sort_keys` makes it insensitive to key order, so
-    re-serialising an unchanged definition never looks like an edit."""
+def verdict_rule(thresholds: dict[str, float], metric: str | None) -> dict[str, float]:
+    """Everything OUTSIDE an invariant that determines its verdict: how the
+    effect is measured (horizon, this metric's margin) and where the bars
+    sit. Digested into the maturation fingerprint so that changing a rule
+    re-matures, exactly as changing a definition does."""
+    return {
+        "horizon_weeks": thresholds["proposal_outcome_weeks"],
+        "margin": margin_for_metric(metric, thresholds) if metric else 0.0,
+        "n_min": thresholds["invariant_min_confrontations"],
+        "theta": thresholds["invariant_time_validation_score"],
+        "refuted_min": thresholds["invariant_refuted_min_confrontations"],
+        "refuted_score": thresholds["invariant_refuted_score"],
+        "confidence": thresholds["invariant_verdict_confidence"],
+        "null": thresholds["invariant_null_score"],
+    }
+
+
+def maturation_fingerprint(
+    condition: list[dict[str, Any]],
+    effect: dict[str, Any] | None,
+    rule: dict[str, float],
+) -> str:
+    """A stable digest of everything a verdict is about: the (condition,
+    effect) pair AND the rule it was earned under. `sort_keys` makes it
+    insensitive to key order, so re-serialising unchanged inputs never looks
+    like an edit.
+
+    The rule belongs in here for the same reason the definition does. A
+    verdict is a claim about evidence measured one way and judged against
+    one set of bars; move either and the stored verdict is stale. Keyed on
+    the definition alone (the M5 fingerprint), tightening the integration
+    bar left every already-matured invariant sitting on the verdict the OLD
+    bar gave it — including the ones the new bar exists to catch."""
     payload = json.dumps(
-        {"condition": condition, "effect": effect}, sort_keys=True, separators=(",", ":")
+        {"condition": condition, "effect": effect, "rule": rule},
+        sort_keys=True,
+        separators=(",", ":"),
     )
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
@@ -797,8 +865,14 @@ async def _persist_maturation(
             "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
             "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
             "status = :status, "
-            "validated_at = CASE WHEN :status2 = 'integrated' AND validated_at IS NULL "
-            "THEN :today ELSE validated_at END, "
+            # Set on the FIRST integration and held (COALESCE) while it lasts,
+            # cleared the moment it ends — the verdict is stateless, so
+            # 'integrated' is not a ratchet and `validated_at` must not be one
+            # either ("null while still a candidate", docs/DATA_MODELS.md).
+            # Only `_force_uncertified` cleared it before, so a de-integrated
+            # invariant kept the date of a verdict it no longer holds.
+            "validated_at = CASE WHEN :status2 = 'integrated' "
+            "THEN COALESCE(validated_at, :today) ELSE NULL END, "
             "trace = trace || :marker, "
             "updated_at = :now WHERE id = :id",
             cc=confirmations,
@@ -856,12 +930,15 @@ async def _mature_one(
     refuted_min: float,
     refuted_score: float,
     verdict_confidence: float,
+    null_score: float,
 ) -> MaturationResult:
     invariant_id = str(inv["id"])
     condition = json.loads(inv["condition"]) if inv["condition"] else []
     effect = json.loads(inv["effect"]) if inv["effect"] else None
 
-    fingerprint = definition_fingerprint(condition, effect)
+    fingerprint = maturation_fingerprint(
+        condition, effect, verdict_rule(thresholds, effect["metric"] if effect else None)
+    )
 
     if effect is None:
         await _force_uncertified(db, invariant_id, "reference knowledge: no effect to measure")
@@ -983,6 +1060,7 @@ async def _mature_one(
         refuted_min,
         refuted_score,
         verdict_confidence,
+        null_score,
     )
 
     await _persist_maturation(
@@ -1021,6 +1099,7 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
     refuted_min = thresholds["invariant_refuted_min_confrontations"]
     refuted_score = thresholds["invariant_refuted_score"]
     verdict_confidence = thresholds["invariant_verdict_confidence"]
+    null_score = thresholds["invariant_null_score"]
 
     invariant_rows = await db.query("SELECT * FROM invariant ORDER BY id")
 
@@ -1068,6 +1147,7 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
             refuted_min,
             refuted_score,
             verdict_confidence,
+            null_score,
         )
         results.append(result)
     return results

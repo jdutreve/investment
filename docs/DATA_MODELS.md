@@ -142,13 +142,17 @@ Invariant {
                                     --   'system' (agent-discovery) | null
   status        : STRING            -- 'proposed' (INSUFFICIENT EVIDENCE — the
                                     --   only meaning; empties as N grows) |
-                                    --   'integrated' (time-validated: N_min/θ,
-                                    --   not refuted) | 'rejected' (refuted:
-                                    --   score < 0.35 at N ≥ 4 — OR inadequate:
-                                    --   Wilson upper bound of score < θ, i.e.
-                                    --   demonstrably cannot reach the bar;
-                                    --   ADR-006 amendment). Mechanical — no
-                                    --   'validated' human step (ADR-006).
+                                    --   'integrated' (time-validated: N_min AND
+                                    --   score ≥ θ AND the 0.50 null yields
+                                    --   evidence this good ≤ 5% of the time —
+                                    --   effect size AND evidence; not refuted) |
+                                    --   'rejected' (refuted: score < 0.35 at
+                                    --   N ≥ 4 — OR inadequate: a true rate of θ
+                                    --   yields evidence this bad ≤ 5% of the
+                                    --   time, i.e. demonstrably cannot reach the
+                                    --   bar; ADR-006 M5/M5-bis amendments).
+                                    --   Mechanical — no 'validated' human step
+                                    --   (ADR-006).
   tags          : STRING[]          -- THEMATIC / retrieval only (NOT the
                                     --   confrontation driver — that is `condition`).
                                     --   Namespaced where applicable: 'asset:GLD',

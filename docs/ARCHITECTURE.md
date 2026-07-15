@@ -290,9 +290,9 @@ blend, not confrontation):
   walk the active days forward, take one, skip a horizon, repeat. Forward, a
   moment is SCORED once its outcome window has elapsed — never truncated.
 
-  WHY horizon-spaced. (a) NON-OVERLAPPING ⇒ the Wilson verdict is sound:
-  outcome windows are [d, d+horizon], so horizon spacing makes them disjoint
-  and the moments quasi-independent — the binomial bound assumes exactly
+  WHY horizon-spaced. (a) NON-OVERLAPPING ⇒ the verdict's tail tests are
+  sound: outcome windows are [d, d+horizon], so horizon spacing makes them
+  disjoint and the moments quasi-independent — the binomial assumes exactly
   that, and sampling active time weekly would overlap every 12w window
   12-fold, inflating N against evidence that is not there. (b) CONTINUOUS in
   condition frequency ⇒ no cliff between a persistent state and 'always'.
@@ -527,27 +527,52 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   weights).
 
   TIME-VALIDATION VERDICT — the number. Three outcomes, checked in order
-  (ADR-006 + its M5 amendment; every threshold from system_thresholds):
+  (ADR-006 + its M5/M5-bis amendments; every threshold from
+  system_thresholds; α = 1 − invariant_verdict_confidence = 0.05):
     REFUTED    → rejected:   confrontations ≥ 4 AND market_score < 0.35
                              (the effect actively fails when cited — the
                               point test arms fast for clearly harmful i)
     INTEGRATED:              confrontations ≥ invariant_min_confrontations
                              (N_min, 3) AND market_score ≥
                              invariant_time_validation_score (θ, 0.60)
-    INADEQUATE → rejected:   confrontations ≥ 4 AND the one-sided Wilson
-                             upper bound of market_score at
-                             invariant_verdict_confidence (0.95) is < θ —
-                             given ample evidence, i demonstrably CANNOT
-                             reach the bar. Cannot race INTEGRATED: the
-                             bound always exceeds the point estimate.
+                             AND P(X ≥ confirmations | N, invariant_null_
+                             score) ≤ α — i.e. the 0.50 null (the
+                             no-condition rate of a baseline-relative
+                             score) is an implausible source of evidence
+                             this good. EFFECT SIZE **and** EVIDENCE.
+    INADEQUATE → rejected:   confrontations ≥ 4 AND P(X ≤ confirmations |
+                             N, θ) ≤ α — given ample evidence, a true rate
+                             of θ is an implausible source of evidence this
+                             bad, so i demonstrably CANNOT reach the bar.
+                             Cannot race INTEGRATED: score ≥ θ puts the
+                             count at or above θ's own median, so its lower
+                             tail is ≈0.5, never ≤ α.
     otherwise  → proposed:   INSUFFICIENT EVIDENCE — the ONLY meaning of
                              'proposed'. It empties mechanically as
-                             confrontations accrue (a true-null invariant
-                             crosses the bound around N≈70), honoring
+                             confrontations accrue (above θ the null tail
+                             collapses and i integrates; below θ the θ tail
+                             collapses and i is rejected), honoring
                              "Nothing stays proposed forever" (ADR-006);
                              only genuine data scarcity (a rare condition,
                              a late data floor) keeps an invariant here,
                              weight held near floor.
+  WHY the null tail on INTEGRATED (M5-bis): θ alone is a POINT test, and a
+  point test gets EASIER the less evidence there is. P(score ≥ 0.60 | the
+  invariant has NO edge) is 50% at N=3, 21% at N=14, 25% at N=20, 3% at
+  N=82 — so at the old rule `inv-inflation-persistence-tips` held an
+  'integrated' stamp on 9/14 (a 21% coin), and gate 6 would have cited it in
+  a live proposal. The incentive also ran backwards: a NARROWER condition
+  yields fewer moments and so passed MORE easily — the engine mechanically
+  rewarded the over-fitted invariants it exists to catch, with no user gate
+  downstream to notice (ADR-006). The bar stays reachable: a true-0.65
+  invariant qualifies on ~30 moments (~7y of active condition at a 12w
+  horizon) and the real gold invariant clears it at 53/82 (tail 0.005).
+  WHY EXACT tails, not the Wilson interval this rule first used: Wilson is
+  liberal at extreme rates with small N — exactly where the defect lives.
+  wilson_lower(3,3) = 0.526 ≥ 0.50 would still have integrated a 3-for-3
+  invariant that a coin reproduces 12.5% of the time. The exact tail puts
+  the smallest perfect record at 5/5 (0.031) and leaves every rejection on
+  the real board unchanged.
   WHY the INADEQUATE branch: without it the 0.35..θ band is an absorbing
   dead middle — on the real 35y maturation 4 of 6 seed invariants landed
   there (e.g. 0.545 on N=354, upper bound 0.588) and would have stayed

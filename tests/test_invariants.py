@@ -6,6 +6,7 @@ weight_effective as computed by hand"."""
 
 import dataclasses
 import itertools
+import math
 
 import pandas as pd
 import pytest
@@ -66,14 +67,31 @@ def _verdict(confirmations: int, infirmations: int) -> str:
     total = confirmations + infirmations
     score = confirmations / total if total else 1.0
     return invariants.time_validation_verdict(
-        confirmations, infirmations, score, 3.0, 0.60, 4.0, 0.35, 0.95
+        confirmations, infirmations, score, 3.0, 0.60, 4.0, 0.35, 0.95, 0.50
     )
 
 
-def test_time_validation_verdict_integrated_iff_n_min_and_theta() -> None:
-    assert _verdict(3, 0) == "integrated"
+def test_time_validation_verdict_integrated_needs_effect_AND_evidence() -> None:
+    """Clearing theta is necessary, never sufficient (ADR-006 M5-bis
+    amendment). 5/5 is the smallest perfect record a coin does not
+    reproduce at 5% (0.5^5 = 0.031)."""
+    assert _verdict(5, 0) == "integrated"
+    assert _verdict(53, 29) == "integrated"  # the real gold invariant, tail 0.005
+    assert _verdict(4, 0) == "proposed"  # 1.000 but a coin does this 6.3% of the time
     assert _verdict(2, 0) == "proposed"  # below N_min
-    assert _verdict(2, 1) == "integrated"  # 0.667 >= theta at N_min
+    assert _verdict(2, 1) == "proposed"  # 0.667 >= theta, and a literal coin flip
+
+
+def test_verdict_point_test_alone_would_integrate_noise() -> None:
+    """The defect the tail test closes: at small N, `score >= theta` is
+    cleared by chance alone. Every case here passes theta and is refused —
+    with the probability a ZERO-edge invariant produces it (see
+    `binomial_tail_at_least` against the 0.50 null)."""
+    for c, i, p_noise in ((2, 1, 0.500), (3, 0, 0.125), (9, 5, 0.212), (12, 8, 0.252)):
+        total = c + i
+        assert c / total >= 0.60  # would have been 'integrated' under the old rule
+        assert invariants.binomial_tail_at_least(c, total, 0.50) == pytest.approx(p_noise, abs=1e-3)
+        assert _verdict(c, i) == "proposed"
 
 
 def test_time_validation_verdict_rejected_when_refuted() -> None:
@@ -81,43 +99,63 @@ def test_time_validation_verdict_rejected_when_refuted() -> None:
     assert _verdict(1, 4) == "rejected"
 
 
-def test_wilson_upper_golden_values() -> None:
-    """Hand-checked against the standard Wilson score interval (one-sided,
-    z = NormalDist().inv_cdf(0.95) = 1.6449)."""
-    assert invariants.wilson_upper(193, 354, 0.95) == pytest.approx(0.5882, abs=1e-3)
-    assert invariants.wilson_upper(50, 100, 0.95) == pytest.approx(0.5812, abs=1e-3)
-    assert invariants.wilson_upper(0, 0, 0.95) == 1.0
-    # Monotone in N at a fixed rate: more evidence, tighter bound.
-    assert invariants.wilson_upper(30, 60, 0.95) > invariants.wilson_upper(50, 100, 0.95)
+def test_binomial_tail_golden_values() -> None:
+    """Hand-checkable: 5 fair coins all landing heads is 0.5^5; 3 of 3 is
+    0.5^3; the two tails of a symmetric null at c = n/2 overlap on the
+    median term, so they sum to 1 + P(X = n/2)."""
+    assert invariants.binomial_tail_at_least(5, 5, 0.50) == pytest.approx(0.03125)
+    assert invariants.binomial_tail_at_least(3, 3, 0.50) == pytest.approx(0.125)
+    assert invariants.binomial_tail_at_least(0, 10, 0.50) == pytest.approx(1.0)
+    assert invariants.binomial_tail_at_most(10, 10, 0.50) == pytest.approx(1.0)
+    assert invariants.binomial_tail_at_least(0, 0, 0.50) == 1.0
+    assert invariants.binomial_tail_at_most(0, 0, 0.50) == 1.0
+    both = invariants.binomial_tail_at_least(5, 10, 0.50) + invariants.binomial_tail_at_most(
+        5, 10, 0.50
+    )
+    assert both == pytest.approx(1.0 + math.comb(10, 5) * 0.5**10)
+    # Monotone in evidence at a fixed rate: a longer perfect run is rarer.
+    assert invariants.binomial_tail_at_least(20, 20, 0.50) < invariants.binomial_tail_at_least(
+        10, 10, 0.50
+    )
 
 
 def test_verdict_dead_middle_rejects_on_confidence_at_large_n() -> None:
     """ADR-006 amendment: 'Nothing stays proposed forever'. A score in the
-    0.35..theta dead middle used to stay 'proposed' at ANY N. Now, once the
-    upper confidence bound falls below theta, the invariant is REJECTED as
-    demonstrably unable to reach the bar — the real liquidity-easing case
-    (0.545 on N=354, upper 0.588) qualifies instead of stalling."""
+    0.35..theta dead middle used to stay 'proposed' at ANY N. Now, once a
+    true rate of theta becomes an implausible source of evidence this bad,
+    the invariant is REJECTED as demonstrably unable to reach the bar — the
+    real liquidity-easing case (0.545 on N=354) qualifies instead of
+    stalling."""
     assert _verdict(193, 161) == "rejected"  # 0.545, N=354 — amply measured
     assert _verdict(50, 50) == "rejected"  # 0.500, N=100 — no edge, amply measured
 
 
 def test_verdict_dead_middle_stays_proposed_while_genuinely_unresolved() -> None:
-    """The same mid-band score with small N keeps 'proposed' — the bound
-    still straddles theta, so the evidence is genuinely insufficient (the
+    """The same mid-band score with small N keeps 'proposed' — theta is still
+    a plausible source of the evidence, so it is genuinely insufficient (the
     ONLY remaining meaning of 'proposed')."""
-    assert _verdict(30, 30) == "proposed"  # 0.500, N=60 — upper 0.604 > theta
-    assert _verdict(2, 2) == "proposed"  # 0.500, N=4 — upper 0.818
+    assert _verdict(30, 30) == "proposed"  # 0.500, N=60 — theta-tail 0.075
+    assert _verdict(2, 2) == "proposed"  # 0.500, N=4
 
 
 def test_verdict_inadequate_rejection_cannot_race_integration() -> None:
-    """The upper bound always exceeds the point estimate, so score >= theta
-    (integrated) and upper < theta (inadequate) are mutually exclusive by
-    construction — no count profile can satisfy both."""
-    for c, i in ((3, 0), (60, 40), (7, 3), (240, 160)):
-        score = c / (c + i)
-        if score >= 0.60:
-            assert _verdict(c, i) == "integrated"
-            assert invariants.wilson_upper(c, c + i, 0.95) >= 0.60
+    """score >= theta puts the count at or above theta's own median, so its
+    lower tail is ~0.5 and can never fall under alpha: 'integrated' and
+    'inadequate' are mutually exclusive by construction, whatever the N."""
+    for c, i in ((3, 0), (60, 40), (7, 3), (240, 160), (5, 0), (53, 29)):
+        total = c + i
+        if c / total >= 0.60:
+            assert invariants.binomial_tail_at_most(c, total, 0.60) > 0.05
+            assert _verdict(c, i) in ("integrated", "proposed")
+
+
+def test_verdict_evidence_eventually_settles_every_true_rate() -> None:
+    """'Nothing stays proposed forever' (ADR-006), now against BOTH bars: a
+    true rate either side of theta resolves once enough moments accrue, and
+    only the measure-zero rate exactly AT theta is allowed to stall."""
+    for true_rate, expected in ((0.70, "integrated"), (0.50, "rejected"), (0.30, "rejected")):
+        c = round(true_rate * 400)
+        assert _verdict(c, 400 - c) == expected
 
 
 # -- condition / moment evaluation ------------------------------------------
