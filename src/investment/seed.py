@@ -79,7 +79,18 @@ FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series
 # M2 build time: SHY vs VFISX correlates 0.81 daily but 0.963 at monthly
 # resolution. GLD's case is different in cause (a fixing-time mismatch,
 # not low volatility) but identical in mechanism and fix.
-RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY"})
+#
+# TIP joins them at M5-bis, same cause as GLD: VIPSX is a MUTUAL FUND, one
+# NAV struck at 4pm, against an ETF that trades all day. Measured live on the
+# 2003-12..2005-12 overlap — TIP vs VIPSX correlates 0.890 daily (under
+# MIN_RETURN_CORR 0.94, so the splice was rejected) but 0.9953 monthly. The
+# pair does not disagree; the daily clock does. Cost of the miss: the
+# inflation-protected class floored at 2003-12 (TIP's own launch) instead of
+# 2000-06, on the one seed invariant whose verdict is gated by sample size
+# (inv-inflation-persistence-tips, 9/14 — see docs/IMPROVEMENTS.md I-32).
+# It was never silent: step 9 logs "splice TIP/VIPSX rejected, ETF-only
+# floor" on every seed. Nobody read the log.
+RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY", "TIP"})
 
 # Steps deferred to later milestones (docs/MILESTONES.md "Incremental seed").
 DEFERRED_STEPS = {

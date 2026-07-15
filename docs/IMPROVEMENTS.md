@@ -681,13 +681,21 @@ stays integrated-only. The problem this item described (the honest
 confrontation left 4 of 6 seed invariants `proposed` forever in the
 0.35–0.60 dead band, starving the citation loop) was solved on the OTHER
 side, as the owner directed: make the engine QUALIFY. The verdict gained a
-mechanical 'inadequate' rejection branch — rejected iff the Wilson upper
-bound of market_score at `invariant_verdict_confidence` (0.95) is < θ, i.e.
-demonstrably unable to reach the bar. 'proposed' now means insufficient
-evidence only, and empties as N grows. Spec: ADR-006 amendment
-(docs/DECISIONS.md) + ARCHITECTURE "Birth maturation" TIME-VALIDATION
-VERDICT. Nothing remains deferred here; kept as the record of a refused
-alternative (do not re-propose without new evidence).
+mechanical 'inadequate' rejection branch — rejected once a true rate of θ
+becomes an implausible source of evidence this bad at
+`invariant_verdict_confidence` (0.95), i.e. demonstrably unable to reach the
+bar. 'proposed' now means insufficient evidence only, and empties as N grows.
+(Stated with a Wilson upper bound at M5; restated as the exact binomial tail
+by the M5-bis amendment, which left this branch's verdicts unchanged on the
+real board.) Spec: ADR-006 amendments (docs/DECISIONS.md) + ARCHITECTURE
+"Birth maturation" TIME-VALIDATION VERDICT. Nothing remains deferred here;
+kept as the record of a refused alternative (do not re-propose without new
+evidence).
+
+Note the symmetry the owner's ruling eventually forced BOTH ways: M5-bis
+found integration had the mirror defect — a bare point test that got easier
+as evidence shrank — and closed it with the same device. Rigor to reject,
+credulity to accept was never a coherent pair.
 
 ---
 
@@ -697,28 +705,66 @@ alternative (do not re-propose without new evidence).
 below are *fair measurements of mis-posed questions*, and re-posing them is a
 philosophy edit, not a code fix.
 
-What the honest 35y maturation showed (baseline-relative, start-anchored,
-12w horizon):
-- `inv-diversification-drawdown` (rejected, 0.101): its `cross_strategy`
-  effect benchmarks four-seasons-rp's drawdown against permanent-browne (25%
-  cash) and barbell-taleb (85% safety) — a risk-parity portfolio SHOULD lose
-  a drawdown contest to those. The claim is "diversification beats
-  CONCENTRATION"; the roster tests "risk parity beats even-safer". Re-specify
-  the effect (e.g. vs an equities-only / 60-40 reference, or method
-  `absolute` vs its own concentrated sleeve) before reading 0.101 as history
-  rejecting Dalio.
-- `inv-inflation-persistence-tips` (N=8): TIPS data floor is 2000
-  (VIPSX) — N grows by ~1 every 3 years. Nothing to fix; certification is
-  just slow for this one. Its 0.75 on N=8 is the only seed invariant showing
-  skill.
+What the honest 35y maturation showed (baseline-relative, horizon-spaced
+moments, 12w forward horizon). Numbers below are the LIVE board as of
+2026-07-15, post-M5-bis (`integrated` now needs effect size AND evidence —
+ADR-006):
+- `inv-diversification-drawdown` (rejected, 1/20 = 0.050): its
+  `cross_strategy` effect benchmarks four-seasons-rp's drawdown against
+  permanent-browne (25% cash) and barbell-taleb (85% safety) — a risk-parity
+  portfolio SHOULD lose a drawdown contest to those. The claim is
+  "diversification beats CONCENTRATION"; the roster tests "risk parity beats
+  even-safer". Re-specify the effect (e.g. vs an equities-only / 60-40
+  reference, or method `absolute` vs its own concentrated sleeve) before
+  reading 0.050 as history rejecting Dalio.
+- `inv-inflation-persistence-tips` (proposed, 9/14 = 0.643): clears θ on the
+  point estimate but not the evidence bar — a zero-edge invariant produces
+  9-of-14 21% of the time. It held `integrated` under the pre-M5-bis rule.
+  N is the binding constraint, and part of that is FIXABLE, contrary to what
+  this item said before: the inflation-protected class floor is **2003-12**
+  (TIP's own launch), not 2000, because the VIPSX proxy splice is REJECTED —
+  TIP/VIPSX correlates 0.890 daily against MIN_RETURN_CORR 0.94, while
+  correlating 0.9953 monthly. That is the documented GLD/SHY case exactly
+  (`seed.RESAMPLED_VALIDATION_TICKERS`): a mutual fund's 4pm NAV against an
+  intraday-traded ETF is a fixing-time mismatch, not a series that disagrees.
+  seed.py logs it (`step 9: splice TIP/VIPSX rejected, ETF-only floor`) and
+  carries on; nobody read the log. Adding TIP to RESAMPLED_VALIDATION_TICKERS
+  recovers 2000-06..2003-12 — ~14 more quarters, on the one seed invariant
+  whose verdict is gated by N.
+- `inv-low-real-yields-favor-gold` (integrated, 53/82 = 0.646, null tail
+  0.005) is the only invariant that has earned integration — the only one
+  whose evidence excludes the no-condition null.
 - The rest sit at the 0.50 null: publicly-known macro conditions show no
-  12-week cross-class edge, which is the efficient-market default. Two
-  levers if the M7 corpus factory keeps landing candidates at 0.50: (a)
-  effects on RISK metrics (max_drawdown, volatility) where macro conditions
-  plausibly carry more signal than on relative returns; (b) per-invariant
-  horizon (`effect.horizon_weeks`) — Dalio-scale claims may live at 6-24
-  months, not 12 weeks. Both are schema-light but change what "matured"
-  means; decide only with factory-scale evidence, not on 6 data points.
+  12-week cross-class edge, which is the efficient-market default. Lever if
+  the M7 corpus factory keeps landing candidates at 0.50: effects on RISK
+  metrics (max_drawdown, volatility), where macro conditions plausibly carry
+  more signal than on relative returns. Schema-light, but it changes what
+  "matured" means — decide with factory-scale evidence, not on 7 data points.
+
+**The per-invariant horizon lever is CLOSED (tested 2026-07-15, owner
+request).** `effect.horizon_weeks` looked like the obvious answer to
+"Dalio-scale claims live at 6-24 months, not 12 weeks". It is not, and the
+reason is structural rather than fixable: moments must be spaced one horizon
+apart to stay independent (ARCHITECTURE, "WHY horizon-spaced"), so a 4x
+longer horizon costs 4x the sample. Measured on `inv-liquidity-easing-risk`
+across the real 35y:
+
+    horizon   moments    N   score   verdict
+       12w        76     59  0.5593  proposed
+       26w        40     33  0.5152  proposed
+       39w        29     23  0.5652  proposed
+       52w        24     20  0.6000  integrated  <-- 12/20, exactly theta
+
+The 52w "integration" is 12 of 20 — a pass a zero-edge coin delivers 25% of
+the time, with a 95% interval of [0.42, 0.76] that does not exclude the null.
+No horizon structure, just a bar that gets easier as N shrinks (it is what
+exposed the M5-bis defect). At the limit, 35 years hold ~35 non-overlapping
+12-month windows and far fewer with any condition attached: a 12-month effect
+is NOT certifiable at 95% from this history, however it is posed. 12 weeks is
+not a compromise — it is the longest horizon 35 years can speak to. Longer
+claims need either an explicitly lower confidence bar (owner call, not a code
+change) or overlapping windows (which breaks the independence the binomial
+tails assume — i.e. it fabricates evidence).
 
 **Trigger to revisit:** the M7 STOP point (candidates/principles ratio), or
 M8b if the Worker's cited-invariant pool looks too thin to reason with.

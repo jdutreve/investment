@@ -186,15 +186,35 @@ residuals explained by their IEI/DBC vs our IEF/DJP).
 - [ ] confrontation fixture: an active-condition invariant whose effect beats
       its benchmark (by method) moves a weight_effective as computed by hand
 - [ ] seed invariants matured over 35y: each has a real market_score and a
-      status verdict (integrated iff N_min/θ, not refuted) — inspect which of
-      your 6 survived, and whether the survivors ring true
+      status verdict (integrated iff N_min AND score ≥ θ AND the 0.50 null
+      yields evidence this good ≤ 5% of the time — effect size AND evidence;
+      not refuted. ADR-006 M5-bis) — inspect which of your 7 survived, and
+      whether the survivors ring true
 - [ ] scenario probabilities warm-started from 35y base rates (not hand-set) —
-      the reallocation blend's scenario leg is historically grounded at go-live
+      the reallocation blend's scenario leg is historically grounded at go-live.
+      Check the ARITHMETIC, not just that the rows exist: a scenario whose
+      trigger list is a disjunction must not score below its own widest single
+      trigger (the M5-bis catch — 4s bear read 1.37% against a 16.73% `^VIX >
+      25` branch)
 - [ ] contradiction check: no two integrated invariants give opposing effects
       on the same handle under simultaneously-active conditions (#5)
 
 **⚔️ Challenge:** does the 35y verdict on YOUR seed philosophy read fair? A
-demoted invariant is history disagreeing — worth understanding before M6.
+REJECTED invariant is history disagreeing — worth understanding before M6.
+(Not a DEMOTED one: that is the validation gate refusing a malformed
+condition/effect, which says nothing about the market. The two are distinct
+outcomes in `mechanical/invariants.py`.) Read it against I-32 — a fair
+measurement of a mis-posed question is not history disagreeing either.
+
+**⚔️ Challenge (added M5-bis):** where did the challenge actually LAND? At
+M5 it landed entirely on the invariant engine — 7 bugs, ADR-006's M5/M5-bis
+amendments, I-30 — while FAVORS and the scenario warm-start, built in the
+same pass, got none. That is backwards for what comes next: M6's mechanical
+replay is BLIND to invariant weights (docs/ARCHITECTURE.md) and blends
+`0.4×scenario + 0.6×favors`. The scenario leg turned out to be arithmetically
+impossible once looked at (see the DoV item above); FAVORS still has not been
+tested against a null, only inspected. Challenge the half the NEXT milestone
+consumes, not the half you just built.
 
 ---
 
