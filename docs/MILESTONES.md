@@ -180,24 +180,74 @@ residuals explained by their IEI/DBC vs our IEF/DJP).
 
 **Definition of Verified**
 - [ ] FAVORS matrix regime × strategy is plausible (barbell favored under
-      stress? risk parity in disinflation?)
-- [ ] benchmark_valuation populated (asset_class + strategy rows) — the
-      cross_class/cross_strategy benchmark
-- [ ] confrontation fixture: an active-condition invariant whose effect beats
+      stress? risk parity in disinflation?) — INSPECTED, ANSWER IS NO. Not
+      pending your judgment; this box is a finding, and the finding is
+      negative. Of its own two questions, one passes: barbell under stress
+      YES — it tops falling-growth-falling-inflation (2.00) and uncertain
+      (1.25), and that is the ONE result surviving a null (p=0.034),
+      economically exactly what a barbell is for. The other fails: risk parity
+      in disinflation NO — four-seasons-rp is LAST in
+      rising-growth-falling-inflation (1.57), 3rd in
+      falling-growth-falling-inflation (1.05). And the box's premise does not
+      hold anyway (I-35): in 4 of 5 regimes the within-regime ranking is
+      indistinguishable from random regime labels (stagflation p=0.94, spread
+      0.18 across 4 strategies over 17 episodes). Noise is neither plausible
+      nor implausible — there is no claim there to judge. Ticking this would
+      assert that a noise matrix passed a plausibility read.
+      YOUR call is not "is it plausible" but what to DO: (a) ship to M6 and
+      let the walk-forward price the favors leg — recommended, and the M6 DoV
+      now says a high stable weight is suspicious; (b) rework FAVORS; (c)
+      strike this box as unanswerable at 89 episodes / 5 regimes / 4
+      strategies.
+- [x] benchmark_valuation populated (asset_class + strategy rows) — the
+      cross_class/cross_strategy benchmark — live: 45,455 rows over the 35y,
+      `asset_class` 5 ids / 12,230 rows, `strategy` 4 ids / 7,575 rows, plus
+      `asset` 13 ids / 25,650 rows (the `asset:<ticker>` handles). Window is
+      the CONFRONTATION horizon (12w), not the 756d ranking window.
+- [x] confrontation fixture: an active-condition invariant whose effect beats
       its benchmark (by method) moves a weight_effective as computed by hand
-- [ ] seed invariants matured over 35y: each has a real market_score and a
+      — `test_confrontation_fixture_moves_weight_by_hand` green (tests/
+      test_invariants.py): 4/1 confirmations, condition active now, so
+      score 0.8 × weight_initial 0.85 × recency 1.0 = 0.68 > floor 0.40.
+- [x] seed invariants matured over 35y: each has a real market_score and a
       status verdict (integrated iff N_min AND score ≥ θ AND the 0.50 null
       yields evidence this good ≤ 5% of the time — effect size AND evidence;
       not refuted. ADR-006 M5-bis) — inspect which of your 7 survived, and
-      whether the survivors ring true
-- [ ] scenario probabilities warm-started from 35y base rates (not hand-set) —
+      whether the survivors ring true — all 7 measured (N from 8 to 87, none
+      on the 0/0 default), all 7 carry the engine's `[birth-matured` verdict
+      marker, and ZERO author-supplied verdicts survive (`_force_uncertified`;
+      the gold invariant arrived claiming `integrated`/`market_score: 0.78`
+      and got neither). Whether the survivors ring true is the ⚔️ Challenge
+      below — yours, and NOT a condition of this box:
+        integrated  inv-low-real-yields-favor-gold   53/82  0.646  tail 0.005
+        proposed    inv-inflation-persistence-tips    9/14  0.643  (N-starved
+                                                       — 2003 TIPS floor,
+                                                       I-34; held `integrated`
+                                                       pre-M5-bis on a 21% coin)
+        proposed    inv-liquidity-easing-risk        33/59  0.559
+        rejected    inv-rising-growth-equities       44/87  0.506
+        rejected    inv-falling-growth-duration      33/72  0.458
+        rejected    inv-liquidity-tightening-risk     2/8   0.250
+        rejected    inv-diversification-drawdown      1/20  0.050  (mis-posed
+                                                       benchmark — I-32, read
+                                                       it before believing it)
+      One of seven earned integration. That is the fact to dispute.
+- [x] scenario probabilities warm-started from 35y base rates (not hand-set) —
       the reallocation blend's scenario leg is historically grounded at go-live.
       Check the ARITHMETIC, not just that the rows exist: a scenario whose
       trigger list is a disjunction must not score below its own widest single
       trigger (the M5-bis catch — 4s bear read 1.37% against a 16.73% `^VIX >
-      25` branch)
-- [ ] contradiction check: no two integrated invariants give opposing effects
-      on the same handle under simultaneously-active conditions (#5)
+      25` branch) — 12 rows, demonstrably NOT the hand-set values (4s
+      base/bear/bull seeded 45/20/35, warm-started 56.78/18.16/25.07), and the
+      arithmetic now holds: raw `^VIX > 25` 16.73% ≤ (`^VIX > 25` OR
+      stagflation) 18.60% ≤ 16.73+3.57%, a union bounded by max(parts) and
+      sum(parts).
+- [x] contradiction check: no two integrated invariants give opposing effects
+      on the same handle under simultaneously-active conditions (#5) —
+      `check_contradictions()` returns []. NOTE it is currently VACUOUS: only
+      one invariant is integrated (`inv-low-real-yields-favor-gold`), so there
+      is no pair to oppose. It becomes a real check when the integrated set
+      grows — and I-33 already limits it then (handle CONTAINMENT is not seen).
 
 **⚔️ Challenge:** does the 35y verdict on YOUR seed philosophy read fair? A
 REJECTED invariant is history disagreeing — worth understanding before M6.
