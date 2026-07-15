@@ -609,10 +609,19 @@ BACKED_BY_EDGES: list[tuple[str, str]] = [
 # timing); momentum-macro rotates fully (its explicit mandate), capped at
 # the 40% single-asset user rule.
 SCENARIOS: list[dict[str, object]] = [
+    # A Scenario's trigger LIST is a DISJUNCTION; one STRING ANDs its own
+    # predicates (mechanical/scenarios.py `evaluate_trigger_series`, matching
+    # docs/ARCHITECTURE.md "Strategy '4 Seasons' — example"). So a bull case —
+    # a conjunction of good things CO-OCCURRING ("goldilocks" IS low inflation
+    # AND high growth) — is ONE string; a bear case — alternative routes to
+    # the same damage (panic OR stagflation) — is several. M5 seeded the bulls
+    # as separate items while the code ANDed the whole list, which read the
+    # same either way; under the corrected OR they would have become "low
+    # inflation OR high growth", so they are merged here.
     # four-seasons-rp
     {"id": "sc-4s-bull", "strategy_id": "four-seasons-rp", "name": "bull",
      "probability": 35,
-     "triggers": ["CPI_YOY < 2.5", "GROWTH_COMPOSITE > 102", "Fed dovish"],
+     "triggers": ["CPI_YOY < 2.5 AND GROWTH_COMPOSITE > 102", "Fed dovish"],
      "target_allocation": {"SPY": 35, "TLT": 25, "GLD": 15, "IEF": 15, "DJP": 5, "cash": 5},
      "currency": "USD", "trace": "Goldilocks scenario for 4 Seasons."},
     {"id": "sc-4s-base", "strategy_id": "four-seasons-rp", "name": "base",
@@ -628,7 +637,7 @@ SCENARIOS: list[dict[str, object]] = [
     # permanent-browne — fixed allocation across scenarios, by design
     {"id": "sc-pb-bull", "strategy_id": "permanent-browne", "name": "bull",
      "probability": 30,
-     "triggers": ["GROWTH_COMPOSITE > 102", "CPI_YOY < 2.5"],
+     "triggers": ["GROWTH_COMPOSITE > 102 AND CPI_YOY < 2.5"],
      "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
      "currency": "USD", "trace": "Browne fixed allocation — bull macro view."},
     {"id": "sc-pb-base", "strategy_id": "permanent-browne", "name": "base",
@@ -644,7 +653,7 @@ SCENARIOS: list[dict[str, object]] = [
     # barbell-taleb — modest tilt (the barbell protects by construction)
     {"id": "sc-bt-bull", "strategy_id": "barbell-taleb", "name": "bull",
      "probability": 30,
-     "triggers": ["^VIX < 15", "GROWTH_COMPOSITE > 102"],
+     "triggers": ["^VIX < 15 AND GROWTH_COMPOSITE > 102"],
      "target_allocation": {"SHY": 30, "cash": 25, "IEF": 20, "SPY": 25},
      "currency": "USD", "trace": "Calm bull — slightly more convex sleeve."},
     {"id": "sc-bt-base", "strategy_id": "barbell-taleb", "name": "base",
@@ -657,7 +666,14 @@ SCENARIOS: list[dict[str, object]] = [
      "triggers": ["^VIX > 25"],
      "target_allocation": {"SHY": 40, "cash": 35, "IEF": 20, "SPY": 5},
      "currency": "USD", "trace": "Tail risk — more safety sleeve."},
-    # momentum-macro — full tactical rotation, capped at the 40% user rule
+    # momentum-macro — full tactical rotation, capped at the 40% user rule.
+    # Its bull/bear are NOT merged into one AND-string like the others: "SPY
+    # 90d return" is outside the numeric grammar (I-22), and a string is
+    # unparseable as a WHOLE if any conjunct is — merging would leave bull
+    # with no parseable disjunct at all, and with 'base' already qualitative
+    # that is two triggerless scenarios, which defeats the single-residual
+    # rule and hands bear 100%. Left as a disjunction whose SPY branch simply
+    # drops out: the rate reads on GROWTH_COMPOSITE alone, as it did at M5.
     {"id": "sc-mm-bull", "strategy_id": "momentum-macro", "name": "bull",
      "probability": 35,
      "triggers": ["SPY 90d return > 0", "GROWTH_COMPOSITE > 102"],

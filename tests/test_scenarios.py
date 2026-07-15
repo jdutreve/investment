@@ -32,15 +32,59 @@ def test_parse_trigger_conjunction_whole_string_unparseable_if_any_conjunct_fail
     assert scenarios.parse_trigger_conjunction("^VIX > 25 AND Fed dovish") is None
 
 
-def test_evaluate_trigger_series_ands_conjuncts() -> None:
+def test_evaluate_trigger_series_ands_within_one_string() -> None:
+    """One trigger STRING is a conjunction: "CPI_YOY > 4 AND
+    GROWTH_COMPOSITE < 98" needs both."""
     idx = pd.date_range("2020-01-01", periods=5, freq="D")
     signal_levels = {
         "CPIAUCSL": pd.Series([5.0, 5.0, 3.0, 3.0, 3.0], index=idx),
         "GROWTH_COMPOSITE": pd.Series([90.0, 90.0, 90.0, 105.0, 105.0], index=idx),
     }
-    conjuncts = [("CPIAUCSL", ">", 4.0), ("GROWTH_COMPOSITE", "<", 98.0)]
-    active = scenarios.evaluate_trigger_series(conjuncts, signal_levels)
+    disjuncts = [[("CPIAUCSL", ">", 4.0), ("GROWTH_COMPOSITE", "<", 98.0)]]
+    active = scenarios.evaluate_trigger_series(disjuncts, signal_levels)
     assert list(active) == [True, True, False, False, False]
+
+
+def test_evaluate_trigger_series_ors_across_strings() -> None:
+    """The trigger LIST is a disjunction (docs/ARCHITECTURE.md: `bear
+    triggers: ^VIX > 25 OR (CPI_YOY > 4 AND GROWTH_COMPOSITE < 98)`) — the
+    real seed shape, where neither branch alone covers every bear day."""
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    signal_levels = {
+        "^VIX": pd.Series([30.0, 10.0, 10.0, 10.0, 10.0], index=idx),
+        "CPIAUCSL": pd.Series([2.0, 5.0, 5.0, 2.0, 2.0], index=idx),
+        "GROWTH_COMPOSITE": pd.Series([105.0, 90.0, 105.0, 90.0, 105.0], index=idx),
+    }
+    disjuncts = [
+        [("^VIX", ">", 25.0)],
+        [("CPIAUCSL", ">", 4.0), ("GROWTH_COMPOSITE", "<", 98.0)],
+    ]
+    active = scenarios.evaluate_trigger_series(disjuncts, signal_levels)
+    #      day 0: VIX 30      -> first disjunct
+    #      day 1: CPI 5, G 90 -> second disjunct
+    #      day 2: CPI 5 but G 105 -> neither (the string still ANDs)
+    assert list(active) == [True, True, False, False, False]
+
+
+def test_evaluate_trigger_series_is_monotone_in_disjuncts() -> None:
+    """The property the M5 bug violated: adding an ALTERNATIVE can only ever
+    add active days. Flattening the list into one conjunction made a scenario
+    strictly RARER than its own first trigger — live, four-seasons-rp's bear
+    (`^VIX > 25` OR stagflation) warm-started at 1.37% while `^VIX > 25`
+    alone fired 16.59% of weeks."""
+    idx = pd.date_range("2020-01-01", periods=5, freq="D")
+    signal_levels = {
+        "^VIX": pd.Series([30.0, 10.0, 10.0, 10.0, 10.0], index=idx),
+        "CPIAUCSL": pd.Series([2.0, 5.0, 5.0, 2.0, 2.0], index=idx),
+        "GROWTH_COMPOSITE": pd.Series([105.0, 90.0, 105.0, 90.0, 105.0], index=idx),
+    }
+    vix_only = [[("^VIX", ">", 25.0)]]
+    plus_stagflation = [*vix_only, [("CPIAUCSL", ">", 4.0), ("GROWTH_COMPOSITE", "<", 98.0)]]
+
+    narrow = scenarios.evaluate_trigger_series(vix_only, signal_levels)
+    wider = scenarios.evaluate_trigger_series(plus_stagflation, signal_levels)
+    assert bool((wider | narrow).equals(wider)), "a superset must stay a superset"
+    assert int(wider.sum()) >= int(narrow.sum())
 
 
 def test_residual_series_is_complement_of_union_restricted_to_available() -> None:

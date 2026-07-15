@@ -438,9 +438,26 @@ against MarketData TS (week-over-week shift computed on read); qualitative trigg
 interpreted exclusively by the weekly Worker cycle, which may adjust
 probabilities in its WorkerResult.
 
+**Settled at M5-bis (2026-07-15) — list = OR, string = AND.** The interim
+free-text form still needed ONE combination rule, and M5 chose "the whole
+list is jointly necessary" (a documented judgment call). That contradicts
+this ADR-level example in ARCHITECTURE ("Strategy '4 Seasons'"): `bull:
+CPI_YOY < 2.5 AND GROWTH_COMPOSITE > 102` but `bear: ^VIX > 25 OR (CPI_YOY
+> 4 AND GROWTH_COMPOSITE < 98)` — bull ANDs, bear ORs, and a bare JSON array
+carries no operator to tell them apart. Refuted on the seed's own data: every
+bear list contains `^VIX > 25` (16.73% of weeks raw), yet four-seasons-rp's
+bear — `^VIX > 25` OR stagflation — warm-started at 1.37%. A superset cannot
+be 12x rarer than its own subset. Now: each STRING is a conjunction (which is
+what `parse_trigger_conjunction` was always for), the LIST is a disjunction,
+and the seeded bulls were merged into single AND-strings to keep their
+meaning. Live effect: 4s bear 1.37% -> 18.16%, permanent-browne bear 7.68%
+-> 32.99%, bounded correctly by max(parts)=16.73% and sum(parts)=20.30%.
+
 **Spec (to harden):**
 - Formal trigger grammar (indicator, operator, threshold) stored as
-  structured data instead of free text.
+  structured data instead of free text — the list/string convention above is
+  a working interim, not a grammar: it cannot express precedence, negation,
+  or an OR nested inside a string.
 - Probability update rule (e.g. logistic blend of trigger hit-rate) defined
   and backtested, or the weekly job demoted to shift detection only.
 

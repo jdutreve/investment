@@ -8,6 +8,14 @@ The (future, M8+) weekly mechanical job evaluates NUMERIC triggers only
 to compute each Scenario's historical weekly hit-rate over the 35y
 backfill — the base rate the seed `scenario_probability` is set from, "not
 hand-set" (docs/MILESTONES.md M5 DoV).
+
+A Scenario's `triggers` list is a DISJUNCTION of trigger STRINGS, each of
+which ANDs its own predicates — the shape docs/ARCHITECTURE.md pins in
+"Strategy '4 Seasons' — example" (`bull: CPI_YOY < 2.5 AND
+GROWTH_COMPOSITE > 102`; `bear: ^VIX > 25 OR (CPI_YOY > 4 AND
+GROWTH_COMPOSITE < 98)`). A bull case is good things CO-OCCURRING; a bear
+case is alternative routes to the same damage. The full free-text grammar
+(precedence, parentheses, structured storage) stays deferred — I-22.
 """
 
 import json
@@ -54,7 +62,12 @@ def parse_numeric_trigger(trigger: str) -> tuple[str, str, float] | None:
     return TRIGGER_ALIASES.get(raw_ticker, raw_ticker), op, float(value)
 
 
-def parse_trigger_conjunction(trigger: str) -> list[tuple[str, str, float]] | None:
+# One parsed trigger STRING: predicates ANDed together. A Scenario's trigger
+# LIST is a DISJUNCTION of these — see `evaluate_trigger_series`.
+Conjunction = list[tuple[str, str, float]]
+
+
+def parse_trigger_conjunction(trigger: str) -> Conjunction | None:
     """A single trigger string may itself AND multiple predicates (seed data
     has "CPI_YOY > 4 AND GROWTH_COMPOSITE < 98"); the WHOLE string is
     unparseable (`None`) if any conjunct fails the single-predicate
@@ -67,31 +80,51 @@ def parse_trigger_conjunction(trigger: str) -> list[tuple[str, str, float]] | No
 
 
 def evaluate_trigger_series(
-    conjuncts: list[tuple[str, str, float]], signal_levels: dict[str, pd.Series]
+    disjuncts: list[Conjunction], signal_levels: dict[str, pd.Series]
 ) -> pd.Series:
-    """AND every conjunct across every parseable trigger STRING in a
-    Scenario's trigger list — judgment call: a scenario's triggers are read
-    as jointly necessary conditions ("bull" needs both low inflation AND
-    high growth, not either), not alternatives; `signal_levels` must already
-    share one common, forward-filled daily index."""
+    """A Scenario's trigger LIST is a DISJUNCTION: OR across trigger strings,
+    AND within one (docs/ARCHITECTURE.md "Strategy '4 Seasons' — example":
+    `bear triggers: ^VIX > 25 OR (CPI_YOY > 4 AND GROWTH_COMPOSITE < 98)`).
+    `signal_levels` must already share one common, forward-filled daily index.
+
+    M5 flattened the whole list into ONE conjunction ("jointly necessary
+    conditions, not alternatives"). That contradicts the spec above and is
+    refutable on the seed's own data: every bear trigger list contains
+    `^VIX > 25`, which fires 16.59% of weeks alone, yet four-seasons-rp's
+    bear — `^VIX > 25` OR stagflation — warm-started at 1.37%. A superset
+    cannot be 12x rarer than its own subset; ANDing a disjunction is the only
+    way to get there. It is also what makes `parse_trigger_conjunction` mean
+    anything: ANDing within a string is pointless if the list ANDs too."""
     mask: pd.Series | None = None
-    for ticker, op, value in conjuncts:
-        column = signal_levels[ticker]
-        m = column.notna() & _OPS[op](column, value)
-        mask = m if mask is None else (mask & m)
+    for conjunction in disjuncts:
+        clause: pd.Series | None = None
+        for ticker, op, value in conjunction:
+            column = signal_levels[ticker]
+            m = column.notna() & _OPS[op](column, value)
+            clause = m if clause is None else (clause & m)
+        if clause is None:
+            continue
+        mask = clause if mask is None else (mask | clause)
     return mask if mask is not None else pd.Series(dtype=bool)
 
 
 def evaluate_trigger_availability(
-    conjuncts: list[tuple[str, str, float]], signal_levels: dict[str, pd.Series]
+    disjuncts: list[Conjunction], signal_levels: dict[str, pd.Series]
 ) -> pd.Series:
-    """Whether EVERY conjunct's ticker has real (non-NaN) data on a given
-    day — bounds `_residual_series`'s inference to dates its referenced
-    signals actually cover."""
+    """Whether EVERY referenced ticker, across EVERY disjunct, has real
+    (non-NaN) data on a given day — bounds `residual_series`'s inference to
+    dates its referenced signals actually cover.
+
+    Conservative on purpose: under OR a day is strictly decidable as soon as
+    one available disjunct is TRUE, but that would score a disjunction on
+    dates where its other branch is simply unmeasurable, making the base rate
+    depend on which series starts first (^VIX 1990, GROWTH_COMPOSITE 1991).
+    Requiring full coverage keeps every scenario's rate on one common window."""
     mask: pd.Series | None = None
-    for ticker, _, _ in conjuncts:
-        m = signal_levels[ticker].notna()
-        mask = m if mask is None else (mask & m)
+    for conjunction in disjuncts:
+        for ticker, _, _ in conjunction:
+            m = signal_levels[ticker].notna()
+            mask = m if mask is None else (mask & m)
     return mask if mask is not None else pd.Series(dtype=bool)
 
 
@@ -165,16 +198,22 @@ async def warm_start_scenario_probabilities(db: InvestmentDB) -> dict[str, dict[
         by_strategy.setdefault(str(sc["strategy_id"]), []).append(sc)
 
     needed_tickers: set[str] = set()
-    parsed_by_scenario: dict[str, list[tuple[str, str, float]] | None] = {}
+    parsed_by_scenario: dict[str, list[Conjunction] | None] = {}
     for sc in scenarios:
         triggers = json.loads(sc["triggers"]) if sc["triggers"] else []
-        conjuncts: list[tuple[str, str, float]] = []
+        # APPEND, not extend: each parseable string is one DISJUNCT, kept
+        # whole. Flattening them into a single conjunction is what made a
+        # scenario rarer than its own first trigger (evaluate_trigger_series).
+        # An unparseable string ("Fed dovish") drops out of the disjunction
+        # rather than voiding it — the numeric branches still carry a rate,
+        # and the qualitative one is the Worker's job (I-22).
+        disjuncts: list[Conjunction] = []
         for trigger in triggers:
             parsed = parse_trigger_conjunction(trigger)
             if parsed is not None:
-                conjuncts.extend(parsed)
-        parsed_by_scenario[str(sc["id"])] = conjuncts or None
-        needed_tickers.update(t for t, _, _ in conjuncts)
+                disjuncts.append(parsed)
+        parsed_by_scenario[str(sc["id"])] = disjuncts or None
+        needed_tickers.update(t for conjunction in disjuncts for t, _, _ in conjunction)
 
     signal_levels = {t: await _signal_level(db, t) for t in needed_tickers}
     non_empty = [s for s in signal_levels.values() if not s.empty]
@@ -199,12 +238,12 @@ async def warm_start_scenario_probabilities(db: InvestmentDB) -> dict[str, dict[
         for sc in strategy_scenarios:
             name = str(sc["name"])
             fallback[name] = float(sc["probability"])
-            scenario_conjuncts = parsed_by_scenario[str(sc["id"])]
-            if not scenario_conjuncts:
+            scenario_disjuncts = parsed_by_scenario[str(sc["id"])]
+            if not scenario_disjuncts:
                 unparseable_names.append(name)
                 continue
-            active_by_name[name] = evaluate_trigger_series(scenario_conjuncts, aligned)
-            available_by_name[name] = evaluate_trigger_availability(scenario_conjuncts, aligned)
+            active_by_name[name] = evaluate_trigger_series(scenario_disjuncts, aligned)
+            available_by_name[name] = evaluate_trigger_availability(scenario_disjuncts, aligned)
 
         if len(unparseable_names) == 1 and active_by_name:
             residual_name = unparseable_names[0]
