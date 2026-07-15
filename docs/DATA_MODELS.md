@@ -140,10 +140,15 @@ Invariant {
                                     --   observation date), NOT an enum of provenance types
   author        : STRING            -- authority tier driving floor: 'dalio' | 'marks' |
                                     --   'system' (agent-discovery) | null
-  status        : STRING            -- 'proposed' (maturing) | 'integrated'
-                                    --   (time-validated: N_min/θ, not refuted)
-                                    --   | 'rejected' (refuted). Mechanical —
-                                    --   no 'validated' human step (ADR-006).
+  status        : STRING            -- 'proposed' (INSUFFICIENT EVIDENCE — the
+                                    --   only meaning; empties as N grows) |
+                                    --   'integrated' (time-validated: N_min/θ,
+                                    --   not refuted) | 'rejected' (refuted:
+                                    --   score < 0.35 at N ≥ 4 — OR inadequate:
+                                    --   Wilson upper bound of score < θ, i.e.
+                                    --   demonstrably cannot reach the bar;
+                                    --   ADR-006 amendment). Mechanical — no
+                                    --   'validated' human step (ADR-006).
   tags          : STRING[]          -- THEMATIC / retrieval only (NOT the
                                     --   confrontation driver — that is `condition`).
                                     --   Namespaced where applicable: 'asset:GLD',
@@ -190,7 +195,19 @@ Invariant {
 
   confirmation_count : INT
   infirmation_count  : INT
-  market_score       : FLOAT
+  market_score       : FLOAT  -- confirmations / (confirmations + infirmations).
+                              --   A confirmation is BASELINE-RELATIVE (the effect
+                              --   beat what the handle does with the condition
+                              --   IGNORED — ARCHITECTURE "Invariant confrontation
+                              --   rule"), so this reads as a SKILL frequency whose
+                              --   null is 0.50 for EVERY handle, not an absolute
+                              --   hit rate (which would just restate the handle's
+                              --   base rate: ~0.70 for equities on the risk
+                              --   premium alone). That 0.50 null is what
+                              --   invariant_time_validation_score (θ=0.60) is
+                              --   measured against. Exception: an 'always'
+                              --   condition is scored absolutely (it makes no
+                              --   conditional claim).
   recency_factor     : FLOAT  -- 0.5 + 0.5 × exp(-days_since/half_life);
                               --   CONDITION-RELATIVE, NOT wall-clock — a dormant
                               --   invariant whose condition is absent does NOT
@@ -812,7 +829,14 @@ CREATE TABLE IF NOT EXISTS system_thresholds (...);
 -- proposal_expiry_days,
 -- invariant_min_confrontations (N_min, 3) and invariant_time_validation_score
 --   (θ, 0.60) — the time-validation verdict gate (ARCHITECTURE "Birth
---   maturation"); both calibrated by the Phase 9 replay.
+--   maturation"). NOT calibrated by the Phase 9 replay, despite the family
+--   resemblance to the thresholds that are: Task 9.2's grid covers the
+--   switch/ranking/blend/turnover knobs, and the mechanical replay is blind to
+--   invariant weights anyway (switches gate on sortino/calmar; the realloc
+--   blend is 0.4×scenario + 0.6×favors; invariants only filter Worker-CITED
+--   reallocations, and the mechanical mode has no Worker). So θ/N_min have no
+--   gradient to calibrate against there — they are owner-set, and the M8b
+--   agentic replay is the first run where they bite (M5).
 -- (See TASKS.md seed.)
 
 CREATE TABLE IF NOT EXISTS detector_state (...);
@@ -854,7 +878,10 @@ CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
 -- 'cross_class' → the asset-class rows; 'cross_strategy' → the strategy rows
 -- (USE_CASES step 10b; "define and value the benchmarks before valuing
 --  invariants"). Grows per period → a table (criterion).
--- benchmark_kind STRING ('asset_class'|'strategy'), benchmark_id STRING,
+-- The HANDLE's own metric is read here too, from the row matching its kind:
+-- asset-class handle → its asset_class row; strategy handle → its strategy
+-- row; asset handle → its asset row.
+-- benchmark_kind STRING ('asset_class'|'strategy'|'asset'), benchmark_id STRING,
 -- date DATE (unique index on (benchmark_kind, benchmark_id, date)),
 -- return FLOAT, sortino_rolling FLOAT, max_drawdown FLOAT, volatility FLOAT
 --   -- asset_class rows: per reference class (equities / bonds / inflation-
@@ -862,6 +889,16 @@ CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
 --   --   class membership = the pinned BENCHMARK_CLASSES mapping (TASKS seed)
 --   --   over allowed_tickers.asset_class (fine → coarse).
 --   -- strategy rows: per Strategy's prescribed allocation (synthetic NAV).
+--   -- asset rows: per investable ticker (every constituent of a benchmark
+--   --   class, plus the synthetic 'cash'), same construction as its class so
+--   --   the two are directly comparable. These serve `asset:<ticker>`
+--   --   handles, which the VALIDATION GATE admits with cross_class
+--   --   ("cross_class ⇒ asset/class handle" — ARCHITECTURE). An asset is
+--   --   confronted against the median of the OTHER coarse classes, EXCLUDING
+--   --   its own (which contains it): GLD vs equities/bonds/inflation-
+--   --   protected/cash, never vs 'gold-commodities'. This is what lets a
+--   --   single-asset claim ("gold outperforms across asset classes") be
+--   --   scored on gold rather than on a GLD+DJP+DBC blend.
 --   -- Rebuilt over 35y at seed, extended weekly.
 
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);

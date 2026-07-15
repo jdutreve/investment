@@ -11,10 +11,17 @@ HISTORY_PROXIES splice, GROWTH_COMPOSITE/GLOBAL_LIQUIDITY composites), step
 same code path the live catch-up uses), step 12 (PortfolioNAV TS backfill —
 mechanical/ratios.py `backfill_nav`) and step 13 (UC6 valuation + UC7
 ranking bootstrap — mechanical/ratios.py `value_portfolios` +
-mechanical/snapshots.py `build_snapshot`). Steps 6/6b (corpus), 10b
-(benchmark valuation), 11/11b/11c (backtests/FAVORS/maturation/warm-start)
-are added by later milestones (docs/MILESTONES.md "Incremental seed") — this
-run logs them as SKIPPED, not silently omitted.
+mechanical/snapshots.py `build_snapshot`). M5 adds step 10b (benchmark_
+valuation + the `real_rate` derived signal — mechanical/backtests.py
+`materialize_benchmark_valuation`), step 11 (Backtest rows + FAVORS edges —
+mechanical/backtests.py `run_backtests_and_favors`), step 11b (invariant
+birth maturation over the full 35y history — mechanical/invariants.py
+`mature_seed_invariants`), step 11c (ScenarioProbability warm-start from 35y
+base rates — mechanical/scenarios.py `warm_start_scenario_probabilities`),
+and the invariant contradiction check that runs after 11b/11c
+(mechanical/invariants.py `check_contradictions`). Step 6/6b (corpus) is
+added by M7 (docs/MILESTONES.md "Incremental seed") — this run logs it as
+SKIPPED, not silently omitted.
 
 UC0 is the one documented exemption to the "EventLog precedes commit" rule
 (CLAUDE.md "EventLog" rule): the closing
@@ -35,6 +42,7 @@ from investment.db.seed_data import (
     ALL_WEATHER_BENCHMARK,
     ALLOWED_TICKERS,
     BACKED_BY_EDGES,
+    DERIVED_SIGNALS,
     DESIGNED_FOR_EDGES,
     FRAMEWORKS,
     HISTORY_PROXIES,
@@ -49,7 +57,7 @@ from investment.db.seed_data import (
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
-from investment.mechanical import ratios, snapshots
+from investment.mechanical import backtests, invariants, ratios, scenarios, snapshots
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -77,10 +85,6 @@ RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY"})
 DEFERRED_STEPS = {
     "6": "corpus seed (M7)",
     "6b": "initial curation pass (M7)",
-    "10b": "benchmark_valuation materialization (M5)",
-    "11": "initial Backtests + FAVORS (M5)",
-    "11b": "invariant birth maturation over 35y (M5)",
-    "11c": "scenario probability warm-start over 35y (M5)",
 }
 
 
@@ -139,6 +143,68 @@ async def _seed_reference_tables(db: InvestmentDB, settings: Settings) -> int:
     return 1 + len(ALLOWED_TICKERS) + len(INVARIANT_AUTHOR_CONFIG) + len(SYSTEM_THRESHOLDS)
 
 
+async def _prune_retired_series(db: InvestmentDB) -> dict[str, Any]:
+    """Step 1b (M5): drop rows for tickers no longer in the AUTHORITATIVE
+    universe (`ALLOWED_TICKERS` + `DERIVED_SIGNALS`).
+
+    `allowed_tickers` is wholly owned by db/seed_data.py, but the seed only
+    ever INSERT-OR-REPLACEs, so a retired ticker's row — and its whole
+    series — survives every later run (docs/IMPROVEMENTS.md I-30). That is
+    NOT inert, which is why it is fixed here rather than left deferred:
+    `allowed_tickers` is what `mechanical/backtests.py investable_tickers`
+    reads, so a ghost row makes `asset:<retired>` a VALID invariant handle,
+    matured against a series frozen at its retirement date; and it is the
+    same table that will gate the Worker's `market_fetch` (M8). Retired at
+    M2: BIL (superseded by the synthetic 'cash' sleeve), EURUSD=X / JPY=X
+    (superseded by FRED DEXUSEU / DEXJPUS).
+
+    The DERIVED signals (`real_rate`, `real_yield_10y`) live ONLY in
+    DERIVED_SIGNALS, never in ALLOWED_TICKERS — hence the union. Omitting it
+    would delete the very signals step 10b materialises.
+
+    Safe by construction: nothing FKs to `allowed_tickers`, and every row
+    removed is reconstructible from seed_data + the network by the same run
+    that prunes it. Scope is the RETIRED-TICKER half of I-30 only; the
+    re-dated-duplicate half (M2SL's overlapping copies) needs the
+    authoritative-backfill design and stays deferred."""
+    keep = sorted({str(t["ticker"]) for t in ALLOWED_TICKERS} | set(DERIVED_SIGNALS))
+    placeholders = ", ".join(f":k{i}" for i in range(len(keep)))
+    params = {f"k{i}": t for i, t in enumerate(keep)}
+
+    retired = [
+        str(r["ticker"])
+        for r in await db.query(
+            f"SELECT ticker FROM allowed_tickers WHERE ticker NOT IN ({placeholders}) "
+            "ORDER BY ticker",
+            **params,
+        )
+    ]
+    stale_rows = (
+        await db.query(
+            f"SELECT COUNT(*) AS n FROM market_data WHERE ticker NOT IN ({placeholders})", **params
+        )
+    )[0]["n"]
+
+    async with db.transaction():
+        await db.command(
+            f"DELETE FROM allowed_tickers WHERE ticker NOT IN ({placeholders})", **params
+        )
+        await db.command(f"DELETE FROM market_data WHERE ticker NOT IN ({placeholders})", **params)
+        # Derived asset benchmarks follow their ticker: 10b only rewrites the
+        # ids it still considers investable, so a retired one's rows would
+        # otherwise linger and keep `asset:<retired>` resolvable.
+        await db.command(
+            f"DELETE FROM benchmark_valuation WHERE benchmark_kind = 'asset' "
+            f"AND benchmark_id NOT IN ({placeholders})",
+            **params,
+        )
+    if retired:
+        logger.warning(
+            "step 1b: pruned retired tickers %s (%d market_data rows)", retired, stale_rows
+        )
+    return {"retired_tickers": retired, "market_data_rows_pruned": stale_rows}
+
+
 async def _seed_frameworks(db: InvestmentDB) -> int:
     """Step 2."""
     for fw in FRAMEWORKS:
@@ -153,20 +219,51 @@ async def _seed_regime_types(db: InvestmentDB) -> int:
     return len(REGIME_TYPES)
 
 
+_MATURATION_FIELDS = (
+    "market_score",
+    "recency_factor",
+    "confirmation_count",
+    "infirmation_count",
+    "weight_effective",
+    "status",
+    "validated_at",
+    "trace",
+)
+
+
 async def _seed_invariants(db: InvestmentDB) -> int:
     """Step 4 — status='proposed'; matured over 35y at M5 (ADR-006: belief
     does not grant integration, history does). market_score/recency_factor
     default to 1.0 pre-confrontation; weight_effective follows the pinned
-    formula (CLAUDE.md 'Invariant weight model')."""
+    formula (CLAUDE.md 'Invariant weight model'). A RE-RUN must not clobber
+    an already-matured invariant's mechanical state back to these pristine
+    defaults — for a row that already exists, `_MATURATION_FIELDS` are
+    re-written to their CURRENT value (a no-op update; `upsert_vertex`
+    requires `trace` present even on update, so these can't just be omitted
+    from `props`) rather than reset. The M5 `mature_seed_invariants()`
+    idempotency guard (invariants.py `_already_matured`) depends on
+    `trace`/`status` surviving a re-seed."""
+    existing = {
+        str(r["id"]): r
+        for r in await db.query(
+            "SELECT id, market_score, recency_factor, confirmation_count, infirmation_count, "
+            "weight_effective, status, validated_at, trace FROM invariant"
+        )
+    }
     for inv in INVARIANTS:
         props = _without_id(inv)
-        props["market_score"] = 1.0
-        props["recency_factor"] = 1.0
-        props["confirmation_count"] = 0
-        props["infirmation_count"] = 0
-        weight_initial = cast("float", props["weight_initial"])
-        floor_weight = cast("float", props["floor_weight"])
-        props["weight_effective"] = max(weight_initial, floor_weight)
+        existing_row = existing.get(_vertex_id(inv))
+        if existing_row is None:
+            props["market_score"] = 1.0
+            props["recency_factor"] = 1.0
+            props["confirmation_count"] = 0
+            props["infirmation_count"] = 0
+            weight_initial = cast("float", props["weight_initial"])
+            floor_weight = cast("float", props["floor_weight"])
+            props["weight_effective"] = max(weight_initial, floor_weight)
+        else:
+            for field in _MATURATION_FIELDS:
+                props[field] = existing_row[field]
         await db.upsert_vertex("invariant", _vertex_id(inv), props)
     return len(INVARIANTS)
 
@@ -372,6 +469,57 @@ async def _materialize_regimes(db: InvestmentDB) -> dict[str, Any]:
     return {"regime_episodes": len(commits)}
 
 
+async def _materialize_benchmark_valuation(db: InvestmentDB) -> dict[str, Any]:
+    """Step 10b (M5): benchmark_valuation (asset_class + strategy rows) +
+    the `real_rate` derived signal — mechanical/backtests.py `materialize_
+    benchmark_valuation` (docs/USE_CASES.md UC0 step 10b), the prerequisite
+    for invariant maturation ("define and value the benchmarks before
+    valuing invariants").
+
+    The window is the CONFRONTATION horizon (proposal_outcome_weeks, in
+    trading days), not `rolling_window_days` — this table is read only by
+    the confrontation, whose window it must therefore match
+    (mechanical/backtests.py `period_series_frame`)."""
+    horizon_trading_days = int(
+        SYSTEM_THRESHOLDS["proposal_outcome_weeks"] * ratios.TRADING_DAYS_PER_WEEK
+    )
+    lookback = int(SYSTEM_THRESHOLDS["derivative_lookback_short"])
+    result = await backtests.materialize_benchmark_valuation(db, horizon_trading_days, lookback)
+    return dataclasses.asdict(result)
+
+
+async def _run_backtests_favors(db: InvestmentDB) -> dict[str, Any]:
+    """Step 11 (M5): Backtest rows + FAVORS edges — mechanical/backtests.py
+    `run_backtests_and_favors` (docs/USE_CASES.md UC0 step 11)."""
+    window = int(SYSTEM_THRESHOLDS["rolling_window_days"])
+    result = await backtests.run_backtests_and_favors(db, window)
+    return dataclasses.asdict(result)
+
+
+async def _mature_seed_invariants(db: InvestmentDB) -> dict[str, Any]:
+    """Step 11b (M5): birth maturation of the 6 seed invariants over the
+    full 35y history (mechanical/invariants.py `mature_seed_invariants`) —
+    the SAME factored, source-blind mechanism later applied to every
+    post-launch birth (docs/USE_CASES.md UC0 step 11b; ADR-006)."""
+    results = await invariants.mature_seed_invariants(db)
+    return {"invariants": [dataclasses.asdict(r) for r in results]}
+
+
+async def _warm_start_scenario_probabilities(db: InvestmentDB) -> dict[str, Any]:
+    """Step 11c (M5): ScenarioProbability warm-start from 35y base rates —
+    mechanical/scenarios.py `warm_start_scenario_probabilities`
+    (docs/USE_CASES.md UC0 step 11c)."""
+    return await scenarios.warm_start_scenario_probabilities(db)
+
+
+async def _check_invariant_contradictions(db: InvestmentDB) -> dict[str, Any]:
+    """Pairwise contradiction check over `status='integrated'` invariants —
+    docs/ARCHITECTURE.md 'Invariant contradiction check': "Runs at seed
+    (after 11b/11c)"."""
+    contradictions = await invariants.check_contradictions(db)
+    return {"contradictions": [dataclasses.asdict(c) for c in contradictions]}
+
+
 async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
     """Step 12 (M4): PortfolioNAV TS backfill — the ALL_WEATHER_BENCHMARK
     synthetic series FIRST (so per-portfolio vs_benchmark can read it back,
@@ -415,6 +563,7 @@ async def run_seed(
     inventory: dict[str, Any] = {}
     try:
         inventory["user_profile+reference_rows"] = await _seed_reference_tables(db, settings)
+        inventory["pruned"] = await _prune_retired_series(db)
         inventory["framework"] = await _seed_frameworks(db)
         inventory["regime_type"] = await _seed_regime_types(db)
         inventory["invariant"] = await _seed_invariants(db)
@@ -425,7 +574,17 @@ async def run_seed(
             db, settings, fetch_raw=fetch_raw, yahoo_rate_limit_seconds=yahoo_rate_limit_seconds
         )
         inventory["regime"] = await _materialize_regimes(db)
+        # Step 12 (PortfolioNAV backfill) runs BEFORE 10b/11: benchmark_
+        # valuation's strategy rows and Backtest rows both read a Strategy's
+        # primary-portfolio NAV (mechanical/backtests.py "prescribed
+        # allocation" resolution) — numeric step order (10b/11 < 12) is not
+        # execution order here, only step 13 (snapshot) stays last.
         inventory["portfolio_nav"] = await _seed_portfolio_nav(db)
+        inventory["benchmark_valuation"] = await _materialize_benchmark_valuation(db)
+        inventory["backtests_favors"] = await _run_backtests_favors(db)
+        inventory["invariant_maturation"] = await _mature_seed_invariants(db)
+        inventory["scenario_warm_start"] = await _warm_start_scenario_probabilities(db)
+        inventory["invariant_contradictions"] = await _check_invariant_contradictions(db)
         inventory["snapshot"] = await _seed_snapshot(db)
 
         for step, reason in DEFERRED_STEPS.items():

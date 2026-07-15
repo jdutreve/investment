@@ -26,6 +26,10 @@ ALL_WEATHER_ID = "all-weather-USD"
 CASH_TICKER = "cash"
 RF_TICKER = "^IRX"
 TRADING_DAYS_PER_YEAR = 252
+# 252/52 rounded — converts a threshold expressed in WEEKS (e.g.
+# proposal_outcome_weeks) into the trading-day windows the rolling_* helpers
+# take.
+TRADING_DAYS_PER_WEEK = 5
 # A plain float (not np.sqrt(TRADING_DAYS_PER_YEAR)): multiplying a Series by
 # a numpy scalar defeats pandas-stubs' overload resolution and mypy --strict
 # reports "Returning Any" on every rolling_* function below.
@@ -77,7 +81,7 @@ def synthesize_nav(
     (CLAUDE.md 'state assumptions explicitly')."""
     non_cash = [t for t in weights if t != CASH_TICKER]
     if non_cash:
-        price_df = pd.concat({t: prices[t] for t in non_cash}, axis=1).sort_index()
+        price_df = pd.concat({t: prices[t] for t in non_cash}, axis=1, sort=False).sort_index()
         price_df = price_df.dropna(how="any")
     else:
         price_df = pd.DataFrame(index=rf.index[:0])
@@ -198,7 +202,10 @@ def cumulative_return(nav: pd.Series, as_of: pd.Timestamp, calendar_days: int) -
     return float(end_nav / start_nav - 1.0)
 
 
-def _flt(value: Any) -> float | None:
+def flt(value: Any) -> float | None:
+    """NaN-safe float coercion — shared by every mechanical module that reads
+    a `.iloc[-1]` off a pandas Series (which is `np.float64`, not `float`,
+    and may be NaN rather than a clean missing marker)."""
     if value is None:
         return None
     f = float(value)
@@ -243,6 +250,23 @@ async def _price_series(db: InvestmentDB, ticker: str) -> pd.Series:
 
 async def _rf_daily_series(db: InvestmentDB) -> pd.Series:
     return rf_daily(await _price_series(db, RF_TICKER))
+
+
+async def load_price(db: InvestmentDB, ticker: str) -> pd.Series:
+    """Public wrapper around `_price_series` — the raw `level` column, for
+    other mechanical modules (backtests.py benchmark-class construction)."""
+    return await _price_series(db, ticker)
+
+
+async def load_rf_daily(db: InvestmentDB) -> pd.Series:
+    """Public wrapper around `_rf_daily_series`."""
+    return await _rf_daily_series(db)
+
+
+async def load_nav(db: InvestmentDB, portfolio_id: str) -> pd.Series:
+    """Public wrapper around `_load_nav_column` — the already-backfilled
+    `portfolio_nav.nav` series, for other mechanical modules."""
+    return await _load_nav_column(db, portfolio_id, "nav")
 
 
 async def _load_nav_column(db: InvestmentDB, portfolio_id: str, column: str) -> pd.Series:
@@ -344,11 +368,11 @@ async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValua
         valuations.append(
             PortfolioValuation(
                 portfolio_id=portfolio_id,
-                sharpe_rolling=_flt(latest["sharpe_rolling"]),
-                sortino_rolling=_flt(latest["sortino_rolling"]),
-                calmar_rolling=_flt(latest["calmar_rolling"]),
-                max_drawdown=_flt(latest["drawdown"]),
-                volatility=_flt(volatility),
+                sharpe_rolling=flt(latest["sharpe_rolling"]),
+                sortino_rolling=flt(latest["sortino_rolling"]),
+                calmar_rolling=flt(latest["calmar_rolling"]),
+                max_drawdown=flt(latest["drawdown"]),
+                volatility=flt(volatility),
                 **{
                     field: cumulative_return(nav, as_of, days)
                     for field, days in RETURN_WINDOWS_DAYS.items()

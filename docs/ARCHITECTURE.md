@@ -283,22 +283,97 @@ CONDITION-moments. Per-moment metrics are recomputed from the TS (NOT the
 running FAVORS aggregate, which serves Worker reasoning and the reallocation
 blend, not confrontation):
 
-  A MOMENT of invariant i = a period/occurrence where i.condition holds, read
-  from the market-data TS / regime instances (condition model in "Birth
-  maturation" below). Forward, a moment is confronted when it COMPLETES (a
-  condition-episode closes; an event fires; or the weekly sample for an
-  'always' condition) — not every tick, which would over-count a persistent
-  state.
-  For the completed moment M, evaluate i.effect by its method (see "Birth
+  A MOMENT of invariant i = a day i.condition HOLDS (knowable that day,
+  ADR-003: predicates evaluate on as-known-at-ts data), read from the
+  market-data TS / regime instances (condition model in "Birth maturation"
+  below), SAMPLED at one-horizon spacing across the condition's active time:
+  walk the active days forward, take one, skip a horizon, repeat. Forward, a
+  moment is SCORED once its outcome window has elapsed — never truncated.
+
+  WHY horizon-spaced. (a) NON-OVERLAPPING ⇒ the Wilson verdict is sound:
+  outcome windows are [d, d+horizon], so horizon spacing makes them disjoint
+  and the moments quasi-independent — the binomial bound assumes exactly
+  that, and sampling active time weekly would overlap every 12w window
+  12-fold, inflating N against evidence that is not there. (b) CONTINUOUS in
+  condition frequency ⇒ no cliff between a persistent state and 'always'.
+  ONE-MOMENT-PER-EPISODE (the rejected alternative) had an indefensible
+  discontinuity: a condition true 100% of the time sampled ~1800 times, one
+  true 88% of the time in a single block sampled ONCE. Measured on the real
+  data, `real_rate < 2.5` holds 88% of 35y but chatters into 36 episodes —
+  one of 7050 days (2001-2020, the entire low-real-rate era) plus 35 six-day
+  blips at the threshold in the high-rate 1990s; per-episode scoring gave
+  that era a single data point and let the blips carry the verdict ('low
+  real yields favour gold' read 0.158/REFUTED on N=19, vs 0.542/undecided on
+  N=107 sampled honestly). A SHORT episode still contributes its start (the
+  decision moment realloc gate 6 simulates — "the condition is active NOW,
+  tilt?"), since the next active day inside a horizon is skipped; a LONG one
+  is sampled throughout. 'always' is not special-cased: it is simply a
+  condition active on every date.
+  For the moment M, evaluate i.effect by its method (see "Birth
   maturation"): benchmark_M from the pre-materialised valuations per
-  i.effect.method (cross_class / cross_strategy / absolute):
-    i.handle's metric vs benchmark_M in i.direction ± confrontation_margin (0.10):
+  i.effect.method (cross_class / cross_strategy / absolute).
+
+  The metric is read over the horizon FOLLOWING M (proposal_outcome_weeks) —
+  the invariant claims the condition BRINGS THE EFFECT ABOUT, so the window
+  measured is the one the condition could have acted on, starting when the
+  condition fires. The two rejected windows, both measured on the real 35y
+  data (M5): a TRAILING window at M mostly predates the condition (episodes
+  run 1..244 days against a multi-week metric window) and reproduces the
+  unconditional base rate; a window anchored at the episode CLOSE measures
+  the aftermath of the condition ENDING — cycle mean-reversion — and
+  manufactures anti-signal ('rising growth favours equities' scored 0.397
+  close-anchored vs 0.512 start-anchored).
+
+  The comparison is BASELINE-RELATIVE:
+    excess_M   = i.handle's metric − benchmark_M            (over that horizon)
+    baseline_i = median excess over ALL dates, i.condition IGNORED
+                 (= 0 when i.condition is empty — see below)
+    excess_M vs baseline_i in i.direction ± confrontation_margin[metric]:
       held         → confirmation(i)
       contradicted → infirmation(i)
       within band  → no-op
+
+  WHY baseline-relative. A confirmation must mean "the effect happened MORE
+  than it usually does", not merely "the effect happened". Measured
+  absolutely, any invariant whose effect points along a strong base rate
+  self-certifies: equities beat the median of the other classes ~70% of any
+  12w window on the risk premium alone, so on the real 35y data "rising growth
+  favours equities" scored 0.65 and INTEGRATED while performing worse than
+  ignoring growth entirely, and every 'equities underperform' claim was
+  rejected before the evidence was read. Subtracting the invariant's own null
+  is what makes market_score (formula unchanged — ../CLAUDE.md) a SKILL
+  frequency, and what anchors its null at 0.50 for EVERY handle — the anchor
+  invariant_time_validation_score (0.60) is written against. Without it θ is a
+  scalar compared against a per-handle base rate (0.70 equities, 0.40 TIPS)
+  and no single value can be right for both (M5).
+
+  An EMPTY condition ('always') keeps baseline_i = 0, i.e. an ABSOLUTE
+  measure: it makes no conditional claim, so its lift is zero by construction
+  and a lift measure would pin it at 0.50 forever; its claim genuinely is
+  absolute ("this handle's drawdown is lower, period").
+
+  confrontation_margin is PER-METRIC (confrontation_margin_<metric>, falling
+  back to confrontation_margin): one absolute band cannot serve metrics on
+  incommensurable scales — 0.10 on max_drawdown, whose cross-strategy
+  dispersion is ±0.04, admitted 0 of 1812 moments and made the invariant
+  permanently unmaturable (M5).
+
+  POINT-IN-TIME (ADR-003): baseline_i must be computed as-known-at-t on the
+  forward weekly path. At BIRTH the full-sample baseline carries the same
+  in-sample bias the birth sweep already concedes ("a weight prior, not
+  out-of-sample proof" — see below), and no more.
   Already-elapsed historical moments are NOT re-confronted: they were swept
   once, at i's BIRTH, by mature_invariant() (see below). Seed invariants are
   the first batch of births; no special seed path.
+  "Once" means ONCE PER DEFINITION, keyed on a fingerprint of
+  (i.condition, i.effect): both are mutable — the seed rewrites them on every
+  run and M7's consolidation revises them — and a verdict belongs to the
+  definition it was earned under. An EDIT re-sweeps (replacing its own prior
+  source='backtest' rows; evaluation/proposal rows are forward evidence and
+  survive); an unchanged definition still skips. Keyed on "was ever matured"
+  instead, an edited invariant keeps a score measured against its old
+  condition: rewriting the gold invariant's condition to one that can never
+  fire preserved 0.646/INTEGRATED, citable by gate 6 (M5).
 
 FROM EVALUATIONS (source='evaluation'):
   CONDITION GATE — confront ONLY invariants whose `condition` was ACTIVE at
@@ -348,19 +423,45 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   Requires a machine-readable CONDITION + EFFECT over KNOWN signals:
     condition : Predicate[]  (ANDed; empty ⇒ 'always')  — WHEN active
       Predicate = { signal, feature, op, value }
-      signal  ∈ the SIGNAL REGISTRY: any collected MarketData series
-                (from allowed_tickers), any DERIVED composite (GROWTH_COMPOSITE,
-                GLOBAL_LIQUIDITY, real_rate = irx − inflation, …), or 'regime'
-      feature = 'level' | 'speed' | 'acceleration' | 'type'
-      CURATOR RULE: express the FUNDAMENTAL causal driver, not a surface
-      correlate — "gold when real rates are negative", NOT "gold in
-      stagflation" (more causal, and captures more moments → larger N).
-      e.g. negative real rates   → [{real_rate, level, <, 0}]
+      signal  ∈ the SIGNAL REGISTRY (db/seed_data.py SIGNAL_ALIASES): any
+                collected MarketData series (from allowed_tickers), any DERIVED
+                composite (GROWTH_COMPOSITE, GLOBAL_LIQUIDITY,
+                real_rate = irx − inflation, real_yield = DGS10 − inflation),
+                or 'regime'
+      feature = 'level' | 'speed' | 'acceleration' for a series signal;
+                'type' for 'regime' ONLY (they are not interchangeable — a
+                series carries no 'type' column and vice versa)
+      CURATOR RULE 1: express the FUNDAMENTAL causal driver, not a surface
+      correlate — "gold when real yields are low", NOT "gold in stagflation"
+      (more causal, and captures more moments → larger N).
+      CURATOR RULE 2: pick the signal by ECONOMIC MEANING, never by name
+      similarity. `real_rate` and `real_yield` differ only in the maturity of
+      their nominal leg and read almost identically, but they are NOT
+      interchangeable and NOT a refinement of one another:
+        real_rate  = ^IRX − CPI YoY  → the POLICY STANCE (what the Fed sets).
+                     Use for accommodation / financial-repression claims.
+        real_yield = DGS10 − CPI YoY → the market-priced REAL COST OF CAPITAL.
+                     Use for OPPORTUNITY-COST claims (a non-yielding asset vs
+                     a yielding alternative) and long-horizon discounting.
+      Measured over 1991-2026 they disagree on a `< 2.5` test for 22% of days
+      (the short real rate is below 2.5 for 88% of the sample — near
+      degenerate — the long yield for 68%), and that 22% decides verdicts:
+      the owner's "low real yields favour gold" scored 0.542/undecided on
+      real_rate and 0.646/INTEGRATED on real_yield. Gold's claim is
+      opportunity cost, hence the LONG yield (M5).
+      e.g. low real yields       → [{real_yield, level, <, 2.5}]
+           negative policy rate  → [{real_rate, level, <, 0}]
            rising & decelerating → [{inflation, speed, >, 0}, {inflation, acceleration, <, 0}]
            short-rate rising     → [{irx, speed, >, 0}]
     effect : { handle, metric, method, direction }  — the VALUATION METHOD
       handle   = 'asset:<ticker>' | 'asset-class:<class>' | 'strategy:<id>'
-      metric   = return | max_drawdown | sortino_rolling | …
+      metric   = return | max_drawdown | sortino_rolling | volatility
+                 (EXACTLY the benchmark_valuation columns — mechanical/
+                  backtests.py BENCHMARK_METRICS; the gate rejects anything
+                  else, since the confrontation reads it as a column. NOTE
+                  'relative_return' is NOT one: relativity is the METHOD's
+                  job (cross_class), not the metric's — a real author
+                  submitted it twice.)
       method   = 'cross_class'    (handle vs the MEDIAN of the other asset classes)
                | 'cross_strategy' (handle vs the MEDIAN of the other strategies)
                | 'absolute'       (handle metric vs 0 — sign of the metric)
@@ -399,14 +500,22 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   data floors: liquidity 2002 WALCL, TIPS-effect 2000). Nothing artificially
   truncates the window: every invariant is confronted as far back as its data
   allows, so at go-live the whole seed+corpus knowledge is already matured over
-  1991-present, not cold. (frequency EMERGENT from the condition — event → per
-  occurrence, persistent state → per episode, 'always' → weekly sample.)
-  For each moment M, evaluate i.effect by its METHOD:
+  1991-present, not cold. (frequency EMERGENT from the condition: the active
+  days are SAMPLED at one-horizon spacing — a rare event contributes its
+  occurrence, a persistent state is sampled throughout, 'always' is just
+  active-every-day. Rationale — independence + continuity — in "Invariant
+  confrontation rule" above.)
+  For each moment M, evaluate i.effect by its METHOD, over the horizon
+  FOLLOWING M, BASELINE-RELATIVE (full rule + rationale in "Invariant
+  confrontation rule" above — this is the same rule, swept once over history):
     benchmark_M per method — cross_class: MEDIAN of the other asset classes'
       metric; cross_strategy: MEDIAN of the other strategies'; absolute: 0
       — READ from the pre-materialised benchmark_valuations, not recomputed
       ad hoc
-    i.handle's metric vs benchmark_M in i.direction ± confrontation_margin (0.10)
+    excess_M = i.handle's metric − benchmark_M
+    baseline_i = median excess over ALL dates, i.condition IGNORED (0 if
+      i.condition is empty — an 'always' claim is scored absolutely)
+    excess_M vs baseline_i in i.direction ± confrontation_margin[metric]
       → confirmation(i) | infirmation(i) | no-op (within band)
   → seeds confirmation_count / infirmation_count from all N moments at once
   → market_score REAL on day 1 (no infinite forward wait)
@@ -417,15 +526,42 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   signals. Maturation persists only its OUTCOMES (invariant_confrontations +
   weights).
 
-  TIME-VALIDATION VERDICT — the number. i "survived the test of time" iff:
-      confrontations ≥ invariant_min_confrontations (N_min)
-      AND market_score ≥ invariant_time_validation_score (θ)
-      AND not refuted (≥4 confrontations with market_score < 0.35 disqualifies).
-  Below N_min → INSUFFICIENT HISTORY: not time-validated, weight held near
-  floor (a rare condition with too few moments cannot be certified yet).
+  TIME-VALIDATION VERDICT — the number. Three outcomes, checked in order
+  (ADR-006 + its M5 amendment; every threshold from system_thresholds):
+    REFUTED    → rejected:   confrontations ≥ 4 AND market_score < 0.35
+                             (the effect actively fails when cited — the
+                              point test arms fast for clearly harmful i)
+    INTEGRATED:              confrontations ≥ invariant_min_confrontations
+                             (N_min, 3) AND market_score ≥
+                             invariant_time_validation_score (θ, 0.60)
+    INADEQUATE → rejected:   confrontations ≥ 4 AND the one-sided Wilson
+                             upper bound of market_score at
+                             invariant_verdict_confidence (0.95) is < θ —
+                             given ample evidence, i demonstrably CANNOT
+                             reach the bar. Cannot race INTEGRATED: the
+                             bound always exceeds the point estimate.
+    otherwise  → proposed:   INSUFFICIENT EVIDENCE — the ONLY meaning of
+                             'proposed'. It empties mechanically as
+                             confrontations accrue (a true-null invariant
+                             crosses the bound around N≈70), honoring
+                             "Nothing stays proposed forever" (ADR-006);
+                             only genuine data scarcity (a rare condition,
+                             a late data floor) keeps an invariant here,
+                             weight held near floor.
+  WHY the INADEQUATE branch: without it the 0.35..θ band is an absorbing
+  dead middle — on the real 35y maturation 4 of 6 seed invariants landed
+  there (e.g. 0.545 on N=354, upper bound 0.588) and would have stayed
+  'proposed' at ANY N, unqualifiable, while gate 6 cites integrated
+  invariants only. The engine's purpose is to VALIDATE knowledge: verdicts
+  must converge. Baseline-relative scoring (above) is what makes the test
+  sound — the null is 0.50 for every handle.
+  The verdict is STATELESS — recomputed from current counts at every
+  confrontation — so a rejection is as reversible as the evidence behind it.
   weight_effective stays continuous via market_score; the verdict is the
-  discrete gate for integration eligibility and money-moving citation. Seed
-  defaults N_min=3, θ=0.60; calibrated by the Phase 9 replay, like all thresholds.
+  discrete gate for integration eligibility and money-moving citation.
+  N_min/θ/confidence are owner-set (NOT in the Phase 9 calibration grid —
+  the mechanical replay is blind to invariant weights; see DATA_MODELS
+  system_thresholds note).
 
   RECENCY is CONDITION-RELATIVE. recency_factor must NOT decay i for its
   condition being ABSENT — a dormant-but-veridical invariant is not stale, it

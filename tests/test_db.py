@@ -23,6 +23,17 @@ from investment.db.schema import (
     RELATION_TABLES,
     TS_TABLES,
 )
+from investment.db.seed_data import (
+    BACKED_BY_EDGES,
+    DESIGNED_FOR_EDGES,
+    FRAMEWORKS,
+    HOLDS_EDGES,
+    INVARIANTS,
+    PORTFOLIOS,
+    REGIME_TYPES,
+    SCENARIOS,
+    STRATEGIES,
+)
 from investment.db.sqlite import InvestmentDB
 from investment.seed import run_seed
 
@@ -170,16 +181,20 @@ async def test_seed_idempotent_two_runs(tmp_path: Path) -> None:
                 "designed_for",
             )
         }
+        # Counted from the seed constants, not frozen literals: the point of
+        # this test is that a SECOND run duplicates nothing, which is exactly
+        # as true with 6 seed invariants as with 7 — hardcoding the inventory
+        # only makes it fail whenever the philosophy gains an entry.
         assert counts == {
-            "framework": 3,
-            "regime_type": 5,
-            "invariant": 6,
-            "strategy": 4,
-            "scenario": 12,
-            "portfolio": 7,
-            "backed_by": 6,
-            "holds": 7,
-            "designed_for": 4,
+            "framework": len(FRAMEWORKS),
+            "regime_type": len(REGIME_TYPES),
+            "invariant": len(INVARIANTS),
+            "strategy": len(STRATEGIES),
+            "scenario": len(SCENARIOS),
+            "portfolio": len(PORTFOLIOS),
+            "backed_by": len(BACKED_BY_EDGES),
+            "holds": len(HOLDS_EDGES),
+            "designed_for": len(DESIGNED_FOR_EDGES),
         }
         events = await db.query("SELECT COUNT(*) AS n FROM event_log WHERE type='SeedEvent'")
         assert events[0]["n"] == 2

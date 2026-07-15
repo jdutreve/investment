@@ -225,6 +225,43 @@ mechanical:
   flow.** Same path for every provenance — corpus, agent-discovery, user
   note, UC3 event (agent-discovery is scored identically; its heavier
   in-sample bias is a self-correcting prior, ARCHITECTURE point-in-time note).
+
+**Amendment (M5, 2026-07-15) — verdict convergence: the dead middle rejects
+on confidence.** As originally stated, the verdict had an absorbing middle:
+rejection required `market_score < 0.35` ("actively harmful") and integration
+`≥ θ (0.60)`, so an invariant measuring 0.35–0.60 stayed `proposed` FOREVER —
+at any N. On the real 35y maturation, 4 of 6 seed invariants landed there
+(e.g. 0.545 on N=354, upper 95% bound 0.588: demonstrably unable to ever
+reach θ, yet never qualified). That violates this ADR's own doctrine
+("Nothing stays proposed forever") and, since realloc gate 6 cites
+`integrated` invariants only, starves the citation loop. The owner's ruling:
+do NOT relax V1 constraints (gate 6 stays integrated-only) — make the engine
+QUALIFY instead. A second mechanical rejection branch is added:
+- `rejected` (inadequate) iff `confrontations ≥ 4` AND the one-sided Wilson
+  upper bound of market_score at `invariant_verdict_confidence` (0.95) is
+  `< θ` — "given ample evidence, this invariant demonstrably cannot reach
+  the bar". Baseline-relative scoring (ARCHITECTURE "Invariant confrontation
+  rule") is what makes this test sound: the null is 0.50 for every handle.
+`proposed` now means exactly one thing — INSUFFICIENT EVIDENCE — and empties
+mechanically as confrontations accrue. The verdict stays stateless
+(recomputed from current counts), so a rejection is as reversible as the
+evidence that produced it. Formula: ARCHITECTURE "Birth maturation"
+TIME-VALIDATION VERDICT.
+
+**Amendment (M5, 2026-07-15) — an author-claimed status is never honoured.**
+This ADR says the engine decides `status`, but nothing enforced it: every
+maturation path that cannot produce a verdict (reference knowledge, gate
+demotion, no benchmark) returns before the verdict is persisted, so a
+`status` supplied at birth silently stood. Authors DO supply it — the
+owner-submitted gold invariant arrived `status='integrated'` with
+`validated_at` set and a hand-authored `market_score: 0.78` (itself
+inconsistent with its own 4/2 counts) — and gate 6 cites `integrated`
+invariants, so an unmeasurable claim could have moved money on its author's
+say-so. That is the precise failure this ADR exists to prevent. Every
+uncertifiable path now forces `status='proposed'` and clears `validated_at`
+(`mechanical/invariants.py::_force_uncertified`); supplied evidence is kept
+as provenance in `source`/`trace`, never as engine state. Belief does not
+grant integration — including the author's belief about their own invariant.
 - New strategies auto-enable after mechanical probation
   (`strategy_probation_weeks`); no human gate.
 - The **weekly digest reports** what changed; it never asks. It is a passive

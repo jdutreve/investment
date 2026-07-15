@@ -526,7 +526,8 @@ behavior changes.
 **Why deferred:** V1 gives each invariant ONE `condition` (a conjunction of
 predicates over known signals — e.g. rising-and-decelerating inflation) and
 ONE `effect`; its confrontation frequency is emergent from that condition
-(event → per occurrence, persistent state → per episode, 'always' → weekly).
+(the active days are sampled at one-horizon spacing — ARCHITECTURE
+"Invariant confrontation rule").
 A single invariant could legitimately carry SEVERAL *independent* trigger
 conditions with different effects (OR-semantics, not the AND-conjunction V1
 already supports) — e.g. one behaviour under rising inflation AND a distinct
@@ -570,10 +571,33 @@ table cannot silently disagree.
 
 ## I-30 — Authoritative market_data backfill (stale-row pruning)
 
-**Why deferred:** found at M4 while verifying the NAV engine against external
-sources; owner call to log rather than fix, since it does not affect any
-verified result (every series M4/M3 actually read is clean — see below) and
-the fix deletes rows from the live DB.
+**PARTIALLY RESOLVED at M5 (2026-07-15) — the RETIRED-TICKER half is fixed.**
+The M4 deferral rested on "it does not affect any verified result". That
+stopped being true at M5: `mechanical/backtests.py investable_tickers` reads
+`allowed_tickers`, so the ghost BIL row made `asset:BIL` a VALID invariant
+handle, maturable against a series frozen at its M2 retirement — and the same
+table gates the Worker's `market_fetch` (M8). Owner approved the prune once
+shown it was reachable. `seed._prune_retired_series` (step 1b) now deletes,
+on every run, the `allowed_tickers` / `market_data` / `benchmark_valuation`
+rows for tickers outside the authoritative universe (`ALLOWED_TICKERS` ∪
+`DERIVED_SIGNALS` — the union is load-bearing: `real_rate`/`real_yield_10y`
+exist only in the latter, so a keep-set built from ALLOWED_TICKERS alone
+deletes the gold invariant's own signal). Pruned live: BIL 4810 rows,
+EURUSD=X 5867, JPY=X 7701 (18378 total). Regression:
+`test_m5_prune_removes_ghosts_but_spares_derived_signals`.
+
+**STILL DEFERRED — the RE-DATING half** (the second bullet below): a change
+to `availability_lag_days`/source/frequency re-dates a series and writes NEW
+rows beside the orphaned old ones, INSIDE a still-allowed ticker (M2SL: 1768
+rows where 35y monthly ≈ 420). Pruning by ticker cannot see that — it needs
+the authoritative-backfill design at the end of this item. Not urgent, for
+the original reason: `GLOBAL_LIQUIDITY` is rebuilt in-memory from fresh
+fetches, so no consumer reads the stale M2SL copies today.
+
+**Why it was deferred (M4):** found while verifying the NAV engine against
+external sources; owner call to log rather than fix, since it did not affect
+any verified result then (every series M4/M3 actually read is clean — see
+below) and the fix deletes rows from the live DB.
 
 `append_ts_batch` is `INSERT OR REPLACE` keyed on `(ticker, ts)` and nothing
 ever deletes, so `market_data` accumulates a layer of rows from every code
@@ -630,6 +654,88 @@ cover a plausible fraction of the expected span/row-count for its frequency,
 and any shortfall must abort that ticker's delete (keep the additive write)
 and report, never delete on a hunch. Take a `sqlite3 .backup` first regardless
 (CLAUDE.md: confirm before data deletion).
+
+---
+
+## I-31 — ~~Realloc gate 6: citation relaxation~~ — REFUSED (owner, 2026-07-15)
+
+**Resolution:** the owner refused any V1 constraint relaxation — gate 6
+stays integrated-only. The problem this item described (the honest
+confrontation left 4 of 6 seed invariants `proposed` forever in the
+0.35–0.60 dead band, starving the citation loop) was solved on the OTHER
+side, as the owner directed: make the engine QUALIFY. The verdict gained a
+mechanical 'inadequate' rejection branch — rejected iff the Wilson upper
+bound of market_score at `invariant_verdict_confidence` (0.95) is < θ, i.e.
+demonstrably unable to reach the bar. 'proposed' now means insufficient
+evidence only, and empties as N grows. Spec: ADR-006 amendment
+(docs/DECISIONS.md) + ARCHITECTURE "Birth maturation" TIME-VALIDATION
+VERDICT. Nothing remains deferred here; kept as the record of a refused
+alternative (do not re-propose without new evidence).
+
+---
+
+## I-32 — Seed invariant effect re-specification (post-M5-verdict rework)
+
+**Why deferred:** the M5 challenge point is owner territory — the verdicts
+below are *fair measurements of mis-posed questions*, and re-posing them is a
+philosophy edit, not a code fix.
+
+What the honest 35y maturation showed (baseline-relative, start-anchored,
+12w horizon):
+- `inv-diversification-drawdown` (rejected, 0.101): its `cross_strategy`
+  effect benchmarks four-seasons-rp's drawdown against permanent-browne (25%
+  cash) and barbell-taleb (85% safety) — a risk-parity portfolio SHOULD lose
+  a drawdown contest to those. The claim is "diversification beats
+  CONCENTRATION"; the roster tests "risk parity beats even-safer". Re-specify
+  the effect (e.g. vs an equities-only / 60-40 reference, or method
+  `absolute` vs its own concentrated sleeve) before reading 0.101 as history
+  rejecting Dalio.
+- `inv-inflation-persistence-tips` (N=8): TIPS data floor is 2000
+  (VIPSX) — N grows by ~1 every 3 years. Nothing to fix; certification is
+  just slow for this one. Its 0.75 on N=8 is the only seed invariant showing
+  skill.
+- The rest sit at the 0.50 null: publicly-known macro conditions show no
+  12-week cross-class edge, which is the efficient-market default. Two
+  levers if the M7 corpus factory keeps landing candidates at 0.50: (a)
+  effects on RISK metrics (max_drawdown, volatility) where macro conditions
+  plausibly carry more signal than on relative returns; (b) per-invariant
+  horizon (`effect.horizon_weeks`) — Dalio-scale claims may live at 6-24
+  months, not 12 weeks. Both are schema-light but change what "matured"
+  means; decide only with factory-scale evidence, not on 6 data points.
+
+**Trigger to revisit:** the M7 STOP point (candidates/principles ratio), or
+M8b if the Worker's cited-invariant pool looks too thin to reason with.
+
+---
+
+## I-33 — Contradiction check is blind to handle CONTAINMENT
+
+**Why deferred:** found by the M5 quality audit; narrow today (one asset
+handle exists), but it widens with every `asset:<ticker>` invariant M7's
+factory produces.
+
+`find_contradictions` compares `effect.handle` as an exact STRING, so it
+flags `asset-class:equities` outperform vs `asset-class:equities`
+underperform, but never `asset:GLD` outperform vs
+`asset-class:gold-commodities` underperform — even though that class
+CONTAINS GLD and the two claims genuinely oppose on the same lever. Same
+blind spot for two assets in one class (`asset:SPY` vs `asset:VTI`, both
+US_EQUITY). The check exists precisely to catch "a knowledge defect the
+market-score alone will not catch" (ARCHITECTURE), and each invariant can be
+individually well-confirmed while the pair is incoherent — so string
+equality under-delivers on its own purpose.
+
+**Spec:** treat handles as overlapping when one's constituent set intersects
+the other's, using the mapping `investable_tickers` already builds
+(ticker → coarse class): `asset:X` overlaps `asset-class:C` iff
+`class_of(X) == C`; `asset:X` overlaps `asset:Y` iff `X == Y` (NOT if merely
+same-class — SPY and VTI are near-identical, but SHY and TLT are both
+'bonds' and legitimately oppose). Strategy handles are unaffected. Cheap:
+the pairwise scan already runs over the integrated set only.
+
+**Trigger to add:** the first M7 batch containing an `asset:<ticker>`
+invariant whose class also carries a class-level invariant — or simply when
+the integrated set first holds both handle kinds on one class.
 
 ---
 

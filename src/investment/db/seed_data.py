@@ -28,8 +28,43 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "scenario_calibration_weeks": 4.0,
     # invariants
     "recency_half_life_days": 365.0,
+    # Default effect-vs-benchmark no-op band, used for any metric without an
+    # explicit per-metric override below.
     "confrontation_margin": 0.10,
+    # Per-metric margins (M5). ONE absolute band cannot serve metrics on
+    # incommensurable scales: measured over the real 35y benchmark_valuation,
+    # four-seasons-rp's max_drawdown differs from the median of the other
+    # strategies by at most +-0.041, so the 0.10 default swallowed 100% of
+    # 1812 moments (0 confirmations AND 0 infirmations) and made
+    # inv-diversification-drawdown permanently unmaturable. Bands are sized
+    # to each metric's observed dispersion; Phase 9 calibrates them like every
+    # other threshold.
+    # Sized to the CONFRONTATION HORIZON (proposal_outcome_weeks = 12w), not
+    # to the 756d ranking window: 2pts over a quarter is ~8.7%/y annualized —
+    # an economically meaningful edge — and it sits below the median
+    # cross-class dispersion of |handle - benchmark| measured on the real 35y
+    # data (0.015 inflation-protected .. 0.049 equities), so moments actually
+    # resolve. The inherited 0.10 was a 3y-window value: over 12w it swallowed
+    # 99.4% of inflation-protected moments and left
+    # inv-inflation-persistence-tips with 0 confrontations, unmaturable.
+    "confrontation_margin_return": 0.02,
+    "confrontation_margin_max_drawdown": 0.01,
+    "confrontation_margin_sortino_rolling": 0.15,
+    "confrontation_margin_volatility": 0.02,
     "vector_similarity_min": 0.35,
+    # time-validation verdict gate (ARCHITECTURE.md "Birth maturation"):
+    # confrontations >= N_min AND market_score >= theta AND not refuted.
+    # Documented in DATA_MODELS.md system_thresholds description but missing
+    # from this seed until M5 — filled in here.
+    "invariant_min_confrontations": 3.0,
+    "invariant_time_validation_score": 0.60,
+    # Verdict convergence (ADR-006 amendment, M5): one-sided confidence for
+    # the 'inadequate' rejection — rejected iff the Wilson upper bound of
+    # market_score at this confidence is < theta, i.e. the invariant
+    # demonstrably cannot reach the bar. This is what empties the 0.35-0.60
+    # dead middle ("Nothing stays proposed forever"); 'proposed' now means
+    # insufficient evidence only.
+    "invariant_verdict_confidence": 0.95,
     # regime detection (see docs/ARCHITECTURE.md formal algorithm)
     # Calibrated at M3 by a grid search over the REAL 35y history (the
     # pre-M2 hand-guessed values produced 23% whipsaws and an "Overheating"
@@ -106,6 +141,13 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
     # Non-revised (current-vintage fetch): dated at reference date + availability_lag_days.
     {"ticker": "T10Y2Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    # 10-year constant-maturity yield — the LEVEL, which T10Y2Y (a 10y-2y
+    # spread) does not carry and ^IRX (13-week bill) is the wrong maturity
+    # for. Fetched for the `real_yield_10y` derived signal below: the LONG
+    # real yield is what gold's opportunity-cost claim is stated against, and
+    # it partitions history very differently from the short real rate
+    # (irx - CPI YoY sits below 2.5% for 88% of 1991-2026).
+    {"ticker": "DGS10", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch. Lag estimates: WALCL/
     # ECBASSETSW weekly releases (few days); M2SL monthly (~2w, FRED's own calendar);
@@ -148,7 +190,12 @@ BENCHMARK_CLASSES: dict[str, list[str]] = {
 DERIVED_SIGNALS: dict[str, str] = {
     "GROWTH_COMPOSITE": "INDPRO,UNRATE (see market/growth.py)",
     "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
-    "real_rate": "irx - CPIAUCSL(yoy_pct)   # nominal short rate minus inflation",
+    "real_rate": "irx - CPIAUCSL(yoy_pct)   # nominal SHORT rate minus inflation",
+    # The LONG real yield — a distinct signal, not a refinement of real_rate:
+    # opportunity-cost claims (gold vs a yielding alternative) are stated
+    # against the 10y, and the two disagree on most of the sample (the short
+    # real rate is < 2.5% for 88% of 1991-2026; the long one is not).
+    "real_yield_10y": "DGS10 - CPIAUCSL(yoy_pct)  # nominal 10y yield minus inflation",
 }
 
 SIGNAL_ALIASES: dict[str, str] = {
@@ -157,6 +204,7 @@ SIGNAL_ALIASES: dict[str, str] = {
     "liquidity": "GLOBAL_LIQUIDITY",
     "irx": "^IRX",
     "real_rate": "real_rate",
+    "real_yield": "real_yield_10y",
     "regime": "regime",
 }
 # The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
@@ -357,6 +405,71 @@ INVARIANTS: list[dict[str, object]] = [
      "weight_initial": 0.70, "floor_weight": 0.40,
      "trace": "Dalio Principles; All Weather chapter (always-clock; lower "
               "drawdown than the other strategies)."},
+    # Owner-supplied, revised 2026-07-15 after independent 1991-2026 validation.
+    # Conformed to the schema/registry on entry; every departure is mechanical:
+    #   signal 'real-yield'        -> 'real_yield' (registry key -> the NEW
+    #                                 real_yield_10y derived signal, added for
+    #                                 this invariant: the trace pins "10-year
+    #                                 nominal minus CPI YoY", which no existing
+    #                                 signal carried. NOT 'real_rate' — that is
+    #                                 the 13-week bill and partitions history
+    #                                 differently)
+    #   metric 'relative_return'   -> 'return'     (the computed indicator;
+    #                                 method=cross_class is ALREADY what makes
+    #                                 it relative)
+    #   author 'world-gold-council'-> null         ('other corpus' tier —
+    #                                 CLAUDE.md pins 4 tiers; WGC is not one)
+    #   weight_initial 0.80        -> 0.70         ('other' tier ceiling;
+    #   floor_weight   0.40        -> 0.20          0.80/0.40 is the DALIO tier)
+    # STRIPPED (ADR-006: belief does not grant integration, history does — a
+    # supplied verdict is precisely what the engine exists to withhold):
+    #   status 'integrated'  -> 'proposed'  (birth status; the engine rules)
+    #   validated_at         -> null        (set mechanically iff integrated)
+    #   market_score 0.78    -> 1.0         (pre-confrontation default; note
+    #                                        0.78 also disagrees with the
+    #                                        supplied 4/(4+2)=0.667 counts)
+    #   confirmation/infirmation_count 4/2 -> 0/0  (the engine's own sweep)
+    #   weight_effective 0.624 -> derived from the engine's market_score
+    # The submitted evidence is preserved in `source`/`trace` as provenance.
+    # handle stays asset:GLD (NOT asset-class:gold-commodities): the claim is
+    # about GOLD, and that class blends GLD with DJP/DBC.
+    {"id": "inv-low-real-yields-favor-gold",
+     "title": "Low real yields favor gold versus cash and nominal bonds",
+     "description": "When the US 10-year real yield is below 2.5%, gold's expected "
+                    "absolute return improves materially relative to high-real-yield "
+                    "regimes, and gold tends to outperform cash and nominal Treasury "
+                    "bonds. Relative outperformance versus equities is weaker and not "
+                    "systematic. Negative real yields do not provide a stronger signal "
+                    "than real yields between 0% and 2.5%.",
+     "example": "1991-2026: when the 10-year real-yield proxy was below 2.5%, gold "
+                "returned 9.8% annualized versus 5.9% for the S&P 500 price index, "
+                "4.1% for a rolling 10-year Treasury proxy, and 1.9% for 3-month "
+                "bills. Above 2.5%, gold returned 3.1% versus 15.0%, 6.7%, and 4.0%, "
+                "respectively. Average forward 12-month gold return was 12.0% below "
+                "2.5% versus 2.3% above.",
+     "source": "Independent market validation, 1991-08 to 2026-04; World Bank Pink "
+               "Sheet gold prices; Federal Reserve H.15 Treasury yields; BLS CPI; "
+               "Shiller/FRED S&P 500 data",
+     "author": None, "status": "proposed",
+     "condition": [{"signal": "real_yield", "feature": "level", "op": "<", "value": 2.5}],
+     "effect": {"handle": "asset:GLD", "metric": "return",
+                "method": "cross_class", "direction": "outperform"},
+     "tags": ["gold", "real-yield", "interest-rates",
+              "asset:GLD", "indicator:real-yield", "comparator:cash",
+              "comparator:nominal-bonds", "comparator:equities",
+              "regime:low-real-rates", "validation:1991-2026"],
+     "weight_initial": 0.70, "floor_weight": 0.20,
+     "trace": "Owner-supplied backtest on 416 monthly observations 1991-08..2026-04. "
+              "Real-yield proxy = US 10-year nominal Treasury yield minus prior-month "
+              "CPI YoY. A real yield below 2.5% increased average forward 12-month "
+              "gold return by 9.7pp vs the high-yield regime (HAC p=0.021). Regime "
+              "differential: +14.4pp vs S&P 500 price (p=0.031), +14.8pp vs rolling "
+              "10y Treasuries (p=0.001), +11.9pp vs 3-month bills (p=0.005). Negative "
+              "real yields did NOT beat the 0-2.5% regime (4.2% vs 15.2%): the "
+              "'especially negative' clause and universal equity outperformance were "
+              "both rejected. NOTE the horizon mismatch: that evidence is forward "
+              "12-MONTH, this engine confronts at proposal_outcome_weeks (12 WEEKS) — "
+              "see docs/IMPROVEMENTS.md I-32."},
 ]
 
 STRATEGIES: list[dict[str, object]] = [
