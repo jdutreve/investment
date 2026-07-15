@@ -9,28 +9,28 @@ later milestones add.
 
 SYSTEM_THRESHOLDS: dict[str, float] = {
     # ranking + proposal gates
-    "rolling_window_days": 756.0,
-    "ranking_tiebreak_window": 0.02,
-    "proposal_sortino_gap_min": 0.02,
-    "proposal_calmar_min": 1.5,
-    "proposal_min_allocation_change_pts": 5.0,
-    "proposal_max_turnover_pct": 30.0,
-    "proposal_expiry_days": 14.0,
-    "inbox_quiet_seconds": 300.0,
-    "invariant_merge_threshold": 0.80,
-    "curation_sanity_ceiling": 40.0,
-    "proposal_outcome_weeks": 12.0,
-    "proposal_cooldown_weeks": 4.0,
-    "proposal_invariant_weight_min": 0.10,
-    "invariant_refuted_min_confrontations": 4.0,
-    "invariant_refuted_score": 0.35,
-    "strategy_probation_weeks": 12.0,
-    "scenario_calibration_weeks": 4.0,
+    "rolling_window_days": 756.0,  # trading-day lookback for ranking indicators
+    "ranking_tiebreak_window": 0.02,  # sortino fraction: join current tie group vs open a new one
+    "proposal_sortino_gap_min": 0.02,  # switch gate: min sortino_rolling gap over defender (UNWIRED)
+    "proposal_calmar_min": 1.5,  # switch gate: absolute floor on challenger calmar_rolling (UNWIRED)
+    "proposal_min_allocation_change_pts": 5.0,  # switch/realloc gate: min per-asset change, pts (UNWIRED)
+    "proposal_max_turnover_pct": 30.0,  # realloc gate: turnover ceiling, sum(|delta weight|)/2 (UNWIRED)
+    "proposal_expiry_days": 14.0,  # pending Proposal -> user_response='expired' after this (UNWIRED)
+    "inbox_quiet_seconds": 300.0,  # inbox watcher: quiet time after last drop before a batch (UNWIRED)
+    "invariant_merge_threshold": 0.80,  # curation dedup: cosine similarity above which -> merge (UNWIRED)
+    "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
+    "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)
+    "proposal_cooldown_weeks": 4.0,  # anti-repetition: weeks after a user rejection before re-cite (UNWIRED)
+    "proposal_invariant_weight_min": 0.10,  # realloc gate: min weight_effective to be citable (UNWIRED)
+    "invariant_refuted_min_confrontations": 4.0,  # N floor for the REFUTED/INADEQUATE branches
+    "invariant_refuted_score": 0.35,  # score below which an amply-confronted invariant is REFUTED
+    "strategy_probation_weeks": 12.0,  # weeks a new/revised Strategy runs before auto-keep/close (UNWIRED)
+    "scenario_calibration_weeks": 4.0,  # horizon at which a dominant Scenario is scored vs reality (UNWIRED)
     # invariants
-    "recency_half_life_days": 365.0,
+    "recency_half_life_days": 365.0,  # days for recency_factor to decay halfway from 1.0 to 0.5
     # Default effect-vs-benchmark no-op band, used for any metric without an
     # explicit per-metric override below.
-    "confrontation_margin": 0.10,
+    "confrontation_margin": 0.10,  # fallback margin for any metric with no per-metric override below
     # Per-metric margins (M5). ONE absolute band cannot serve metrics on
     # incommensurable scales: measured over the real 35y benchmark_valuation,
     # four-seasons-rp's max_drawdown differs from the median of the other
@@ -47,18 +47,18 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     # resolve. The inherited 0.10 was a 3y-window value: over 12w it swallowed
     # 99.4% of inflation-protected moments and left
     # inv-inflation-persistence-tips with 0 confrontations, unmaturable.
-    "confrontation_margin_return": 0.02,
-    "confrontation_margin_max_drawdown": 0.01,
-    "confrontation_margin_sortino_rolling": 0.15,
-    "confrontation_margin_volatility": 0.02,
-    "vector_similarity_min": 0.35,
+    "confrontation_margin_return": 0.02,  # no-op band (fraction) for the 'return' metric
+    "confrontation_margin_max_drawdown": 0.01,  # no-op band (fraction) for the 'max_drawdown' metric
+    "confrontation_margin_sortino_rolling": 0.15,  # no-op band for the 'sortino_rolling' metric
+    "confrontation_margin_volatility": 0.02,  # no-op band (fraction) for the 'volatility' metric
+    "vector_similarity_min": 0.35,  # curation: min embedding cosine sim to create a SUPPORTS edge (UNWIRED)
     # time-validation verdict gate (ARCHITECTURE.md "Birth maturation"):
     # confrontations >= N_min AND market_score >= theta AND the Wilson lower
     # bound clears the null AND not refuted.
     # Documented in DATA_MODELS.md system_thresholds description but missing
     # from this seed until M5 — filled in here.
-    "invariant_min_confrontations": 3.0,
-    "invariant_time_validation_score": 0.60,
+    "invariant_min_confrontations": 3.0,  # N_min: confrontations needed before INTEGRATED can fire
+    "invariant_time_validation_score": 0.60,  # theta: score an invariant must clear for INTEGRATED
     # Verdict convergence (ADR-006 amendment, M5): one-sided confidence for
     # BOTH bounds — 'inadequate' rejection when the Wilson upper bound of
     # market_score is < theta (demonstrably cannot reach the bar), and
@@ -90,14 +90,14 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     # (a 0.9 growth-noise variant spent 1991-2001 in one "uncertain").
     # speed_scale = p90 of the SMOOTHED |speed| distribution (confidence
     # normalization only, no effect on detection).
-    "regime_cpi_stagflation": 2.5,
-    "regime_cpi_noise": 0.04,
-    "regime_cpi_deflation": 0.0,
-    "regime_cpi_speed_scale": 0.4,
-    "regime_growth_noise": 0.3,
-    "regime_growth_speed_scale": 3.0,
-    "regime_vix_stress": 25.0,
-    "regime_confirm_prints": 3.0,
+    "regime_cpi_stagflation": 2.5,  # CPI YoY (pct) above which rising speed reads 'rising' unconditionally
+    "regime_cpi_noise": 0.04,  # dead-band on smoothed CPI YoY speed below which direction reads 'flat'
+    "regime_cpi_deflation": 0.0,  # CPI YoY (pct) below which the 'deflation' tag is applied to a Regime
+    "regime_cpi_speed_scale": 0.4,  # normalization scale (p90 smoothed CPI speed) for inflation confidence
+    "regime_growth_noise": 0.3,  # dead-band on smoothed GROWTH_COMPOSITE speed below which direction reads 'flat'
+    "regime_growth_speed_scale": 3.0,  # normalization scale (p90 smoothed growth speed) for growth confidence
+    "regime_vix_stress": 25.0,  # ^VIX level above which the 'stress' tag is applied to the detected Regime
+    "regime_confirm_prints": 3.0,  # consecutive monthly prints required (hysteresis) to commit/flip a Regime
     # The detector classifies DIRECTION from a trailing moving average of
     # speed (the persisted market_data level/speed/acceleration stay exactly
     # as TASKS.md Task 2.2 pins them — only the detector's own read is
@@ -106,12 +106,12 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     # collapse reads as "rising growth" at ANY noise threshold otherwise.
     "regime_speed_smoothing_months": 4.0,
     # scenarios / misc
-    "scenario_shift_trigger": 10.0,
-    "min_backtest_periods": 3.0,
-    "derivative_lookback_short": 30.0,
+    "scenario_shift_trigger": 10.0,  # dominant-scenario prob-pt shift that triggers an off-cycle UC8 (UNWIRED)
+    "min_backtest_periods": 3.0,  # min completed Regime instances before a RegimeType gets Backtest/FAVORS rows
+    "derivative_lookback_short": 30.0,  # days: growth/inflation derivative lookback + benchmark_valuation lookback
     # shadow replay (Phase 9 — go-live gate)
-    "replay_cost_bps": 10.0,
-    "replay_confirmation_weeks": 2.0,
+    "replay_cost_bps": 10.0,  # per-side trading cost applied to turnover in the replay cost model (UNWIRED)
+    "replay_confirmation_weeks": 2.0,  # replay harness acceptance-policy confirmation window (UNWIRED)
 }
 
 INVARIANT_AUTHOR_CONFIG: list[dict[str, object]] = [
