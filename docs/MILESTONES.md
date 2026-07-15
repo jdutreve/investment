@@ -212,9 +212,10 @@ amendments, I-30 — while FAVORS and the scenario warm-start, built in the
 same pass, got none. That is backwards for what comes next: M6's mechanical
 replay is BLIND to invariant weights (docs/ARCHITECTURE.md) and blends
 `0.4×scenario + 0.6×favors`. The scenario leg turned out to be arithmetically
-impossible once looked at (see the DoV item above); FAVORS still has not been
-tested against a null, only inspected. Challenge the half the NEXT milestone
-consumes, not the half you just built.
+impossible once looked at (see the DoV item above); FAVORS was then tested
+against a null too, and its per-regime ranking is noise in 4 of 5 regimes
+(I-35). Challenge the half the NEXT milestone consumes, not the half you just
+built.
 
 ---
 
@@ -228,6 +229,11 @@ The mechanical pipeline is complete: replay it over 35y.
 - [ ] walk-forward calibrated thresholds (~25y calibrate / ~10y validate) — confirmation
       of the winning set happens in the CLI (Telegram arrives at M9)
 - [ ] zero PIT assertions failed
+- [ ] the calibrated FAVORS blend weight is read against I-35: the per-regime
+      ranking it feeds is indistinguishable from random regime labels in 4 of
+      5 regimes (stagflation p=0.94), so a HIGH, STABLE favors weight on the
+      holdout is SUSPICIOUS, not confirmation — 5 knobs over ~25y can find
+      one. A weight driven toward 0 is the result that matches the evidence.
 
 **⚔️ STOP — the mechanical premise gate:** if the replay shows no net
 value-add, we discuss BEFORE paying for the LLM wiring. It does NOT auto-kill

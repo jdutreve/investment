@@ -833,6 +833,78 @@ same invariant. Do not take it alone.
 
 ---
 
+## I-35 — FAVORS: the per-regime ranking is noise in 4 of 5 regimes
+
+**Why deferred:** it is not a code defect — FAVORS computes exactly what it
+claims. The finding is about the DATA's power, and M6's own walk-forward is
+the right instrument to price it. Logged so M6 is read WITH this, not against
+it.
+
+**Method (2026-07-15, pre-M6).** The M5 pass built FAVORS and never tested
+it; only the invariant half of M5 was challenged. Tested here the way the
+invariant defects were found — against a null, not by reading code. FAVORS is
+consumed as a WITHIN-regime ranking ("in regime R, prefer strategy X"), so
+the null is "the regime label carries no information about which strategy
+wins": permute regime labels across the 89 completed episodes (whole rows, so
+each episode keeps its 4-strategy vector and cross-strategy correlation is
+preserved), 20k draws, statistic = the observed within-regime spread
+(max−min of strategy means), metric `sortino_rolling`.
+
+    regime                             n   observed  null p50   p
+    falling-growth-falling-inflation  17       1.23      0.49   0.034  <- real
+    falling-growth-rising-inflation   17       0.18      0.50   0.942
+    rising-growth-falling-inflation   15       0.40      0.53   0.684
+    rising-growth-rising-inflation    13       0.60      0.56   0.457
+    uncertain                         27       0.66      0.41   0.208
+
+**Four of five regimes are indistinguishable from random labels.**
+Stagflation — the regime this whole system is designed around — is the
+worst: p=0.942, and its observed spread (0.18) is SMALLER than the median
+random spread (0.50). The four strategies resemble each other MORE in
+stagflation than four randomly chosen episodes would. And the winning margins
+FAVORS acts on are 0.02–0.05 sortino: `momentum-macro` takes
+rising-growth-falling-inflation from barbell by exactly **0.02**, which is
+`ranking_tiebreak_window` — the project's own declared threshold for "these
+are TIED". FAVORS breaks ties the ranking rule refuses to break.
+
+What FAVORS effectively says is "hold barbell" (best unconditionally at 1.93
+vs 1.67/1.68/1.56) with noise on top. The one solid result is economically
+credible and worth keeping: in falling-growth-falling-inflation (deflationary
+bust, p=0.034) barbell sits +0.07 above its own norm while the other three
+fall −0.46..−0.78 — a barbell protecting in a deflation is precisely its
+design.
+
+**Rejected fix — do NOT make FAVORS baseline-relative.** Proposed and
+withdrawn the same day. The instinct was to reuse the M5-bis invariant fix
+(score the per-regime mean against the strategy's own unconditional mean),
+but it answers the wrong question. An INVARIANT asserts ("if C then H
+outperforms") and must be tested against "H outperforms anyway", so
+baseline-relative is right. FAVORS CHOOSES ("in R, hold which?"), and the
+right answer is the highest ABSOLUTE performer in R. Baseline-relative would
+have picked `permanent-browne` for stagflation — the worst strategy of the
+four overall (1.56) — because it least underperforms its own norm. Holding
+the worst strategy for being "less bad than usual" is not a defect being
+fixed, it is one being introduced. Regimes having different base rates is not
+a bug; it cancels inside a within-regime ranking.
+
+**Consequence for M6 (the reason this is logged BEFORE it, not after).** Task
+9.2's grid calibrates the blend weights of `0.4×scenario + 0.6×favors`. The
+0.6 leg is noise in 4 of 5 regimes. This is not a reason to delay M6 — the
+walk-forward split (calibrate ~25y, validate ~10y) exists exactly to price an
+input like this, and a machine finding it on held-out data beats an analyst
+finding it by hand. But it flips how one result must be read: **if the
+calibration returns a HIGH, STABLE favors weight on the holdout, treat it as
+suspicious rather than as confirmation.** The signal is not in the data at
+this episode count; a strong weight is more likely 5 knobs overfitting ~25y
+than a discovery.
+
+**Trigger to revisit:** M6's calibration output. If it drives the favors
+weight toward 0, this item is answered and FAVORS is honest dead weight in
+the blend (decide then whether to keep the edge at all). If it does not,
+reconcile that against the table above before trusting the number.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:
