@@ -360,6 +360,48 @@ on the real 35y, `mechanical/replay.py` + `calibration.py`):**
   VIX is the sole regime axis measured at MARKET speed — contemporaneous,
   daily, no publication lag. See I-38.
 
+**Post-gate exploration (2026-07-19, owner-steered, scratchpad only — nothing
+in product code; the 2016-2026 window has been consulted repeatedly during
+this exploration, so it is no longer pristine holdout: the assembly below is
+holdout-INFORMED, and its real validation is forward paper-mode):**
+
+- **The switching criterion is AMPLITUDE, not patience.** Sweeping the
+  detector (smoothing 4-12mo x confirm 3-6 prints x dead-band x1-x3) on
+  segmentation quality: widening the dead-band x3 halves the episodes
+  (90 -> 45, 1.3 switches/y), pushes 'uncertain' (= hold, do nothing) to 81%
+  of the time, and EXPLODES the behavioral distinctness of the episodes that
+  do fire (SPY spread across quadrants 14.5 -> 53.7 pts/y in knowable
+  windows). More confirmation prints does the opposite — episodes lengthen
+  but distinctness collapses. Requiring a PRONOUNCED smoothed move is the
+  "don't over-react" that works; waiting longer is not.
+- **Split-stability (sm=4/cp=3/noise x3):** SPY sign per quadrant is
+  consistent across 1991-2016 / 2016-2026 — positive in every pronounced
+  confirmed quadrant EXCEPT stagflation (-18.5/-8.3). One stable macro
+  signal. And TLT is NOT a stagflation hedge (+35.5 -> -69.9, the 2021-22
+  bond crash): the stagflation asset is REAL (GLD/DJP), not duration —
+  consistent with I-35's barbell-under-stress and the crisis-layer runs.
+- **DESIGNED_FOR partially REHABILITATED — the earlier refutation was about
+  GRANULARITY, not the book.** The seeded stagflation book, deployed only on
+  PRONOUNCED confirmed stagflation (5 episodes/35y, 4% of the time), is
+  positive on BOTH sides of the split (+0.02/+0.37 pts/y edge) — the same
+  book that lost (win 0.41) under the fine detector's 17 micro-episodes. The
+  fine granularity was drowning a real signal in false positives.
+- **3-layer architecture measured** (base + macro stagflation-tilt + VIX
+  crisis overlay): the layers have OPPOSITE roles — macro adds return
+  (+0.13/y full window, sign-stable), crisis costs return (-0.33 to -0.76/y)
+  but buys drawdown compliance. The full stack is the FIRST configuration in
+  all of M6 to satisfy the owner's -15% rule over the full 35y (mdd -14.8%,
+  Sortino 1.024 vs B's 0.953, cost 33bps/y vs B — which breaches its own
+  rule by 6.6pts).
+- **Owner architecture decisions (2026-07-19):** (a) AMPLITUDE is the switch
+  criterion; (b) B is an absolute BENCHMARK only — never the defender/base;
+  (c) coarse granularity, never over-react; (d) the GROWTH axis (pronounced
+  decroissance) enters the macro layer alongside inflation — evidence note:
+  in knowable windows, pronounced falling-growth-falling-inflation is
+  historically EQUITY-POSITIVE both halves (+30/+42 — post-crash recoveries;
+  the crash itself belongs to the VIX layer), so the growth axis's stable
+  expression is risk-ON, not defense.
+
 **⚔️ OPEN — two calls that are the owner's, with the evidence above:**
 1. **Gate metric (Task 9.3 — needs an ADR once decided):** "agent-follow ≥
    hold-defender net of costs" does not name its metric. On CAGR the gate is

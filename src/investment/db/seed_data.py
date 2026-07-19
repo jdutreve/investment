@@ -145,6 +145,15 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "QQQ", "asset_class": "US_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "EFA", "asset_class": "INTL_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "EEM", "asset_class": "EM_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
+    # Small-cap VALUE (a factor tilt, not a size class): the single largest
+    # alpha source in the countercyclical state of the art (Verdad/Rasmussen —
+    # docs/Countercyclical+Investing; ~40% of its growth sleeve, the whole
+    # crisis-recovery thesis). VALUE and SIZE are orthogonal — the menu had
+    # broad SPY/VTI and QQQ (large GROWTH, the opposite tilt) but no value
+    # factor at all. IWN = Russell 2000 Value, the closest liquid match to the
+    # paper's Fama-French small value. Spliced to DFSVX (1993, corr 0.966) —
+    # see HISTORY_PROXIES.
+    {"ticker": "IWN", "asset_class": "US_SMALL_VALUE", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "SHY", "asset_class": "US_TREASURY_1_3", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "DBC", "asset_class": "COMMODITIES", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^IRX", "asset_class": "RISK_FREE", "currency": "USD", "source": "yahoo", "transform": "none"},
@@ -159,6 +168,16 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
     # Non-revised (current-vintage fetch): dated at reference date + availability_lag_days.
     {"ticker": "T10Y2Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    # High-yield credit spread (ICE BofA US HY Option-Adjusted Spread) — the
+    # countercyclical state of the art's PRIMARY, market-priced, contemporaneous
+    # business-cycle signal (Verdad/Rasmussen — docs/Countercyclical+Investing):
+    # wide spread = crisis/frozen credit = contrarian risk-ON; tight = complacent
+    # = watch inflation via the curve slope (T10Y2Y, already above). NOT revised
+    # (a market price), current-vintage next-day. Daily from ~1996-12 — no older
+    # proxy, so the signal simply does not exist pre-1996 (a 30y usable window).
+    # DATA-LAYER availability only: wiring it into regime CLASSIFICATION is the
+    # detector rework (I-38, deliberately measure-first), not this seed row.
+    {"ticker": "BAMLH0A0HYM2", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
     # 10-year constant-maturity yield — the LEVEL, which T10Y2Y (a 10y-2y
     # spread) does not carry and ^IRX (13-week bill) is the wrong maturity
     # for. Fetched for the `real_yield_10y` derived signal below: the LONG
@@ -196,6 +215,17 @@ BENCHMARK_CLASSES: dict[str, list[str]] = {
     "gold-commodities": ["GOLD", "COMMODITIES"],
     "cash": ["US_TBILL"],
 }
+# US_SMALL_VALUE (IWN) is DELIBERATELY absent here. It is a portfolio SLEEVE
+# (held in tilt books, priced directly from market_data), not a cross_class
+# benchmark. Adding it as a benchmark class — folded into 'equities' OR on its
+# own — would shift the cross_class comparator of EVERY existing invariant: the
+# benchmark for method='cross_class' is the median of the OTHER classes
+# (invariants.py `_median_asof_forward`), so a 6th class moves that median for
+# all of them, silently re-scoring settled confrontations. When a small-value
+# INVARIANT is eventually written, add the class THEN, with that re-scoring in
+# view. A sleeve needs no benchmark class (macro/FX/VIX tickers are investable-
+# excluded the same way); the reallocation gate checks allowed_tickers, not
+# benchmark membership.
 # The US_TBILL sleeve carries no fetchable ticker: it is represented by the
 # synthetic 'cash' asset, which accrues at rf_daily from ^IRX (docs/TASKS.md
 # NAV conventions; reallocation gate allows "... or 'cash'") and floors at
@@ -243,6 +273,13 @@ SIGNAL_ALIASES: dict[str, str] = {
     "broad_money_accel": "m2_accel_12m",
     "equity_trend": "equity_trend",
     "regime": "regime",
+    # The two market-priced business-cycle signals (Verdad state of the art):
+    # HY credit spread (primary — growth/crisis) and the yield-curve slope
+    # (secondary — inflation direction). Both are contemporaneous, unlike the
+    # lagged CPI/GDP the detector currently classifies on (I-38). Friendly
+    # aliases; the raw tickers are already valid signals via allowed_tickers.
+    "hy_spread": "BAMLH0A0HYM2",
+    "yield_slope": "T10Y2Y",
 }
 # The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
 # The Writeback VALIDATION GATE rejects a condition signal not in the registry.
@@ -312,6 +349,14 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     # SCINX/PRITX/VWIGX/AEPGX (all older but 0.91-0.94, would need the
     # named 0.94 exception) and VGTSX (cleaner at 0.961 but only 1996).
     "EFA": ("FDIVX", "yahoo", 1991),
+    # DFSVX (DFA US Small Cap Value, since 1993-02) — daily-return corr 0.966
+    # with IWN over their 2000-2026 overlap, clearing MIN_RETURN_CORR (0.94)
+    # comfortably; the furthest-reaching small-value proxy (VISVX cleaner at
+    # 0.975 but only 1998). Floors the small-value sleeve at 1993 — 2y after
+    # the ~1991 backfill floor; a book holding IWN starts 1993, which the
+    # ragged-start NAV synthesis handles. No older investable small-value fund
+    # exists (the factor's live vehicles postdate the Fama-French research).
+    "IWN": ("DFSVX", "yahoo", 1993),
 }
 
 # ---------------------------------------------------------------------------
