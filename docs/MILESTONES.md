@@ -402,6 +402,75 @@ holdout-INFORMED, and its real validation is forward paper-mode):**
   the crash itself belongs to the VIX layer), so the growth axis's stable
   expression is risk-ON, not defense.
 
+**Countercyclical state-of-the-art test (2026-07-19, Verdad/Rasmussen —
+docs/Countercyclical+Investing). Menu additions DEPLOYED to the live DB
+(backup taken first): IWN small-cap value (proxy DFSVX, 1993, corr 0.966),
+VCIT IG credit (proxy VFICX, 1993, monthly 0.978), BAA10Y credit spread
+(1986) + T10Y2Y slope (1976) as market-priced regime signals. NOTE: the
+paper's exact HY OAS (BAMLH0A0HYM2) is ICE-licensing-truncated on FRED to a
+~3y window — useless for backtest; BAA10Y (Moody's Baa − 10y, the Fama-French
+default spread) is the long-history substitute.**
+
+> **⚠️ CORRECTION (2026-07-19, later same day) — the three bullets and the
+> "CONVERGENT VERDICT" below are SUPERSEDED by a measurement bug, do not cite
+> them. The Verdad-stack runs used `replay.load_inputs().prices`, which loads
+> ONLY portfolio/scenario constituents — so IWN and VCIT (40-50% of the Verdad
+> books) were absent and held FLAT at 0% return, crippling the stack. Re-run
+> with a full price dict (daily): the Verdad stack (credit-spread+slope regime
+> + 200d trend-following) does **9.85%/y vs B 7.27% — edge +2.6 full, +2.8
+> calibrate, +2.05 HOLDOUT**, Sortino ≈ B, drawdown -24% (daily). It BEATS B
+> on return, robustly in and out of sample, and has the best Sharpe of every
+> strategy tested. The small-value + IG-credit additions are exactly what
+> powers it. "A bond beats this stack" and "nothing beats B" were artifacts of
+> the zeroed sleeves. Authoritative corrected view: docs/STRATEGY_COMPARISON.md.
+> What still STANDS (those runs used seeded books with no IWN/VCIT, correctly
+> priced): SEEDED-book regime rotation and the macro+crisis stack do not beat B
+> on return (the latter is a risk-reducer: 6.2%/-13%, the only -15%-compliant
+> line); cross-asset momentum on the common 1991-2026 window is 8.0%/Sharpe
+> 0.71/-36% — above B on raw return, worse risk-adjusted (the earlier +3-5 pts
+> included pre-1991 data outside B's window).
+
+- **[SUPERSEDED — see correction above] Faithful Verdad replication (market-signal regime: credit spread + slope
+  vs 10y trailing medians → growth/inflation/slowdown books, equity-heavy,
+  + 200d trend-following overlay) STILL does not beat B on return**: -0.49/y
+  full, -0.26 calib, -1.02 holdout. Trend-following is what makes it viable
+  at all (drawdown -30% → -17%, Sortino 0.53 → 0.86); the naive real-asset
+  tilt without it was -4.0/y.
+- **vs 60/40 and 100% equity, decade by decade** — the mechanism REPLICATES
+  Verdad's pattern faithfully but NOT its headline, and the reason is the
+  PERIOD, not the code. 2000-2010 (two recessions): STACK 8.3%/-12% CRUSHES
+  60/40 2.9%/-33% and SPY -0.5%/-55% (+540bps, the "lost decade" where Verdad
+  shines). But 1991-2026 is THREE equity bulls (1990s/2010s/2020s) + ONE hard
+  decade, so the full-window average LOSES to the equity-heavy benchmarks
+  (STACK 6.8% vs 60/40 8.8% vs SPY 11.0%). Verdad's +570bps over 1970-2020
+  came from TWO hard decades (1970s stagflation + 2000s); the 1970s is below
+  our ~1991 data floor. Not reproducible in-sample — a period artifact.
+- **[SUPERSEDED — the 6.8% "stack" here was the bug-crippled one; corrected
+  stack is 9.85% and beats a bond ladder and B] THE DAMNING SUMMARY (owner's
+  framing): a corporate bond held to maturity beats this stack risk-adjusted.** Buy-and-hold over the period: STACK
+  6.8%/-17% marked; IG credit fund (VCIT) 5.2%/-20.6%; a held-to-maturity IG
+  ladder ≈ 5.5-6%/~0% REALIZED drawdown (coupons off ~7% starting yields, no
+  mark). So the entire active apparatus (regimes, signals, trend-following,
+  ~86 switches) earns ~1pt over a bond fund, LOSES to B risk-parity
+  (7.1-7.3%/-22%), and is beaten risk-adjusted by a boring bond ladder held
+  to term. It does not justify its complexity on this data.
+
+**⚔️ [SUPERSEDED by the CORRECTION above — the Verdad stack DOES beat B by
++2.5 once IWN/VCIT are priced] CONVERGENT VERDICT (all angles, 2026-07-19): no mechanical approach —
+regime rotation (macro OR market-priced, up to the faithful state of the art)
+— beats B on RETURN over 1991-2026; every variant lands -0.3 to -1.5/y and
+only improves drawdown. The +500-1000bps target vs B (risk parity) is not
+supported by ANY benchmark or method; Verdad's edge is vs the WEAK 60/40, and
+is period-carried by the 1970s we lack. Three forks for the owner:**
+  1. **Return goal kept** → the ONLY return-positive lead measured is slow
+     cross-asset MOMENTUM (26-52w: +2.5-3.5/y full window, though trend-decade
+     concentrated) — NOT regime classification. Explore it properly.
+  2. **The M8b bet** → does the LLM/Worker layer rescue a weak mechanical core?
+     (The STOP's "deliberate bet, not the default".)
+  3. **Accept the risk-reducer profile** → comparable-to-B CAGR, better
+     drawdown, -15% rule respected; alpha must then come from M7 knowledge /
+     V2 discovery, not rotation.
+
 **⚔️ OPEN — two calls that are the owner's, with the evidence above:**
 1. **Gate metric (Task 9.3 — needs an ADR once decided):** "agent-follow ≥
    hold-defender net of costs" does not name its metric. On CAGR the gate is
