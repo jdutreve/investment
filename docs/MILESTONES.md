@@ -292,6 +292,84 @@ exactly what M8b (agentic) tests — but building the LLM to chase a failing
 mechanical core is a DELIBERATE bet, not the default. This evidence also
 decides the final gate thresholds.
 
+**Findings (M6 investigation, 2026-07-16 — numbers on the repaired mechanics:
+own-strategy FAVORS guard, scenario hysteresis, maturity floor; all measured
+on the real 35y, `mechanical/replay.py` + `calibration.py`):**
+
+- **Headline** (seeded thresholds, weekly, 10 bps): agent-follow 6.83%/y vs
+  hold-defender 7.27%/y — edge **-0.44 pts/y**; Sortino **1.024 vs 0.952**;
+  Calmar 0.391 vs 0.337; max drawdown **-17.5% vs -21.6%**; hit-rate +12w
+  46%. The mechanical core is a RISK REDUCER, not a return generator — and
+  it is real adaptation, not naive de-risking: at matched drawdown the static
+  defender/barbell frontier yields ~6.5%/y (A beats it by ~+0.35 pts/y; the
+  `context arms` block in every replay report now tracks this automatically).
+  Caveat kept honest: static permanent-balanced does 7.00%/y at the SAME
+  -17.5% drawdown (Sortino 0.959 < A's 1.024) — the value of adaptation over
+  the best in-menu static pick is thin.
+- **The reallocation leg destroys value on every metric even after repair**
+  (alone: edge -0.30, Sortino 0.944 < B's 0.952, hit 0.411); the switch leg
+  alone is edge -0.17 / Sortino 1.043 / hit 0.531. The spec already calls the
+  mechanical scenario read "a conservative approximation" of the Worker —
+  measured, the approximation is negative-value.
+- **FAVORS blend weight** (the DoV box above): in the final 729-point regrid
+  the winner is favors=0 but favors=0 and favors=1 INTERLEAVE through the top
+  15 — the blend's composition no longer separates candidates at all. Read
+  WITH I-35 that is the cleanest possible agreement: the reallocation leg is
+  noise whichever way it is blended; the only knob that consistently helps is
+  capping its damage (turnover=15 sweeps the entire top 15). The pre-repair
+  grid had instead manufactured favors=1.0 in-sample, collapsing to -3.2
+  pts/y on the holdout — the whipsaw handles were what let it do that.
+- **No positive in-sample edge exists anywhere in the 729-point grid** (best
+  calibration edge -0.80 pts/y, seed -1.23; holdout column spans -2.4 to
+  +0.38 = the grid fitting noise). Two hypotheses the regrid TESTED AND
+  REFUTED: a faster trailing window does not help (window=756 sweeps the top
+  15; 252/378 never appear — the signal does not improve with speed), and
+  more confirmation does not buy signal quality (confirm 2/3/4 interleave).
+  There is nothing to `--apply`.
+- **DESIGNED_FOR is refuted at the book level for 2 of 4 quadrants**
+  (within-regime excess vs the defender over the materialized instances):
+  falling-growth-falling-inflation's designed book is the WORST in its own
+  regime (-1.22%/instance, win 0.24 over 17 instances — the equities book
+  wins 0.76 there); stagflation's designed book is -0.27%/win 0.41. Only
+  rising-growth-falling-inflation's mapping holds (+1.33%, win 0.87; momentum
+  wins 15/15 there unmapped). This is I-35's counterpart one level down, and
+  it explains why the regime-keyed switch experiment (below) fails: the
+  signal was faithful, the MAP was wrong.
+- **Regime-keyed switching (DESIGNED_FOR instead of trailing Sortino) does
+  not rescue the core as-is**: edge -0.27 but Sortino 0.932 < B and mdd
+  -19.8%; switch-only regime is WORSE than holding (Sortino 0.869, mdd
+  -24.5%) because it parks 68% of the time in the refuted
+  falling-growth-defensive book. Fix the map before re-testing the signal.
+
+- **ROOT CAUSE of the map refutation — a SEMANTIC mismatch, not a design
+  error in the books (2026-07-19).** Listed the 17 real
+  falling-growth-falling-inflation episodes: SPY is POSITIVE in 12 of them
+  (+28% Apr-Oct 2020, +21% Oct-2022→Sep-2023, +19% 2010, +15% 2014-15 &
+  2017). These are not crises — they are post-crash recoveries and benign
+  disinflations. The defensive book (40% long Treasuries) held across them
+  MISSES the rebound → win-rate 0.24 in "its own" regime. The one genuine
+  crisis in the sibling regime (Jul-2008→Jan-2009: SPY -30.4%, TLT +27.9%)
+  is exactly where the defensive book crushes B — but it is 1 episode in 17.
+  The books were designed for MARKET regimes (crisis/boom = Dalio's
+  surprises-vs-priced), but the detector delivers MACRO-PUBLICATION regimes:
+  first-release prints (ADR-003) describe ~2 months of the PAST, plus the
+  3-print confirmation hysteresis, so the label arrives AFTER the market has
+  already priced and traded the move. "Defensive when published growth falls"
+  = buying the umbrella after the storm and holding it through the sunshine.
+  This is why the ONLY surviving signal is the `^VIX > 25` stress tag: the
+  VIX is the sole regime axis measured at MARKET speed — contemporaneous,
+  daily, no publication lag. See I-38.
+
+**⚔️ OPEN — two calls that are the owner's, with the evidence above:**
+1. **Gate metric (Task 9.3 — needs an ADR once decided):** "agent-follow ≥
+   hold-defender net of costs" does not name its metric. On CAGR the gate is
+   CLOSED (-0.44); on Sortino/Calmar/drawdown it is OPEN. Note the user's own
+   -15% rule: B breaches it by 6.6 pts over the 35y, A by 2.5.
+2. **Scope of the mechanical gate run (Task 9.1):** compute the kind=
+   'mechanical' verdict switch-only (the realloc path stays in the code — the
+   M8b agentic replay needs it for the Worker) or keep both legs. The realloc
+   leg's mechanical approximation is measured negative on every metric.
+
 ---
 
 ## M7 — Corpus + invariant factory (2 d — Phases 1bis, 3, curation) — STOP POINT

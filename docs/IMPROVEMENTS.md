@@ -903,6 +903,140 @@ weight toward 0, this item is answered and FAVORS is honest dead weight in
 the blend (decide then whether to keep the edge at all). If it does not,
 reconcile that against the table above before trusting the number.
 
+**M6 answer (2026-07-16):** answered in the first direction, and more
+sharply than posed — after the mechanical repairs (own-strategy guard,
+scenario hysteresis) the final 729-point regrid shows favors=0 winning but
+favors=0 and favors=1 INTERLEAVED through the top 15: the blend's composition
+does not separate candidates at all. Not just "FAVORS is dead weight" — the
+whole reallocation leg is noise whichever way it is blended (the only knob
+that consistently helps is capping its turnover). The pre-repair grid had
+instead picked favors=1.0 in-sample and collapsed to -3.2 pts/y on the
+holdout — the whipsaw handles were what let it manufacture that. Whether the
+blend's favors leg is kept at all is part of the M6 STOP decision
+(docs/MILESTONES.md M6 Findings).
+
+---
+
+## I-36 — Seed re-run silently clobbers calibrated system_thresholds
+
+**Why deferred:** the correct fix is a semantics choice (see below) the owner
+should make once, not a hotfix; and nothing is corrupted until the FIRST
+calibration `--apply` meets the NEXT seed re-run — a window that is knowable
+and short.
+
+**The defect.** `seed.py`'s reference-table step writes every
+`SYSTEM_THRESHOLDS` key with `INSERT OR REPLACE` (src/investment/seed.py:141).
+The incremental-seed plan RE-RUNS the seed at M7 (docs/MILESTONES.md
+"Incremental seed"). So: M6's Task 9.2 calibration writes a user-confirmed
+winning set via `apply_thresholds()` (UserDecisionEvent + UPDATE, one
+transaction) → the M7 seed re-run resets every one of those keys to the
+hardcoded seed values → no error, and the EventLog now asserts values the
+table no longer holds. The audit trail contradicts the state, which is the
+exact failure EventLog-first exists to prevent.
+
+**Fix directions (pick one):**
+- `INSERT OR IGNORE`: new keys land on re-run, existing values are never
+  touched. Cost: a deliberate seed-data change to an existing key no longer
+  propagates via re-run — post-calibration that is arguably the CORRECT
+  default (changing a live threshold should be a decision, not a side effect
+  of reseeding), but it changes what "idempotent seed" means for this table.
+- Provenance column (`source: seed | calibrated | user`) and replace only
+  `source='seed'` rows. Cleaner semantics, costs a schema change while
+  `CREATE TABLE IF NOT EXISTS` is still the migration story.
+
+**Trigger to revisit:** BEFORE the first real calibration `--apply`, or
+before M7's seed re-run — whichever comes first. Until fixed, a re-run after
+an `--apply` must re-apply the confirmed set (the UserDecisionEvent payload
+carries it).
+
+---
+
+## I-37 — Vintage sensitivity is unreportable: no revised-series axis exists
+
+**Why deferred:** it needs data that was deliberately never stored (ADR-003
+keeps FIRST-release vintages only), so it is a fetch + storage design, not a
+replay change.
+
+**The gap.** M6's DoV says "vintage_mode=first_release; vintage sensitivity
+reported". The first half is done (`replay_report.vintage_mode`). The second
+half means: re-run the SAME replay on the REVISED (current) macro series and
+report how far the verdict moves — it bounds what the PIT discipline actually
+bought. `market_data` has one row per (ticker, ts) — the ALFRED first release
+— so the revised values simply do not exist locally; there is no second
+vintage axis in the schema.
+
+**Scope if built:** fetch current-vintage FRED for the macro series only
+(CPIAUCSL, M2SL, the GROWTH_COMPOSITE inputs — Yahoo prices do not revise);
+store under a parallel namespace (ticker suffix `@latest` or a `vintage`
+column); re-run detector → derived signals → replay on that variant; report
+the verdict delta. The consumer at risk is the REGIME DETECTOR (its
+level/speed/acceleration reads move with revisions); everything else is
+price-based.
+
+**Trigger to revisit:** before go-live if the M6 STOP is passed (it is a DoV
+line); otherwise strike the DoV sub-item explicitly as unmeasurable-in-V1 —
+an owner decision either way.
+
+---
+
+## I-38 — Regime axis is a lagged MACRO-publication signal; books need a MARKET signal
+
+**Why deferred:** it re-opens the M3 detector and touches the Dalio framing in
+CLAUDE.md — a re-scoping of the project's core, not a V1 tweak. Consigned so
+the M6 STOP decision is made WITH it, and so it is gated behind a cheap test
+(the stress-hedge, below) rather than built speculatively.
+
+**The finding (M6, 2026-07-19).** The mechanical core's map from regime to
+book is refuted for 2 of 4 quadrants (docs/MILESTONES.md M6 Findings), and the
+root cause is not the books — it is that the detector labels the WRONG thing.
+It runs on GROWTH_COMPOSITE + CPI (first-release macro prints: ~2 months
+lagged, then 3-print hysteresis), so a "falling growth" label lands after the
+market has already priced and traded the move. 12 of 17 falling-growth-
+falling-inflation episodes have POSITIVE equities (they are recoveries and
+benign disinflations, not crises); the defensive book designed for them misses
+the rebound. The books were designed for MARKET regimes (crisis/boom); the
+detector delivers macro-publication regimes. The only validated signal
+(`^VIX > 25`, I-35) is the only axis measured at market speed.
+
+**Three convergent design directions (all point the same way — coarser +
+contemporary):**
+1. **Benign slowdowns should not trigger a regime change at all.** If most
+   detected episodes are benign (12/17 above), the response to them is "do
+   nothing", and generating a costly allocation change for each is the defect.
+   → the granularity is too FINE. The evidence supports ~2 states
+   (stress / not-stress), not 5 quadrants — which also directly cuts the
+   turnover cost M6 measured. "Detect earlier" only helps for episodes that
+   DO warrant a response (real stress), and for those VIX already fires
+   contemporaneously.
+2. **Reframe the objective from unsupervised to supervised.** Not "what is the
+   true macro regime?" (economics, unfalsifiable at 13-27 episodes) but "what
+   real-time OBSERVABLE most separates the periods where a non-B allocation
+   beats B?" (measurable, walk-forward-testable). Same overfitting discipline
+   as the threshold grid: derive on 1991-2016, confirm on 2016-2026.
+3. **Swap the indicators, keep the engine.** The detector's math (level/speed/
+   accel, hysteresis, confidence) and the regime types can stand; only the
+   INPUT series change — to market-observable, forward-pricing signals with
+   long history: yield-curve slope, credit spreads, equity breadth,
+   copper/gold, VIX term structure. These are contemporaneous AND have 35y of
+   history, so they preserve the walk-forward validation that is the project's
+   epistemic backbone.
+
+**Explicitly OUT for validation: real-time alt-data (Truflation & similar).**
+Truflation is genuinely contemporaneous, but it starts ~2021 — no 35y
+backfill, so it CANNOT be walk-forward-validated, which breaks the discipline
+every other signal in the system is held to. It could only ever be a
+live-forward V2 signal, never historical go-live evidence. Market proxies
+(above) are the viable class precisely because they have the history.
+
+**Trigger to revisit:** gate it behind the stress-hedge test. FIRST measure
+"hold B, switch to barbell only under confirmed stress" (cheap, existing data,
+the one validated cell) — it is both a candidate V1 product AND the diagnostic
+for whether this systemic path has headroom. If the stress-hedge captures most
+of the extractable risk-reduction, rebuilding the regime axis to rediscover
+"de-risk under stress" is gold-plating for V1. Only if measurable value
+remains BEYOND stress does the indicator-swap pay. Revisit at the V2 boundary
+regardless.
+
 ---
 
 ## Implementation order recommendation

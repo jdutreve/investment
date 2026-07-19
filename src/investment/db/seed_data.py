@@ -15,6 +15,15 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "proposal_calmar_min": 1.5,  # switch gate: absolute floor on challenger calmar_rolling (UNWIRED)
     "proposal_min_allocation_change_pts": 5.0,  # switch/realloc gate: min per-asset change, pts (UNWIRED)
     "proposal_max_turnover_pct": 30.0,  # realloc gate: turnover ceiling, sum(|delta weight|)/2 (UNWIRED)
+    # Reallocation delta blend (docs/ARCHITECTURE.md "Proposal/Adaptation
+    # delta blending"): delta = 0.4 x scenario_delta + 0.6 x favors_delta.
+    # Pinned by the doc, CALIBRATED by Phase 9 (Task 9.2 grids "blend
+    # weights"), which is why they are rows here and not constants in code.
+    # M6 reads the calibrated favors weight against I-35: the per-regime
+    # FAVORS ranking it feeds is noise in 4 of 5 regimes, so a HIGH stable
+    # weight on the holdout is suspicious, not confirmation.
+    "blend_scenario_weight": 0.4,  # realloc blend: weight on the tactical active-scenario delta
+    "blend_favors_weight": 0.6,  # realloc blend: weight on the structural top-FAVORS delta
     "proposal_expiry_days": 14.0,  # pending Proposal -> user_response='expired' after this (UNWIRED)
     "inbox_quiet_seconds": 300.0,  # inbox watcher: quiet time after last drop before a batch (UNWIRED)
     "invariant_merge_threshold": 0.80,  # curation dedup: cosine similarity above which -> merge (UNWIRED)
