@@ -155,6 +155,16 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # see HISTORY_PROXIES.
     {"ticker": "IWN", "asset_class": "US_SMALL_VALUE", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "SHY", "asset_class": "US_TREASURY_1_3", "currency": "USD", "source": "yahoo", "transform": "none"},
+    # Investment-grade CORPORATE credit — the Verdad slowdown sleeve's co-leader
+    # (docs/Countercyclical+Investing, Q4: 50% DJ IG bonds), the credit-spread
+    # carry that government treasuries lack. VCIT (Vanguard Intermediate-Term
+    # Corporate, 2009) — a closer match to the paper's intermediate "IG bonds"
+    # than broad LQD, and it splices cleanly where LQD does not: LQD's broad
+    # duration mismatches every long-history proxy (monthly corr ~0.91, below
+    # the gate), while VCIT tracks its own-issuer proxy VFICX at monthly 0.978.
+    # Uses RESAMPLED (monthly) splice validation (seed.py) — the same lens as
+    # GLD: daily 0.835 is duration-noise, monthly is the real fit.
+    {"ticker": "VCIT", "asset_class": "US_IG_CREDIT", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "DBC", "asset_class": "COMMODITIES", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^IRX", "asset_class": "RISK_FREE", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "^VIX", "asset_class": "VOLATILITY", "currency": "USD", "source": "yahoo", "transform": "none"},
@@ -168,16 +178,18 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
     # Non-revised (current-vintage fetch): dated at reference date + availability_lag_days.
     {"ticker": "T10Y2Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
-    # High-yield credit spread (ICE BofA US HY Option-Adjusted Spread) — the
-    # countercyclical state of the art's PRIMARY, market-priced, contemporaneous
-    # business-cycle signal (Verdad/Rasmussen — docs/Countercyclical+Investing):
-    # wide spread = crisis/frozen credit = contrarian risk-ON; tight = complacent
-    # = watch inflation via the curve slope (T10Y2Y, already above). NOT revised
-    # (a market price), current-vintage next-day. Daily from ~1996-12 — no older
-    # proxy, so the signal simply does not exist pre-1996 (a 30y usable window).
-    # DATA-LAYER availability only: wiring it into regime CLASSIFICATION is the
-    # detector rework (I-38, deliberately measure-first), not this seed row.
-    {"ticker": "BAMLH0A0HYM2", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    # Credit spread (Moody's Baa corporate yield minus the 10y Treasury) — the
+    # market-priced, contemporaneous business-cycle signal (Verdad/Rasmussen,
+    # docs/Countercyclical+Investing; the Fama-French "default spread"): wide =
+    # crisis/frozen credit = contrarian risk-ON; tight = complacent = watch
+    # inflation via the curve slope (T10Y2Y, above). NOT the paper's exact HY
+    # OAS (BAMLH0A0HYM2): ICE restricted historical redistribution, so FRED now
+    # exposes only a ~3y rolling window of the BAML* OAS family — useless for a
+    # 35y backtest. BAA10Y is IG- not HY-grade but carries the same credit-
+    # stress cycle, is daily from 1986 (before the ~1991 floor), and is not
+    # ICE-licensed. DATA-LAYER availability only: wiring it into regime
+    # CLASSIFICATION is the detector rework (I-38, measure-first), not this row.
+    {"ticker": "BAA10Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
     # 10-year constant-maturity yield — the LEVEL, which T10Y2Y (a 10y-2y
     # spread) does not carry and ^IRX (13-week bill) is the wrong maturity
     # for. Fetched for the `real_yield_10y` derived signal below: the LONG
@@ -274,11 +286,11 @@ SIGNAL_ALIASES: dict[str, str] = {
     "equity_trend": "equity_trend",
     "regime": "regime",
     # The two market-priced business-cycle signals (Verdad state of the art):
-    # HY credit spread (primary — growth/crisis) and the yield-curve slope
+    # the credit spread (primary — growth/crisis) and the yield-curve slope
     # (secondary — inflation direction). Both are contemporaneous, unlike the
     # lagged CPI/GDP the detector currently classifies on (I-38). Friendly
     # aliases; the raw tickers are already valid signals via allowed_tickers.
-    "hy_spread": "BAMLH0A0HYM2",
+    "credit_spread": "BAA10Y",
     "yield_slope": "T10Y2Y",
 }
 # The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
@@ -357,6 +369,11 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
     # ragged-start NAV synthesis handles. No older investable small-value fund
     # exists (the factor's live vehicles postdate the Fama-French research).
     "IWN": ("DFSVX", "yahoo", 1993),
+    # VFICX (Vanguard Intermediate-Term IG, since 1993-11) — same issuer/segment
+    # as VCIT, so monthly return corr 0.978 (RESAMPLED validation, see seed.py
+    # RESAMPLED_VALIDATION_TICKERS). Floors IG credit at 1993, matching the
+    # small-value sleeve.
+    "VCIT": ("VFICX", "yahoo", 1993),
 }
 
 # ---------------------------------------------------------------------------

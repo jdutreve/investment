@@ -85,7 +85,11 @@ FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series
 # WOULD clear resampled (0.9953 monthly), but M2 already weighed that pair
 # and answered it in the portfolio instead (TIP -> IEF), so admitting it now
 # is a change of an owner decision, not a bug fix.
-RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY"})
+# VCIT (IG corporate credit) joins on the GLD-style cause: its daily returns
+# vs VFICX carry a duration/segment noise (0.835 daily) that washes out at
+# monthly resolution (0.978). Owner-requested addition, so no TIP-style prior
+# decision is being overridden.
+RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY", "VCIT"})
 
 # Steps deferred to later milestones (docs/MILESTONES.md "Incremental seed").
 DEFERRED_STEPS = {
