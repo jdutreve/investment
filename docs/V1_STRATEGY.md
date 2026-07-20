@@ -17,14 +17,18 @@ detector for allocation):**
 - if TIGHT, slope `T10Y2Y` vs its 10y trailing median: FLAT → `inflation`,
   STEEP → `slowdown`.
 
-**Books (concentrated pure-asset tilts; cap 40% per sleeve respected):**
+**Books (concentrated pure-asset tilts; 50% sleeves — the single-asset cap was
+raised 40→50 for exactly this concentration, ADR-007 addendum 2026-07-20):**
 - `growth`: SPY 50 / IWN 40 / GLD 10
 - `inflation`: SPY 50 / GLD 40 / IWN 10
 - `slowdown`: VCIT 50 / IEF 40 / IWN 10
 
 **Trend-following overlay:** each of the SPY and GLD sleeves is redirected to
 IEF whenever that asset is below its 200-day moving average. (This is the
-drawdown control; it carries -24% → without it the stack is -50%.)
+drawdown control; it carries -24% → without it the stack is -50%.) In risk-off
+both sleeves can redirect at once, concentrating IEF to ~90%; the trend-haven
+sleeve is therefore EXEMPT from the single-asset cap (ADR-007 addendum, choice
+(a) — it is a deliberate safety redirect, not a conviction bet).
 
 **Cadence: MONTHLY.** No VIX crisis overlay (measured to hurt at monthly
 cadence: 7.57%/-25%).

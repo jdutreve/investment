@@ -6,10 +6,24 @@ defender / reallocate). **V1 never executes a trade**; cognition is fully
 autonomous (no user-validation gate — ADR-006), the owner alone places orders.
 V2 adds auto-execution and learning from real performance.
 
+> **ADR-007 pivot (accepted 2026-07-20) — read `docs/V1_STRATEGY.md`.** V1's
+> ADOPTED allocation strategy is now the **Verdad monthly countercyclical
+> stack** (market-priced credit-spread/slope regime → 3 concentrated books +
+> 200d trend overlay, MONTHLY cadence), not the seeded Dalio 4-quadrant
+> portfolio rotation. **The non-negotiables below that describe the weekly
+> chain, FAVORS, the ranking rule, scenario-driven UC8 and the reallocation
+> blend still hold, but as the RETAINED BRIDGE** (fallback + benchmark +
+> framework-agnostic knowledge factory), NOT the live allocation path — the
+> bridge is not deleted until forward paper-mode earns the switch (ADR-007,
+> V1_STRATEGY.md "Impact map"). Where a rule below governs allocation, the
+> Verdad stack path in V1_STRATEGY supersedes it; where it governs the caps,
+> the caps still bind (stricter-of enforcement is unchanged).
+
 ## Documentation map — load on demand
 
 | File | Load it when you need |
 |---|---|
+| `docs/V1_STRATEGY.md` | **THE ADOPTED STRATEGY (ADR-007)** — the Verdad monthly stack, the migration plan, impact map, roadmap Step 0→7, open owner decisions. Read alongside MILESTONES. |
 | `docs/MILESTONES.md` | **EXECUTION ORDER** — 13 increments, STOP points, incremental-seed map. Read before starting any work. |
 | `docs/TASKS.md` | Full build spec, phase by phase — the implementation source of truth (DDL, seed data, job specs, CLI/dashboard spec). |
 | `docs/DATA_MODELS.md` | Complete schema (13 entities, 10 relations, 3 TS, 10 doc tables), pinned calculation conventions, units, EventLog ordering semantics. |
@@ -61,7 +75,11 @@ Three cognitive roles, strictly separated (full spec: docs/ARCHITECTURE.md):
 Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
 - **Event-driven**: inbox watcher (60s poll, 5-min quiet) → ingestion batch →
   curator (LLM, knowledge extraction only); backup after every chain/batch.
-- **Weekly Monday chain** (indicative times, strictly sequential, abort +
+- **Monday chain** (ADR-007: the ALLOCATION DECISION runs MONTHLY, not weekly —
+  the market-signal regime and Verdad books move slowly by design; the catch-up
+  /NAV/regime-step/curation jobs below keep their natural per-Monday frequency,
+  only the UC8 decision + digest gate on the monthly cadence. Indicative times,
+  strictly sequential, abort +
   Telegram alert on failure; DUE-ON-START at launch/wake if the last success
   predates the most recent Monday 08:00): 08:00 catch-up (market TS, regime
   step per new monthly print, NAV, expiry sweep) → 08:05 UC3 event watch →
@@ -132,8 +150,11 @@ order (M4).
 `calmar_rolling < 1.0` → demoted to bottom. Breaching the user drawdown rule
 keeps the row ranked but excludes it from defender role and proposal candidacy.
 
-**Binding caps** — `user_profile.max_single_asset_pct` (40%) and
-`max_drawdown_pct` (-15%) bind the defender role and ALL proposal candidacy;
+**Binding caps** — `user_profile.max_single_asset_pct` (**50%**, raised from 40%
+by the ADR-007 addendum for the deliberately concentrated Verdad books) and
+`max_drawdown_pct` (**-25%**, raised from -15% by ADR-007 for the
+accumulation-horizon Verdad stack; it bounds the STACK's realized drawdown,
+not each book standalone) bind the defender role and ALL proposal candidacy;
 per-portfolio rules may only be STRICTER. Writeback enforces the stricter of
 the two and blocks any violating proposal.
 

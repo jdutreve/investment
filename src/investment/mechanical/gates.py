@@ -88,15 +88,26 @@ PASSED = GateOutcome(passed=True)
 # -- shared cap checks (bind BOTH proposal kinds — CLAUDE.md "Binding caps") --
 
 
-def concentration_ok(allocation: Mapping[str, float], caps: Caps) -> bool:
+def concentration_ok(
+    allocation: Mapping[str, float], caps: Caps, exempt: frozenset[str] = frozenset()
+) -> bool:
     """No single sleeve above `max_single_asset_pct`.
 
     Judgment call (spec silent): the cap is applied to EVERY key including the
     synthetic 'cash' sleeve, uniformly — the literal reading of "single asset",
     and the strict direction, which is the safe one for a BINDING cap. No
     seeded portfolio or scenario target is affected (the largest cash sleeve
-    is barbell-defensive's 30, under the 40 cap)."""
-    return not allocation or max(allocation.values()) <= caps.max_single_asset_pct
+    is barbell-defensive's 30, under the 40 cap).
+
+    `exempt` names sleeves the cap does NOT bind — the ADR-007 addendum's
+    trend-haven exception (docs/V1_STRATEGY.md, docs/DECISIONS.md). The Verdad
+    overlay redirects the SPY/GLD sleeves into IEF below trend, which can
+    concentrate the HAVEN to ~90% during risk-off; that is the deliberate flight
+    to safety (the drawdown control), not a conviction bet, so the Verdad path
+    passes `exempt={IEF}`. Empty by default, so the seeded-portfolio callers
+    (switch/reallocation gates) are unchanged and still bind every sleeve."""
+    considered = [w for t, w in allocation.items() if t not in exempt]
+    return not considered or max(considered) <= caps.max_single_asset_pct
 
 
 def drawdown_ok(max_drawdown: float | None, caps: Caps) -> bool:

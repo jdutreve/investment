@@ -483,6 +483,56 @@ is period-carried by the 1970s we lack. Three forks for the owner:**
 
 ---
 
+## M6-bis — Wire the adopted Verdad monthly stack (ADR-007) — STOP POINT
+
+**Added by ADR-007 (accepted 2026-07-20).** The post-M6 exploration converged
+on the Verdad monthly countercyclical stack, which — once the
+`load_inputs().prices` bug was fixed (it starved IWN/VCIT to 0%) — beats B by
++2.5/y robustly in AND out of sample at -24% drawdown. See `docs/V1_STRATEGY.md`
+(the adopted spec + full impact map) and `docs/STRATEGY_COMPARISON.md`. This
+supersedes M6 OPEN fork 1's "momentum-only return lead" read: the return-
+positive lead is the Verdad stack, not momentum (8.1% / Sharpe 0.46 / -37%).
+
+**Build (Step 1 of the roadmap — keep the bridge, do NOT delete M3/M5/UC7-8):**
+1. Seed the 3 books as Strategy/Portfolio (growth SPY50/IWN40/GLD10, inflation
+   SPY50/GLD40/IWN10, slowdown VCIT50/IEF40/IWN10).
+2. Market-signal regime module: `BAA10Y` vs 10y trailing median (WIDE→growth),
+   else `T10Y2Y` vs 10y median (FLAT→inflation, STEEP→slowdown). Replaces the
+   macro detector FOR ALLOCATION only (I-38).
+3. 200d trend overlay: SPY/GLD sleeve → IEF when below its 200-day MA.
+4. Monthly decision path through the EXISTING `mechanical/gates.py` binding
+   caps (now -25% per ADR-007).
+
+**Definition of Verified:** replay-validate the wired stack reproduces the
+scratchpad numbers (**9.85% CAGR / -24% daily maxDD**) — the anti-drift check
+that caught the M6 rebalance-order bug — and it runs monthly end-to-end through
+the caps. The OLD design stays wired as fallback + benchmark; forward
+paper-mode (M9), not this milestone, is what earns the full switch.
+
+**Status (2026-07-20): core DoV MET — anti-drift PASSES, caps clean.**
+`mechanical/verdad.py` (pure `classify_regime`/`apply_trend_overlay`/
+`build_targets` + `run_verdad` driver) reproduces the numbers EXACTLY on the
+live DB: CAGR 9.85%, Sortino 0.94, maxDD -23.8%, 3.4 changes/yr, ZERO cap
+breach. 10 unit tests + 204 suite green.
+
+**Cap finding RESOLVED (ADR-007 addendum, choice (a)).** When BOTH SPY and GLD
+are below their 200d MA (risk-off: 2008-09, 2020, 2022...), the overlay
+redirects both sleeves into IEF, concentrating the HAVEN to ~90% — the
+deliberate flight to safety the validated 9.85% includes. The owner chose to
+EXEMPT the trend-haven sleeve (IEF) from the single-asset cap (`gates.
+concentration_ok(..., exempt={IEF})`) over splitting into SHY/cash — simplicity,
+and the haven is a safety redirect not a conviction bet. Narrow, named
+exception; the cap still binds every other sleeve (empty `exempt` default).
+
+**Remaining M6-bis build (not yet done, no urgency — paper-mode is slow):** seed
+the 3 books as Strategy/Portfolio entities and wire the live monthly decision
+path into UC8/Writeback (currently `run_verdad` is the replay/validation driver,
+not yet the live weekly-chain decision). The pure decision logic + the
+gate-with-exemption it will call are done and tested; what remains is the
+scheduling/persistence wiring, which lands cleanly with M7/M8.
+
+---
+
 ## M7 — Corpus + invariant factory (2 d — Phases 1bis, 3, curation) — STOP POINT
 
 In-process embeddings, ingester, watcher, curator + dedup gate +

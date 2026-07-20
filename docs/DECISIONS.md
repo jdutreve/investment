@@ -410,3 +410,36 @@ consulted heavily; the only validation that counts is forward paper-mode.
   professional tax status (median 61-day holding still < the 6-month safe
   harbor — confirm with a fiduciaire) and the monthly-compatible drawdown
   brake IF -25% ever needs defending in a live tail.
+
+**Addendum (2026-07-20, owner sign-off) — single-asset cap 40% → 50%.**
+Surfaced while wiring M6-bis: the Verdad books deliberately hold 50% single
+sleeves (growth & inflation SPY 50, slowdown VCIT 50), which breach the binding
+`user_profile.max_single_asset_pct = 40`. That 40% cap was calibrated for the
+DIVERSIFIED Dalio portfolios; the pivot's whole thesis is CONCENTRATED
+countercyclical books, and that concentration is the measured source of the
++2.5-vs-B edge. Decision: **raise `max_single_asset_pct` to 50%** (config.py
+default, .env, live `user_profile` — the three canonical places, same as the
+-25% drawdown). The cap still BINDS (Writeback blocks any sleeve > 50, and
+per-portfolio rules may still be stricter); it is only re-levelled for the
+concentrated books. The old diversified books are unaffected (their largest
+sleeve was 40). This preserves the validated 9.85%/+2.5 numbers exactly rather
+than re-capping the books and drifting them. Alternatives weighed and declined:
+cap-books-to-40 (would drift the backtest) and exempt-the-whole-Verdad-stack
+(would weaken "binding caps bind ALL candidacy" too broadly).
+
+**Second addendum (2026-07-20, owner sign-off) — trend-haven sleeve exempt from
+the single-asset cap.** Surfaced by the M6-bis cap confrontation: at ~10 of the
+119 decision dates (risk-off — 2008-09, 2020, 2022...) BOTH SPY and GLD are
+below their 200d MA, so the trend overlay redirects both into IEF, concentrating
+the HAVEN to ~90% — breaching even the raised 50% cap. That concentration IS the
+drawdown control (the deliberate flight to safety), and the validated 9.85%
+includes it. Decision: the **trend-haven sleeve (IEF) is EXEMPT from the
+single-asset cap** in the Verdad path (`gates.concentration_ok(..., exempt=
+{IEF})`), chosen over splitting the excess into SHY/cash. Rationale: SIMPLICITY
+— the haven is structurally a safety redirect, not a conviction bet, so the
+"single-asset" cap's intent (bound concentrated BETS) does not apply to it;
+exempting preserves the validated numbers exactly with no re-validation. Scope
+is NARROW and explicit: only IEF, only via the documented `exempt` argument; the
+cap still binds every other sleeve and every seeded-portfolio proposal (the
+`exempt` default is empty). This is why it does not reopen the "binding caps bind
+ALL candidacy" principle — it is a named exception, not a hole.

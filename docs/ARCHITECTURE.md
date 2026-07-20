@@ -2,6 +2,16 @@
 
 See REVISION_NOTES.md for V1 scope and core concepts.
 
+> **ADR-007 (accepted 2026-07-20) — see `docs/V1_STRATEGY.md`.** The adopted V1
+> allocation is the Verdad monthly market-signal stack. The Planner/Worker
+> cycle, the mechanical jobs, the birth-maturation and improvement machinery
+> described here are FRAMEWORK-AGNOSTIC and survive the pivot unchanged — they
+> validate market beliefs mechanically regardless of framework. What changes is
+> what they ORIENT: the allocation decision now keys off the market-priced
+> credit-spread/slope regime (V1_STRATEGY), not the CPI/GDP quadrant detector.
+> The regime-detection algorithm below is retained for invariant `condition`
+> evaluation and the regime graph; it no longer drives allocation.
+
 ## Objective
 
 Build capital (10-20 year horizon) via a self-improving expert investment agent.
