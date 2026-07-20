@@ -580,6 +580,22 @@ digest rendered in terminal.
 - [ ] Call 2 downgrades an unevidenced verdict to neutral (fixture)
 - [ ] digest readable and complete
 
+**⚠️ Known blocker, found 2026-07-20 — settle it BEFORE writing the decision
+slice.** The market-signal monthly decision (the remaining M6-bis item, parked
+here by owner decision) cannot be persisted as-is: the `proposal` table is
+shaped for the RANKING-based design ADR-007 superseded. `defender_rank INTEGER
+NOT NULL` and `gap TEXT NOT NULL` assume a ranked defender/challenger pair,
+while a market-signal proposal has no rank, no challenger and no gap — it has a
+signal state and a book. Decide one of: (a) make the ranking columns nullable
+and/or add `proposal_type='market-signal'`, or (b) fill them by a documented
+convention (defender = current live book, rank 1, gap = signal state). Either
+way it is an ADR: (a) is a schema change, (b) pins a convention every later
+reader depends on. Pre-go-live, so `CREATE TABLE IF NOT EXISTS` still absorbs
+(a) for free — after go-live it would start the numbered-migration convention.
+Also note `gates.reallocation_gates` gate 6 (cited-invariant eligibility) has
+no input until the Worker exists, which is precisely why the wiring waited for
+this milestone.
+
 **⚔️ Challenge:** Worker reasoning quality; are the 12-15 selected
 invariants the right ones?
 

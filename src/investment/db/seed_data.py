@@ -26,6 +26,14 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "blend_favors_weight": 0.6,  # realloc blend: weight on the structural top-FAVORS delta
     "proposal_expiry_days": 14.0,  # pending Proposal -> user_response='expired' after this (UNWIRED)
     "inbox_quiet_seconds": 300.0,  # inbox watcher: quiet time after last drop before a batch (UNWIRED)
+    # Corpus/embedding (M7). `embedding_dims` is the CONTRACT between stored
+    # vectors and the live model: seeded here, asserted against the loaded
+    # model at startup (corpus/embedding.py), so swapping EMBEDDING_MODEL for a
+    # different-dimension variant fails loudly instead of writing vectors that
+    # can never be compared to the existing ones.
+    "embedding_dims": 384.0,  # dims the pinned EMBEDDING_MODEL produces — asserted at startup
+    "chunk_size_chars": 1000.0,  # ingester: target passage length (docs/TASKS.md Task 3.1)
+    "chunk_overlap_chars": 150.0,  # ingester: overlap between consecutive passages
     "invariant_merge_threshold": 0.80,  # curation dedup: cosine similarity above which -> merge (UNWIRED)
     "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
     "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)

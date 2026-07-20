@@ -63,7 +63,8 @@ class Settings(BaseSettings):
     # applies to the STACK's realized drawdown, not each book's standalone one.
     user_max_drawdown_pct: float = -25.0
     # ADR-007 addendum (2026-07-20): raised from 40 for the DELIBERATELY
-    # concentrated market-signal books (growth/inflation hold SPY 50, slowdown VCIT 50)
+    # concentrated market-signal books (the two credit-spread-* equity books hold
+    # SPY 50, the tight-yield-curve-steep one holds VCIT 50)
     # — that concentration is the source of the +2.5-vs-B edge; the 40 cap was
     # calibrated for the diversified Dalio portfolios it replaces as the live path.
     user_max_single_asset_pct: float = 50.0
