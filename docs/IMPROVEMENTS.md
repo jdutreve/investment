@@ -1041,6 +1041,13 @@ regardless.
 
 ## I-39 — Equity weight vs the integrated high-inflation invariant — ✅ MEASURED, books unchanged
 
+**Naming note:** this item is written with the book names as they were when
+it was opened (`growth`/`inflation`/`slowdown`). Those names are exactly what
+this item's measurement discredited, and ADR-007's third addendum renamed them
+to `credit-spread-wide` / `credit-spread-tight-yield-curve-flat` /
+`credit-spread-tight-yield-curve-steep`. The old names are kept below because
+the argument is ABOUT them; anything forward-looking uses the new ones.
+
 **Status:** opened and resolved 2026-07-20. The composition question is
 CLOSED by measurement (see "RE-MEASURED" below); what remains open is a cheap
 book-RENAMING, carried at the end of this item. Kept in full rather than
@@ -1068,22 +1075,42 @@ system working as designed (belief does not grant integration — the engine
 confronts it over 35y), but the contradiction should be resolved explicitly
 rather than left to drift.
 
-**⚠️ THE ENGINE ALREADY RULED — this item is NO LONGER merely deferred
+**The engine returned `integrated` — but MARGINALLY, and the margin matters
 (2026-07-20).** Landed in the live DB and matured over the full 35y, the
-invariant came back **`integrated`**: score 0.636 on 28 confirmations / 16
-infirmations (N=44), clearing θ=0.60, N_min=3 and the binomial-tail test.
-`check_contradictions` over the integrated set reports none. So this is not a
-book-quote awaiting evidence — **on our own 1991-2026 data, equities measurably
-underperform the median asset class while CPI YoY is above 3%, and the
-`inflation` book holds 50% SPY into exactly that state.**
+invariant scored 0.636 on 28 confirmations / 16 infirmations (N=44), clearing
+θ=0.60 and the binomial tail. `check_contradictions` reports none.
+
+**Recomputed, the tail is P=0.0481 against a 0.05 bar — it clears by 0.0019.**
+The verdict is one observation from not existing:
+
+| counts | score | binomial tail | verdict |
+|---|---|---|---|
+| 26c/18i | 0.591 | 0.146 | not integrated |
+| 27c/17i | 0.614 | 0.087 | not integrated |
+| **28c/16i (actual)** | **0.636** | **0.048** | **integrated** |
+| 29c/15i | 0.659 | 0.024 | integrated |
+
+So the honest statement is NOT "equities measurably underperform above 3%
+inflation". It is: **the evidence crosses our own pre-registered bar by the
+thinnest possible margin, on a window with no severe inflation.** Treat this
+as a hypothesis that survived a first test, not as an established fact —
+which is precisely why the re-measurement below was allowed to close the
+composition question NEGATIVE rather than forcing a book change. Had the
+verdict been robust (say 0.02 or below), the conclusion would deserve
+revisiting.
+
+This fragility is a property of the evidence, not a defect of the rule: ADR-006
+sets the bar in advance and the invariant cleared it. But a marginal pass is
+the case where "belief does not grant integration" cuts BOTH ways — it also
+does not grant certainty.
 
 Two things sharpen it. First, the same sweep leaves `inv-rising-growth-equities`
 **`rejected`** (score 0.506) — the seeded Dalio-tier belief that growth favours
 equities does not survive confrontation, while the Faber-sourced one does; the
 overlap flagged in the trace resolved against the incumbent. Second, the
 companion `inv-low-real-rate-nominal-bonds` came back **`proposed`** (0.542,
-26c/22i) — insufficient evidence, undecided. Only the equity claim is
-established; do not treat the pair as jointly confirmed.
+26c/22i) — insufficient evidence, undecided. Only the equity claim cleared the
+bar at all, and only barely; do not treat the pair as jointly confirmed.
 
 Related gap, same book: the stack holds **no commodities, no REITs, no TIPS**,
 and is **100% US** — no INTL/EM equity — while `BENCHMARK_CLASSES` already
@@ -1254,8 +1281,8 @@ guaranteed to repeat), NOT a return argument.
   2003+, losing the dot-com bust and half the window that earned the pivot.
   EFA-only is the change that can actually be measured against 9.85%/-24%.
 
-**Scope if built:** measure an EFA sleeve inside the `growth` book (the
-risk-on book, where an international equity tilt belongs) against the current
+**Scope if built:** measure an EFA sleeve inside the `credit-spread-wide` book
+(the risk-on book, where an international equity tilt belongs) against the current
 US-only stack on the same harness and window; report whether the -24% drawdown
 and the +2.5-vs-B edge survive. Note the trend overlay currently redirects only
 SPY and GLD (`TREND_SLEEVES`): an EFA sleeve would need its own 200d rule or it

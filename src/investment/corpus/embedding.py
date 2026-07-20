@@ -27,10 +27,13 @@ if TYPE_CHECKING:  # pragma: no cover - import cost is the reason it is deferred
 logger = logging.getLogger(__name__)
 
 # The dimension `all-MiniLM-L6-v2` produces. NOT authoritative on its own: the
-# real value is read from the loaded model and asserted against the seeded
-# `embedding_dims` threshold at startup (docs/TASKS.md Task 1bis.1), so swapping
-# EMBEDDING_MODEL for a multilingual variant fails loudly instead of writing
-# vectors that no longer match the stored ones.
+# real value is `InProcessEmbedder.dims`, read from the loaded model. The
+# seeded `embedding_dims` threshold is the stored-vector side of the same
+# contract, and comparing the two is what makes an EMBEDDING_MODEL swap fail
+# loudly instead of writing vectors that no longer match the stored ones
+# (docs/TASKS.md Task 1bis.1). That comparison is NOT wired yet — it needs a
+# startup path, which does not exist before M8; the threshold is seeded UNWIRED
+# in the meantime. This constant is the test/reference value only.
 DEFAULT_EMBEDDING_DIMS = 384
 
 # float32 is what the schema's `passage.embedding BLOB` stores ("float32 x 384").
@@ -118,7 +121,14 @@ def to_blob(vector: np.ndarray) -> bytes:
 def from_blob(blob: bytes) -> np.ndarray:
     """Inverse of `to_blob`. Length is derived from the buffer, not assumed:
     a stored vector of the wrong dimension surfaces as a shape mismatch at the
-    first cosine instead of being silently reinterpreted."""
+    first cosine instead of being silently reinterpreted.
+
+    The result is READ-ONLY (`np.frombuffer` views the bytes; it does not copy).
+    Deliberate: bulk reads stack many of these into one matrix and `np.stack`
+    copies anyway, so paying a per-vector copy here would buy nothing — and an
+    in-place write to what is a snapshot of stored data is a bug, so raising
+    immediately beats mutating a view. Callers needing a mutable vector copy it
+    explicitly (`np.array(from_blob(b))`)."""
     return np.frombuffer(blob, dtype=VECTOR_DTYPE)
 
 

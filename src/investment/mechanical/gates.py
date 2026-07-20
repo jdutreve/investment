@@ -97,7 +97,8 @@ def concentration_ok(
     synthetic 'cash' sleeve, uniformly — the literal reading of "single asset",
     and the strict direction, which is the safe one for a BINDING cap. No
     seeded portfolio or scenario target is affected (the largest cash sleeve
-    is barbell-defensive's 30, under the 40 cap).
+    is barbell-defensive's 30, under the cap — 50 since the ADR-007 addendum,
+    40 when this was written).
 
     `exempt` names sleeves the cap does NOT bind — the ADR-007 addendum's
     trend-haven exception (docs/V1_STRATEGY.md, docs/DECISIONS.md). The market-signal

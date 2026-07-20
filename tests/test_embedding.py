@@ -78,3 +78,13 @@ def test_invariant_embedding_input_is_pinned() -> None:
     # Pinned because the ingester and the Planner must embed invariants
     # identically or their cosines are not comparable.
     assert invariant_embedding_input("Title", "Desc") == "Title\nDesc"
+
+
+def test_from_blob_is_read_only_by_design(embedder: InProcessEmbedder) -> None:
+    # Pinned because it is a deliberate choice, not an accident of frombuffer:
+    # a stored vector is a snapshot, so an in-place write is a bug and should
+    # raise at the write rather than silently mutate a view.
+    vec = from_blob(to_blob(embedder.encode(["credit spread"])[0]))
+    assert not vec.flags.writeable
+    with pytest.raises(ValueError):
+        vec[0] = 0.0
