@@ -966,6 +966,118 @@ INVARIANTS: list[dict[str, object]] = [
         "12-MONTH, this engine confronts at proposal_outcome_weeks (12 WEEKS) — "
         "see docs/IMPROVEMENTS.md I-32.",
     },
+    # The two invariants below come from ONE source figure: Faber, "Global Asset
+    # Allocation" (2015), Figure 48 (data: Credit Suisse Global Investment
+    # Returns Yearbook, 1900-2014). The book states two claims about it:
+    # stocks AND bonds do well below ~3% inflation and "fall off a cliff" above
+    # 5%; and both love real rates above 3%, while "stocks hold up okay with
+    # lower real interest rates, bonds get clobbered".
+    #
+    # THRESHOLDS ARE NOT THE BOOK'S — this is the departure to be explicit about
+    # (CLAUDE.md "State assumptions explicitly"). Faber's figure spans 1900-2014
+    # and leans on the 1970s; our market_data starts 1991-08, post-Volcker.
+    # Measured on the live DB: `inflation > 5` is true on 5.7% of prints and
+    # `real_rate > 3` on 2.7% of days — both too rare here to accumulate
+    # confrontations, so seeding the book's literal cut-offs would seed
+    # invariants that can never reach a verdict. Each condition is therefore set
+    # at the book's OTHER stated cut-off, the one our window populates:
+    # `inflation > 3` (31.5% of prints) and `real_rate < 0` (50.8% of days,
+    # median -0.03). Same claimed DIRECTION, a weaker threshold, so the engine's
+    # sweep is a genuinely independent — and harder — test than the book's.
+    # Deliberately NOT `real_rate < 2.5`: that holds on 88% of the window and
+    # chatters (invariants.py `sample_moments`).
+    {
+        "id": "inv-high-inflation-equities",
+        "title": "Inflation above 3% erodes equities, not just bonds",
+        "description": "Equities are commonly treated as an inflation pass-through, but "
+        "real equity returns deteriorate once inflation runs above ~3% and "
+        "collapse above 5%. Under sustained inflation equities underperform "
+        "the median asset class, alongside nominal bonds rather than opposite "
+        "them.",
+        "example": "Faber Figure 48 (Credit Suisse, 1900-2014): real stock and bond "
+        "returns are highest with inflation below 3% and fall off a cliff "
+        "above 5%. Chapter 11 corroborates on portfolios: through the "
+        "inflationary 1973-1981, the two equity-heavy allocations carrying no "
+        "real assets were the two worst (60/40 -4.05%/yr real, Buffett "
+        "-3.48%), while the real-asset-heavy Marc Faber (+2.25%) and "
+        "Permanent (+0.92%) were the only positive ones.",
+        "source": "Faber — Global Asset Allocation (2015), Figure 48 and ch. 11; "
+        "underlying data Credit Suisse Global Investment Returns Yearbook",
+        # NULL is how the 'other' tier is spelled on an invariant row (schema.py:
+        # "'dalio'|'marks'|'system'|NULL ('other')"); 'other' is only the key of
+        # invariant_author_config. floor 0.20 / weight 0.60 are that tier's band.
+        "author": None,
+        "status": "proposed",
+        "condition": [{"signal": "inflation", "feature": "level", "op": ">", "value": 3.0}],
+        "effect": {
+            "handle": "asset-class:equities",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "underperform",
+        },
+        "tags": [
+            "inflation",
+            "equities",
+            "asset:SPY",
+            "asset:VTI",
+            "indicator:cpi",
+            "regime:falling-growth-rising-inflation",
+            "regime:rising-growth-rising-inflation",
+            "source:faber-gaa",
+        ],
+        "weight_initial": 0.60,
+        "floor_weight": 0.20,
+        "trace": "Faber, Global Asset Allocation (2015), Figure 48 (Credit Suisse "
+        "1900-2014) + ch. 11 decade table. Threshold set to the book's 3% "
+        "cut-off rather than its 5% cliff because `inflation > 5` is true on "
+        "only 5.7% of our 1991-2026 prints (measured) — too rare to confront. "
+        "This invariant CONTRADICTS the seeded inv-rising-growth-equities "
+        "whenever growth is rising AND inflation is above 3%; that overlap is "
+        "left standing deliberately, since the engine scores both mechanically "
+        "and the disagreement is exactly what confrontation is meant to settle.",
+    },
+    {
+        "id": "inv-low-real-rate-nominal-bonds",
+        "title": "Negative real rates clobber nominal bonds while equities hold up",
+        "description": "When the short real rate is negative, nominal bonds underperform "
+        "the median asset class: the coupon no longer compensates for "
+        "inflation. Equities are damaged far less, so the asymmetry — not a "
+        "general risk-off — is the claim.",
+        "example": "Faber Figure 48 (Credit Suisse, 1900-2014): stocks and bonds both "
+        "do well with real rates above 3%, but as real rates fall stocks hold "
+        "up okay while bonds get clobbered.",
+        "source": "Faber — Global Asset Allocation (2015), Figure 48; underlying data "
+        "Credit Suisse Global Investment Returns Yearbook",
+        "author": None,  # 'other' tier — see inv-high-inflation-equities above
+        "status": "proposed",
+        "condition": [{"signal": "real_rate", "feature": "level", "op": "<", "value": 0.0}],
+        "effect": {
+            "handle": "asset-class:bonds",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "underperform",
+        },
+        "tags": [
+            "real-rates",
+            "nominal-bonds",
+            "asset:IEF",
+            "asset:TLT",
+            "indicator:real-rate",
+            "regime:low-real-rates",
+            "source:faber-gaa",
+        ],
+        "weight_initial": 0.60,
+        "floor_weight": 0.20,
+        "trace": "Faber, Global Asset Allocation (2015), Figure 48 (Credit Suisse "
+        "1900-2014). Threshold is 0, not the book's 3%: `real_rate > 3` holds "
+        "on 2.7% of our 1991-2026 window (measured, median -0.03), so the "
+        "book's high-real-rate side is unobservable here; the low side is "
+        "tested instead at its natural sign change, active on 50.8% of days. "
+        "Related to inv-gold-low-real-yield (same low-real-rate state, gold "
+        "handle, and the `real_yield` 10y signal rather than `real_rate`): "
+        "that one claims gold WINS, this one claims nominal bonds LOSE. Both "
+        "can hold; they are scored independently.",
+    },
 ]
 
 STRATEGIES: list[dict[str, object]] = [
@@ -1342,8 +1454,16 @@ PORTFOLIOS: list[dict[str, object]] = [
     # (50% single-asset, -25% drawdown — ADR-007 addenda); they may not be
     # looser. The 50% SPY/VCIT sleeves are why the single-asset cap is 50.
     {
+        # IDs are FROZEN at their original growth/inflation/slowdown spelling
+        # even though the books were renamed (2026-07-20 addendum): these ids
+        # already appear in committed EventLog payloads (ValuationEvent,
+        # RankingEvent), which are append-only. Rewriting them is forbidden, and
+        # leaving the log pointing at ids the tables no longer hold is the exact
+        # audit-trail/state divergence EventLog-first exists to prevent. Only the
+        # human- and LLM-facing surface (name, trace, and the decision keys in
+        # mechanical/market_signal.py BOOKS) is renamed.
         "id": "ms-growth-book",
-        "name": "Market-Signal Growth Book",
+        "name": "Market-Signal Wide-Credit Book",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": True,
@@ -1354,12 +1474,16 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'growth' book (credit spread WIDE vs 10y median); "
-        "also the warm-up default before 10y of signal history. ADR-007.",
+        "trace": "Market-signal 'wide-credit' book (credit spread WIDE vs its 10y "
+        "median — stress is priced, so the countercyclical response is to buy "
+        "risk); also the warm-up default before 10y of signal history. ADR-007; "
+        "renamed from 'growth' by the 2026-07-20 addendum (docs/IMPROVEMENTS.md "
+        "I-39: the signal is orthogonal to CPI, the old name asserted a macro "
+        "reading the book does not have).",
     },
     {
-        "id": "ms-inflation-book",
-        "name": "Market-Signal Inflation Book",
+        "id": "ms-inflation-book",  # frozen id — see ms-growth-book above
+        "name": "Market-Signal Tight-Credit Flat-Curve Book",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": True,
@@ -1370,12 +1494,16 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'inflation' book (spread TIGHT, slope FLAT vs 10y "
-        "medians). ADR-007.",
+        "trace": "Market-signal 'tight-flat' book (spread TIGHT, slope FLAT vs their "
+        "10y medians). ADR-007; renamed from 'inflation' by the 2026-07-20 "
+        "addendum — measured over 418 monthly decisions this book averaged CPI "
+        "YoY 2.99 vs 2.23 for the wide-credit book and spent 33.0% of its time "
+        "above 3% against a 31.3% base rate, i.e. it does NOT track inflation "
+        "(docs/IMPROVEMENTS.md I-39).",
     },
     {
-        "id": "ms-slowdown-book",
-        "name": "Market-Signal Slowdown Book",
+        "id": "ms-slowdown-book",  # frozen id — see ms-growth-book above
+        "name": "Market-Signal Tight-Credit Steep-Curve Book",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": True,
@@ -1386,8 +1514,9 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'slowdown' book (spread TIGHT, slope STEEP vs 10y "
-        "medians). ADR-007.",
+        "trace": "Market-signal 'tight-steep' book (spread TIGHT, slope STEEP vs their "
+        "10y medians). ADR-007; renamed from 'slowdown' by the 2026-07-20 "
+        "addendum (docs/IMPROVEMENTS.md I-39).",
     },
 ]
 

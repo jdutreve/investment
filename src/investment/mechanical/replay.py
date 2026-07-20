@@ -393,12 +393,18 @@ def decision_dates(
     stepping `cadence` over [start,end]"). Anchored on the trading calendar:
     every Monday that is a trading day, or the first trading day of the week
     when Monday is a holiday — the live chain's Monday cadence, which is what
-    the replay accelerates."""
+    the replay accelerates.
+
+    `quarterly` exists to measure the cadence OPEN #2 needs (docs/V1_STRATEGY.md:
+    the Swiss Circular-36 6-month safe harbour wants longer holdings). Faber's
+    rebalancing evidence — monthly vs never differs by <0.50%/yr — says slowing
+    a STATIC rebalance is nearly free; it says nothing about slowing a SIGNAL,
+    which is why this is measured rather than assumed."""
     window = calendar[(calendar >= pd.Timestamp(start)) & (calendar <= pd.Timestamp(end))]
     if window.empty:
         return []
     frame = pd.Series(window, index=window)
-    freq = {"weekly": "W", "monthly": "ME"}[cadence]
+    freq = {"weekly": "W", "monthly": "ME", "quarterly": "QE"}[cadence]
     return [pd.Timestamp(d) for d in frame.resample(freq).first().dropna()]
 
 

@@ -134,6 +134,23 @@ def test_decision_dates_step_weekly_within_the_window() -> None:
     assert all(d in calendar for d in dates)
 
 
+def test_decision_dates_step_quarterly_and_monthly_are_coarser_than_weekly() -> None:
+    """The cadences OPEN #2 compares (docs/IMPROVEMENTS.md I-40) must actually
+    step at their stated frequency — a silently-wrong clock would make a
+    cadence comparison meaningless rather than fail."""
+    calendar = pd.DatetimeIndex(pd.bdate_range("2020-01-01", periods=520))  # ~2 years
+    window = (date(2020, 1, 6), date(2021, 12, 31))
+    weekly, monthly, quarterly = (
+        replay.decision_dates(calendar, *window, cadence)
+        for cadence in ("weekly", "monthly", "quarterly")
+    )
+    # One decision per calendar quarter / month, all real trading days in window.
+    assert len(quarterly) == len({(d.year, d.quarter) for d in quarterly}) == 8
+    assert len(monthly) == len({(d.year, d.month) for d in monthly}) == 24
+    assert len(quarterly) < len(monthly) < len(weekly)
+    assert all(d in calendar for d in quarterly)
+
+
 # -- a synthetic 2-portfolio world -----------------------------------------
 
 

@@ -39,10 +39,20 @@ from investment.mechanical.replay import NavMetrics, nav_metrics, shadow_book_na
 # The 3 books (docs/V1_STRATEGY.md). Concentrated tilts: the 50% sleeves are the
 # measured source of the +2.5-vs-B edge and the reason the single-asset cap was
 # raised 40 -> 50 (ADR-007 addendum). Weights are allocation percent points.
+#
+# NAMED AFTER THE SIGNAL STATE THAT SELECTS THEM, not after a macro regime
+# (renamed 2026-07-20, ADR-007 addendum; previously growth/inflation/slowdown).
+# The old names asserted a macro reading the books do not have: measured over
+# the 418 monthly decisions, the market signal is essentially ORTHOGONAL to CPI
+# — each book spent 28-33% of its time with CPI YoY above 3% against a 31.3%
+# base rate, and the book then called "inflation" averaged CPI 2.99 vs 2.23 for
+# the one called "growth" (docs/IMPROVEMENTS.md I-39). Since the Worker is an
+# LLM that reads these keys as semantic context, a book called "inflation" that
+# does not track inflation is a reasoning hazard, not just untidy naming.
 BOOKS: dict[str, dict[str, float]] = {
-    "growth": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
-    "inflation": {"SPY": 50.0, "GLD": 40.0, "IWN": 10.0},
-    "slowdown": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
+    "wide-credit": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
+    "tight-flat": {"SPY": 50.0, "GLD": 40.0, "IWN": 10.0},
+    "tight-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
 }
 
 # The 200d trend overlay: these sleeves are redirected to TREND_HAVEN when their
@@ -89,17 +99,20 @@ def classify_regime(
     spread: float, spread_median: float | None, slope: float, slope_median: float | None
 ) -> str:
     """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"):
-    credit spread WIDE vs its 10y median -> `growth` (risk-on, cycle expanding);
-    else, on the slope: FLAT vs its 10y median -> `inflation`, STEEP -> `slowdown`.
+    credit spread WIDE vs its 10y median -> `wide-credit` (stress is PRICED, so
+    the countercyclical response is to buy risk); else, on the slope: FLAT vs
+    its 10y median -> `tight-flat`, STEEP -> `tight-steep`.
+
+    The returned key names the SIGNAL STATE, not a macro regime — see BOOKS.
 
     A missing median (warm-up, before MEDIAN_MIN_DAYS of history) defaults to
-    `growth` — the equity-tilted book — exactly as the backtest did rather than
-    stalling; the trend overlay still guards its downside."""
+    `wide-credit` — the equity-tilted book — exactly as the backtest did rather
+    than stalling; the trend overlay still guards its downside."""
     if spread_median is None or pd.isna(spread_median) or spread > spread_median:
-        return "growth"
+        return "wide-credit"
     if slope_median is None or pd.isna(slope_median) or slope < slope_median:
-        return "inflation"
-    return "slowdown"
+        return "tight-flat"
+    return "tight-steep"
 
 
 def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) -> dict[str, float]:

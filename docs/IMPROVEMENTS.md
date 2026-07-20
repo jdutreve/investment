@@ -1039,6 +1039,236 @@ regardless.
 
 ---
 
+## I-39 — Equity weight vs the integrated high-inflation invariant — ✅ MEASURED, books unchanged
+
+**Status:** opened and resolved 2026-07-20. The composition question is
+CLOSED by measurement (see "RE-MEASURED" below); what remains open is a cheap
+book-RENAMING, carried at the end of this item. Kept in full rather than
+struck, because the negative result and the orthogonality finding are the
+reasons not to re-open it.
+
+**The finding (Faber, *Global Asset Allocation* 2015, read 2026-07-20).** Our
+`inflation` book is SPY 50 / GLD 40 / IWN 10 — i.e. 60% equities, and gold as
+the sole real asset. Two independent things now argue that composition is
+wrong for the state it is named after:
+
+1. **The book's Figure 48** (Credit Suisse, 1900-2014): real stock AND bond
+   returns are highest below ~3% inflation and "fall off a cliff" above 5%.
+   Equities are not the inflation pass-through they are assumed to be.
+2. **The book's ch. 11 decade table**: through the inflationary 1973-1981, the
+   two equity-heavy allocations with NO real assets were the two worst (60/40
+   -4.05%/yr real, Buffett -3.48%); the only positive ones were the real-asset-
+   heavy Marc Faber (+2.25%) and Permanent (+0.92%). The allocations that won
+   the 1970s then lost the disinflation that followed — the effect is
+   regime-conditional, which is precisely what a per-regime book is for.
+
+Claim (1) is now seeded as `inv-high-inflation-equities`, so **the seed corpus
+contains an invariant that contradicts a live book's composition.** That is the
+system working as designed (belief does not grant integration — the engine
+confronts it over 35y), but the contradiction should be resolved explicitly
+rather than left to drift.
+
+**⚠️ THE ENGINE ALREADY RULED — this item is NO LONGER merely deferred
+(2026-07-20).** Landed in the live DB and matured over the full 35y, the
+invariant came back **`integrated`**: score 0.636 on 28 confirmations / 16
+infirmations (N=44), clearing θ=0.60, N_min=3 and the binomial-tail test.
+`check_contradictions` over the integrated set reports none. So this is not a
+book-quote awaiting evidence — **on our own 1991-2026 data, equities measurably
+underperform the median asset class while CPI YoY is above 3%, and the
+`inflation` book holds 50% SPY into exactly that state.**
+
+Two things sharpen it. First, the same sweep leaves `inv-rising-growth-equities`
+**`rejected`** (score 0.506) — the seeded Dalio-tier belief that growth favours
+equities does not survive confrontation, while the Faber-sourced one does; the
+overlap flagged in the trace resolved against the incumbent. Second, the
+companion `inv-low-real-rate-nominal-bonds` came back **`proposed`** (0.542,
+26c/22i) — insufficient evidence, undecided. Only the equity claim is
+established; do not treat the pair as jointly confirmed.
+
+Related gap, same book: the stack holds **no commodities, no REITs, no TIPS**,
+and is **100% US** — no INTL/EM equity — while `BENCHMARK_CLASSES` already
+carries `inflation-protected`, `gold-commodities`, `INTL_EQUITY` and
+`EM_EQUITY`, and DJP/TIP are already priced in the DB. The candidate assets
+exist; only the measurement does not.
+
+**Scope if built:** re-measure the stack with an `inflation` book tilted toward
+real assets (candidates: DJP commodities, TIP, a REIT sleeve) at the expense of
+the SPY sleeve, on the SAME harness (`market_signal.run_market_signal` +
+`nav_metrics`) and the SAME 1991-2026 window, then check `cap_violations`. Note
+the honest limit up front: **our window starts 1991 and contains no 1970s-style
+inflation** (`inflation > 5` on 5.7% of prints), so the backtest CANNOT confirm
+the effect Faber measured — it can only show the cost of carrying the hedge in
+a low-inflation era. That asymmetry is the reason to treat this as a
+deliberate insurance decision, not a return optimisation.
+
+**RE-MEASURED 2026-07-20 — the books stay as they are. Resolution below.**
+
+**First correction: the premise above was mis-aimed.** The `inflation` BOOK is
+selected by the MARKET signal (credit spread + slope); the invariant fires on
+CPI YoY. Measured on the 418 monthly decisions, those two states are nearly
+ORTHOGONAL — each book spends 28-33% of its time with CPI>3 against a 31.3%
+base rate (growth 30.6%, inflation 33.0%, slowdown 28.3%). **The `inflation`
+book is not an inflation state: mean CPI 2.99 vs 2.23 for `growth`.** And when
+CPI>3, the stack is in `growth` 42.0% of the time — the book carrying 90%
+equities — versus `inflation` 46.6%. Mean equity weight carried while CPI>3 is
+**66.9%**, so fixing the `inflation` book alone would have addressed under half
+the indicted exposure. The coherence problem is real but it belongs to the
+STACK, not to one book.
+
+**Second: every remedy measured either costs return or breaches a cap.** Same
+harness/window/costs, control reproduces ADR-007 exactly (9.85% / -23.77%):
+
+| variant | CAGR full | CAGR holdout | MaxDD full | caps |
+|---|---|---|---|---|
+| baseline (control) | 9.85% | 7.77% | -23.8% | clean |
+| `inflation` book SPY→DJP | 8.52% | 8.23% | -24.2% | clean |
+| CPI>3 overlay, SPY→DJP | 9.26% | 8.68% | **-28.1%** | 1 breach |
+| CPI>3 overlay, SPY→GLD | 10.49% | 8.52% | **-27.0%** | 15 breaches |
+
+- The book-level swap (the idea this item opened with) **costs 1.33 pt/yr** on
+  the full window — as the orthogonality above predicts, it is aimed at the
+  wrong 46%.
+- Both CPI overlays breach the `-25%` drawdown cap. The SPY→GLD variant also
+  breaches the single-asset cap 15 times (GLD reaches 90% in the `inflation`
+  book, and GLD is NOT the exempt trend-haven). Its +0.64 pt is in any case
+  suspect: "hold more gold since 1991" leans on gold's 2000s run, a
+  single-episode effect this window cannot separate from the signal.
+
+**Resolution — keep the books, record the reason (the second option this item
+offered).** Not because the verdict is ignored: `inv-high-inflation-equities`
+stays `integrated` and its measurement stands. But the hedge it implies cannot
+be bought within the owner's own binding caps, and our 1991-2026 window has no
+1970s-style inflation (`inflation > 5` on 5.7% of prints), so the window shows
+the hedge's COST while being structurally unable to show its PAYOFF. Paying a
+certain 0.6-1.3 pt/yr for an insurance whose benefit is unobservable here is
+not a decision a backtest can justify. **No further variants should be
+searched** — the holdout has been consulted repeatedly and this is exactly the
+knob-hunt STRATEGY_COMPARISON's stop-optimizing rule forbids.
+
+**What SHOULD change (cheap, unmeasured, not a composition change):** the book
+named `inflation` does not track inflation, and the Worker (an LLM reading book
+names as semantic context) will be misled by it. Renaming the three books after
+what actually selects them — the credit/slope state, e.g. `tight-credit-flat`
+— removes a real reasoning hazard at zero backtest risk. Needs an ADR-007
+addendum since the names are seeded entities.
+
+**Trigger to revisit the COMPOSITION:** realized CPI YoY sustained above 5%
+(the regime this window lacks and the book's actual cliff), or forward
+paper-mode showing the stack's equity sleeve bleeding through an inflation
+episode. Not before — there is no new information to be had until then.
+
+---
+
+## I-40 — Quarterly cadence: better on average, but phase-fragile and it does NOT solve the tax constraint
+
+**Why deferred:** the measurement is done (below) and it does not support a
+cadence change on its own; what remains is an owner call tied to OPEN #2
+(docs/V1_STRATEGY.md), not an implementation.
+
+**Why it was measured.** Faber's rebalancing evidence (ch. 12: monthly vs never
+differs by <0.50%/yr; "yearly or even every few years is just fine") removes
+the a-priori that slower is worse, and OPEN #2 wants longer holdings for the
+Swiss Circular-36 six-month private-investor safe harbour. `quarterly` was
+therefore added to `replay.decision_dates` and the stack re-run.
+
+**Measured on the live DB** (1991-2026 full / 2016-2026 holdout, 20 bps,
+`market_signal.run_market_signal`):
+
+| cadence | CAGR full | CAGR holdout | MaxDD full | median hold |
+|---|---|---|---|---|
+| weekly | 9.83% | 8.85% | -23.6% | 14 d |
+| monthly (adopted) | 9.85% | 7.77% | -23.8% | 61 d |
+| quarterly (Mar phase) | 10.19% | 8.81% | -23.8% | 179 d |
+
+Quarterly looks like a free win at first read. **It is not — the phase test
+kills that reading.** A quarterly clock samples only 4 dates/yr, so which
+months it lands on matters. Re-running the three distinct phases:
+
+| phase | CAGR full | CAGR holdout | MaxDD full |
+|---|---|---|---|
+| quarterly@JAN | 12.09% | 10.91% | **-25.4%** |
+| quarterly@FEB | 10.86% | 10.51% | **-27.6%** |
+| quarterly@MAR | 10.19% | 8.81% | -23.8% |
+
+**The spread across phases is 1.90 pt CAGR (full) / 2.10 pt (holdout) — wider
+than the entire +2.5 edge over B that justified the pivot.** So:
+
+- **Direction is consistent**: all 3 phases beat monthly on BOTH windows (6/6),
+  mean +1.2 pt full / +2.3 pt holdout. Slowing the clock does not cost return
+  — Faber's finding survives contact with a signal-driven stack, which was not
+  obvious a priori (his evidence covers static rebalancing only).
+- **Magnitude is not knowable**: picking the 12.09% phase because it backtests
+  best is phase-mining, and STRATEGY_COMPARISON's stop-optimizing rule applies
+  with full force — the holdout has been consulted many times.
+- **Drawdown widens**: 2 of 3 phases breach the ADR-007 `-25%` cap (-25.4%,
+  -27.6%) that monthly clears at -23.8%. A cadence change here is a cap
+  question, not just a return question.
+- **It does NOT deliver the tax rationale it was tested for.** Median holding
+  is ~94 days in 5 of the 6 phase/window cells — well short of the 182-day
+  safe harbour. Only quarterly@MAR on the full window reaches 179 days, and
+  even that falls to 94 on the holdout. **Quarterly does not resolve OPEN #2.**
+  If the six-month threshold must genuinely be cleared, the honest candidates
+  are semi-annual/annual cadence or a regime-only clock (no trend overlay
+  re-evaluation) — neither measured here — or a tax wrapper.
+
+**Conclusion for now:** keep MONTHLY as adopted. Quarterly is not rejected on
+return, but it buys a wider outcome distribution and a cap breach in exchange
+for a tax benefit it does not actually deliver.
+
+**Trigger to revisit:** if the Swiss fiduciaire (OPEN #2) confirms the
+quasi-professional risk is material, re-open with semi-annual and regime-only
+clocks measured too, and choose the phase by a rule fixed IN ADVANCE (e.g.
+first decision month after go-live), never by backtest rank.
+
+---
+
+## I-41 — The stack is 100% US: no international or EM equity in any book
+
+**Why deferred:** same reason as I-39 — it changes the composition ADR-007 was
+signed on. Split out from I-39 deliberately: that item is about what the
+`inflation` book holds, this one is a home-bias question affecting **all three
+books**, with its own evidence and its own data horizon.
+
+**The finding (Faber, *Global Asset Allocation* 2015, read 2026-07-20).** All
+five tickers the stack can hold (SPY, IWN, GLD, VCIT, IEF) are US. The book's
+central recommendation is the opposite: "at a minimum, an investor should
+consider moving to a global 60/40 portfolio to reflect the global market
+capitalization". Its ch. 6 Global Market Portfolio and ch. 11 comparison both
+rest on global exposure, and ch. 13's summary repeats it.
+
+**The honest counterweight — do not treat this as an obvious fix.** The book's
+own Figure 41 is the reason: across 8 famous allocations 1973-2013 the spread
+in real return is 1.84 pt, and excluding the Permanent Portfolio **all of them
+land within ONE point**. Faber's own conclusion from that table is that the
+allocation choice barely matters and fees dominate — which cuts against
+expecting a measurable gain from adding EFA, and cuts against churning the
+books to chase one. Our stack's edge comes from the regime signal and the trend
+overlay, not from the breadth of the menu. Adding international is a
+diversification/robustness argument (the US outperformance of 1991-2026 is not
+guaranteed to repeat), NOT a return argument.
+
+**Data available (checked on the live DB, 2026-07-20):**
+- `EFA` (INTL_EQUITY) 1991-12-30 → 2026-07-17, ~8.7k rows — covers essentially
+  the whole ADR-007 window, so it is testable at full length.
+- `EEM` (EM_EQUITY) only from 2003-04 — adding it TRUNCATES any backtest to
+  2003+, losing the dot-com bust and half the window that earned the pivot.
+  EFA-only is the change that can actually be measured against 9.85%/-24%.
+
+**Scope if built:** measure an EFA sleeve inside the `growth` book (the
+risk-on book, where an international equity tilt belongs) against the current
+US-only stack on the same harness and window; report whether the -24% drawdown
+and the +2.5-vs-B edge survive. Note the trend overlay currently redirects only
+SPY and GLD (`TREND_SLEEVES`): an EFA sleeve would need its own 200d rule or it
+silently escapes the drawdown control that is the stack's whole downside
+defence — that, not the allocation, is the real implementation risk here.
+
+**Trigger to revisit:** at the same time as I-39 (both are book-composition
+changes; measuring them separately doubles the work and neither is urgent), or
+if forward paper-mode shows the stack's edge concentrated in a US-specific
+episode.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:

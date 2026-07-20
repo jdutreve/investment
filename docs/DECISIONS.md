@@ -443,3 +443,31 @@ is NARROW and explicit: only IEF, only via the documented `exempt` argument; the
 cap still binds every other sleeve and every seeded-portfolio proposal (the
 `exempt` default is empty). This is why it does not reopen the "binding caps bind
 ALL candidacy" principle — it is a named exception, not a hole.
+
+**Third addendum (2026-07-20, owner sign-off) — the 3 books are renamed after
+the SIGNAL STATE, not after a macro regime.** The books were seeded as
+`growth` / `inflation` / `slowdown`, names that assert a macro reading they do
+not carry. Measured over the 418 monthly decisions (docs/IMPROVEMENTS.md I-39):
+the market signal is essentially ORTHOGONAL to CPI — each book spends 28-33% of
+its time with CPI YoY above 3% against a 31.3% base rate, and the book called
+"inflation" averages CPI 2.99 versus 2.23 for the one called "growth". The names
+were therefore false in the one dimension they claimed. Since the Worker is an
+LLM that reads book names and decision keys as semantic context, this is a
+reasoning hazard, not cosmetics.
+
+Renamed: `growth` → **`wide-credit`** (credit spread WIDE vs its 10y median —
+stress is priced, so the countercyclical response is to buy risk), `inflation` →
+**`tight-flat`** (spread TIGHT, slope FLAT), `slowdown` → **`tight-steep`**
+(spread TIGHT, slope STEEP). This touches the `BOOKS` keys and
+`classify_regime`'s return in `mechanical/market_signal.py`, and the `name` /
+`trace` of the three seeded portfolios.
+
+**Entity IDs are deliberately NOT renamed** (`ms-growth-book`,
+`ms-inflation-book`, `ms-slowdown-book` are frozen). Those ids already appear in
+committed EventLog payloads (ValuationEvent, RankingEvent), and EventLog is
+append-only — rewriting them is forbidden, while leaving the log pointing at ids
+the tables no longer hold would be precisely the audit-trail/state divergence
+EventLog-first exists to prevent. The id/name mismatch is the deliberate cost of
+that guarantee and is commented at the seed site. Zero allocation change: the
+weights are untouched and the anti-drift replay still reproduces 9.85% CAGR /
+-23.8% maxDD.
