@@ -19,8 +19,9 @@ from investment.db.seed_data import PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
 
 # Every ticker referenced by PORTFOLIOS.allocation or ALL_WEATHER_BENCHMARK
-# (excluding the synthetic 'cash' asset), plus the risk-free rate.
-_TICKERS = ("SPY", "TLT", "IEF", "GLD", "DJP", "EFA", "SHY", "VTI", "^IRX")
+# (excluding the synthetic 'cash' asset), plus the risk-free rate. IWN/VCIT are
+# the market-signal books' sleeves (ADR-007).
+_TICKERS = ("SPY", "TLT", "IEF", "GLD", "DJP", "EFA", "SHY", "VTI", "IWN", "VCIT", "^IRX")
 
 
 def _synthetic_price_series(idx: pd.DatetimeIndex, seed_no: int) -> pd.Series:

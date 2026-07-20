@@ -124,27 +124,103 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
 }
 
 INVARIANT_AUTHOR_CONFIG: list[dict[str, object]] = [
-    {"author": "dalio", "floor_weight": 0.40,
-     "initial_weight_min": 0.80, "initial_weight_max": 0.90},
-    {"author": "marks", "floor_weight": 0.35,
-     "initial_weight_min": 0.75, "initial_weight_max": 0.85},
-    {"author": "other", "floor_weight": 0.20,
-     "initial_weight_min": 0.40, "initial_weight_max": 0.70},
-    {"author": "system", "floor_weight": 0.05,
-     "initial_weight_min": 0.15, "initial_weight_max": 0.25},
+    {
+        "author": "dalio",
+        "floor_weight": 0.40,
+        "initial_weight_min": 0.80,
+        "initial_weight_max": 0.90,
+    },
+    {
+        "author": "marks",
+        "floor_weight": 0.35,
+        "initial_weight_min": 0.75,
+        "initial_weight_max": 0.85,
+    },
+    {
+        "author": "other",
+        "floor_weight": 0.20,
+        "initial_weight_min": 0.40,
+        "initial_weight_max": 0.70,
+    },
+    {
+        "author": "system",
+        "floor_weight": 0.05,
+        "initial_weight_min": 0.15,
+        "initial_weight_max": 0.25,
+    },
 ]
 
 ALLOWED_TICKERS: list[dict[str, object]] = [
-    {"ticker": "TIP", "asset_class": "US_TIPS", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "TLT", "asset_class": "US_LONG_TREASURY", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "IEF", "asset_class": "US_TREASURY_7_10", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "GLD", "asset_class": "GOLD", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "DJP", "asset_class": "COMMODITIES", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "SPY", "asset_class": "US_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "VTI", "asset_class": "US_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "QQQ", "asset_class": "US_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "EFA", "asset_class": "INTL_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "EEM", "asset_class": "EM_EQUITY", "currency": "USD", "source": "yahoo", "transform": "none"},
+    {
+        "ticker": "TIP",
+        "asset_class": "US_TIPS",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "TLT",
+        "asset_class": "US_LONG_TREASURY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "IEF",
+        "asset_class": "US_TREASURY_7_10",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "GLD",
+        "asset_class": "GOLD",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "DJP",
+        "asset_class": "COMMODITIES",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "SPY",
+        "asset_class": "US_EQUITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "VTI",
+        "asset_class": "US_EQUITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "QQQ",
+        "asset_class": "US_EQUITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "EFA",
+        "asset_class": "INTL_EQUITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "EEM",
+        "asset_class": "EM_EQUITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
     # Small-cap VALUE (a factor tilt, not a size class): the single largest
     # alpha source in the countercyclical state of the art (Verdad/Rasmussen —
     # docs/Countercyclical+Investing; ~40% of its growth sleeve, the whole
@@ -153,8 +229,20 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # factor at all. IWN = Russell 2000 Value, the closest liquid match to the
     # paper's Fama-French small value. Spliced to DFSVX (1993, corr 0.966) —
     # see HISTORY_PROXIES.
-    {"ticker": "IWN", "asset_class": "US_SMALL_VALUE", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "SHY", "asset_class": "US_TREASURY_1_3", "currency": "USD", "source": "yahoo", "transform": "none"},
+    {
+        "ticker": "IWN",
+        "asset_class": "US_SMALL_VALUE",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "SHY",
+        "asset_class": "US_TREASURY_1_3",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
     # Investment-grade CORPORATE credit — the market-signal slowdown sleeve's co-leader
     # (docs/Countercyclical+Investing, Q4: 50% DJ IG bonds), the credit-spread
     # carry that government treasuries lack. VCIT (Vanguard Intermediate-Term
@@ -164,20 +252,75 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # the gate), while VCIT tracks its own-issuer proxy VFICX at monthly 0.978.
     # Uses RESAMPLED (monthly) splice validation (seed.py) — the same lens as
     # GLD: daily 0.835 is duration-noise, monthly is the real fit.
-    {"ticker": "VCIT", "asset_class": "US_IG_CREDIT", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "DBC", "asset_class": "COMMODITIES", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "^IRX", "asset_class": "RISK_FREE", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "^VIX", "asset_class": "VOLATILITY", "currency": "USD", "source": "yahoo", "transform": "none"},
-    {"ticker": "CHFUSD=X", "asset_class": "FX", "currency": "USD", "source": "yahoo", "transform": "none"},
+    {
+        "ticker": "VCIT",
+        "asset_class": "US_IG_CREDIT",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "DBC",
+        "asset_class": "COMMODITIES",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "^IRX",
+        "asset_class": "RISK_FREE",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "^VIX",
+        "asset_class": "VOLATILITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "CHFUSD=X",
+        "asset_class": "FX",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
     # Revised macro series (ADR-003): fetched as ALFRED first-release vintages
     # (market/fetcher.py REVISED_SERIES), so each observation is dated at its
     # true vintage publication date — NO availability_lag_days applies (it is a
     # fallback only for the current-vintage path, which these never take).
-    {"ticker": "CPIAUCSL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
-    {"ticker": "UNRATE", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none"},
-    {"ticker": "INDPRO", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "yoy_pct"},
+    {
+        "ticker": "CPIAUCSL",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "yoy_pct",
+    },
+    {
+        "ticker": "UNRATE",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+    },
+    {
+        "ticker": "INDPRO",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "yoy_pct",
+    },
     # Non-revised (current-vintage fetch): dated at reference date + availability_lag_days.
-    {"ticker": "T10Y2Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    {
+        "ticker": "T10Y2Y",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 1,
+    },
     # Credit spread (Moody's Baa corporate yield minus the 10y Treasury) — the
     # market-priced, contemporaneous business-cycle signal (Verdad/Rasmussen,
     # docs/Countercyclical+Investing; the Fama-French "default spread"): wide =
@@ -189,31 +332,99 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # stress cycle, is daily from 1986 (before the ~1991 floor), and is not
     # ICE-licensed. DATA-LAYER availability only: wiring it into regime
     # CLASSIFICATION is the detector rework (I-38, measure-first), not this row.
-    {"ticker": "BAA10Y", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    {
+        "ticker": "BAA10Y",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 1,
+    },
     # 10-year constant-maturity yield — the LEVEL, which T10Y2Y (a 10y-2y
     # spread) does not carry and ^IRX (13-week bill) is the wrong maturity
     # for. Fetched for the `real_yield_10y` derived signal below: the LONG
     # real yield is what gold's opportunity-cost claim is stated against, and
     # it partitions history very differently from the short real rate
     # (irx - CPI YoY sits below 2.5% for 88% of 1991-2026).
-    {"ticker": "DGS10", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
+    {
+        "ticker": "DGS10",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 1,
+    },
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch. Lag estimates: WALCL/
     # ECBASSETSW weekly releases (few days); M2SL monthly (~2w, FRED's own calendar);
     # JPNASSETS (BoJ) monthly with a longer lag (~1m).
-    {"ticker": "M2SL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 17},
-    {"ticker": "WALCL", "asset_class": "MACRO", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 5},
-    {"ticker": "ECBASSETSW", "asset_class": "MACRO", "currency": "EUR", "source": "fred", "transform": "none", "availability_lag_days": 5},
-    {"ticker": "JPNASSETS", "asset_class": "MACRO", "currency": "JPY", "source": "fred", "transform": "none", "availability_lag_days": 30},
+    {
+        "ticker": "M2SL",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 17,
+    },
+    {
+        "ticker": "WALCL",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 5,
+    },
+    {
+        "ticker": "ECBASSETSW",
+        "asset_class": "MACRO",
+        "currency": "EUR",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 5,
+    },
+    {
+        "ticker": "JPNASSETS",
+        "asset_class": "MACRO",
+        "currency": "JPY",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 30,
+    },
     # FX helpers for the GLOBAL_LIQUIDITY USD-conversion (market/liquidity.py
     # usd_convert). FRED, not Yahoo: DEXUSEU (USD per EUR, from 1999) and DEXJPUS
     # (JPY per USD, from 1971) reach back far enough that WALCL (2002) — not the
     # FX feed — sets the composite's floor; Yahoo's EURUSD=X/JPY=X only start
     # ~2003 and would have gated the composite two years late (skipna=False).
-    {"ticker": "DEXUSEU", "asset_class": "FX", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
-    {"ticker": "DEXJPUS", "asset_class": "FX", "currency": "USD", "source": "fred", "transform": "none", "availability_lag_days": 1},
-    {"ticker": "GROWTH_COMPOSITE", "asset_class": "MACRO", "currency": "USD", "source": "composite", "transform": "composite"},
-    {"ticker": "GLOBAL_LIQUIDITY", "asset_class": "GLOBAL_LIQUIDITY", "currency": "USD", "source": "composite", "transform": "composite"},
+    {
+        "ticker": "DEXUSEU",
+        "asset_class": "FX",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 1,
+    },
+    {
+        "ticker": "DEXJPUS",
+        "asset_class": "FX",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 1,
+    },
+    {
+        "ticker": "GROWTH_COMPOSITE",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "composite",
+        "transform": "composite",
+    },
+    {
+        "ticker": "GLOBAL_LIQUIDITY",
+        "asset_class": "GLOBAL_LIQUIDITY",
+        "currency": "USD",
+        "source": "composite",
+        "transform": "composite",
+    },
 ]
 # Macro/composite tickers are exposed to the Worker's market_fetch but are
 # NEVER valid allocation assets (Writeback realloc gate 5 checks asset_class).
@@ -383,99 +594,191 @@ HISTORY_PROXIES: dict[str, tuple[str, str, int]] = {
 # ---------------------------------------------------------------------------
 
 FRAMEWORKS: list[dict[str, object]] = [
-    {"id": "4seasons", "name": "Ray Dalio 4 Seasons",
-     "description": "Growth x inflation matrix",
-     "enabled": True, "accuracy": None,
-     "trace": "Primary framework for V1 — see Dalio Principles."},
-    {"id": "permanent", "name": "Browne Permanent",
-     "enabled": False, "accuracy": None,
-     "trace": "Reference framework; not yet active in V1."},
-    {"id": "liquidity-cycle", "name": "Global Liquidity Cycle",
-     "enabled": False, "accuracy": None,
-     "trace": "Reference framework; not yet active in V1."},
+    {
+        "id": "4seasons",
+        "name": "Ray Dalio 4 Seasons",
+        "description": "Growth x inflation matrix",
+        "enabled": True,
+        "accuracy": None,
+        "trace": "Primary framework for V1 — see Dalio Principles.",
+    },
+    {
+        "id": "permanent",
+        "name": "Browne Permanent",
+        "enabled": False,
+        "accuracy": None,
+        "trace": "Reference framework; not yet active in V1.",
+    },
+    {
+        "id": "liquidity-cycle",
+        "name": "Global Liquidity Cycle",
+        "enabled": False,
+        "accuracy": None,
+        "trace": "Reference framework; not yet active in V1.",
+    },
+    {
+        "id": "market-signal",
+        "name": "Market-Signal Countercyclical",
+        "description": "Market-priced credit-spread + yield-slope regime selecting "
+        "concentrated books, with a 200d trend overlay (after "
+        "Verdad/Rasmussen).",
+        "enabled": True,
+        "accuracy": None,
+        "trace": "V1 adopted allocation framework — ADR-007; docs/V1_STRATEGY.md.",
+    },
 ]
 
 REGIME_TYPES: list[dict[str, object]] = [
-    {"id": "rising-growth-falling-inflation", "name": "Goldilocks",
-     "framework_id": "4seasons", "aliases": [],
-     "description": "Growth composite rising and CPI YoY decelerating — goldilocks."},
-    {"id": "rising-growth-rising-inflation", "name": "Overheating",
-     "framework_id": "4seasons", "aliases": ["overheating"],
-     "description": "Growth composite rising with CPI YoY accelerating — late cycle."},
-    {"id": "falling-growth-rising-inflation", "name": "Stagflation",
-     "framework_id": "4seasons", "aliases": ["stagflation"],
-     "description": "Growth composite falling with CPI YoY > 2.5 and accelerating."},
-    {"id": "falling-growth-falling-inflation", "name": "Disinflation/Recession",
-     "framework_id": "4seasons", "aliases": [],
-     "description": "Growth composite falling and CPI YoY decelerating; deflation may layer as tag."},
-    {"id": "uncertain", "name": "Uncertain",
-     "framework_id": "4seasons", "aliases": [],
-     "description": "Contradictory or straddled indicators (any flat axis)."},
+    {
+        "id": "rising-growth-falling-inflation",
+        "name": "Goldilocks",
+        "framework_id": "4seasons",
+        "aliases": [],
+        "description": "Growth composite rising and CPI YoY decelerating — goldilocks.",
+    },
+    {
+        "id": "rising-growth-rising-inflation",
+        "name": "Overheating",
+        "framework_id": "4seasons",
+        "aliases": ["overheating"],
+        "description": "Growth composite rising with CPI YoY accelerating — late cycle.",
+    },
+    {
+        "id": "falling-growth-rising-inflation",
+        "name": "Stagflation",
+        "framework_id": "4seasons",
+        "aliases": ["stagflation"],
+        "description": "Growth composite falling with CPI YoY > 2.5 and accelerating.",
+    },
+    {
+        "id": "falling-growth-falling-inflation",
+        "name": "Disinflation/Recession",
+        "framework_id": "4seasons",
+        "aliases": [],
+        "description": "Growth composite falling and CPI YoY decelerating; deflation may layer as tag.",
+    },
+    {
+        "id": "uncertain",
+        "name": "Uncertain",
+        "framework_id": "4seasons",
+        "aliases": [],
+        "description": "Contradictory or straddled indicators (any flat axis).",
+    },
 ]
 
 INVARIANTS: list[dict[str, object]] = [
-    {"id": "inv-inflation-persistence-tips",
-     "title": "Persistent inflation favors TIPS, commodities, and gold",
-     "description": "When CPI YoY > 2.5% and speed > 0, real yields fall and "
-                    "TIPS/gold/commodities outperform nominal bonds.",
-     "example": "2021-2022: TIP +2.3% while TLT -26%.",
-     "source": "Dalio — Principles for Navigating Big Debt Crises, ch. inflation",
-     "author": "dalio", "status": "proposed",
-     "condition": [{"signal": "inflation", "feature": "level", "op": ">", "value": 2.5},
-                   {"signal": "inflation", "feature": "speed", "op": ">", "value": 0}],
-     "effect": {"handle": "asset-class:inflation-protected", "metric": "return",
-                "method": "cross_class", "direction": "outperform"},
-     "tags": ["tips", "inflation", "gold",
-              "asset:TIP", "asset:GLD", "indicator:real-yield",
-              "regime:falling-growth-rising-inflation",
-              "regime:rising-growth-rising-inflation"],
-     "weight_initial": 0.85, "floor_weight": 0.40,
-     "trace": "Dalio Principles; chapter on inflation hedges."},
-    {"id": "inv-falling-growth-duration",
-     "title": "Falling growth favors duration and cash-like defense",
-     "description": "Contracting growth with rate-cut expectations supports long "
-                    "duration (TLT) and the cash sleeve.",
-     "example": "2008 H2, 2019 H2: TLT strongly positive as growth rolled over.",
-     "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
-     "author": "dalio", "status": "proposed",
-     "condition": [{"signal": "growth", "feature": "speed", "op": "<", "value": 0}],
-     "effect": {"handle": "asset-class:bonds", "metric": "return",
-                "method": "cross_class", "direction": "outperform"},
-     "tags": ["duration", "recession",
-              "asset:TLT", "asset:cash",
-              "regime:falling-growth-falling-inflation"],
-     "weight_initial": 0.80, "floor_weight": 0.40,
-     "trace": "Dalio Principles; recession playbook."},
-    {"id": "inv-rising-growth-equities",
-     "title": "Rising growth favors equity exposure",
-     "description": "Expanding growth with positive earnings revisions supports "
-                    "broad equity beta (SPY/VTI).",
-     "example": "2016-2018, 2023-2024 expansions.",
-     "source": "Standard cycle finance; multi-decade empirical regularity",
-     "author": "dalio", "status": "proposed",
-     "condition": [{"signal": "growth", "feature": "speed", "op": ">", "value": 0}],
-     "effect": {"handle": "asset-class:equities", "metric": "return",
-                "method": "cross_class", "direction": "outperform"},
-     "tags": ["equities", "growth",
-              "asset:SPY", "asset:VTI",
-              "regime:rising-growth-falling-inflation",
-              "regime:rising-growth-rising-inflation"],
-     "weight_initial": 0.80, "floor_weight": 0.40,
-     "trace": "Standard cycle finance."},
-    {"id": "inv-liquidity-tightening-risk",
-     "title": "Tightening global liquidity pressures risk assets",
-     "description": "GLOBAL_LIQUIDITY level < 100 with speed < 0 historically "
-                    "compresses risk-asset multiples.",
-     "example": "2018 QT, 2022 tightening.",
-     "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
-     "author": "marks", "status": "proposed",
-     "condition": [{"signal": "liquidity", "feature": "level", "op": "<", "value": 100},
-                   {"signal": "liquidity", "feature": "speed", "op": "<", "value": 0}],
-     "effect": {"handle": "asset-class:equities", "metric": "return",
-                "method": "cross_class", "direction": "underperform"},
-     "tags": ["liquidity", "risk", "indicator:global-liquidity"],
-     "weight_initial": 0.75, "floor_weight": 0.35,
-     "trace": "Howard Marks memos on cycles and liquidity."},
+    {
+        "id": "inv-inflation-persistence-tips",
+        "title": "Persistent inflation favors TIPS, commodities, and gold",
+        "description": "When CPI YoY > 2.5% and speed > 0, real yields fall and "
+        "TIPS/gold/commodities outperform nominal bonds.",
+        "example": "2021-2022: TIP +2.3% while TLT -26%.",
+        "source": "Dalio — Principles for Navigating Big Debt Crises, ch. inflation",
+        "author": "dalio",
+        "status": "proposed",
+        "condition": [
+            {"signal": "inflation", "feature": "level", "op": ">", "value": 2.5},
+            {"signal": "inflation", "feature": "speed", "op": ">", "value": 0},
+        ],
+        "effect": {
+            "handle": "asset-class:inflation-protected",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "outperform",
+        },
+        "tags": [
+            "tips",
+            "inflation",
+            "gold",
+            "asset:TIP",
+            "asset:GLD",
+            "indicator:real-yield",
+            "regime:falling-growth-rising-inflation",
+            "regime:rising-growth-rising-inflation",
+        ],
+        "weight_initial": 0.85,
+        "floor_weight": 0.40,
+        "trace": "Dalio Principles; chapter on inflation hedges.",
+    },
+    {
+        "id": "inv-falling-growth-duration",
+        "title": "Falling growth favors duration and cash-like defense",
+        "description": "Contracting growth with rate-cut expectations supports long "
+        "duration (TLT) and the cash sleeve.",
+        "example": "2008 H2, 2019 H2: TLT strongly positive as growth rolled over.",
+        "source": "Dalio — Principles for Navigating Big Debt Crises, ch. recession",
+        "author": "dalio",
+        "status": "proposed",
+        "condition": [{"signal": "growth", "feature": "speed", "op": "<", "value": 0}],
+        "effect": {
+            "handle": "asset-class:bonds",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "outperform",
+        },
+        "tags": [
+            "duration",
+            "recession",
+            "asset:TLT",
+            "asset:cash",
+            "regime:falling-growth-falling-inflation",
+        ],
+        "weight_initial": 0.80,
+        "floor_weight": 0.40,
+        "trace": "Dalio Principles; recession playbook.",
+    },
+    {
+        "id": "inv-rising-growth-equities",
+        "title": "Rising growth favors equity exposure",
+        "description": "Expanding growth with positive earnings revisions supports "
+        "broad equity beta (SPY/VTI).",
+        "example": "2016-2018, 2023-2024 expansions.",
+        "source": "Standard cycle finance; multi-decade empirical regularity",
+        "author": "dalio",
+        "status": "proposed",
+        "condition": [{"signal": "growth", "feature": "speed", "op": ">", "value": 0}],
+        "effect": {
+            "handle": "asset-class:equities",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "outperform",
+        },
+        "tags": [
+            "equities",
+            "growth",
+            "asset:SPY",
+            "asset:VTI",
+            "regime:rising-growth-falling-inflation",
+            "regime:rising-growth-rising-inflation",
+        ],
+        "weight_initial": 0.80,
+        "floor_weight": 0.40,
+        "trace": "Standard cycle finance.",
+    },
+    {
+        "id": "inv-liquidity-tightening-risk",
+        "title": "Tightening global liquidity pressures risk assets",
+        "description": "GLOBAL_LIQUIDITY level < 100 with speed < 0 historically "
+        "compresses risk-asset multiples.",
+        "example": "2018 QT, 2022 tightening.",
+        "source": "Howard Marks — memos on cycles and liquidity (multiple, 2008-2023)",
+        "author": "marks",
+        "status": "proposed",
+        "condition": [
+            {"signal": "liquidity", "feature": "level", "op": "<", "value": 100},
+            {"signal": "liquidity", "feature": "speed", "op": "<", "value": 0},
+        ],
+        "effect": {
+            "handle": "asset-class:equities",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "underperform",
+        },
+        "tags": ["liquidity", "risk", "indicator:global-liquidity"],
+        "weight_initial": 0.75,
+        "floor_weight": 0.35,
+        "trace": "Howard Marks memos on cycles and liquidity.",
+    },
     # Owner-supplied revision (2026-07-15) after independent 1991-2025
     # validation. Conformed on entry; every departure is mechanical:
     #   signal 'liquidity'      -> 'broad_money' + 'broad_money_accel'. The
@@ -501,59 +804,87 @@ INVARIANTS: list[dict[str, object]] = [
     #   status 'integrated' -> 'proposed'; validated_at -> null;
     #   market_score 0.90 / counts 9-1 / weight_effective 0.63 -> birth
     #   defaults. The submitted evidence stays in `source`/`trace`.
-    {"id": "inv-liquidity-easing-risk",
-     "title": "Accelerating broad money confirmed by positive equity trend favors equities",
-     "description": "When broad money growth is positive and accelerating year-over-year, "
-                    "and the equity market remains above its long-term trend, equities tend "
-                    "to outperform cash and usually nominal government bonds. The "
-                    "market-trend condition confirms that monetary liquidity is effectively "
-                    "transmitting into risk-asset prices.",
-     "example": "1991-2025 owner validation (on OECD M3, not the M2 this invariant now "
-                "reads): 10 independent annual signals; the following year's S&P 500 total "
-                "return beat 3-month bills in 10/10 and beat both bills and 10y Treasuries "
-                "in 9/10. Mean 19.4%, worst +5.5%. The UNCONFIRMED liquidity signal gave "
-                "13/16 and included a -36.6% outcome — the trend filter is what removes it.",
-     "source": "Howard Marks — memos on cycles and liquidity; OECD/FRED broad money; "
-               "Damodaran historical returns; Moskowitz, Ooi and Pedersen — Time Series "
-               "Momentum; Faber — A Quantitative Approach to Tactical Asset Allocation",
-     "author": "marks", "status": "proposed",
-     "condition": [{"signal": "broad_money", "feature": "level", "op": ">", "value": 0},
-                   {"signal": "broad_money_accel", "feature": "level", "op": ">", "value": 0},
-                   {"signal": "equity_trend", "feature": "level", "op": ">", "value": 0}],
-     "effect": {"handle": "asset-class:equities", "metric": "return",
-                "method": "cross_class", "direction": "outperform"},
-     "tags": ["liquidity", "risk", "equities", "trend", "momentum",
-              "asset:SPY", "indicator:broad-money", "indicator:equity-trend",
-              "comparator:cash", "comparator:nominal-bonds",
-              "trend:sma10", "horizon:12m", "validation:1991-2025"],
-     "weight_initial": 0.75, "floor_weight": 0.35,
-     "trace": "Owner validation on 416 monthly observations 1991-2025 using OECD M3 YoY "
-              "(October reading, 2-month publication lag) and SPY/SMA10m: 10/10 vs bills, "
-              "9/10 vs bills AND 10y (market_score 0.90), mean next-year return 19.4%, "
-              "worst +5.5%, present in every decade. Fisher exact one-sided p ~0.064 vs "
-              "cash, ~0.077 vs both; strong but not conclusive at N=10, and OECD values are "
-              "current-vintage (later revisions possible). Credit spreads were tested and "
-              "dropped: their first derivative shrank the sample and added instability. "
-              "CAVEATS on the engine's own re-test: (a) it reads M2, not M3 — every US M3 "
-              "series is discontinued, so the cited evidence does not transfer and this is "
-              "an independent test; (b) the engine confronts at proposal_outcome_weeks "
-              "(12 WEEKS), not the 12-MONTH horizon validated here (docs/IMPROVEMENTS.md "
-              "I-32)."},
-    {"id": "inv-diversification-drawdown",
-     "title": "Diversification lowers drawdown but dilutes upside",
-     "description": "Cross-asset diversification reduces max_drawdown at the "
-                    "cost of upside capture in single-regime bull runs.",
-     "example": "2008: 60/40 -30% vs All Weather ~-12%.",
-     "source": "Dalio — All Weather framework documentation",
-     "author": "dalio", "status": "proposed",
-     "condition": [],
-     "effect": {"handle": "strategy:four-seasons-rp", "metric": "max_drawdown",
-                "method": "cross_strategy", "direction": "outperform"},
-     "tags": ["diversification", "drawdown",
-              "indicator:max_drawdown", "phase:accumulation"],
-     "weight_initial": 0.70, "floor_weight": 0.40,
-     "trace": "Dalio Principles; All Weather chapter (always-clock; lower "
-              "drawdown than the other strategies)."},
+    {
+        "id": "inv-liquidity-easing-risk",
+        "title": "Accelerating broad money confirmed by positive equity trend favors equities",
+        "description": "When broad money growth is positive and accelerating year-over-year, "
+        "and the equity market remains above its long-term trend, equities tend "
+        "to outperform cash and usually nominal government bonds. The "
+        "market-trend condition confirms that monetary liquidity is effectively "
+        "transmitting into risk-asset prices.",
+        "example": "1991-2025 owner validation (on OECD M3, not the M2 this invariant now "
+        "reads): 10 independent annual signals; the following year's S&P 500 total "
+        "return beat 3-month bills in 10/10 and beat both bills and 10y Treasuries "
+        "in 9/10. Mean 19.4%, worst +5.5%. The UNCONFIRMED liquidity signal gave "
+        "13/16 and included a -36.6% outcome — the trend filter is what removes it.",
+        "source": "Howard Marks — memos on cycles and liquidity; OECD/FRED broad money; "
+        "Damodaran historical returns; Moskowitz, Ooi and Pedersen — Time Series "
+        "Momentum; Faber — A Quantitative Approach to Tactical Asset Allocation",
+        "author": "marks",
+        "status": "proposed",
+        "condition": [
+            {"signal": "broad_money", "feature": "level", "op": ">", "value": 0},
+            {"signal": "broad_money_accel", "feature": "level", "op": ">", "value": 0},
+            {"signal": "equity_trend", "feature": "level", "op": ">", "value": 0},
+        ],
+        "effect": {
+            "handle": "asset-class:equities",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "outperform",
+        },
+        "tags": [
+            "liquidity",
+            "risk",
+            "equities",
+            "trend",
+            "momentum",
+            "asset:SPY",
+            "indicator:broad-money",
+            "indicator:equity-trend",
+            "comparator:cash",
+            "comparator:nominal-bonds",
+            "trend:sma10",
+            "horizon:12m",
+            "validation:1991-2025",
+        ],
+        "weight_initial": 0.75,
+        "floor_weight": 0.35,
+        "trace": "Owner validation on 416 monthly observations 1991-2025 using OECD M3 YoY "
+        "(October reading, 2-month publication lag) and SPY/SMA10m: 10/10 vs bills, "
+        "9/10 vs bills AND 10y (market_score 0.90), mean next-year return 19.4%, "
+        "worst +5.5%, present in every decade. Fisher exact one-sided p ~0.064 vs "
+        "cash, ~0.077 vs both; strong but not conclusive at N=10, and OECD values are "
+        "current-vintage (later revisions possible). Credit spreads were tested and "
+        "dropped: their first derivative shrank the sample and added instability. "
+        "CAVEATS on the engine's own re-test: (a) it reads M2, not M3 — every US M3 "
+        "series is discontinued, so the cited evidence does not transfer and this is "
+        "an independent test; (b) the engine confronts at proposal_outcome_weeks "
+        "(12 WEEKS), not the 12-MONTH horizon validated here (docs/IMPROVEMENTS.md "
+        "I-32).",
+    },
+    {
+        "id": "inv-diversification-drawdown",
+        "title": "Diversification lowers drawdown but dilutes upside",
+        "description": "Cross-asset diversification reduces max_drawdown at the "
+        "cost of upside capture in single-regime bull runs.",
+        "example": "2008: 60/40 -30% vs All Weather ~-12%.",
+        "source": "Dalio — All Weather framework documentation",
+        "author": "dalio",
+        "status": "proposed",
+        "condition": [],
+        "effect": {
+            "handle": "strategy:four-seasons-rp",
+            "metric": "max_drawdown",
+            "method": "cross_strategy",
+            "direction": "outperform",
+        },
+        "tags": ["diversification", "drawdown", "indicator:max_drawdown", "phase:accumulation"],
+        "weight_initial": 0.70,
+        "floor_weight": 0.40,
+        "trace": "Dalio Principles; All Weather chapter (always-clock; lower "
+        "drawdown than the other strategies).",
+    },
     # Owner-supplied, revised 2026-07-15 after independent 1991-2026 validation.
     # Conformed to the schema/registry on entry; every departure is mechanical:
     #   signal 'real-yield'        -> 'real_yield' (registry key -> the NEW
@@ -582,84 +913,143 @@ INVARIANTS: list[dict[str, object]] = [
     # The submitted evidence is preserved in `source`/`trace` as provenance.
     # handle stays asset:GLD (NOT asset-class:gold-commodities): the claim is
     # about GOLD, and that class blends GLD with DJP/DBC.
-    {"id": "inv-low-real-yields-favor-gold",
-     "title": "Low real yields favor gold versus cash and nominal bonds",
-     "description": "When the US 10-year real yield is below 2.5%, gold's expected "
-                    "absolute return improves materially relative to high-real-yield "
-                    "regimes, and gold tends to outperform cash and nominal Treasury "
-                    "bonds. Relative outperformance versus equities is weaker and not "
-                    "systematic. Negative real yields do not provide a stronger signal "
-                    "than real yields between 0% and 2.5%.",
-     "example": "1991-2026: when the 10-year real-yield proxy was below 2.5%, gold "
-                "returned 9.8% annualized versus 5.9% for the S&P 500 price index, "
-                "4.1% for a rolling 10-year Treasury proxy, and 1.9% for 3-month "
-                "bills. Above 2.5%, gold returned 3.1% versus 15.0%, 6.7%, and 4.0%, "
-                "respectively. Average forward 12-month gold return was 12.0% below "
-                "2.5% versus 2.3% above.",
-     "source": "Independent market validation, 1991-08 to 2026-04; World Bank Pink "
-               "Sheet gold prices; Federal Reserve H.15 Treasury yields; BLS CPI; "
-               "Shiller/FRED S&P 500 data",
-     "author": None, "status": "proposed",
-     "condition": [{"signal": "real_yield", "feature": "level", "op": "<", "value": 2.5}],
-     "effect": {"handle": "asset:GLD", "metric": "return",
-                "method": "cross_class", "direction": "outperform"},
-     "tags": ["gold", "real-yield", "interest-rates",
-              "asset:GLD", "indicator:real-yield", "comparator:cash",
-              "comparator:nominal-bonds", "comparator:equities",
-              "regime:low-real-rates", "validation:1991-2026"],
-     "weight_initial": 0.70, "floor_weight": 0.20,
-     "trace": "Owner-supplied backtest on 416 monthly observations 1991-08..2026-04. "
-              "Real-yield proxy = US 10-year nominal Treasury yield minus prior-month "
-              "CPI YoY. A real yield below 2.5% increased average forward 12-month "
-              "gold return by 9.7pp vs the high-yield regime (HAC p=0.021). Regime "
-              "differential: +14.4pp vs S&P 500 price (p=0.031), +14.8pp vs rolling "
-              "10y Treasuries (p=0.001), +11.9pp vs 3-month bills (p=0.005). Negative "
-              "real yields did NOT beat the 0-2.5% regime (4.2% vs 15.2%): the "
-              "'especially negative' clause and universal equity outperformance were "
-              "both rejected. NOTE the horizon mismatch: that evidence is forward "
-              "12-MONTH, this engine confronts at proposal_outcome_weeks (12 WEEKS) — "
-              "see docs/IMPROVEMENTS.md I-32."},
+    {
+        "id": "inv-low-real-yields-favor-gold",
+        "title": "Low real yields favor gold versus cash and nominal bonds",
+        "description": "When the US 10-year real yield is below 2.5%, gold's expected "
+        "absolute return improves materially relative to high-real-yield "
+        "regimes, and gold tends to outperform cash and nominal Treasury "
+        "bonds. Relative outperformance versus equities is weaker and not "
+        "systematic. Negative real yields do not provide a stronger signal "
+        "than real yields between 0% and 2.5%.",
+        "example": "1991-2026: when the 10-year real-yield proxy was below 2.5%, gold "
+        "returned 9.8% annualized versus 5.9% for the S&P 500 price index, "
+        "4.1% for a rolling 10-year Treasury proxy, and 1.9% for 3-month "
+        "bills. Above 2.5%, gold returned 3.1% versus 15.0%, 6.7%, and 4.0%, "
+        "respectively. Average forward 12-month gold return was 12.0% below "
+        "2.5% versus 2.3% above.",
+        "source": "Independent market validation, 1991-08 to 2026-04; World Bank Pink "
+        "Sheet gold prices; Federal Reserve H.15 Treasury yields; BLS CPI; "
+        "Shiller/FRED S&P 500 data",
+        "author": None,
+        "status": "proposed",
+        "condition": [{"signal": "real_yield", "feature": "level", "op": "<", "value": 2.5}],
+        "effect": {
+            "handle": "asset:GLD",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "outperform",
+        },
+        "tags": [
+            "gold",
+            "real-yield",
+            "interest-rates",
+            "asset:GLD",
+            "indicator:real-yield",
+            "comparator:cash",
+            "comparator:nominal-bonds",
+            "comparator:equities",
+            "regime:low-real-rates",
+            "validation:1991-2026",
+        ],
+        "weight_initial": 0.70,
+        "floor_weight": 0.20,
+        "trace": "Owner-supplied backtest on 416 monthly observations 1991-08..2026-04. "
+        "Real-yield proxy = US 10-year nominal Treasury yield minus prior-month "
+        "CPI YoY. A real yield below 2.5% increased average forward 12-month "
+        "gold return by 9.7pp vs the high-yield regime (HAC p=0.021). Regime "
+        "differential: +14.4pp vs S&P 500 price (p=0.031), +14.8pp vs rolling "
+        "10y Treasuries (p=0.001), +11.9pp vs 3-month bills (p=0.005). Negative "
+        "real yields did NOT beat the 0-2.5% regime (4.2% vs 15.2%): the "
+        "'especially negative' clause and universal equity outperformance were "
+        "both rejected. NOTE the horizon mismatch: that evidence is forward "
+        "12-MONTH, this engine confronts at proposal_outcome_weeks (12 WEEKS) — "
+        "see docs/IMPROVEMENTS.md I-32.",
+    },
 ]
 
 STRATEGIES: list[dict[str, object]] = [
-    {"id": "four-seasons-rp",
-     "title": "4 Seasons Dalio Risk Parity",
-     "description": "Risk-parity baseline allocating across stocks, long bonds, "
-                    "TIPS, gold and commodities to perform in every quadrant.",
-     "regime_type_id": None, "framework_id": "4seasons",
-     "status": "active", "enabled": True, "conviction": 65,
-     "conditions": "applicable to all regimes; orthogonal: ^VIX level < 30",
-     "source": "corpus",
-     "trace": "Risk parity baseline."},
-    {"id": "permanent-browne",
-     "title": "Permanent Portfolio Browne",
-     "description": "Browne 25/25/25/25 across stocks, long bonds, gold and cash; "
-                    "simplicity baseline with low historical drawdown.",
-     "regime_type_id": None, "framework_id": "4seasons",
-     "status": "active", "enabled": True, "conviction": 55,
-     "conditions": "regime = uncertain OR regime confidence < 60; "
-                   "orthogonal: ^VIX level > 20",
-     "source": "corpus",
-     "trace": "Simplicity baseline; low historical drawdown."},
-    {"id": "barbell-taleb",
-     "title": "Barbell Taleb",
-     "description": "~85% safety (short/intermediate Treasuries plus cash, split "
-                    "across SHY/cash/IEF to respect the 40% single-asset cap) + ~15% "
-                    "convexity (equity sleeve) to capture upside while bounding downside.",
-     "regime_type_id": None, "framework_id": "4seasons",
-     "status": "active", "enabled": True, "conviction": 45,
-     "conditions": "orthogonal: ^VIX level > 25 (tail risk elevated)",
-     "source": "corpus",
-     "trace": "85% safety + 15% convexity."},
-    {"id": "momentum-macro",
-     "title": "Momentum Macro",
-     "description": "Dynamic rotation by detected regime; tilts toward the "
-                    "asset class with strongest current macro momentum.",
-     "regime_type_id": None, "framework_id": "4seasons",
-     "status": "active", "enabled": True, "conviction": 50,
-     "conditions": "regime stable >= 60 days; orthogonal: SPY 90d return > 0",
-     "source": "corpus",
-     "trace": "Dynamic rotation by detected regime."},
+    {
+        "id": "four-seasons-rp",
+        "title": "4 Seasons Dalio Risk Parity",
+        "description": "Risk-parity baseline allocating across stocks, long bonds, "
+        "TIPS, gold and commodities to perform in every quadrant.",
+        "regime_type_id": None,
+        "framework_id": "4seasons",
+        "status": "active",
+        "enabled": True,
+        "conviction": 65,
+        "conditions": "applicable to all regimes; orthogonal: ^VIX level < 30",
+        "source": "corpus",
+        "trace": "Risk parity baseline.",
+    },
+    {
+        "id": "permanent-browne",
+        "title": "Permanent Portfolio Browne",
+        "description": "Browne 25/25/25/25 across stocks, long bonds, gold and cash; "
+        "simplicity baseline with low historical drawdown.",
+        "regime_type_id": None,
+        "framework_id": "4seasons",
+        "status": "active",
+        "enabled": True,
+        "conviction": 55,
+        "conditions": "regime = uncertain OR regime confidence < 60; orthogonal: ^VIX level > 20",
+        "source": "corpus",
+        "trace": "Simplicity baseline; low historical drawdown.",
+    },
+    {
+        "id": "barbell-taleb",
+        "title": "Barbell Taleb",
+        "description": "~85% safety (short/intermediate Treasuries plus cash, split "
+        "across SHY/cash/IEF to respect the 40% single-asset cap) + ~15% "
+        "convexity (equity sleeve) to capture upside while bounding downside.",
+        "regime_type_id": None,
+        "framework_id": "4seasons",
+        "status": "active",
+        "enabled": True,
+        "conviction": 45,
+        "conditions": "orthogonal: ^VIX level > 25 (tail risk elevated)",
+        "source": "corpus",
+        "trace": "85% safety + 15% convexity.",
+    },
+    {
+        "id": "momentum-macro",
+        "title": "Momentum Macro",
+        "description": "Dynamic rotation by detected regime; tilts toward the "
+        "asset class with strongest current macro momentum.",
+        "regime_type_id": None,
+        "framework_id": "4seasons",
+        "status": "active",
+        "enabled": True,
+        "conviction": 50,
+        "conditions": "regime stable >= 60 days; orthogonal: SPY 90d return > 0",
+        "source": "corpus",
+        "trace": "Dynamic rotation by detected regime.",
+    },
+    # ADR-007 — the ADOPTED V1 strategy (docs/V1_STRATEGY.md). One Strategy;
+    # its 3 concentrated books are Portfolios below. The book<->regime map and
+    # the 200d trend overlay live in mechanical/market_signal.py (validated
+    # 9.85%/yr, +2.5 vs B, 1991-2026 backtest), NOT in a static regime_type_id:
+    # the market-signal regimes (growth/inflation/slowdown) are a different axis
+    # from the 5 macro RegimeTypes, so this Strategy carries none.
+    {
+        "id": "market-signal-stack",
+        "title": "Market-Signal Countercyclical Stack",
+        "description": "Market-priced credit-spread(BAA10Y)/slope(T10Y2Y) regime "
+        "selects one of three concentrated books (growth/inflation/"
+        "slowdown); a 200-day trend overlay redirects the equity/gold "
+        "sleeves to intermediate Treasuries below trend. MONTHLY.",
+        "regime_type_id": None,
+        "framework_id": "market-signal",
+        "status": "active",
+        "enabled": True,
+        "conviction": 70,
+        "conditions": "market-signal regime (BAA10Y/T10Y2Y vs 10y trailing medians); "
+        "trend overlay on SPY/GLD 200d MA — see mechanical/market_signal.py",
+        "source": "corpus",
+        "trace": "ADR-007 adopted V1 strategy; backtest 9.85%/yr, +2.5 vs B "
+        "(1991-2026). Forward paper-mode (M9) is the go-live gate.",
+    },
 ]
 
 BACKED_BY_EDGES: list[tuple[str, str]] = [
@@ -669,6 +1059,8 @@ BACKED_BY_EDGES: list[tuple[str, str]] = [
     ("barbell-taleb", "inv-falling-growth-duration"),
     ("momentum-macro", "inv-rising-growth-equities"),
     ("momentum-macro", "inv-liquidity-easing-risk"),
+    # The trend overlay IS the stack's drawdown-control mechanism (ADR-007).
+    ("market-signal-stack", "inv-diversification-drawdown"),
 ]
 
 # 3 per Strategy = 12. four-seasons-rp per docs/TASKS.md Task 1ter.5; the
@@ -690,53 +1082,98 @@ SCENARIOS: list[dict[str, object]] = [
     # same either way; under the corrected OR they would have become "low
     # inflation OR high growth", so they are merged here.
     # four-seasons-rp
-    {"id": "sc-4s-bull", "strategy_id": "four-seasons-rp", "name": "bull",
-     "probability": 35,
-     "triggers": ["CPI_YOY < 2.5 AND GROWTH_COMPOSITE > 102", "Fed dovish"],
-     "target_allocation": {"SPY": 35, "TLT": 25, "GLD": 15, "IEF": 15, "DJP": 5, "cash": 5},
-     "currency": "USD", "trace": "Goldilocks scenario for 4 Seasons."},
-    {"id": "sc-4s-base", "strategy_id": "four-seasons-rp", "name": "base",
-     "probability": 45,
-     "triggers": ["CPI_YOY 2.5-3.5", "Fed pause"],
-     "target_allocation": {"SPY": 30, "TLT": 30, "GLD": 10, "IEF": 20, "DJP": 7.5, "cash": 2.5},
-     "currency": "USD", "trace": "Base case for 4 Seasons."},
-    {"id": "sc-4s-bear", "strategy_id": "four-seasons-rp", "name": "bear",
-     "probability": 20,
-     "triggers": ["^VIX > 25", "CPI_YOY > 4 AND GROWTH_COMPOSITE < 98"],
-     "target_allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
-     "currency": "USD", "trace": "Stagflation/stress scenario."},
+    {
+        "id": "sc-4s-bull",
+        "strategy_id": "four-seasons-rp",
+        "name": "bull",
+        "probability": 35,
+        "triggers": ["CPI_YOY < 2.5 AND GROWTH_COMPOSITE > 102", "Fed dovish"],
+        "target_allocation": {"SPY": 35, "TLT": 25, "GLD": 15, "IEF": 15, "DJP": 5, "cash": 5},
+        "currency": "USD",
+        "trace": "Goldilocks scenario for 4 Seasons.",
+    },
+    {
+        "id": "sc-4s-base",
+        "strategy_id": "four-seasons-rp",
+        "name": "base",
+        "probability": 45,
+        "triggers": ["CPI_YOY 2.5-3.5", "Fed pause"],
+        "target_allocation": {"SPY": 30, "TLT": 30, "GLD": 10, "IEF": 20, "DJP": 7.5, "cash": 2.5},
+        "currency": "USD",
+        "trace": "Base case for 4 Seasons.",
+    },
+    {
+        "id": "sc-4s-bear",
+        "strategy_id": "four-seasons-rp",
+        "name": "bear",
+        "probability": 20,
+        "triggers": ["^VIX > 25", "CPI_YOY > 4 AND GROWTH_COMPOSITE < 98"],
+        "target_allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
+        "currency": "USD",
+        "trace": "Stagflation/stress scenario.",
+    },
     # permanent-browne — fixed allocation across scenarios, by design
-    {"id": "sc-pb-bull", "strategy_id": "permanent-browne", "name": "bull",
-     "probability": 30,
-     "triggers": ["GROWTH_COMPOSITE > 102 AND CPI_YOY < 2.5"],
-     "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
-     "currency": "USD", "trace": "Browne fixed allocation — bull macro view."},
-    {"id": "sc-pb-base", "strategy_id": "permanent-browne", "name": "base",
-     "probability": 45,
-     "triggers": ["CPI_YOY 2.5-3.5"],
-     "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
-     "currency": "USD", "trace": "Browne fixed allocation — base macro view."},
-    {"id": "sc-pb-bear", "strategy_id": "permanent-browne", "name": "bear",
-     "probability": 25,
-     "triggers": ["^VIX > 25", "GROWTH_COMPOSITE < 98"],
-     "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
-     "currency": "USD", "trace": "Browne fixed allocation — bear macro view."},
+    {
+        "id": "sc-pb-bull",
+        "strategy_id": "permanent-browne",
+        "name": "bull",
+        "probability": 30,
+        "triggers": ["GROWTH_COMPOSITE > 102 AND CPI_YOY < 2.5"],
+        "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
+        "currency": "USD",
+        "trace": "Browne fixed allocation — bull macro view.",
+    },
+    {
+        "id": "sc-pb-base",
+        "strategy_id": "permanent-browne",
+        "name": "base",
+        "probability": 45,
+        "triggers": ["CPI_YOY 2.5-3.5"],
+        "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
+        "currency": "USD",
+        "trace": "Browne fixed allocation — base macro view.",
+    },
+    {
+        "id": "sc-pb-bear",
+        "strategy_id": "permanent-browne",
+        "name": "bear",
+        "probability": 25,
+        "triggers": ["^VIX > 25", "GROWTH_COMPOSITE < 98"],
+        "target_allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
+        "currency": "USD",
+        "trace": "Browne fixed allocation — bear macro view.",
+    },
     # barbell-taleb — modest tilt (the barbell protects by construction)
-    {"id": "sc-bt-bull", "strategy_id": "barbell-taleb", "name": "bull",
-     "probability": 30,
-     "triggers": ["^VIX < 15 AND GROWTH_COMPOSITE > 102"],
-     "target_allocation": {"SHY": 30, "cash": 25, "IEF": 20, "SPY": 25},
-     "currency": "USD", "trace": "Calm bull — slightly more convex sleeve."},
-    {"id": "sc-bt-base", "strategy_id": "barbell-taleb", "name": "base",
-     "probability": 45,
-     "triggers": ["^VIX 15-25"],
-     "target_allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
-     "currency": "USD", "trace": "Base case — matches seed allocation."},
-    {"id": "sc-bt-bear", "strategy_id": "barbell-taleb", "name": "bear",
-     "probability": 25,
-     "triggers": ["^VIX > 25"],
-     "target_allocation": {"SHY": 40, "cash": 35, "IEF": 20, "SPY": 5},
-     "currency": "USD", "trace": "Tail risk — more safety sleeve."},
+    {
+        "id": "sc-bt-bull",
+        "strategy_id": "barbell-taleb",
+        "name": "bull",
+        "probability": 30,
+        "triggers": ["^VIX < 15 AND GROWTH_COMPOSITE > 102"],
+        "target_allocation": {"SHY": 30, "cash": 25, "IEF": 20, "SPY": 25},
+        "currency": "USD",
+        "trace": "Calm bull — slightly more convex sleeve.",
+    },
+    {
+        "id": "sc-bt-base",
+        "strategy_id": "barbell-taleb",
+        "name": "base",
+        "probability": 45,
+        "triggers": ["^VIX 15-25"],
+        "target_allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
+        "currency": "USD",
+        "trace": "Base case — matches seed allocation.",
+    },
+    {
+        "id": "sc-bt-bear",
+        "strategy_id": "barbell-taleb",
+        "name": "bear",
+        "probability": 25,
+        "triggers": ["^VIX > 25"],
+        "target_allocation": {"SHY": 40, "cash": 35, "IEF": 20, "SPY": 5},
+        "currency": "USD",
+        "trace": "Tail risk — more safety sleeve.",
+    },
     # momentum-macro — full tactical rotation, capped at the 40% user rule.
     # Its bull/bear are NOT merged into one AND-string like the others: "SPY
     # 90d return" is outside the numeric grammar (I-22), and a string is
@@ -745,95 +1182,213 @@ SCENARIOS: list[dict[str, object]] = [
     # that is two triggerless scenarios, which defeats the single-residual
     # rule and hands bear 100%. Left as a disjunction whose SPY branch simply
     # drops out: the rate reads on GROWTH_COMPOSITE alone, as it did at M5.
-    {"id": "sc-mm-bull", "strategy_id": "momentum-macro", "name": "bull",
-     "probability": 35,
-     "triggers": ["SPY 90d return > 0", "GROWTH_COMPOSITE > 102"],
-     "target_allocation": {"SPY": 40, "TLT": 20, "GLD": 15, "DJP": 20, "cash": 5},
-     "currency": "USD", "trace": "Strong momentum — equity-tilted, capped at 40%."},
-    {"id": "sc-mm-base", "strategy_id": "momentum-macro", "name": "base",
-     "probability": 40,
-     "triggers": ["regime stable"],
-     "target_allocation": {"SPY": 40, "TLT": 30, "GLD": 15, "DJP": 10, "cash": 5},
-     "currency": "USD", "trace": "Base case — matches seed allocation."},
-    {"id": "sc-mm-bear", "strategy_id": "momentum-macro", "name": "bear",
-     "probability": 25,
-     "triggers": ["SPY 90d return < 0", "^VIX > 25"],
-     "target_allocation": {"SPY": 15, "TLT": 40, "GLD": 20, "DJP": 5, "cash": 20},
-     "currency": "USD", "trace": "Negative momentum — bond/gold-tilted, capped at 40%."},
+    {
+        "id": "sc-mm-bull",
+        "strategy_id": "momentum-macro",
+        "name": "bull",
+        "probability": 35,
+        "triggers": ["SPY 90d return > 0", "GROWTH_COMPOSITE > 102"],
+        "target_allocation": {"SPY": 40, "TLT": 20, "GLD": 15, "DJP": 20, "cash": 5},
+        "currency": "USD",
+        "trace": "Strong momentum — equity-tilted, capped at 40%.",
+    },
+    {
+        "id": "sc-mm-base",
+        "strategy_id": "momentum-macro",
+        "name": "base",
+        "probability": 40,
+        "triggers": ["regime stable"],
+        "target_allocation": {"SPY": 40, "TLT": 30, "GLD": 15, "DJP": 10, "cash": 5},
+        "currency": "USD",
+        "trace": "Base case — matches seed allocation.",
+    },
+    {
+        "id": "sc-mm-bear",
+        "strategy_id": "momentum-macro",
+        "name": "bear",
+        "probability": 25,
+        "triggers": ["SPY 90d return < 0", "^VIX > 25"],
+        "target_allocation": {"SPY": 15, "TLT": 40, "GLD": 20, "DJP": 5, "cash": 20},
+        "currency": "USD",
+        "trace": "Negative momentum — bond/gold-tilted, capped at 40%.",
+    },
 ]
 
 PORTFOLIOS: list[dict[str, object]] = [
-    {"id": "4s-balanced-defender",
-     "name": "4 Seasons Balanced Defender",
-     "framework_id": "4seasons", "defender": True, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"IEF": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
-     "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
-     "phase": "accumulation", "fx_usd_exposure": 97.5,
-     "trace": "Initial defender — standard 4 Seasons balanced. TIP swapped "
-              "for IEF (docs/MILESTONES.md M2 DoV): TIPS didn't exist "
-              "before 1997, so no free proxy can extend TIP's own history "
-              "past its 2003 ETF inception (VIPSX/VAIPX/PRTNX/ACITX all "
-              "tried, none clear the splice gate cleanly) — IEF is the "
-              "closest behavioral match found (corr 0.77 vs TIP, similar "
-              "vol/drawdown; gold/commodities correlate at only 0.09-0.26 "
-              "and are 3x more volatile) and already reaches 1991."},
-    {"id": "4s-stagflation-defensive",
-     "name": "4 Seasons Stagflation Defensive",
-     "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
-     "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
-     "phase": "accumulation", "fx_usd_exposure": 97.5,
-     "trace": "Designed for falling-growth-rising-inflation."},
-    {"id": "4s-rising-growth-equities",
-     "name": "4 Seasons Rising-Growth Equity Tilt",
-     "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SPY": 40, "EFA": 10, "TLT": 15, "GLD": 10, "IEF": 15, "DJP": 5, "cash": 5},
-     "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
-     "phase": "accumulation", "fx_usd_exposure": 95.0,
-     "trace": "Designed for rising-growth quadrants. SPY capped at the "
-              "binding 40% user rule; EFA adds intl diversification."},
-    {"id": "4s-falling-growth-defensive",
-     "name": "4 Seasons Falling-Growth Defensive",
-     "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"TLT": 40, "IEF": 20, "GLD": 15, "SPY": 15, "cash": 10},
-     "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
-     "phase": "accumulation", "fx_usd_exposure": 95.0,
-     "trace": "Designed for falling-growth-falling-inflation."},
-    {"id": "permanent-balanced",
-     "name": "Permanent Portfolio Balanced",
-     "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
-     "max_drawdown_rule": -15.0, "max_single_asset_pct": 30.0,
-     "phase": "accumulation", "fx_usd_exposure": 75.0,
-     "trace": "Browne 25/25/25/25; framework-neutral."},
-    {"id": "barbell-defensive",
-     "name": "Barbell Taleb Defensive",
-     "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
-     "max_drawdown_rule": -10.0,
-     "max_single_asset_pct": 40.0,
-     "phase": "accumulation", "fx_usd_exposure": 100.0,
-     "trace": "85% safety split across SHY/cash/IEF (binding 40% cap) + 15% "
-              "convex. BIL swapped for 'cash' (docs/MILESTONES.md M2 DoV): "
-              "'cash' accrues at rf_daily from ^IRX directly (no ETF fetch, "
-              "no splice needed, floors at 1960) — the exact same economic "
-              "role BIL played, and BIL itself has no viable proxy at any "
-              "resolution tested (TB3MS monthly/daily-compounded, VFISX "
-              "direct/monthly: 0.09-0.30 correlation, all rejected)."},
-    {"id": "momentum-macro-rotation",
-     "name": "Momentum Macro Rotation",
-     "framework_id": "4seasons", "defender": False, "enabled": True,
-     "currency": "CHF", "benchmark": "all-weather-USD",
-     "allocation": {"SPY": 40, "TLT": 30, "GLD": 15, "DJP": 10, "cash": 5},
-     "max_drawdown_rule": -15.0, "max_single_asset_pct": 40.0,
-     "phase": "accumulation", "fx_usd_exposure": 100.0,
-     "trace": "Dynamic; current allocation reflects last regime."},
+    {
+        "id": "4s-balanced-defender",
+        "name": "4 Seasons Balanced Defender",
+        "framework_id": "4seasons",
+        "defender": True,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"IEF": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 97.5,
+        "trace": "Initial defender — standard 4 Seasons balanced. TIP swapped "
+        "for IEF (docs/MILESTONES.md M2 DoV): TIPS didn't exist "
+        "before 1997, so no free proxy can extend TIP's own history "
+        "past its 2003 ETF inception (VIPSX/VAIPX/PRTNX/ACITX all "
+        "tried, none clear the splice gate cleanly) — IEF is the "
+        "closest behavioral match found (corr 0.77 vs TIP, similar "
+        "vol/drawdown; gold/commodities correlate at only 0.09-0.26 "
+        "and are 3x more volatile) and already reaches 1991.",
+    },
+    {
+        "id": "4s-stagflation-defensive",
+        "name": "4 Seasons Stagflation Defensive",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 97.5,
+        "trace": "Designed for falling-growth-rising-inflation.",
+    },
+    {
+        "id": "4s-rising-growth-equities",
+        "name": "4 Seasons Rising-Growth Equity Tilt",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 40, "EFA": 10, "TLT": 15, "GLD": 10, "IEF": 15, "DJP": 5, "cash": 5},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 95.0,
+        "trace": "Designed for rising-growth quadrants. SPY capped at the "
+        "binding 40% user rule; EFA adds intl diversification.",
+    },
+    {
+        "id": "4s-falling-growth-defensive",
+        "name": "4 Seasons Falling-Growth Defensive",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"TLT": 40, "IEF": 20, "GLD": 15, "SPY": 15, "cash": 10},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 95.0,
+        "trace": "Designed for falling-growth-falling-inflation.",
+    },
+    {
+        "id": "permanent-balanced",
+        "name": "Permanent Portfolio Balanced",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 25, "TLT": 25, "GLD": 25, "cash": 25},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 30.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 75.0,
+        "trace": "Browne 25/25/25/25; framework-neutral.",
+    },
+    {
+        "id": "barbell-defensive",
+        "name": "Barbell Taleb Defensive",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SHY": 35, "cash": 30, "IEF": 20, "SPY": 15},
+        "max_drawdown_rule": -10.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "85% safety split across SHY/cash/IEF (binding 40% cap) + 15% "
+        "convex. BIL swapped for 'cash' (docs/MILESTONES.md M2 DoV): "
+        "'cash' accrues at rf_daily from ^IRX directly (no ETF fetch, "
+        "no splice needed, floors at 1960) — the exact same economic "
+        "role BIL played, and BIL itself has no viable proxy at any "
+        "resolution tested (TB3MS monthly/daily-compounded, VFISX "
+        "direct/monthly: 0.09-0.30 correlation, all rejected).",
+    },
+    {
+        "id": "momentum-macro-rotation",
+        "name": "Momentum Macro Rotation",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 40, "TLT": 30, "GLD": 15, "DJP": 10, "cash": 5},
+        "max_drawdown_rule": -15.0,
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "Dynamic; current allocation reflects last regime.",
+    },
+    # ADR-007 — the 3 market-signal books (docs/V1_STRATEGY.md). These are the
+    # BASE above-trend allocations; the 200d trend overlay (which redirects
+    # SPY/GLD to IEF below trend, and can concentrate IEF to ~90% in risk-off)
+    # is applied at DECISION time by mechanical/market_signal.py and is NOT
+    # reflected in these static rows. Per-portfolio caps = the binding user caps
+    # (50% single-asset, -25% drawdown — ADR-007 addenda); they may not be
+    # looser. The 50% SPY/VCIT sleeves are why the single-asset cap is 50.
+    {
+        "id": "ms-growth-book",
+        "name": "Market-Signal Growth Book",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "Market-signal 'growth' book (credit spread WIDE vs 10y median); "
+        "also the warm-up default before 10y of signal history. ADR-007.",
+    },
+    {
+        "id": "ms-inflation-book",
+        "name": "Market-Signal Inflation Book",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 50, "GLD": 40, "IWN": 10},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "Market-signal 'inflation' book (spread TIGHT, slope FLAT vs 10y "
+        "medians). ADR-007.",
+    },
+    {
+        "id": "ms-slowdown-book",
+        "name": "Market-Signal Slowdown Book",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"VCIT": 50, "IEF": 40, "IWN": 10},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "Market-signal 'slowdown' book (spread TIGHT, slope STEEP vs 10y "
+        "medians). ADR-007.",
+    },
 ]
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
@@ -844,11 +1399,32 @@ HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("permanent-balanced", "permanent-browne", True),
     ("barbell-defensive", "barbell-taleb", True),
     ("momentum-macro-rotation", "momentum-macro", True),
+    # ADR-007 — growth book is the PRIMARY (the warm-up default; its NAV is the
+    # strategy's benchmark_valuation row — backtests._primary_portfolio_id).
+    ("ms-growth-book", "market-signal-stack", True),
+    ("ms-inflation-book", "market-signal-stack", False),
+    ("ms-slowdown-book", "market-signal-stack", False),
 ]
 
 DESIGNED_FOR_EDGES: list[tuple[str, str, str]] = [
-    ("4s-stagflation-defensive", "falling-growth-rising-inflation", "Designed for stagflation regime."),
-    ("4s-rising-growth-equities", "rising-growth-rising-inflation", "Designed for rising-growth quadrants."),
-    ("4s-rising-growth-equities", "rising-growth-falling-inflation", "Designed for rising-growth quadrants."),
-    ("4s-falling-growth-defensive", "falling-growth-falling-inflation", "Designed for disinflation/recession."),
+    (
+        "4s-stagflation-defensive",
+        "falling-growth-rising-inflation",
+        "Designed for stagflation regime.",
+    ),
+    (
+        "4s-rising-growth-equities",
+        "rising-growth-rising-inflation",
+        "Designed for rising-growth quadrants.",
+    ),
+    (
+        "4s-rising-growth-equities",
+        "rising-growth-falling-inflation",
+        "Designed for rising-growth quadrants.",
+    ),
+    (
+        "4s-falling-growth-defensive",
+        "falling-growth-falling-inflation",
+        "Designed for disinflation/recession.",
+    ),
 ]
