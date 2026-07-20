@@ -155,7 +155,7 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # see HISTORY_PROXIES.
     {"ticker": "IWN", "asset_class": "US_SMALL_VALUE", "currency": "USD", "source": "yahoo", "transform": "none"},
     {"ticker": "SHY", "asset_class": "US_TREASURY_1_3", "currency": "USD", "source": "yahoo", "transform": "none"},
-    # Investment-grade CORPORATE credit — the Verdad slowdown sleeve's co-leader
+    # Investment-grade CORPORATE credit — the market-signal slowdown sleeve's co-leader
     # (docs/Countercyclical+Investing, Q4: 50% DJ IG bonds), the credit-spread
     # carry that government treasuries lack. VCIT (Vanguard Intermediate-Term
     # Corporate, 2009) — a closer match to the paper's intermediate "IG bonds"

@@ -67,7 +67,7 @@ Legend: [done] already deployed · [new] to build · [decide] owner call.
   detector *for allocation*. The existing CPI/GDP detector can stay for the
   regime graph / invariant conditions, but the allocation decision keys off
   the market signal. (This is I-38, now committed.)
-- **C. Strategies / Portfolios (seed) — [new].** Seed the 3 Verdad books as
+- **C. Strategies / Portfolios (seed) — [new].** Seed the 3 market-signal books as
   Strategy/Portfolio entities. The 7 seeded books are retained as BENCHMARKS
   (B, SPY-proxy, etc.) or retired — [decide].
 - **D. Trend-following overlay — [new].** A mechanical module: SPY/GLD sleeve
@@ -82,7 +82,7 @@ Legend: [done] already deployed · [new] to build · [decide] owner call.
   drawdown rule) in `mechanical/gates.py`. The switch/reallocation-blend path
   is superseded for this stack.
 - **G. Docs / ADRs — [decide].** An ADR recording the framework pivot (Dalio
-  4-quadrant macro → Verdad market-signal countercyclical), CLAUDE.md update,
+  4-quadrant macro → market-signal countercyclical), CLAUDE.md update,
   MILESTONES revision. "Never contradict an accepted ADR silently" — this
   needs explicit sign-off, not a silent rewrite.
 
@@ -117,12 +117,12 @@ NOT deleted until forward paper-mode earns the switch):**
   (catch-up/NAV/regime-step jobs keep their natural frequency).
 
 **NEW to build:** the market-signal regime module (credit-spread + slope), the
-3 Verdad books (seed), the 200d trend-following overlay, the monthly decision
+3 market-signal books (seed), the 200d trend-following overlay, the monthly decision
 path. (Data for all of it is already deployed — area A.)
 
 **DOC / ADR surface (needs explicit owner sign-off — "never contradict an
 accepted ADR silently"):** a new ADR recording the framework pivot (Dalio
-4-quadrant macro → Verdad countercyclical market-signal) + monthly cadence;
+4-quadrant macro → market-signal countercyclical market-signal) + monthly cadence;
 then revisions to CLAUDE.md (the weekly-chain, FAVORS, ranking-rule, regimes
 sections), ARCHITECTURE.md, USE_CASES.md (UC7/UC8), DATA_MODELS.md, and the
 MILESTONES roadmap. The knowledge factory (corpus/invariants/Worker) is

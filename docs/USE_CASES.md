@@ -3,7 +3,7 @@
 See REVISION_NOTES.md for V1 scope and core concepts.
 
 > **ADR-007 (accepted 2026-07-20) — see `docs/V1_STRATEGY.md`.** For the adopted
-> Verdad monthly stack, UC7 (portfolio ranking) becomes a MONITORING view, not
+> market-signal monthly stack, UC7 (portfolio ranking) becomes a MONITORING view, not
 > the decision, and UC8's switch-gates + `0.4·scenario + 0.6·favors`
 > reallocation blend are superseded by `regime → book + 200d trend overlay`,
 > run MONTHLY through the SAME binding-cap gates. The UC7/UC8 descriptions below

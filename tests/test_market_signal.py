@@ -1,16 +1,16 @@
-"""M6-bis unit tests for the Verdad market-signal stack's PURE decision logic
+"""M6-bis unit tests for the market-signal stack's PURE decision logic
 (docs/V1_STRATEGY.md, ADR-007) — `classify_regime`, `apply_trend_overlay`,
-`build_targets` in `mechanical/verdad.py`, no DB.
+`build_targets` in `mechanical/market_signal.py`, no DB.
 
 The full anti-drift reproduction of the 9.85%/-24% backtest is an integration
-check on the live DB (scratchpad/validate_verdad.py); these pin the classifier
+check on the live DB (scratchpad/validate_market_signal.py); these pin the classifier
 and the overlay at the edges the backtest exercised.
 """
 
 import pandas as pd
 
-from investment.mechanical import verdad
-from investment.mechanical.verdad import apply_trend_overlay, build_targets, classify_regime
+from investment.mechanical import market_signal
+from investment.mechanical.market_signal import apply_trend_overlay, build_targets, classify_regime
 
 
 def test_wide_spread_is_growth() -> None:
@@ -40,7 +40,7 @@ def test_missing_median_defaults_to_growth() -> None:
 
 def test_overlay_redirects_below_trend_sleeve_to_haven() -> None:
     # growth book SPY50/IWN40/GLD10 with SPY below its 200d MA -> SPY's 50 to IEF.
-    out = apply_trend_overlay(verdad.BOOKS["growth"], frozenset({"SPY"}))
+    out = apply_trend_overlay(market_signal.BOOKS["growth"], frozenset({"SPY"}))
     assert out == {"IEF": 50.0, "IWN": 40.0, "GLD": 10.0}
 
 
@@ -48,12 +48,15 @@ def test_overlay_merges_both_sleeves_into_haven() -> None:
     # inflation book SPY50/GLD40/IWN10 with BOTH below trend -> IEF piles to 90.
     # (This is the >50 concentration the cap confrontation flags — pinned here so
     # a future change to the overlay cannot silently alter it.)
-    out = apply_trend_overlay(verdad.BOOKS["inflation"], frozenset({"SPY", "GLD"}))
+    out = apply_trend_overlay(market_signal.BOOKS["inflation"], frozenset({"SPY", "GLD"}))
     assert out == {"IEF": 90.0, "IWN": 10.0}
 
 
 def test_overlay_noop_when_above_trend() -> None:
-    assert apply_trend_overlay(verdad.BOOKS["growth"], frozenset()) == verdad.BOOKS["growth"]
+    assert (
+        apply_trend_overlay(market_signal.BOOKS["growth"], frozenset())
+        == market_signal.BOOKS["growth"]
+    )
 
 
 def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
@@ -61,11 +64,11 @@ def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
     # into IEF; the single-asset cap does not bind that HAVEN concentration.
     from investment.mechanical.gates import Caps, concentration_ok
 
-    book = apply_trend_overlay(verdad.BOOKS["inflation"], frozenset({"SPY", "GLD"}))
+    book = apply_trend_overlay(market_signal.BOOKS["inflation"], frozenset({"SPY", "GLD"}))
     caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
     assert book == {"IEF": 90.0, "IWN": 10.0}
     assert not concentration_ok(book, caps)  # 90 breaches the cap unexempted
-    assert concentration_ok(book, caps, exempt=frozenset({verdad.TREND_HAVEN}))
+    assert concentration_ok(book, caps, exempt=frozenset({market_signal.TREND_HAVEN}))
 
 
 def test_build_targets_emits_only_on_change() -> None:
@@ -76,11 +79,11 @@ def test_build_targets_emits_only_on_change() -> None:
     spread_med = pd.Series([1.8, 1.8], index=idx)
     slope_med = pd.Series([1.0, 1.0], index=idx)
     # prices ABOVE their MA -> no trend redirect, book stays the plain growth book.
-    mas = {t: pd.Series([1.0, 1.0], index=idx) for t in verdad.TREND_SLEEVES}
+    mas = {t: pd.Series([1.0, 1.0], index=idx) for t in market_signal.TREND_SLEEVES}
     prices = {t: pd.Series([1000.0, 1000.0], index=idx) for t in ("SPY", "IWN", "GLD")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0]]
-    assert targets[idx[0]] == verdad.BOOKS["growth"]
+    assert targets[idx[0]] == market_signal.BOOKS["growth"]
 
 
 def test_build_targets_switches_on_regime_change() -> None:
@@ -89,8 +92,8 @@ def test_build_targets_switches_on_regime_change() -> None:
     slope = pd.Series([1.0, 2.0], index=idx)  # then steep -> slowdown
     spread_med = pd.Series([1.8, 1.8], index=idx)
     slope_med = pd.Series([1.0, 1.0], index=idx)
-    mas = {t: pd.Series([1000.0, 1000.0], index=idx) for t in verdad.TREND_SLEEVES}
+    mas = {t: pd.Series([1000.0, 1000.0], index=idx) for t in market_signal.TREND_SLEEVES}
     prices = {t: pd.Series([1.0, 1.0], index=idx) for t in ("SPY", "IWN", "GLD", "VCIT", "IEF")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0], idx[1]]
-    assert targets[idx[1]] == verdad.BOOKS["slowdown"]
+    assert targets[idx[1]] == market_signal.BOOKS["slowdown"]

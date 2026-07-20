@@ -413,10 +413,10 @@ default spread) is the long-history substitute.**
 
 > **⚠️ CORRECTION (2026-07-19, later same day) — the three bullets and the
 > "CONVERGENT VERDICT" below are SUPERSEDED by a measurement bug, do not cite
-> them. The Verdad-stack runs used `replay.load_inputs().prices`, which loads
-> ONLY portfolio/scenario constituents — so IWN and VCIT (40-50% of the Verdad
+> them. The market-signal stack runs used `replay.load_inputs().prices`, which loads
+> ONLY portfolio/scenario constituents — so IWN and VCIT (40-50% of the market-signal
 > books) were absent and held FLAT at 0% return, crippling the stack. Re-run
-> with a full price dict (daily): the Verdad stack (credit-spread+slope regime
+> with a full price dict (daily): the market-signal stack (credit-spread+slope regime
 > + 200d trend-following) does **9.85%/y vs B 7.27% — edge +2.6 full, +2.8
 > calibrate, +2.05 HOLDOUT**, Sortino ≈ B, drawdown -24% (daily). It BEATS B
 > on return, robustly in and out of sample, and has the best Sharpe of every
@@ -430,19 +430,19 @@ default spread) is the long-history substitute.**
 > 0.71/-36% — above B on raw return, worse risk-adjusted (the earlier +3-5 pts
 > included pre-1991 data outside B's window).
 
-- **[SUPERSEDED — see correction above] Faithful Verdad replication (market-signal regime: credit spread + slope
+- **[SUPERSEDED — see correction above] Faithful market-signal replication (market-signal regime: credit spread + slope
   vs 10y trailing medians → growth/inflation/slowdown books, equity-heavy,
   + 200d trend-following overlay) STILL does not beat B on return**: -0.49/y
   full, -0.26 calib, -1.02 holdout. Trend-following is what makes it viable
   at all (drawdown -30% → -17%, Sortino 0.53 → 0.86); the naive real-asset
   tilt without it was -4.0/y.
 - **vs 60/40 and 100% equity, decade by decade** — the mechanism REPLICATES
-  Verdad's pattern faithfully but NOT its headline, and the reason is the
+  market-signal's pattern faithfully but NOT its headline, and the reason is the
   PERIOD, not the code. 2000-2010 (two recessions): STACK 8.3%/-12% CRUSHES
-  60/40 2.9%/-33% and SPY -0.5%/-55% (+540bps, the "lost decade" where Verdad
+  60/40 2.9%/-33% and SPY -0.5%/-55% (+540bps, the "lost decade" where market-signal
   shines). But 1991-2026 is THREE equity bulls (1990s/2010s/2020s) + ONE hard
   decade, so the full-window average LOSES to the equity-heavy benchmarks
-  (STACK 6.8% vs 60/40 8.8% vs SPY 11.0%). Verdad's +570bps over 1970-2020
+  (STACK 6.8% vs 60/40 8.8% vs SPY 11.0%). market-signal's +570bps over 1970-2020
   came from TWO hard decades (1970s stagflation + 2000s); the 1970s is below
   our ~1991 data floor. Not reproducible in-sample — a period artifact.
 - **[SUPERSEDED — the 6.8% "stack" here was the bug-crippled one; corrected
@@ -455,12 +455,12 @@ default spread) is the long-history substitute.**
   (7.1-7.3%/-22%), and is beaten risk-adjusted by a boring bond ladder held
   to term. It does not justify its complexity on this data.
 
-**⚔️ [SUPERSEDED by the CORRECTION above — the Verdad stack DOES beat B by
+**⚔️ [SUPERSEDED by the CORRECTION above — the market-signal stack DOES beat B by
 +2.5 once IWN/VCIT are priced] CONVERGENT VERDICT (all angles, 2026-07-19): no mechanical approach —
 regime rotation (macro OR market-priced, up to the faithful state of the art)
 — beats B on RETURN over 1991-2026; every variant lands -0.3 to -1.5/y and
 only improves drawdown. The +500-1000bps target vs B (risk parity) is not
-supported by ANY benchmark or method; Verdad's edge is vs the WEAK 60/40, and
+supported by ANY benchmark or method; market-signal's edge is vs the WEAK 60/40, and
 is period-carried by the 1970s we lack. Three forks for the owner:**
   1. **Return goal kept** → the ONLY return-positive lead measured is slow
      cross-asset MOMENTUM (26-52w: +2.5-3.5/y full window, though trend-decade
@@ -483,15 +483,15 @@ is period-carried by the 1970s we lack. Three forks for the owner:**
 
 ---
 
-## M6-bis — Wire the adopted Verdad monthly stack (ADR-007) — STOP POINT
+## M6-bis — Wire the adopted market-signal monthly stack (ADR-007) — STOP POINT
 
 **Added by ADR-007 (accepted 2026-07-20).** The post-M6 exploration converged
-on the Verdad monthly countercyclical stack, which — once the
+on the market-signal monthly countercyclical stack, which — once the
 `load_inputs().prices` bug was fixed (it starved IWN/VCIT to 0%) — beats B by
 +2.5/y robustly in AND out of sample at -24% drawdown. See `docs/V1_STRATEGY.md`
 (the adopted spec + full impact map) and `docs/STRATEGY_COMPARISON.md`. This
 supersedes M6 OPEN fork 1's "momentum-only return lead" read: the return-
-positive lead is the Verdad stack, not momentum (8.1% / Sharpe 0.46 / -37%).
+positive lead is the market-signal stack, not momentum (8.1% / Sharpe 0.46 / -37%).
 
 **Build (Step 1 of the roadmap — keep the bridge, do NOT delete M3/M5/UC7-8):**
 1. Seed the 3 books as Strategy/Portfolio (growth SPY50/IWN40/GLD10, inflation
@@ -510,8 +510,8 @@ the caps. The OLD design stays wired as fallback + benchmark; forward
 paper-mode (M9), not this milestone, is what earns the full switch.
 
 **Status (2026-07-20): core DoV MET — anti-drift PASSES, caps clean.**
-`mechanical/verdad.py` (pure `classify_regime`/`apply_trend_overlay`/
-`build_targets` + `run_verdad` driver) reproduces the numbers EXACTLY on the
+`mechanical/market_signal.py` (pure `classify_regime`/`apply_trend_overlay`/
+`build_targets` + `run_market_signal` driver) reproduces the numbers EXACTLY on the
 live DB: CAGR 9.85%, Sortino 0.94, maxDD -23.8%, 3.4 changes/yr, ZERO cap
 breach. 10 unit tests + 204 suite green.
 
@@ -526,7 +526,7 @@ exception; the cap still binds every other sleeve (empty `exempt` default).
 
 **Remaining M6-bis build (not yet done, no urgency — paper-mode is slow):** seed
 the 3 books as Strategy/Portfolio entities and wire the live monthly decision
-path into UC8/Writeback (currently `run_verdad` is the replay/validation driver,
+path into UC8/Writeback (currently `run_market_signal` is the replay/validation driver,
 not yet the live weekly-chain decision). The pure decision logic + the
 gate-with-exemption it will call are done and tested; what remains is the
 scheduling/persistence wiring, which lands cleanly with M7/M8.

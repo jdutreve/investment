@@ -345,7 +345,7 @@ step is the human boundary. V2 = auto-execution, which would supersede this.
 
 ---
 
-## ADR-007 — Adopt the Verdad market-signal monthly stack as V1's operating strategy
+## ADR-007 — Adopt the market-signal monthly stack as V1's operating strategy
 
 **Status:** accepted (owner sign-off, 2026-07-20). Authorizes the CLAUDE.md/
 docs revisions and the M6-bis wiring below.
@@ -369,7 +369,7 @@ regimes the books are designed for. NB: this is BACKTEST evidence on a window
 consulted heavily; the only validation that counts is forward paper-mode.
 
 **Decision.**
-1. The V1 operating strategy is the **Verdad market-signal monthly stack**
+1. The V1 operating strategy is the **market-signal monthly stack**
    (defined in docs/V1_STRATEGY.md): credit-spread(BAA10Y)/slope(T10Y2Y) regime
    → 3 concentrated books → 200d trend-following overlay, MONTHLY decision, no
    VIX overlay.
@@ -412,7 +412,7 @@ consulted heavily; the only validation that counts is forward paper-mode.
   brake IF -25% ever needs defending in a live tail.
 
 **Addendum (2026-07-20, owner sign-off) — single-asset cap 40% → 50%.**
-Surfaced while wiring M6-bis: the Verdad books deliberately hold 50% single
+Surfaced while wiring M6-bis: the market-signal books deliberately hold 50% single
 sleeves (growth & inflation SPY 50, slowdown VCIT 50), which breach the binding
 `user_profile.max_single_asset_pct = 40`. That 40% cap was calibrated for the
 DIVERSIFIED Dalio portfolios; the pivot's whole thesis is CONCENTRATED
@@ -424,7 +424,7 @@ per-portfolio rules may still be stricter); it is only re-levelled for the
 concentrated books. The old diversified books are unaffected (their largest
 sleeve was 40). This preserves the validated 9.85%/+2.5 numbers exactly rather
 than re-capping the books and drifting them. Alternatives weighed and declined:
-cap-books-to-40 (would drift the backtest) and exempt-the-whole-Verdad-stack
+cap-books-to-40 (would drift the backtest) and exempt-the-whole-market-signal stack
 (would weaken "binding caps bind ALL candidacy" too broadly).
 
 **Second addendum (2026-07-20, owner sign-off) — trend-haven sleeve exempt from
@@ -434,7 +434,7 @@ below their 200d MA, so the trend overlay redirects both into IEF, concentrating
 the HAVEN to ~90% — breaching even the raised 50% cap. That concentration IS the
 drawdown control (the deliberate flight to safety), and the validated 9.85%
 includes it. Decision: the **trend-haven sleeve (IEF) is EXEMPT from the
-single-asset cap** in the Verdad path (`gates.concentration_ok(..., exempt=
+single-asset cap** in the market-signal path (`gates.concentration_ok(..., exempt=
 {IEF})`), chosen over splitting the excess into SHY/cash. Rationale: SIMPLICITY
 — the haven is structurally a safety redirect, not a conviction bet, so the
 "single-asset" cap's intent (bound concentrated BETS) does not apply to it;

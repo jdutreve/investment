@@ -1,5 +1,11 @@
 # STRATEGY_COMPARISON.md — global view of the strategies tested
 
+> **Naming.** This is the historical exploration record; its labels and the
+> `nav_chart.svg` legend keep the working name "Verdad (signal+trend)". That
+> adopted variant is named NEUTRALLY as the **market-signal stack** in the code
+> (`mechanical/market_signal.py`) and the forward docs (V1_STRATEGY, ADR-007);
+> "Verdad/Rasmussen" is retained only as the attribution of the approach.
+
 Post-M6 exploration (2026-07). All figures measured on the **live DB** over a
 **common window (1991-2026)**, **ALL METRICS DAILY** (CAGR; Sharpe & Sortino
 annualized ×√252; MaxDD is the real intra-day trough — what the -15% rule

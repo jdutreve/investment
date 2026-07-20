@@ -1,4 +1,7 @@
-"""The Verdad market-signal monthly stack — V1's ADOPTED allocation (ADR-007).
+"""The market-signal monthly stack — V1's ADOPTED allocation (ADR-007).
+
+A countercyclical, market-priced strategy after Verdad/Rasmussen (the origin of
+the approach; docs/V1_STRATEGY.md carries the attribution). Named neutrally here.
 
 The strategy the pivot adopted (docs/V1_STRATEGY.md): a market-priced,
 CONTEMPORANEOUS regime read (credit spread + yield slope, no CPI/GDP lag) picks
@@ -8,18 +11,18 @@ Decision cadence is MONTHLY (docs/V1_STRATEGY.md "Why monthly").
 
 ANTI-DRIFT (the point of this module): the numbers that earned the pivot — 9.85%
 CAGR / -24% daily max drawdown, +2.5 vs B, robust in AND out of sample — came
-out of a scratchpad backtest (`global_table_daily.py`, the Verdad(signal+trend)
+out of a scratchpad backtest (`global_table_daily.py`, the "signal+trend"
 line). This is that logic ported verbatim onto the SAME NAV engine the backtest
 used (`replay.shadow_book_nav`, itself pinned equal to the M4-validated
 `ratios.synthesize_nav`), so wiring the stack cannot silently diverge from the
-figures ADR-007 was signed on. `run_verdad` reproduces them; M6-bis's Definition
+figures ADR-007 was signed on. `run_market_signal` reproduces them; M6-bis's Definition
 of Verified is that reproduction.
 
 PURE decision logic (`classify_regime`, `apply_trend_overlay`, `build_targets`)
 takes already-loaded series and holds no I/O — the same separation as
 `mechanical/gates.py`, so the classifier is unit-testable without a DB and the
 eventual live monthly decision path (M8 Writeback) calls the identical function
-the replay validates. `run_verdad` is the thin I/O driver.
+the replay validates. `run_market_signal` is the thin I/O driver.
 """
 
 import dataclasses
@@ -56,7 +59,7 @@ MEDIAN_WINDOW_DAYS = 2520
 MEDIAN_MIN_DAYS = 252
 MA_WINDOW_DAYS = 200
 
-# Every ticker any book can hold — what `run_verdad` must load prices for. The
+# Every ticker any book can hold — what `run_market_signal` must load prices for. The
 # bug that once crippled this stack (docs/STRATEGY_COMPARISON.md correction note)
 # was loading a prices dict MISSING IWN/VCIT, which then held flat at 0%; naming
 # the set here makes that omission impossible to repeat silently.
@@ -66,7 +69,7 @@ COST_BPS = 20.0
 
 
 @dataclasses.dataclass(frozen=True)
-class VerdadRun:
+class MarketSignalRun:
     """A backtest/replay of the stack over a window.
 
     `targets` maps each CHANGE date -> the book that took effect (only dates
@@ -152,7 +155,7 @@ def _at(series: pd.Series, t: pd.Timestamp) -> float:
 # -- gate confrontation (the caps still BIND the adopted stack — CLAUDE.md) ---
 
 
-def cap_violations(run: VerdadRun, caps: Caps, stack_drawdown: float | None) -> list[str]:
+def cap_violations(run: MarketSignalRun, caps: Caps, stack_drawdown: float | None) -> list[str]:
     """The binding-cap confrontation M6-bis's DoV asserts is empty. Every target
     book must clear the single-asset cap (now 50) EXCEPT the trend-haven sleeve,
     and the STACK's realized drawdown must clear the drawdown cap (now -25%,
@@ -178,14 +181,14 @@ def cap_violations(run: VerdadRun, caps: Caps, stack_drawdown: float | None) -> 
 # -- I/O driver -------------------------------------------------------------
 
 
-async def run_verdad(
+async def run_market_signal(
     db: InvestmentDB,
     *,
     start: date = date(1991, 1, 1),
     end: date = date(2026, 7, 1),
     cadence: str = "monthly",
     cost_bps: float = COST_BPS,
-) -> VerdadRun:
+) -> MarketSignalRun:
     """Load the series, run the pure logic, price it on the shared NAV engine.
     Defaults reproduce ADR-007's backtest window and MONTHLY cadence."""
     inputs = await replay.load_inputs(db)
@@ -198,7 +201,7 @@ async def run_verdad(
     if missing:
         # The exact failure the correction note warns about — refuse to run a
         # stack silently missing a sleeve rather than hold it flat at 0%.
-        raise ValueError(f"Verdad stack missing price series for {sorted(missing)}")
+        raise ValueError(f"market-signal stack missing price series for {sorted(missing)}")
 
     spread = (await ratios.load_price(db, CREDIT_SPREAD)).reindex(calendar).ffill()
     slope = (await ratios.load_price(db, YIELD_SLOPE)).reindex(calendar).ffill()
@@ -214,10 +217,10 @@ async def run_verdad(
         dates, spread, slope, spread_median, slope_median, moving_averages, prices
     )
     nav, turnover = shadow_book_nav(targets, prices, rf, cost_bps, calendar)
-    return VerdadRun(nav=nav, targets=targets, turnover=turnover)
+    return MarketSignalRun(nav=nav, targets=targets, turnover=turnover)
 
 
-async def stack_metrics(db: InvestmentDB, run: VerdadRun) -> NavMetrics:
+async def stack_metrics(db: InvestmentDB, run: MarketSignalRun) -> NavMetrics:
     """Daily NAV metrics of the run (CAGR, Sortino, max drawdown) — the numbers
     the DoV checks against 9.85% / -24%."""
     rf = await ratios.load_rf_daily(db)

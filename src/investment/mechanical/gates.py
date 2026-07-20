@@ -100,10 +100,10 @@ def concentration_ok(
     is barbell-defensive's 30, under the 40 cap).
 
     `exempt` names sleeves the cap does NOT bind — the ADR-007 addendum's
-    trend-haven exception (docs/V1_STRATEGY.md, docs/DECISIONS.md). The Verdad
+    trend-haven exception (docs/V1_STRATEGY.md, docs/DECISIONS.md). The market-signal
     overlay redirects the SPY/GLD sleeves into IEF below trend, which can
     concentrate the HAVEN to ~90% during risk-off; that is the deliberate flight
-    to safety (the drawdown control), not a conviction bet, so the Verdad path
+    to safety (the drawdown control), not a conviction bet, so the market-signal path
     passes `exempt={IEF}`. Empty by default, so the seeded-portfolio callers
     (switch/reallocation gates) are unchanged and still bind every sleeve."""
     considered = [w for t, w in allocation.items() if t not in exempt]
