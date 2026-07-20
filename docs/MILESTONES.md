@@ -526,12 +526,22 @@ concentration_ok(..., exempt={IEF})`) over splitting into SHY/cash — simplicit
 and the haven is a safety redirect not a conviction bet. Narrow, named
 exception; the cap still binds every other sleeve (empty `exempt` default).
 
-**Remaining M6-bis build (not yet done, no urgency — paper-mode is slow):** seed
-the 3 books as Strategy/Portfolio entities and wire the live monthly decision
-path into UC8/Writeback (currently `run_market_signal` is the replay/validation driver,
-not yet the live weekly-chain decision). The pure decision logic + the
-gate-with-exemption it will call are done and tested; what remains is the
-scheduling/persistence wiring, which lands cleanly with M7/M8.
+**Book seeding: DONE (commit 493eec0).** The 3 books exist as Portfolio
+entities with `holds` edges to the `market-signal-stack` strategy
+(`ms-growth-book` primary). Renamed 2026-07-20 after the signal state that
+selects them — ADR-007 addendum 3; the entity IDs keep their original
+growth/inflation/slowdown spelling because EventLog is append-only.
+
+**Remaining M6-bis build (no urgency — paper-mode is slow):** wire the live
+monthly decision path into UC8/Writeback. `run_market_signal` is still the
+replay/validation driver, not the live chain decision. The pure decision logic
+and the gate-with-exemption it will call are done and tested; what remains is
+scheduling/persistence wiring. **This does NOT block M7** — M7's Definition of
+Verified is entirely corpus/curation (ingester, dedup, consolidation, SUPPORTS
+links) and touches no allocation path, and M7 explicitly carries only the
+KNOWLEDGE slice of Writeback while "the decision slice of Writeback comes at
+M8". The wiring therefore belongs with M8, next to the decision slice it
+depends on.
 
 ---
 
