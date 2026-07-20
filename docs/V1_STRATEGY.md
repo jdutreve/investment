@@ -13,9 +13,9 @@ docs/STRATEGY_COMPARISON.md).
 
 **Regime signal (market-priced, contemporaneous — replaces the lagged CPI/GDP
 detector for allocation):**
-- credit spread `BAA10Y` vs its 10y trailing median: WIDE → `wide-credit`;
-- if TIGHT, slope `T10Y2Y` vs its 10y trailing median: FLAT → `tight-flat`,
-  STEEP → `tight-steep`.
+- credit spread `BAA10Y` vs its 10y trailing median: WIDE → `credit-spread-wide`;
+- if TIGHT, slope `T10Y2Y` vs its 10y trailing median: FLAT → `credit-spread-tight-yield-curve-flat`,
+  STEEP → `credit-spread-tight-yield-curve-steep`.
 
 Books are named after the SIGNAL STATE that selects them, never after a macro
 regime (ADR-007 third addendum, 2026-07-20 — renamed from
@@ -26,9 +26,9 @@ original spelling because EventLog is append-only.
 
 **Books (concentrated pure-asset tilts; 50% sleeves — the single-asset cap was
 raised 40→50 for exactly this concentration, ADR-007 addendum 2026-07-20):**
-- `wide-credit`: SPY 50 / IWN 40 / GLD 10
-- `tight-flat`: SPY 50 / GLD 40 / IWN 10
-- `tight-steep`: VCIT 50 / IEF 40 / IWN 10
+- `credit-spread-wide`: SPY 50 / IWN 40 / GLD 10
+- `credit-spread-tight-yield-curve-flat`: SPY 50 / GLD 40 / IWN 10
+- `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 40 / IWN 10
 
 **Trend-following overlay:** each of the SPY and GLD sleeves is redirected to
 IEF whenever that asset is below its 200-day moving average. (This is the

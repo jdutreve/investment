@@ -494,12 +494,12 @@ supersedes M6 OPEN fork 1's "momentum-only return lead" read: the return-
 positive lead is the market-signal stack, not momentum (8.1% / Sharpe 0.46 / -37%).
 
 **Build (Step 1 of the roadmap — keep the bridge, do NOT delete M3/M5/UC7-8):**
-1. Seed the 3 books as Strategy/Portfolio (wide-credit SPY50/IWN40/GLD10,
-   tight-flat SPY50/GLD40/IWN10, tight-steep VCIT50/IEF40/IWN10 — renamed from
+1. Seed the 3 books as Strategy/Portfolio (credit-spread-wide SPY50/IWN40/GLD10,
+   credit-spread-tight-yield-curve-flat SPY50/GLD40/IWN10, credit-spread-tight-yield-curve-steep VCIT50/IEF40/IWN10 — renamed from
    growth/inflation/slowdown by ADR-007's third addendum).
 2. Market-signal regime module: `BAA10Y` vs 10y trailing median
-   (WIDE→wide-credit), else `T10Y2Y` vs 10y median (FLAT→tight-flat,
-   STEEP→tight-steep). Replaces the
+   (WIDE→credit-spread-wide), else `T10Y2Y` vs 10y median (FLAT→credit-spread-tight-yield-curve-flat,
+   STEEP→credit-spread-tight-yield-curve-steep). Replaces the
    macro detector FOR ALLOCATION only (I-38).
 3. 200d trend overlay: SPY/GLD sleeve → IEF when below its 200-day MA.
 4. Monthly decision path through the EXISTING `mechanical/gates.py` binding

@@ -50,9 +50,9 @@ from investment.mechanical.replay import NavMetrics, nav_metrics, shadow_book_na
 # LLM that reads these keys as semantic context, a book called "inflation" that
 # does not track inflation is a reasoning hazard, not just untidy naming.
 BOOKS: dict[str, dict[str, float]] = {
-    "wide-credit": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
-    "tight-flat": {"SPY": 50.0, "GLD": 40.0, "IWN": 10.0},
-    "tight-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
+    "credit-spread-wide": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
+    "credit-spread-tight-yield-curve-flat": {"SPY": 50.0, "GLD": 40.0, "IWN": 10.0},
+    "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
 }
 
 # The 200d trend overlay: these sleeves are redirected to TREND_HAVEN when their
@@ -99,26 +99,30 @@ def classify_regime(
     spread: float, spread_median: float | None, slope: float, slope_median: float | None
 ) -> str:
     """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"):
-    credit spread WIDE vs its 10y median -> `wide-credit` (stress is PRICED, so
-    the countercyclical response is to buy risk); else, on the slope: FLAT vs
-    its 10y median -> `tight-flat`, STEEP -> `tight-steep`.
+    credit spread WIDE vs its 10y median -> `credit-spread-wide` (stress is
+    PRICED, so the countercyclical response is to buy risk); else, on the
+    slope: FLAT vs its 10y median -> `credit-spread-tight-yield-curve-flat`,
+    STEEP -> `credit-spread-tight-yield-curve-steep`.
 
     The returned key names the SIGNAL STATE, not a macro regime — see BOOKS.
+    Note the deliberate asymmetry the names encode: when the spread is WIDE the
+    yield curve is never consulted, which is why that key carries no curve term.
 
     A missing median (warm-up, before MEDIAN_MIN_DAYS of history) defaults to
-    `wide-credit` — the equity-tilted book — exactly as the backtest did rather
-    than stalling; the trend overlay still guards its downside."""
+    `credit-spread-wide` — the equity-tilted book — exactly as the backtest did
+    rather than stalling; the trend overlay still guards its downside."""
     if spread_median is None or pd.isna(spread_median) or spread > spread_median:
-        return "wide-credit"
+        return "credit-spread-wide"
     if slope_median is None or pd.isna(slope_median) or slope < slope_median:
-        return "tight-flat"
-    return "tight-steep"
+        return "credit-spread-tight-yield-curve-flat"
+    return "credit-spread-tight-yield-curve-steep"
 
 
 def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) -> dict[str, float]:
     """Redirect each TREND_SLEEVES weight to TREND_HAVEN when that sleeve is
     below its 200d MA. Weights merge additively — if a book already holds
-    TREND_HAVEN (the slowdown book holds IEF), a redirected sleeve adds to it."""
+    TREND_HAVEN (the credit-spread-tight-yield-curve-steep book holds IEF), a
+    redirected sleeve adds to it."""
     adjusted: dict[str, float] = {}
     for ticker, weight in book.items():
         destination = TREND_HAVEN if ticker in TREND_SLEEVES and ticker in below_trend else ticker

@@ -1463,7 +1463,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         # human- and LLM-facing surface (name, trace, and the decision keys in
         # mechanical/market_signal.py BOOKS) is renamed.
         "id": "ms-growth-book",
-        "name": "Market-Signal Wide-Credit Book",
+        "name": "Market-Signal Book — Credit Spread Wide",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": True,
@@ -1474,7 +1474,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'wide-credit' book (credit spread WIDE vs its 10y "
+        "trace": "Market-signal 'credit-spread-wide' book (credit spread WIDE vs its 10y "
         "median — stress is priced, so the countercyclical response is to buy "
         "risk); also the warm-up default before 10y of signal history. ADR-007; "
         "renamed from 'growth' by the 2026-07-20 addendum (docs/IMPROVEMENTS.md "
@@ -1483,7 +1483,7 @@ PORTFOLIOS: list[dict[str, object]] = [
     },
     {
         "id": "ms-inflation-book",  # frozen id — see ms-growth-book above
-        "name": "Market-Signal Tight-Credit Flat-Curve Book",
+        "name": "Market-Signal Book — Credit Spread Tight, Yield Curve Flat",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": True,
@@ -1494,16 +1494,16 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'tight-flat' book (spread TIGHT, slope FLAT vs their "
+        "trace": "Market-signal 'credit-spread-tight-yield-curve-flat' book (spread TIGHT, slope FLAT vs their "
         "10y medians). ADR-007; renamed from 'inflation' by the 2026-07-20 "
         "addendum — measured over 418 monthly decisions this book averaged CPI "
-        "YoY 2.99 vs 2.23 for the wide-credit book and spent 33.0% of its time "
+        "YoY 2.99 vs 2.23 for the credit-spread-wide book and spent 33.0% of its time "
         "above 3% against a 31.3% base rate, i.e. it does NOT track inflation "
         "(docs/IMPROVEMENTS.md I-39).",
     },
     {
         "id": "ms-slowdown-book",  # frozen id — see ms-growth-book above
-        "name": "Market-Signal Tight-Credit Steep-Curve Book",
+        "name": "Market-Signal Book — Credit Spread Tight, Yield Curve Steep",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": True,
@@ -1514,7 +1514,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'tight-steep' book (spread TIGHT, slope STEEP vs their "
+        "trace": "Market-signal 'credit-spread-tight-yield-curve-steep' book (spread TIGHT, slope STEEP vs their "
         "10y medians). ADR-007; renamed from 'slowdown' by the 2026-07-20 "
         "addendum (docs/IMPROVEMENTS.md I-39).",
     },

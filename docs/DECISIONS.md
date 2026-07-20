@@ -455,9 +455,9 @@ were therefore false in the one dimension they claimed. Since the Worker is an
 LLM that reads book names and decision keys as semantic context, this is a
 reasoning hazard, not cosmetics.
 
-Renamed: `growth` → **`wide-credit`** (credit spread WIDE vs its 10y median —
+Renamed: `growth` → **`credit-spread-wide`** (credit spread WIDE vs its 10y median —
 stress is priced, so the countercyclical response is to buy risk), `inflation` →
-**`tight-flat`** (spread TIGHT, slope FLAT), `slowdown` → **`tight-steep`**
+**`credit-spread-tight-yield-curve-flat`** (spread TIGHT, slope FLAT), `slowdown` → **`credit-spread-tight-yield-curve-steep`**
 (spread TIGHT, slope STEEP). This touches the `BOOKS` keys and
 `classify_regime`'s return in `mechanical/market_signal.py`, and the `name` /
 `trace` of the three seeded portfolios.
