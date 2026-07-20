@@ -182,3 +182,11 @@ session. The +2.5 edge leans on small-cap value (IWN), a factor that can
 underperform for a decade. Real drawdowns exceed backtested minima. The only
 validation that counts is forward paper-mode (step 6). Adopting the stack sets
 the target; it does not prove it.
+
+**Timeline is SLOW by design (owner note, 2026-07-20).** Forward paper-mode
+takes ~6-18 months to yield a statistically meaningful verdict (each proposal
+scored at +12w; a monthly-cadence stack generates few proposals). Expect
+nothing quickly — and that is the right pace for a 10-15y accumulation-horizon
+project. There is no urgency to reach a verdict; the discipline is to let real
+unseen data accumulate rather than to conclude fast. The build work (M6-bis →
+M8b) proceeds meanwhile, but the go-live verdict waits on time it cannot rush.

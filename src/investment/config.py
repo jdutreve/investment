@@ -59,7 +59,9 @@ class Settings(BaseSettings):
 
     # User profile defaults (BINDING rules — see docs/REVISION_NOTES.md)
     user_currency: str = "CHF"
-    user_max_drawdown_pct: float = -15.0
+    # ADR-007: raised from -15 for the accumulation-horizon Verdad stack;
+    # applies to the STACK's realized drawdown, not each book's standalone one.
+    user_max_drawdown_pct: float = -25.0
     user_max_single_asset_pct: float = 40.0
     user_benchmark: str = "all-weather-USD"
     user_phase: str = "accumulation"

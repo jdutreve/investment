@@ -342,3 +342,71 @@ step is the human boundary. V2 = auto-execution, which would supersede this.
 - DoD item 6 changes: an agent-discovery invariant is persisted and matured
   mechanically; the digest surfaces it — no `status=proposed`-awaiting-user,
   no validation notification.
+
+---
+
+## ADR-007 — Adopt the Verdad market-signal monthly stack as V1's operating strategy
+
+**Status:** accepted (owner sign-off, 2026-07-20). Authorizes the CLAUDE.md/
+docs revisions and the M6-bis wiring below.
+**Date:** 2026-07-20.
+**Supersedes (for ALLOCATION only):** the seeded Dalio 4-quadrant
+portfolio-rotation as the thing that decides the allocation. Full spec + impact
+map + roadmap: docs/V1_STRATEGY.md. Evidence: docs/STRATEGY_COMPARISON.md.
+
+**Context.** The M6 mechanical premise gate found the seeded 4-quadrant
+rotation does not beat B (risk-parity All Weather) on return; the whole
+post-M6 exploration then measured, on the live 35y DB, that a countercyclical
+market-signal stack (Verdad/Rasmussen) DOES: credit-spread + yield-slope regime
+selecting concentrated books (small-cap value + IG credit, added to the menu
+this pass) with a 200-day trend-following overlay, evaluated MONTHLY, returns
+9.85%/yr vs B 7.27% (+2.5, robust in AND out of sample), Sortino ≈ B, max
+drawdown -24% (daily), ~3.4 changes/yr. Monthly beats weekly on every practical
+axis (fees, Swiss tax holding period, manual execution) at ~no return cost. The
+lagged CPI/GDP detector that drove the old allocation was diagnosed as the root
+cause of the failure (I-38): it labels macro-publication regimes, not the market
+regimes the books are designed for. NB: this is BACKTEST evidence on a window
+consulted heavily; the only validation that counts is forward paper-mode.
+
+**Decision.**
+1. The V1 operating strategy is the **Verdad market-signal monthly stack**
+   (defined in docs/V1_STRATEGY.md): credit-spread(BAA10Y)/slope(T10Y2Y) regime
+   → 3 concentrated books → 200d trend-following overlay, MONTHLY decision, no
+   VIX overlay.
+2. The old cognitive core (macro detector M3, FAVORS M5, UC7 ranking, UC8
+   switch/reallocation blend, scenarios, the 7 Dalio books, weekly decision
+   cadence) is **DEMOTED, not deleted** — kept wired as fallback + benchmark
+   until forward paper-mode earns the full switch. Passing the crossroads is
+   not burning the bridge.
+3. The infrastructure (data pipeline M2, NAV M4, SQLite/EventLog M1, the
+   binding-cap gates, the replay/calibration harness, the corpus/invariant
+   factory M7, the Planner/Worker M8) is unchanged. The knowledge factory is
+   framework-agnostic; only what it ORIENTS changes.
+4. **Drawdown binding cap raised from -15% to -25%** (user_profile.
+   max_drawdown_pct), and REINTERPRETED for this stack: the cap applies to the
+   STACK's realized drawdown, not each component book's standalone drawdown.
+   Rationale: a 10-15y ACCUMULATION horizon tolerates a deep-but-recovering
+   trough (drawdowns are buying opportunities with recovery time); the stack's
+   -24% then complies. OWNER CAVEAT ON RECORD: -25% leaves ~1pt margin over the
+   backtested -24%; real crises exceed backtested minima, so a worse-than-
+   history tail will likely breach it — -30% was offered for buffer and
+   declined in favour of -25%. [If the owner prefers -30%, change here before
+   accepting.]
+5. Forward **paper-mode (M9)** is the go-live gate for this strategy, exactly
+   as M6 was the backtest gate. Auto-execution (V2) only after forward
+   validation.
+
+**Consequences.**
+- ADR-002/003/004/005/006 are all unaffected.
+- The weekly-Monday-chain rule (CLAUDE.md, ARCHITECTURE) changes for the
+  DECISION step only (→ monthly); catch-up/NAV/regime-step jobs keep their
+  natural frequency. This is the one existing-doctrine change and is scoped
+  here.
+- CLAUDE.md sections (ranking rule, FAVORS, regimes, UC8, binding caps),
+  ARCHITECTURE, USE_CASES (UC7/UC8), DATA_MODELS, MILESTONES get revised UNDER
+  this ADR's authority once accepted — they are not silent contradictions,
+  they execute this decision.
+- Open owner items still to resolve before M9 go-live: the Swiss quasi-
+  professional tax status (median 61-day holding still < the 6-month safe
+  harbor — confirm with a fiduciaire) and the monthly-compatible drawdown
+  brake IF -25% ever needs defending in a live tail.
