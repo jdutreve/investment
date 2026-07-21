@@ -37,6 +37,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
@@ -83,6 +84,19 @@ OUTPUT_RETRIES = 2
 # run from tripping provider rate limits, which would turn a slow job into a
 # failed one.
 MAX_CONCURRENT_CALLS = 4
+
+# Wall-clock ceiling for ONE batch. CLAUDE.md requires external calls to sit
+# behind "a per-provider Semaphore + timeout + exponential backoff"; the
+# semaphore alone is a trap. Measured 2026-07-21: with no timeout, a full-corpus
+# run stalled at batch 7/52 and sat dead for 51 minutes — four hung connections
+# fill the semaphore and the whole job deadlocks with no error, no log, and a
+# live process. 300s is ~2x the slowest observed batch (144s), so a legitimate
+# slow batch survives and a stalled connection does not.
+BATCH_TIMEOUT_SECONDS = 300.0
+# Retries for TRANSPORT failures (timeout, 5xx, dropped connection) — distinct
+# from OUTPUT_RETRIES, which covers schema-validation failures. Handled by the
+# OpenAI client, which applies exponential backoff between attempts.
+TRANSPORT_RETRIES = 2
 
 
 class Predicate(BaseModel):
@@ -199,7 +213,11 @@ def interest_score(scores: CandidateScores, weights: dict[str, float] | None = N
     return round(total, 2)
 
 
-def gate_candidate(candidate: InvariantCandidate, registries: Registries) -> str | None:
+def gate_candidate(
+    candidate: InvariantCandidate,
+    registries: Registries,
+    ranges: dict[str, tuple[float, float]] | None = None,
+) -> str | None:
     """The EXPRESSIBILITY gate: `None` if the candidate can be confronted,
     else the reason it cannot.
 
@@ -210,7 +228,18 @@ def gate_candidate(candidate: InvariantCandidate, registries: Registries) -> str
     # the gate is purely about VOCABULARY: does every predicate name a real
     # signal, does the effect name a real handle/method/direction.
     condition = [p.model_dump() for p in candidate.condition]
-    return validate_invariant(condition, candidate.effect.model_dump(), registries)
+    reason = validate_invariant(condition, candidate.effect.model_dump(), registries)
+    if reason is not None:
+        return reason
+    # Vocabulary is valid — now: can the condition ever actually fire?
+    for predicate in candidate.condition:
+        if not threshold_is_reachable(predicate, ranges or {}):
+            lo, hi = (ranges or {})[predicate.signal]
+            return (
+                f"unreachable threshold: {predicate.signal}.{predicate.feature} "
+                f"{predicate.op} {predicate.value} never holds on [{lo:.2f}, {hi:.2f}]"
+            )
+    return None
 
 
 def rank(scored: list[ScoredCandidate], ceiling: int) -> list[ScoredCandidate]:
@@ -223,6 +252,51 @@ def rank(scored: list[ScoredCandidate], ceiling: int) -> list[ScoredCandidate]:
         (s for s in scored if s.admissible), key=lambda s: s.interest_score, reverse=True
     )
     return admissible[:ceiling]
+
+
+async def signal_ranges(db: InvestmentDB) -> dict[str, tuple[float, float]]:
+    """Observed [min, max] per registry signal, read from `market_data`.
+
+    Inlined into the prompt AND checked by the gate. Both are needed because
+    the failure they prevent is INVISIBLE otherwise: a predicate can name a
+    real signal, a real feature and a real operator, and still be never-true.
+    Measured on the first full corpus run (2026-07-21), the model assumed
+    several signals were centred on zero when they are indices —
+    `growth.level < 0` on a series that runs 24..118, `liquidity.level < 0.5`
+    on one that runs 92..137 — and it used fractions (`inflation > 0.05`) where
+    the series is in percentage points. Such an invariant is not wrong, it is
+    DORMANT: never active, never confronted, never matured, and silent about
+    it."""
+    ranges: dict[str, tuple[float, float]] = {}
+    for alias, ticker in SIGNAL_ALIASES.items():
+        if alias == "regime":
+            continue
+        rows = await db.query(
+            "SELECT MIN(level) AS lo, MAX(level) AS hi FROM market_data "
+            "WHERE ticker = :t AND level IS NOT NULL",
+            t=ticker,
+        )
+        if rows and rows[0]["lo"] is not None:
+            ranges[alias] = (float(rows[0]["lo"]), float(rows[0]["hi"]))
+    return ranges
+
+
+def threshold_is_reachable(predicate: Predicate, ranges: dict[str, tuple[float, float]]) -> bool:
+    """False when the predicate can never fire on the observed history.
+
+    Only ever called on predicates whose signal/feature/op already validated,
+    and only for `level` — `speed`/`acceleration` are derived series whose
+    ranges are not stored alongside the level."""
+    span = ranges.get(predicate.signal)
+    if span is None or predicate.feature != "level":
+        return True
+    lo, hi = span
+    value = predicate.value
+    if predicate.op in ("<", "<="):
+        return value > lo if predicate.op == "<" else value >= lo
+    if predicate.op in (">", ">="):
+        return value < hi if predicate.op == ">" else value <= hi
+    return lo <= value <= hi
 
 
 async def build_registries(db: InvestmentDB) -> Registries:
@@ -249,7 +323,18 @@ def build_agent(
     Both roles share this transport (config.py), so swapping a cheap model for
     an expensive one to compare curation quality is a config change — which is
     what makes the M7 STOP comparison affordable to run at all."""
-    provider = OpenRouterProvider(api_key=api_key)
+    # `max_retries` on the client covers TRANSPORT failures with exponential
+    # backoff (the CLAUDE.md requirement); PydanticAI's `retries` below covers
+    # schema-validation failures. Two different faults, two different knobs —
+    # conflating them is what left the stall unprotected.
+    provider = OpenRouterProvider(
+        openai_client=AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+            max_retries=TRANSPORT_RETRIES,
+            timeout=BATCH_TIMEOUT_SECONDS,
+        )
+    )
     # PydanticAI's bundled profile for these OpenRouter routes declares
     # `supports_json_schema_output=False` and defaults to the `tool` mode. That
     # is WRONG for deepseek-v4-flash: a direct HTTP check (2026-07-21) returned
@@ -278,6 +363,8 @@ def build_agent(
         # appended, then raise (the Phase 1bis policy). Never a silent pass.
         retries=OUTPUT_RETRIES,
         model_settings=OpenAIChatModelSettings(
+            # Without this the client waits forever on a stalled socket.
+            timeout=BATCH_TIMEOUT_SECONDS,
             # `reasoning_effort` is a str from config; the provider validates
             # the value (deepseek-v4-flash and sonnet-5 both accept 'xhigh').
             openai_reasoning_effort=reasoning_effort,  # type: ignore[typeddict-item]
@@ -286,14 +373,27 @@ def build_agent(
     return agent
 
 
-def render_instructions(registries: Registries) -> str:
+def render_instructions(
+    registries: Registries, ranges: dict[str, tuple[float, float]] | None = None
+) -> str:
     """The quality contract (docs/TASKS.md Task 5.3), with the LIVE registry
     inlined.
 
     Listing the actual signals is what makes the expressibility requirement
     answerable rather than a hope: the model cannot map a claim onto a
     vocabulary it was never shown."""
-    signals = ", ".join(sorted(registries.signals & set(SIGNAL_ALIASES)))
+    known = sorted(registries.signals & set(SIGNAL_ALIASES))
+    # Show the OBSERVED RANGE next to each signal. Naming the signals is not
+    # enough: the first full run produced never-true conditions because the
+    # model guessed the units (fractions vs percentage points) and the centring
+    # (zero-centred vs index). A range cannot be guessed wrong.
+    if ranges:
+        signals = "\n     ".join(
+            f"{a}: observed {ranges[a][0]:.2f} .. {ranges[a][1]:.2f}" if a in ranges else a
+            for a in known
+        )
+    else:
+        signals = ", ".join(known)
     classes = ", ".join(sorted(registries.asset_classes))
     return f"""You extract FALSIFIABLE market invariants from investment literature.
 
@@ -311,7 +411,12 @@ TWO HARD REQUIREMENTS:
 2. `condition` and `effect` must use ONLY this vocabulary. A claim you cannot
    express in it is NOT a weighted invariant; omit it rather than inventing a
    signal name.
-   - signals: {signals}
+   - signals, with the range each one ACTUALLY takes in our data:
+     {signals}
+     Thresholds must fall INSIDE the observed range, or the condition can never
+     be true and the invariant is dormant forever. Note the units: these are the
+     real stored values — several signals are percentage points (inflation ~ -2
+     to 9, not 0 to 0.09) and some are indices that never approach zero.
    - features: level, speed, acceleration
    - operators: <, <=, >, >=, ==, !=
    - effect.handle: asset:<TICKER> or asset-class:<one of {classes}>
@@ -380,13 +485,14 @@ class KnowledgeCurator:
     async def curate_passages(self, passages: list[dict[str, Any]]) -> list[ScoredCandidate]:
         """Curate ONE batch of passage rows -> scored, gated candidates."""
         registries = await build_registries(self._db)
+        ranges = await signal_ranges(self._db)
         agent = build_agent(
             self._model_name,
             self._api_key,
             self._reasoning_effort,
-            render_instructions(registries),
+            render_instructions(registries, ranges),
         )
-        return await self._run_batch(agent, registries, passages)
+        return await self._run_batch(agent, registries, passages, ranges)
 
     async def curate_document(self, document_id: str) -> list[ScoredCandidate]:
         """Curate a WHOLE document in one job: gather every passage, split into
@@ -408,11 +514,12 @@ class KnowledgeCurator:
         inbox watcher, and for the same reason: a job this long must not lose
         hours of work to one bad response."""
         registries = await build_registries(self._db)
+        ranges = await signal_ranges(self._db)
         agent = build_agent(
             self._model_name,
             self._api_key,
             self._reasoning_effort,
-            render_instructions(registries),
+            render_instructions(registries, ranges),
         )
         rows = await self._db.query(
             "SELECT id, page, content FROM passage WHERE document_id = :d ORDER BY position",
@@ -435,7 +542,13 @@ class KnowledgeCurator:
             nonlocal done
             async with semaphore:
                 try:
-                    scored = await self._run_batch(agent, registries, batch)
+                    # Belt and braces: the client timeout covers the socket,
+                    # this covers anything that wedges above it (a retry loop,
+                    # a provider that trickles bytes to keep the read alive).
+                    scored = await asyncio.wait_for(
+                        self._run_batch(agent, registries, batch, ranges),
+                        timeout=BATCH_TIMEOUT_SECONDS * 2,
+                    )
                 except Exception as exc:  # a long job must survive a bad batch
                     logger.warning(
                         "curator: batch %d failed — %s: %s", index, type(exc).__name__, exc
@@ -457,6 +570,7 @@ class KnowledgeCurator:
         agent: Agent[None, CurationResult],
         registries: Registries,
         batch: list[dict[str, Any]],
+        ranges: dict[str, tuple[float, float]] | None = None,
     ) -> list[ScoredCandidate]:
         prompt = "\n\n".join(
             f"[passage {p['id']}, page {p.get('page')}]\n{p['content']}" for p in batch
@@ -470,17 +584,20 @@ class KnowledgeCurator:
         if notes:
             logger.info("curator: %d reference note(s) (not weighted invariants)", len(notes))
         self.last_reference_notes = notes
-        return self.score_and_gate(result.output.invariant_candidates, registries)
+        return self.score_and_gate(result.output.invariant_candidates, registries, ranges)
 
     def score_and_gate(
-        self, candidates: list[InvariantCandidate], registries: Registries
+        self,
+        candidates: list[InvariantCandidate],
+        registries: Registries,
+        ranges: dict[str, tuple[float, float]] | None = None,
     ) -> list[ScoredCandidate]:
         """The mechanical half — no LLM. Separated so it is testable without a
         network call, and so the same scoring applies whichever model produced
         the candidates."""
         scored: list[ScoredCandidate] = []
         for candidate in candidates:
-            rejection = gate_candidate(candidate, registries)
+            rejection = gate_candidate(candidate, registries, ranges)
             if rejection is not None:
                 logger.info("curator: demoted %r — %s", candidate.claim[:60], rejection)
             scored.append(

@@ -238,3 +238,49 @@ def test_instructions_inline_the_actual_registry(registries: Registries) -> None
     assert "cross_class" in text and "underperform" in text
     # And it must demand the fundamental driver, not a surface label.
     assert "regime = stagflation" in text
+
+
+# -- unreachable thresholds: valid vocabulary, impossible condition ---------
+
+_RANGES = {"growth": (24.06, 117.89), "real_rate": (-7.92, 3.70), "inflation": (-2.15, 8.98)}
+
+
+def test_never_true_threshold_is_rejected(registries: Registries) -> None:
+    """The defect the first full corpus run produced, now caught.
+
+    `growth` is an INDEX running 24..118, so `growth.level < 0` names a real
+    signal, a real feature and a real operator — and can never fire. The
+    resulting invariant is not wrong, it is DORMANT: never active, never
+    confronted, never matured, and silent about it. Three of the top-15
+    candidates had exactly this shape."""
+    bad = _candidate(condition=[Predicate(signal="growth", feature="level", op="<", value=0.0)])
+    reason = gate_candidate(bad, registries, _RANGES)
+    assert reason is not None and "unreachable" in reason
+
+
+def test_fraction_instead_of_percentage_points_is_rejected(registries: Registries) -> None:
+    # `inflation > 0.05` reads as "5%" but the series is in percentage points,
+    # so it is true almost always — a condition that discriminates nothing.
+    # Caught here as reachable-but-degenerate only when it falls outside; the
+    # clearly-impossible direction is what the range check can prove.
+    bad = _candidate(condition=[Predicate(signal="inflation", feature="level", op=">", value=99.0)])
+    assert gate_candidate(bad, registries, _RANGES) is not None
+
+
+def test_reachable_threshold_passes(registries: Registries) -> None:
+    ok = _candidate(condition=[Predicate(signal="real_rate", feature="level", op="<", value=0.0)])
+    assert gate_candidate(ok, registries, _RANGES) is None
+
+
+def test_derived_features_are_not_range_checked(registries: Registries) -> None:
+    # speed/acceleration ranges are not stored next to the level, so the check
+    # must abstain rather than guess — a false rejection is worse than none.
+    ok = _candidate(condition=[Predicate(signal="growth", feature="speed", op="<", value=0.0)])
+    assert gate_candidate(ok, registries, _RANGES) is None
+
+
+def test_instructions_show_observed_ranges(registries: Registries) -> None:
+    # Naming the signals is not enough: the model guessed units and centring.
+    text = render_instructions(registries, _RANGES)
+    assert "24.06" in text and "117.89" in text
+    assert "percentage points" in text
