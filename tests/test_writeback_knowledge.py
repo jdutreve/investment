@@ -81,6 +81,22 @@ async def _document(db: InvestmentDB, author: str | None = None, passages: int =
     return ids
 
 
+def _distinct(claim: str, signal: str, score: int = 80) -> ScoredCandidate:
+    """A candidate whose STRUCTURE differs, not merely its wording.
+
+    Needed because `_candidate` pins one condition/effect for every claim it
+    builds: two of its outputs are the same invariant by construction, so a
+    test that wants two genuinely different claims must vary the predicate —
+    which is also what real curator output does."""
+    item = _candidate(claim, score=score)
+    object.__setattr__(
+        item.candidate,
+        "condition",
+        [Predicate(signal=signal, feature="level", op="<", value=0.0)],
+    )
+    return item
+
+
 def _candidate(claim: str, description: str = "", score: int = 80) -> ScoredCandidate:
     return ScoredCandidate(
         candidate=InvariantCandidate(
@@ -214,7 +230,9 @@ async def test_a_distinct_claim_is_not_swallowed_by_the_dedup_gate(
         passage_ids=passage_ids,
         scored=[
             _candidate("negative real interest rates cause gold to outperform"),
-            _candidate("a flat yield curve precedes equity drawdowns within two quarters"),
+            _distinct(
+                "a flat yield curve precedes equity drawdowns within two quarters", "yield_slope"
+            ),
         ],
         notes=[],
     )
@@ -273,6 +291,60 @@ async def test_opposite_claims_are_never_merged_however_alike_they_read(
         notes=[],
     )
     assert await _count(db, "invariant") == 2
+
+
+async def test_identical_structure_merges_however_differently_it_reads(
+    db: InvestmentDB, embedder: InProcessEmbedder
+) -> None:
+    """The mirror of the wide-vs-tight failure: prose misleads BOTH ways.
+
+    Measured 2026-07-21: "the S&P 500 trades below its 200-day moving average"
+    and "the equity trend is negative" both compiled to the SAME predicate and
+    the SAME effect, yet sat at cosine 0.668 — below any sane threshold — and
+    were persisted as two invariants. Identical structure means identical
+    confrontation results over 35 years, so the cosine has nothing to add."""
+    passage_ids = await _document(db)
+    writeback = KnowledgeWriteback(db, embedder)
+    first = _candidate("the S&P 500 trades below its 200-day moving average")
+    second = _candidate("the equity trend is negative")
+    for item in (first, second):
+        object.__setattr__(
+            item.candidate,
+            "condition",
+            [Predicate(signal="equity_trend", feature="level", op="<", value=0.0)],
+        )
+
+    await writeback.persist_batch(
+        document_id="doc-1",
+        fingerprint=FINGERPRINT,
+        passage_ids=passage_ids,
+        scored=[first, second],
+        notes=[],
+    )
+    assert await _count(db, "invariant") == 1
+
+
+async def test_predicate_order_does_not_defeat_identity(
+    db: InvestmentDB, embedder: InProcessEmbedder
+) -> None:
+    """A condition is an AND, so [A, B] and [B, A] are the same condition."""
+    passage_ids = await _document(db)
+    writeback = KnowledgeWriteback(db, embedder)
+    a = Predicate(signal="growth", feature="speed", op="<", value=0.0)
+    b = Predicate(signal="inflation", feature="speed", op=">", value=0.0)
+    first = _candidate("falling growth with rising inflation favours gold")
+    second = _candidate("rising inflation alongside falling growth favours gold")
+    object.__setattr__(first.candidate, "condition", [a, b])
+    object.__setattr__(second.candidate, "condition", [b, a])
+
+    await writeback.persist_batch(
+        document_id="doc-1",
+        fingerprint=FINGERPRINT,
+        passage_ids=passage_ids,
+        scored=[first, second],
+        notes=[],
+    )
+    assert await _count(db, "invariant") == 1
 
 
 async def test_reference_knowledge_is_never_a_merge_target(
@@ -477,19 +549,22 @@ async def test_concurrent_batches_persist_without_clobbering_each_other(
     passage_ids = await _document(db)
     writeback = KnowledgeWriteback(db, embedder)
 
-    async def persist(passage_id: str, claim: str) -> Any:
+    async def persist(passage_id: str, item: ScoredCandidate) -> Any:
         return await writeback.persist_batch(
             document_id="doc-1",
             fingerprint=FINGERPRINT,
             passage_ids=[passage_id],
-            scored=[_candidate(claim)],
+            scored=[item],
             notes=[],
         )
 
     results = await asyncio.gather(
-        persist(passage_ids[0], "negative real interest rates cause gold to outperform"),
-        persist(passage_ids[1], "when real rates turn negative, gold outperforms other assets"),
-        persist(passage_ids[2], "a flat yield curve precedes equity drawdowns within two quarters"),
+        persist(passage_ids[0], _candidate("negative real interest rates favour gold")),
+        persist(passage_ids[1], _candidate("when real rates turn negative, gold outperforms")),
+        persist(
+            passage_ids[2],
+            _distinct("a flat yield curve precedes equity drawdowns", "yield_slope"),
+        ),
         return_exceptions=True,
     )
     assert [r for r in results if isinstance(r, BaseException)] == []

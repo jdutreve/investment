@@ -58,7 +58,31 @@ logger = logging.getLogger(__name__)
 # the old extractions no longer represent what this curator would produce".
 # It lives HERE, next to the prompt it versions — the fingerprint is a property
 # of the curator, not of the writeback that records it.
-CURATION_PROMPT_VERSION = 1
+# v2 (2026-07-21): the ice core showed the model silently confusing `speed`
+# with `acceleration` — two candidates carried the identical English claim
+# ("growth falling, inflation rising") with incompatible predicates, one of
+# them semantically wrong. The features are now defined in the prompt with a
+# contrasted example. A version bump invalidates every checkpoint, which is
+# exactly right: candidates extracted under the ambiguous prompt should not be
+# trusted, and re-curation must be forced rather than hoped for.
+# v3 (2026-07-21): the v2 run demoted 5 of 14 candidates on `feature
+# 'credit_spread' invalid for series signal 'credit_spread'` — the model was
+# putting the SIGNAL NAME in `feature`. The cause was not sloppiness but a gap:
+# it was reaching for "spread above its trailing median", which the registry
+# cannot express, and filled the field with what it had. v3 states the three
+# literal features, gives the `equity_trend.level < 0` mapping, and names the
+# missing capability so the claim becomes a reference_note instead of a
+# corrupted invariant (IMPROVEMENTS I-43).
+# v4 (2026-07-21): three ice cores found three bugs of ONE family — a field
+# the model could not fill exactly, filled with the nearest substitute
+# (signal name into `feature`; fixed threshold for a rolling quantile; an
+# asset-return effect for a claim about real GDP growth). v3 fixed the second
+# case by naming it; v4 promotes the pattern to a RULE at the head of the
+# vocabulary section, because patching one field at a time only ever catches
+# the substitution already observed. The worst of the three was the macro one:
+# title and effect asserted different things, so a 35y verdict would have been
+# recorded against a claim the book never made.
+CURATION_PROMPT_VERSION = 4
 
 # Score weights (owner-specified, 2026-07-21). Seeded in `system_thresholds`
 # so they are re-tunable without a code change — they are an unvalidated
@@ -107,6 +131,11 @@ BATCH_TIMEOUT_SECONDS = 300.0
 # from OUTPUT_RETRIES, which covers schema-validation failures. Handled by the
 # OpenAI client, which applies exponential backoff between attempts.
 TRANSPORT_RETRIES = 2
+
+
+class CurationFailed(RuntimeError):
+    """Every batch of a document failed. Distinct from "the document yielded
+    no candidates", which is a legitimate result and must stay silent."""
 
 
 class Predicate(BaseModel):
@@ -425,21 +454,64 @@ TWO HARD REQUIREMENTS:
    `real_rate < 0`, not `regime = stagflation` — the regime is a label for the
    driver, and a label cannot be confronted against history.
 
-2. `condition` and `effect` must use ONLY this vocabulary. A claim you cannot
-   express in it is NOT a weighted invariant; omit it rather than inventing a
-   signal name.
+2. `condition` and `effect` must use ONLY this vocabulary — and here is the
+   rule that governs every field below, so read it before the list:
+
+   NEVER APPROXIMATE A FIELD YOU CANNOT FILL EXACTLY. If any part of the claim
+   does not fit the vocabulary, the whole claim is a `reference_note`, not an
+   invariant with the nearest available substitute. A near-miss is not a
+   weaker version of the claim — it is a DIFFERENT claim, and it will be
+   confronted against 35 years of history under the original's wording, so
+   the verdict gets attributed to something the passage never said. An honest
+   note is worth more than a plausible-looking invariant.
+
+   Three substitutions that actually happened and must not recur: a signal
+   name written into `feature`; a fixed threshold standing in for "relative to
+   its own history"; an asset-return effect standing in for a claim about a
+   MACRO outcome. Each looked reasonable and each corrupted the record.
    - signals, with the range each one ACTUALLY takes in our data:
      {signals}
      Thresholds must fall INSIDE the observed range, or the condition can never
      be true and the invariant is dormant forever. Note the units: these are the
      real stored values — several signals are percentage points (inflation ~ -2
      to 9, not 0 to 0.09) and some are indices that never approach zero.
-   - features: level, speed, acceleration
+   - `feature` is ONE of exactly three literal words — `level`, `speed`,
+     `acceleration` — and NEVER a signal name. `{{"signal": "credit_spread",
+     "feature": "credit_spread"}}` is rejected. If a signal already expresses a
+     comparison, the comparison lives in its LEVEL: `equity_trend` is
+     `SPY / SMA10m(SPY) - 1`, so "price below its 200-day average" is
+     `equity_trend.level < 0` — not a feature named after the signal.
+   - features — these are DERIVATIVES of the signal and are NOT
+     interchangeable; picking the wrong one silently changes the claim:
+       level        = the value itself.        "inflation is high"  -> level > 3
+       speed        = its rate of change.      "inflation is RISING" -> speed > 0
+       acceleration = the change in that rate. "inflation is rising
+                      FASTER AND FASTER"       -> acceleration > 0
+     Contrast, because this is the mistake that actually happened: growth that
+     is FALLING is `growth.speed < 0`. `growth.acceleration < 0` says growth is
+     merely SLOWING — it may still be rising. If the passage says "growth
+     falls" or "growth weakens", you want speed, not acceleration. Use
+     acceleration ONLY when the passage is explicitly about a trend steepening
+     or flattening.
+     There is NO "relative to its own history" feature — no percentile, no
+     rolling median, no z-score. "Spreads above their 10-year median" cannot be
+     written here. Such a claim is a `reference_note`, NOT an invariant with an
+     approximated field: a fixed threshold is a DIFFERENT claim from a
+     historical-quantile one, and silently substituting it corrupts what gets
+     confronted over 35 years.
    - operators: <, <=, >, >=, ==, !=
    - effect.handle: asset:<TICKER> or asset-class:<one of {classes}>
    - effect.method: cross_class | cross_strategy | absolute
    - effect.direction: outperform | underperform
    - effect.metric: return
+   - the effect can ONLY be the RETURN of an asset, asset class or strategy.
+     A claim whose consequence is a MACRO variable — growth, inflation,
+     unemployment, the credit cycle — has no effect to write here and is a
+     `reference_note`. "When equity_trend is negative, subsequent real GDP
+     growth is lower" is about GDP; rewriting it as "equities underperform" is
+     a different claim that the passage did not make. If the passage asserts
+     BOTH (the macro consequence AND an allocation consequence), keep only the
+     allocation half and say so in the claim.
 
 SCORING — rate each candidate 0-100 on six dimensions. Be honest and use the
 full range; these order candidates for human review, so uniformly high scores
@@ -578,9 +650,10 @@ class KnowledgeCurator:
         )
         semaphore = asyncio.Semaphore(self._max_concurrency)
         done = 0
+        failed = 0
 
         async def one(index: int, batch: list[dict[str, Any]]) -> list[ScoredCandidate]:
-            nonlocal done
+            nonlocal done, failed
             async with semaphore:
                 try:
                     # Belt and braces: the client timeout covers the socket,
@@ -603,6 +676,7 @@ class KnowledgeCurator:
                             notes=notes,
                         )
                 except Exception as exc:  # a long job must survive a bad batch
+                    failed += 1
                     logger.warning(
                         "curator: batch %d failed — %s: %s", index, type(exc).__name__, exc
                     )
@@ -616,6 +690,24 @@ class KnowledgeCurator:
                 return scored
 
         results = await asyncio.gather(*(one(i, b) for i, b in enumerate(batches, 1)))
+        # Batch-level tolerance must not become silence. Measured 2026-07-21:
+        # a bad API key failed all 5 batches of a document and the run reported
+        # `{'documents': 1, 'candidates': 0}` — a TOTAL failure indistinguishable
+        # from "this book yielded nothing", which is a legitimate outcome for a
+        # chapter of narrative history. Surviving a bad batch is the policy;
+        # claiming success after surviving all of them is a lie.
+        if failed and failed == len(batches):
+            raise CurationFailed(
+                f"{document_id}: all {failed} batch(es) failed — see the warnings above"
+            )
+        if failed:
+            logger.warning(
+                "curator: %s completed with %d/%d batches FAILED — their passages stay "
+                "uncurated and the next run retries exactly those",
+                document_id,
+                failed,
+                len(batches),
+            )
         return [scored for batch in results for scored in batch]
 
     async def _run_batch(

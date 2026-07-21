@@ -33,11 +33,14 @@ import dataclasses
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
 
 from investment.config import Settings
+from investment.corpus import embedding
+from investment.corpus import ingester as corpus_ingester
 from investment.db.seed_data import (
     ALL_WEATHER_BENCHMARK,
     ALLOWED_TICKERS,
@@ -58,6 +61,8 @@ from investment.db.seed_data import (
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
 from investment.mechanical import backtests, invariants, ratios, scenarios, snapshots
+from investment.worker import curator as curator_mod
+from investment.writeback import knowledge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -92,9 +97,18 @@ FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series
 RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY", "VCIT"})
 
 # Steps deferred to later milestones (docs/MILESTONES.md "Incremental seed").
-DEFERRED_STEPS = {
-    "6": "corpus seed (M7)",
-    "6b": "initial curation pass (M7)",
+# Steps 6/6b (corpus + initial curation) landed with M7 and are no longer here.
+DEFERRED_STEPS: dict[str, str] = {}
+
+# Filename substring -> document author, for step 6. Only authors with their
+# own weight tier need an entry (CLAUDE.md "Invariant weight model": dalio
+# 0.40, marks 0.35); everything else is the 'other' tier by default and needs
+# no mapping. Keyed on the filename because the corpus lives outside the repo
+# and the file IS the only metadata we have.
+CORPUS_AUTHORS = {
+    "principles": "Ray Dalio",
+    "big_debt": "Ray Dalio",
+    "changing_world_order": "Ray Dalio",
 }
 
 
@@ -631,6 +645,95 @@ async def _seed_snapshot(db: InvestmentDB) -> dict[str, Any]:
     return {"portfolios_valued": len(valuations), "snapshot_rows": len(ranked)}
 
 
+async def _seed_corpus(db: InvestmentDB, settings: Settings) -> dict[str, Any]:
+    """Step 6 (M7): ingest every supported source under `sources_path`.
+
+    `sources_path` (config.py, `SOURCES_PATH`) is the corpus's canonical home
+    and this is its first consumer. The books deliberately do NOT live in the
+    repo: they are large and copyrighted, `.gitignore` excludes them, and a
+    corpus kept beside the code is one `git add -A` away from being published.
+
+    Idempotent twice over: `ingest_file` overwrites the same document/passage
+    ids for the same title, and a missing or empty directory is a no-op rather
+    than an error — a fresh clone with no corpus must still seed."""
+    embedder = embedding.InProcessEmbedder(settings.embedding_model)
+    ingester = await corpus_ingester.CorpusIngester.from_db(db, embedder)
+    if not settings.sources_path.is_dir():
+        logger.warning("UC0 step 6: no corpus at %s — nothing to ingest", settings.sources_path)
+        return {"documents": 0, "passages": 0}
+    sources = sorted(
+        path
+        for path in settings.sources_path.rglob("*")
+        if path.is_file() and path.suffix.lower() in corpus_ingester.SUPPORTED_SUFFIXES
+    )
+    results: dict[str, Any] = {"documents": 0, "passages": 0, "supports": 0}
+    for path in sources:
+        result = await ingester.ingest_file(path, kind="book", author=_corpus_author(path))
+        results["documents"] += 1
+        results["passages"] += result.chunk_count
+        results["supports"] += result.supports_created
+    logger.info("UC0 step 6: %s", results)
+    return results
+
+
+def _corpus_author(path: Path) -> str | None:
+    """The document's author, read from the filename.
+
+    Deliberately crude, and it only has to be: `writeback/knowledge.py` maps
+    this to an author TIER by substring, and anything unrecognised falls to
+    the conservative 'other' tier (floor 0.20). Getting it wrong under-weights
+    a book; it can never over-weight one."""
+    stem = path.stem.lower()
+    for needle, author in CORPUS_AUTHORS.items():
+        if needle in stem:
+            return author
+    return None
+
+
+async def _seed_curation(db: InvestmentDB, settings: Settings) -> dict[str, Any]:
+    """Step 6b (M7): the initial curation pass over every ingested document.
+
+    The ONE step in the seed that calls an LLM, and the reason the checkpoint
+    had to exist first: `curate_document` skips passages already curated under
+    the same fingerprint, so this is expensive EXACTLY ONCE. Re-running the
+    seed — which the module docstring promises is safe — then costs nothing.
+
+    A document that fails does not abort the seed: its passages stay unmarked
+    and the next run retries precisely those. Same policy as the watcher and
+    the curator's own batch loop, for the same reason — a long job must not
+    lose hours of work to one bad response."""
+    embedder = embedding.InProcessEmbedder(settings.embedding_model)
+    writer = knowledge.KnowledgeWriteback(db, embedder)
+    curator = curator_mod.KnowledgeCurator(
+        db,
+        model_name=settings.planner_model,
+        api_key=settings.openrouter_api_key,
+        reasoning_effort=settings.curator_reasoning_effort,
+    )
+    documents = await db.query("SELECT id, title FROM document ORDER BY id")
+    results: dict[str, Any] = {"documents": 0, "candidates": 0, "failed": []}
+    for row in documents:
+        document_id = str(row["id"])
+        try:
+            scored = await curator.curate_document(document_id, writer)
+        except Exception as exc:  # one bad document must not cost the others
+            logger.warning("UC0 step 6b: %s FAILED — %s: %s", row["title"], type(exc).__name__, exc)
+            results["failed"].append(document_id)
+            continue
+        results["documents"] += 1
+        results["candidates"] += len(scored)
+    # The same rule as the batch loop one level down, for the same reason: a
+    # per-document `except` that never escalates turns a total outage into a
+    # tidy inventory line. If nothing at all got through, the seed must say so.
+    if results["failed"] and results["documents"] == 0:
+        raise RuntimeError(
+            f"UC0 step 6b: every document failed curation ({len(results['failed'])}) — "
+            "see the warnings above; nothing was persisted"
+        )
+    logger.info("UC0 step 6b: %s", results)
+    return results
+
+
 async def run_seed(
     settings: Settings,
     *,
@@ -667,6 +770,13 @@ async def run_seed(
         inventory["scenario_warm_start"] = await _warm_start_scenario_probabilities(db)
         inventory["invariant_contradictions"] = await _check_invariant_contradictions(db)
         inventory["snapshot"] = await _seed_snapshot(db)
+        # Steps 6/6b LAST, though they are numbered early: curation reads the
+        # signal registry and the seeded invariants (the dedup gate compares
+        # against them, `link_supports` links to them), so the static graph
+        # must already be in place. Numeric step order is not execution order
+        # here — the same licence step 12 takes above.
+        inventory["corpus"] = await _seed_corpus(db, settings)
+        inventory["curation"] = await _seed_curation(db, settings)
 
         for step, reason in DEFERRED_STEPS.items():
             logger.warning("UC0 step %s SKIPPED (%s)", step, reason)

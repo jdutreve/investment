@@ -1338,6 +1338,47 @@ persisted corpus — both questions are answerable from that data.
 
 ---
 
+## I-43 — The signal registry cannot say "relative to its own history"
+
+**Why deferred:** it changes the predicate vocabulary, which the maturation
+sweep, the Writeback validation gate and the curator prompt all read. That is
+a registry change, not an M7 change.
+
+**How it surfaced (measured, not anticipated):** the M7 ice core demoted 5 of
+14 candidates on `feature 'credit_spread' invalid for series signal
+'credit_spread'`. The model was not being sloppy — it was reaching for claims
+the registry has no words for:
+
+- "the high-yield spread is above its trailing 10-year median"
+- "the spread is in its highest decile"
+- "the equity index is below its 200-day moving average"
+
+Our predicates compare a signal to a FIXED number (`credit_spread > 3.0`).
+Every one of those claims compares it to its OWN DISTRIBUTION. Facing the gap,
+the model filled `feature` with the signal name and produced garbage.
+
+This matters more than a demotion count: "spreads are wide **relative to
+history**" is the thesis of the countercyclical literature the corpus is built
+from. A fixed threshold is a genuinely DIFFERENT claim — it drifts as the
+regime's baseline moves, which is exactly what a quantile does not.
+
+(The third example is a false alarm and was fixed in prompt v3, not here:
+`equity_trend` is `SPY / SMA10m(SPY) - 1`, so "below its 200-day average" IS
+expressible as `equity_trend.level < 0`. The model just did not know the signal
+already encoded the comparison.)
+
+**Scope if built:** a `percentile` (and/or `zscore`) feature computed over a
+trailing window, point-in-time by construction (ADR-003 — the quantile at
+date t must use only data knowable at t, or every backtest is contaminated by
+lookahead). Needs: the feature in `_SERIES_FEATURES`, the rolling computation
+in the confrontation path, a window length pinned in `system_thresholds`, and
+the curator prompt updated to offer it.
+
+**Trigger to revisit:** after the M7 STOP, if the owner's inspection shows
+quantile-shaped claims are a recurring loss rather than a one-book artefact.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:

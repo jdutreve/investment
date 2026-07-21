@@ -28,7 +28,16 @@ not yet matured; M2 adds 9; M3 adds 10; M4 adds 12-13; M5 adds 10b
 (benchmark_valuation) + 11 (backtests/FAVORS) + 11b (birth maturation of
 the seed invariants over 35y) + 11c (scenario probability warm-start over
 35y); M7 adds 6/6b (corpus invariants, matured the same way)). The closing
-SeedEvent inventory reflects what ran.
+SeedEvent inventory reflects what ran. `DEFERRED_STEPS` is now EMPTY: with
+6/6b landed, every UC0 step has an implementation.
+
+Step 6 reads `SOURCES_PATH` (its first consumer), NOT the repo — the corpus
+is large and copyrighted, and a corpus kept beside the code is one
+`git add -A` away from being published. Step 6b is the only LLM call in the
+seed, and it is cheap exactly once: the `curated_passage` checkpoint means a
+re-seed over an unchanged corpus makes zero API calls. Both steps run LAST
+despite their number, because curation reads the signal registry and compares
+against the seeded invariants.
 
 ---
 

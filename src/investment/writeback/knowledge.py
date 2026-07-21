@@ -60,7 +60,16 @@ logger = logging.getLogger(__name__)
 # false merge is strictly worse than a duplicate — a duplicate is visible and
 # cleanable, a merge destroys a claim silently — so the structural agreement
 # below is what actually authorises it.
-DEDUP_COSINE_THRESHOLD = 0.80
+#
+# Lowered 0.80 -> 0.75 after the ice core (2026-07-21) measured a real missed
+# duplicate at 0.782: the same claim ("growth falling, inflation rising -> gold
+# outperforms"), same effect, written twice with different wording, persisted
+# twice. 0.80 was a prior fitted to four hand-built pairs; 0.782 is the first
+# number from actual curator output. Lowering was unsafe while cosine decided
+# alone — it is much less so now that a merge ALSO requires structural
+# agreement, which is what holds the 0.907 wide-vs-tight pair apart whatever
+# the threshold says.
+DEDUP_COSINE_THRESHOLD = 0.75
 
 # document.author -> invariant author tier (floors: dalio 0.40, marks 0.35,
 # null 0.20, system 0.05 — CLAUDE.md "Invariant weight model"). Substring
@@ -69,6 +78,9 @@ DEDUP_COSINE_THRESHOLD = 0.80
 # (author=NULL, floor 0.20) — the conservative default, per DATA_MODELS.md:
 # "Invariants extracted from UC3 events or user notes carry author=null".
 AUTHOR_TIERS: dict[str, str] = {"dalio": "dalio", "marks": "marks"}
+
+# The fields that make two effects the same effect.
+_EFFECT_FIELDS = ("handle", "metric", "method", "direction")
 
 
 def author_tier(document_author: str | None) -> str | None:
@@ -298,6 +310,24 @@ class KnowledgeWriteback:
         similarities = cosine_matrix(vector.reshape(1, -1), matrix)[0]
         condition = [p.model_dump() for p in item.candidate.condition]
         effect = item.candidate.effect.model_dump()
+
+        # FIRST: exact structural identity, with NO cosine gate at all.
+        # Two invariants with the same predicates and the same effect produce
+        # byte-identical confrontation results over 35 years — they ARE one
+        # invariant, whatever their prose says. Measured 2026-07-21: "the S&P
+        # 500 trades below its 200-day moving average" and "the equity trend
+        # is negative" both compiled to `equity_trend.level < 0` -> SPY
+        # underperform, yet sat at cosine 0.668 and were persisted twice.
+        # Prose can mislead in BOTH directions: the structural guard below
+        # stops it over-merging, this stops it under-merging.
+        for index, existing in enumerate(corpus):
+            if _identical_structure(condition, effect, existing):
+                logger.info(
+                    "writeback: merged into %s (identical structure, cosine %.3f)",
+                    existing.id,
+                    float(similarities[index]),
+                )
+                return existing.id
         for index in np.argsort(similarities)[::-1]:
             score = float(similarities[index])
             if score < self._dedup_threshold:
@@ -473,6 +503,29 @@ class _Existing:
     effect: dict[str, Any] | None
 
 
+def _predicate_key(predicate: dict[str, Any]) -> tuple[str, str, str, float]:
+    return (
+        str(predicate.get("signal")),
+        str(predicate.get("feature")),
+        str(predicate.get("op")),
+        float(predicate.get("value", 0.0)),
+    )
+
+
+def _identical_structure(
+    condition: list[dict[str, Any]], effect: dict[str, Any], existing: _Existing
+) -> bool:
+    """Same predicates and same effect — order-insensitive, since a condition
+    is an AND and `[A, B]` is `[B, A]`."""
+    if existing.effect is None:
+        return False
+    if {k: effect.get(k) for k in _EFFECT_FIELDS} != {
+        k: existing.effect.get(k) for k in _EFFECT_FIELDS
+    }:
+        return False
+    return sorted(map(_predicate_key, condition)) == sorted(map(_predicate_key, existing.condition))
+
+
 def _same_invariant(
     condition: list[dict[str, Any]], effect: dict[str, Any], existing: _Existing
 ) -> bool:
@@ -484,10 +537,7 @@ def _same_invariant(
     be left, which is exactly what this guard exists to distrust."""
     if existing.effect is None:
         return False
-    same_effect = all(
-        effect.get(field) == existing.effect.get(field)
-        for field in ("handle", "metric", "method", "direction")
-    )
+    same_effect = all(effect.get(field) == existing.effect.get(field) for field in _EFFECT_FIELDS)
     # `conditions_can_overlap` is the same helper the contradiction detector
     # uses: provably-disjoint predicates on the same (signal, feature) — wide
     # vs tight spreads — mean the two can never be active together, so they
