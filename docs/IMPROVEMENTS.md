@@ -1296,6 +1296,48 @@ episode.
 
 ---
 
+## I-42 — Curation dedup: the cosine threshold is a prior, and reference-note status is undecided
+
+**Why deferred:** the M7 dedup gate works and is guarded, but two of its
+choices rest on judgment rather than measurement, and neither blocks the
+milestone.
+
+**What was actually measured** (2026-07-21, MiniLM-L6-v2, L2-normalised):
+
+| pair | cosine | same invariant? |
+|---|---|---|
+| "negative real rates cause gold to outperform" vs "when real rates turn negative, gold outperforms" | 0.857 | yes |
+| ... vs "negative real rates favour equities over bonds" | 0.547 | no |
+| ... vs "a flat yield curve precedes equity drawdowns" | 0.124 | no |
+| "**wide** spreads → equities **under**perform" vs "**tight** spreads → equities **out**perform" | **0.907** | **no — opposite** |
+
+The last row is why `DEDUP_COSINE_THRESHOLD` alone is not a dedup rule:
+sentence embeddings encode vocabulary, not negation, so two inverse
+invariants score HIGHER than a genuine paraphrase pair. The gate therefore
+requires structural agreement too (same effect handle/metric/method/direction,
+and `conditions_can_overlap`), which is what actually authorises a merge.
+That guard is mechanical and safe; the 0.80 number is still a prior fitted to
+four hand-built pairs.
+
+**Scope if built:** re-derive the threshold from the real corpus once a full
+persisted run exists — label a sample of pairs by hand, and pick the value
+that maximises separation rather than the one that looked reasonable. Cheap:
+re-tuning costs no tokens, only a re-scan of stored embeddings.
+
+**Also open — reference-note status (owner decision, not a measurement):**
+notes persist as invariants with empty `condition` / no `effect`
+(DATA_MODELS.md: "a ponctual fact is NOT a new entity"). They enter
+`proposed`, but they can never reach `integrated` by measurement — there is
+no condition to confront — so ADR-006's "nothing stays proposed forever" has
+no mechanism for them. `proposed` was chosen as the recoverable option. The
+alternatives are a dedicated terminal status, or accepting that reference
+knowledge simply sits outside the verdict machinery.
+
+**Trigger to revisit:** at the M7 STOP, when the owner inspects the first
+persisted corpus — both questions are answerable from that data.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:

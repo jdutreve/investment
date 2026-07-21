@@ -35,7 +35,7 @@ what makes a candidate reach the 35y sweep at all.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
@@ -48,7 +48,17 @@ from investment.db.seed_data import BENCHMARK_CLASSES, SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.invariants import Registries, validate_invariant
 
+if TYPE_CHECKING:  # import-time cycle: writeback consumes this module's types
+    from investment.writeback.knowledge import KnowledgeWriteback
+
 logger = logging.getLogger(__name__)
+
+# Bumping this INVALIDATES every curation checkpoint and re-curates the corpus.
+# That is the point: the deliberate, visible way to say "the prompt changed, so
+# the old extractions no longer represent what this curator would produce".
+# It lives HERE, next to the prompt it versions — the fingerprint is a property
+# of the curator, not of the writeback that records it.
+CURATION_PROMPT_VERSION = 1
 
 # Score weights (owner-specified, 2026-07-21). Seeded in `system_thresholds`
 # so they are re-tunable without a code change — they are an unvalidated
@@ -199,6 +209,13 @@ class ScoredCandidate:
 
 
 # -- pure mechanics (no LLM, no I/O — the parts that must be deterministic) --
+
+
+def curation_fingerprint(model_name: str, reasoning_effort: str) -> str:
+    """The identity of a curation pass: everything that would change what the
+    model returns for the same passage. The signal registry is deliberately
+    excluded — see the `curated_passage` comment in db/schema.py."""
+    return f"v{CURATION_PROMPT_VERSION}/{model_name}/{reasoning_effort}"
 
 
 def interest_score(scores: CandidateScores, weights: dict[str, float] | None = None) -> float:
@@ -492,11 +509,25 @@ class KnowledgeCurator:
             self._reasoning_effort,
             render_instructions(registries, ranges),
         )
-        return await self._run_batch(agent, registries, passages, ranges)
+        scored, self.last_reference_notes = await self._run_batch(
+            agent, registries, passages, ranges
+        )
+        return scored
 
-    async def curate_document(self, document_id: str) -> list[ScoredCandidate]:
+    async def curate_document(
+        self,
+        document_id: str,
+        writeback: "KnowledgeWriteback | None" = None,
+    ) -> list[ScoredCandidate]:
         """Curate a WHOLE document in one job: gather every passage, split into
         batches, run them CONCURRENTLY, then score/gate/rank the union.
+
+        With a `writeback`, the job is IDEMPOTENT and RESUMABLE: only passages
+        this fingerprint has not seen are sent, and each batch is persisted the
+        moment it returns. Without one it is a dry run that returns candidates
+        and keeps nothing — which is how the 2026-07-21 full-corpus run lost 29
+        admissible candidates and all 50 reference notes. Dry runs are for the
+        ice core; anything longer passes a writeback.
 
         Why one long job rather than an interactive loop: curation is not
         latency-sensitive. It runs after an ingestion batch or on the Monday
@@ -521,10 +552,20 @@ class KnowledgeCurator:
             self._reasoning_effort,
             render_instructions(registries, ranges),
         )
-        rows = await self._db.query(
-            "SELECT id, page, content FROM passage WHERE document_id = :d ORDER BY position",
-            d=document_id,
-        )
+        fingerprint = curation_fingerprint(self._model_name, self._reasoning_effort)
+        if writeback is not None:
+            rows = await writeback.uncurated_passages(document_id, fingerprint)
+            if not rows:
+                # The Monday sweep over a stable corpus lands here: no call,
+                # no cost, no duplicate. That is the whole point of the
+                # checkpoint — re-running must be free, not merely safe.
+                logger.info("curator: %s already curated under %s", document_id, fingerprint)
+                return []
+        else:
+            rows = await self._db.query(
+                "SELECT id, page, content FROM passage WHERE document_id = :d ORDER BY position",
+                d=document_id,
+            )
         batches = [rows[i : i + self._batch_size] for i in range(0, len(rows), self._batch_size)]
         logger.info(
             "curator: %s -> %d passages in %d batches, %d at a time (model=%s, effort=%s)",
@@ -545,10 +586,22 @@ class KnowledgeCurator:
                     # Belt and braces: the client timeout covers the socket,
                     # this covers anything that wedges above it (a retry loop,
                     # a provider that trickles bytes to keep the read alive).
-                    scored = await asyncio.wait_for(
+                    scored, notes = await asyncio.wait_for(
                         self._run_batch(agent, registries, batch, ranges),
                         timeout=BATCH_TIMEOUT_SECONDS * 2,
                     )
+                    if writeback is not None:
+                        # Persist HERE, not after the gather: this is what
+                        # makes the run resumable. A failure now leaves the
+                        # batch's passages unmarked, so the next run redoes
+                        # exactly this batch and nothing else.
+                        await writeback.persist_batch(
+                            document_id=document_id,
+                            fingerprint=fingerprint,
+                            passage_ids=[str(p["id"]) for p in batch],
+                            scored=scored,
+                            notes=notes,
+                        )
                 except Exception as exc:  # a long job must survive a bad batch
                     logger.warning(
                         "curator: batch %d failed — %s: %s", index, type(exc).__name__, exc
@@ -571,7 +624,7 @@ class KnowledgeCurator:
         registries: Registries,
         batch: list[dict[str, Any]],
         ranges: dict[str, tuple[float, float]] | None = None,
-    ) -> list[ScoredCandidate]:
+    ) -> tuple[list[ScoredCandidate], list[ReferenceNote]]:
         prompt = "\n\n".join(
             f"[passage {p['id']}, page {p.get('page')}]\n{p['content']}" for p in batch
         )
@@ -583,8 +636,10 @@ class KnowledgeCurator:
         notes = result.output.reference_notes
         if notes:
             logger.info("curator: %d reference note(s) (not weighted invariants)", len(notes))
-        self.last_reference_notes = notes
-        return self.score_and_gate(result.output.invariant_candidates, registries, ranges)
+        # RETURNED, not stashed on self: batches run concurrently, so a shared
+        # `last_reference_notes` attribute would have each batch overwrite the
+        # previous one's notes — silently keeping only whichever finished last.
+        return self.score_and_gate(result.output.invariant_candidates, registries, ranges), notes
 
     def score_and_gate(
         self,

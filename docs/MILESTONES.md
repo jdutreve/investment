@@ -558,6 +558,19 @@ comes at M8.
 - [ ] dedup gate: a near-duplicate candidate becomes a curation
 - [ ] consolidation: multi-batch dupes merged, none silently dropped
 - [ ] SUPPORTS links land on seeded invariants
+- [x] IDEMPOTENT: re-running the curator on an unchanged document makes zero
+      LLM calls and creates zero rows (`curated_passage` checkpoint). Added
+      after the 2026-07-21 full-corpus run: the curator has three callers, so
+      without this every Monday sweep would re-spend the run and duplicate its
+      output.
+- [x] RESUMABLE: each batch is persisted as it returns, in one transaction
+      with its checkpoint rows — a crash costs the batch in flight, not the
+      run. (That run kept nothing: 29 admissible candidates and all 50
+      reference notes were lost to a `print`-only harness.)
+- [x] dedup is structural, not just semantic: two claims merge only on
+      cosine > 0.80 AND matching effect AND non-disjoint conditions.
+      Measured: "wide spreads → equities underperform" and "tight spreads →
+      equities outperform" sit at cosine 0.907 and must NOT merge (I-42).
 
 **⚔️ STOP — the qualitative core:** you INSPECT the real candidates (a
 build-time sanity read, not a runtime gate — ADR-006); the

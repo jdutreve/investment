@@ -183,7 +183,8 @@ value became KNOWABLE (publication-dated, ALFRED first-release); replay and
 maturation are point-in-time by construction (`ts ≤ t`).
 
 **Entities** — 13 vertices, 10 relations (5 M:N tables + 5 FK columns),
-3 time-series, 10 document tables. Complete schema: docs/DATA_MODELS.md.
+3 time-series, 11 document tables (10 in the spec + `curated_passage`, the M7
+curation checkpoint). Complete schema: docs/DATA_MODELS.md.
 
 ## Dev standards (essentials)
 

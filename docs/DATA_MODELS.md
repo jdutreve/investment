@@ -949,6 +949,24 @@ CREATE TABLE IF NOT EXISTS replay_report (...);
 --   gate but IS the necessary MANUAL pre-go-live STOP (M8b — best-case screen).
 --   (nav_benchmark dropped with the 60/40 benchmark; vs_benchmark vs
 --    ALL_WEATHER_BENCHMARK lives on the snapshot, not here.)
+
+CREATE TABLE IF NOT EXISTS curated_passage (...);
+-- passage_id STRING, fingerprint STRING (composite PK), curated_at DATETIME,
+-- candidate_count INTEGER
+-- The UC4 curation CHECKPOINT (M7) — what makes curation idempotent and
+-- resumable. The curator has three callers (inbox watcher, Monday 08:10
+-- sweep, ad-hoc), so without it every call re-spends a full corpus run and
+-- mints duplicate candidates for passages already read.
+-- Grain is the PASSAGE (what the LLM consumes; survives a change of batch
+-- size). Written per batch, in the SAME transaction as the knowledge that
+-- batch produced — a passage is never marked curated unless its output
+-- committed.
+-- `fingerprint` = prompt version + model + reasoning effort: everything that
+-- would change the output for the same passage. It deliberately EXCLUDES the
+-- signal registry — a new alias is a real reason to re-curate, but that must
+-- be a decision (bump CURATION_PROMPT_VERSION), never a silent 45-minute
+-- side effect of an edited seed. Composite PK keeps the history across
+-- fingerprints instead of overwriting it.
 ```
 
 Ranking rule (applies to snapshot rows):

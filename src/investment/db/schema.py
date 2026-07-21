@@ -1,8 +1,9 @@
 """Full SQLite schema (ADR-004) — see docs/DATA_MODELS.md for the conceptual
 spec this maps physically: 13 entity tables ("vertices"), 5 M:N tables
 ("edges" — the other 5 relations are FK+property columns on the child, per
-DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 10 document
-tables. Types: STRING->TEXT, FLOAT->REAL, BOOLEAN->BOOLEAN (SQLite: NUMERIC
+DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 11 document
+tables (10 in the spec + `curated_passage`, the M7 curation checkpoint).
+Types: STRING->TEXT, FLOAT->REAL, BOOLEAN->BOOLEAN (SQLite: NUMERIC
 affinity, stored 0/1), MAP/STRING[]->TEXT (JSON1), DATE/DATETIME->TEXT
 (ISO-8601), FLOAT[384]->BLOB (float32, see docs/TASKS.md Phase 1bis).
 
@@ -448,6 +449,30 @@ CREATE TABLE IF NOT EXISTS scenario_calibration (
   score             REAL NOT NULL
 );
 
+-- Curation checkpoint (M7). Makes UC4 IDEMPOTENT and RESUMABLE: the curator
+-- has three callers (inbox watcher, Monday 08:10 sweep, ad-hoc), so without
+-- this table every call would re-spend a full corpus run and mint duplicate
+-- candidates for passages already curated.
+--
+-- Grain is the PASSAGE, not the document: it is what the LLM consumes, and it
+-- survives a change of `batch_size` (the batches no longer line up between
+-- runs, the passages still do). Written per batch as it returns, so a crash
+-- at 95% loses only the batch in flight.
+--
+-- `fingerprint` is what would CHANGE the output: model + reasoning effort +
+-- prompt version. It deliberately does NOT hash the signal registry: a new
+-- alias is a real reason to re-curate, but it must be a decision (bump
+-- CURATION_PROMPT_VERSION, or --force), never a silent 45-minute side effect
+-- of an edited seed_data.py. Composite PK keeps the history across
+-- fingerprints rather than overwriting it.
+CREATE TABLE IF NOT EXISTS curated_passage (
+  passage_id      TEXT NOT NULL REFERENCES passage(id),
+  fingerprint     TEXT NOT NULL,
+  curated_at      TEXT NOT NULL,
+  candidate_count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (passage_id, fingerprint)
+);
+
 CREATE TABLE IF NOT EXISTS replay_report (
   id                  TEXT PRIMARY KEY,
   run_at              TEXT NOT NULL,
@@ -526,4 +551,8 @@ DOCUMENT_TABLES = {
     "portfolio_weekly_snapshot",
     "scenario_calibration",
     "replay_report",
+    # M7: the UC4 curation checkpoint. Takes the documented count from 10 to
+    # 11 (CLAUDE.md "Entities", DATA_MODELS.md) — it is operational state, not
+    # a domain entity, but it is a table and it is counted.
+    "curated_passage",
 }
