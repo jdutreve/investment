@@ -144,14 +144,23 @@ CREATE TABLE IF NOT EXISTS backtest (
 CREATE TABLE IF NOT EXISTS proposal (
   id                  TEXT PRIMARY KEY,
   date                TEXT NOT NULL,
-  proposal_type       TEXT NOT NULL,         -- 'switch'|'reallocation'
-  defender_id         TEXT NOT NULL,         -- scalar, no edge in V1
+  -- 'switch'|'reallocation' (ranking path) | 'market-signal' (ADR-007 live
+  -- path). ADR-008: the ranking columns below are NULL for 'market-signal'.
+  proposal_type       TEXT NOT NULL,
+  defender_id         TEXT NOT NULL,         -- scalar, no edge in V1; for
+                                             --   market-signal: the live book
   challenger_id       TEXT,                  -- switch only
-  proposed_allocation TEXT,                  -- JSON map; reallocation only
+  proposed_allocation TEXT,                  -- JSON map; reallocation + market-signal
   recommendation      TEXT NOT NULL,         -- 'monitor'|'paper-test'
-  defender_rank       INTEGER NOT NULL,
+  -- NULLABLE since ADR-008: rank and gap encode the ranked defender/challenger
+  -- DUEL that ADR-007 superseded. A market-signal proposal has no rank and no
+  -- gap — it has a signal state and a book. NULL says "does not apply"; a
+  -- filled-in convention would make these columns mean different things
+  -- depending on `proposal_type`, which every later reader would have to
+  -- decode before trusting them.
+  defender_rank       INTEGER,
   challenger_rank     INTEGER,               -- null for reallocation
-  gap                 TEXT NOT NULL,         -- JSON map
+  gap                 TEXT,                  -- JSON map; ranking path only
   market_context      TEXT NOT NULL,         -- JSON map
   reasoning           TEXT NOT NULL,
   user_response       TEXT NOT NULL DEFAULT 'pending',

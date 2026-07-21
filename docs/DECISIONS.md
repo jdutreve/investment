@@ -492,3 +492,46 @@ EventLog-first exists to prevent. The id/name mismatch is the deliberate cost of
 that guarantee and is commented at the seed site. Zero allocation change: the
 weights are untouched and the anti-drift replay still reproduces 9.85% CAGR /
 -23.8% maxDD.
+
+---
+
+## ADR-008 — `proposal` accommodates the market-signal path by NULL, not by convention
+
+**Status:** accepted 2026-07-21 (owner decision).
+
+**Context.** The `proposal` table was designed for the ranking-based V1: a
+ranked defender meets a ranked challenger and the `gap` between them justifies
+the switch. ADR-007 replaced that with the market-signal monthly stack, whose
+decision has no rank, no challenger and no gap — it has a signal state and a
+book. Two columns block persistence: `defender_rank INTEGER NOT NULL` and
+`gap TEXT NOT NULL`.
+
+**Options considered.**
+(a) Make the ranking columns nullable and add `proposal_type='market-signal'`.
+(b) Fill them by a documented convention (defender = live book, rank 1,
+    gap = signal state).
+
+**Decision: (a).**
+
+The argument is not cost — though cost points the same way: `proposal` is
+EMPTY (0 rows, verified 2026-07-21) and we are pre-go-live, so
+`CREATE TABLE IF NOT EXISTS` absorbs the change for free, while after go-live
+it would open the numbered-migration convention.
+
+The argument is meaning. Under (b), `gap` holds a ranking gap for one
+`proposal_type` and a signal state for another. Every later reader — digest,
+CLI, dashboard, `outcomes.py` at +12w — would have to know the type before it
+could interpret the column. That is implicit coupling of the kind this project
+spends its comments avoiding, and the Zen of Python it adopts says the
+opposite. NULL states plainly what is true: these fields do not apply to this
+kind of proposal.
+
+Note what does NOT need special handling: a market-signal proposal has a
+natural `defender_id` (the currently live book) and a natural
+`proposed_allocation`. Only rank and gap are artefacts of the duel ADR-007
+removed, and they are exactly the two made nullable.
+
+**Consequence.** Readers must treat `defender_rank`/`gap` as optional and
+branch on `proposal_type`. Any gate or renderer that assumes a rank must say
+so. The ranking path (RETAINED BRIDGE, ADR-007) keeps writing both columns
+unchanged, so nothing about the fallback/benchmark path is weakened.

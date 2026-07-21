@@ -613,21 +613,25 @@ digest rendered in terminal.
 - [ ] Call 2 downgrades an unevidenced verdict to neutral (fixture)
 - [ ] digest readable and complete
 
-**⚠️ Known blocker, found 2026-07-20 — settle it BEFORE writing the decision
-slice.** The market-signal monthly decision (the remaining M6-bis item, parked
-here by owner decision) cannot be persisted as-is: the `proposal` table is
-shaped for the RANKING-based design ADR-007 superseded. `defender_rank INTEGER
-NOT NULL` and `gap TEXT NOT NULL` assume a ranked defender/challenger pair,
-while a market-signal proposal has no rank, no challenger and no gap — it has a
-signal state and a book. Decide one of: (a) make the ranking columns nullable
-and/or add `proposal_type='market-signal'`, or (b) fill them by a documented
-convention (defender = current live book, rank 1, gap = signal state). Either
-way it is an ADR: (a) is a schema change, (b) pins a convention every later
-reader depends on. Pre-go-live, so `CREATE TABLE IF NOT EXISTS` still absorbs
-(a) for free — after go-live it would start the numbered-migration convention.
-Also note `gates.reallocation_gates` gate 6 (cited-invariant eligibility) has
-no input until the Worker exists, which is precisely why the wiring waited for
-this milestone.
+**✅ Blocker CLEARED 2026-07-21 — ADR-008.** The `proposal` table was shaped
+for the ranked defender/challenger duel ADR-007 superseded. Owner chose option
+(a): `defender_rank` and `gap` are now NULLABLE and `proposal_type` accepts
+`'market-signal'`. NULL states plainly that rank and gap do not apply, rather
+than overloading `gap` with a signal state that every later reader would have
+to decode. Applied to the live DB (the table was empty — 0 rows — so it cost
+nothing, and pre-go-live `CREATE TABLE IF NOT EXISTS` absorbs it without
+opening the numbered-migration convention). Readers must now branch on
+`proposal_type` before trusting either column.
+
+**⚠️ Watch, not a blocker — gate 6 may be near-unsatisfiable.**
+`gates.reallocation_gates` gate 6 requires a CITED INVARIANT that is eligible
+and condition-ACTIVE now. After the M7 corpus run, exactly **1 of 42** weighted
+invariants is `integrated` (the inverted yield curve). If the Worker may only
+cite integrated invariants, almost every proposal will die on gate 6 — not
+because the reasoning is poor but because the evidence bar upstream is high
+(I-44). Decide at M8 whether gate 6 reads `integrated` only, or also
+`proposed` invariants above some weight; measure the pass rate on the first
+simulated Monday rather than discovering it live.
 
 **⚔️ Challenge:** Worker reasoning quality; are the 12-15 selected
 invariants the right ones?
