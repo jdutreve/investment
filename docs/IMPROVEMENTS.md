@@ -1399,6 +1399,85 @@ expressing EXISTING signals relative to their own history, and stays open.
 
 ---
 
+## I-44 — Invariant integration: the verdict throws away magnitude, and 35y cannot resolve a small edge
+
+**Why deferred:** it changes the verdict rule (ADR-006), which governs every
+invariant in the system. Not a knob — a re-definition of what "confirmed"
+means. Deferred to keep M8 (the informed portfolio choice) moving.
+
+**Measured at the M7 STOP, 2026-07-21.** All 42 weighted invariants, both
+hand-seeded and curator-extracted, after the 35y confrontation:
+
+| market_score | count |
+|---|---|
+| >= 0.63 | 6 |
+| 0.60-0.63 | 3 |
+| 0.55-0.60 | 8 |
+| 0.50-0.55 | 15 |
+| < 0.50 | 9 |
+
+Mean: **curator 0.549, hand-seeded 0.530** — the extracted invariants are
+marginally BETTER than the hand-picked ones. Only 1 of 34 curator invariants
+integrated, but that is not a corpus-quality problem, and an earlier reading of
+this session that framed it as "3% vs 25%" was an over-read: 2 integrations out
+of 8 seeded invariants is not a rate you can compare against.
+
+**Finding 1 — the bar cannot be cleared by a small edge, ever.** Integration
+needs score >= 0.60 AND a binomial tail <= 5% against the 0.50 null. At N=43 a
+score of 0.605 gives p ~ 0.11. Clearing 5% needs roughly N >= 68 at 0.60, and
+N ~ 270 at 0.55. Thirty-five years of macro prints cannot supply that. Since
+almost every invariant lives at 0.50-0.60, most are permanently `proposed` —
+not awaiting evidence, but having exhausted it. ADR-006's "nothing stays
+proposed forever" is honoured for reference knowledge by explicit exception,
+and quietly broken here by evidence exhaustion. That is the part that needs a
+decision, not just a tweak.
+
+**Finding 2 — `market_score` is a pure hit rate and discards magnitude.**
+`confront_moment` computes `diff = excess - baseline`, compares it to a margin,
+and keeps only the LABEL. `invariant_confrontations.severity` is written as the
+constant `1.0` — the magnitude is never persisted at all. The project judges
+portfolios on Sortino and Calmar, i.e. precisely on the asymmetry between gains
+and losses, and judges invariants on a coin count.
+
+Recomputing the confrontations while keeping the magnitude (analysis only, no
+engine change) gives a rank correlation of **0.633** with the hit rate — they
+agree broadly and disagree exactly where every invariant sits. Examples:
+
+- "credit spreads widen rapidly": hit rate **0.700** (the corpus's best) but
+  win/loss payoff **0.73** — often right, badly wrong when wrong.
+- "nominal rates very low (<= 2%)": hit rate **0.600**, above theta, and mean
+  excess **-5.24%**. The current score calls it good; the magnitude calls it
+  harmful.
+- "inflation high -> long bonds underperform": hit 0.571, mean **-3.09%**.
+- "inflation high and rising while growth declines": hit 0.625 and mean
+  **+4.50%** — the strongest `proposed` invariant on magnitude.
+
+The single integrated invariant (inverted yield curve) ranks first on BOTH
+metrics, so the engine did not get that one wrong.
+
+**Caveats, which are heavy and must survive into any follow-up:**
+- The analysis is IN-SAMPLE over the same 35y that would judge the result.
+  Re-ranking on it is the overfitting this engine exists to prevent.
+- Several interesting cases have derisory N (the 4.26-payoff "steep yield
+  curve" rests on **N=3**).
+- The statistic used (mean / downside deviation) was improvised for this
+  measurement; it is not canonical and another reasonable choice reorders the
+  table.
+- 40 invariants tested at once — some look good by chance.
+
+**Scope if built:** persist the real magnitude in
+`invariant_confrontations.severity` (it is already computed and thrown away —
+that part is nearly free and worth doing whatever else is decided), then decide
+whether the verdict reads it. Any magnitude-aware rule must be validated on a
+window DISJOINT from the confrontation window, or the resulting score means
+nothing.
+
+**Trigger to revisit:** after M8/M9, when forward paper-mode supplies
+out-of-sample confrontations — the only evidence that can settle this without
+contaminating itself.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:
