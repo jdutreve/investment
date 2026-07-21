@@ -23,14 +23,39 @@ ExpandedPath = Annotated[Path, BeforeValidator(_expand_path)]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", frozen=True)
 
-    # LLMs
-    anthropic_api_key: str
+    # LLMs — BOTH roles now route through OpenRouter (owner decision,
+    # 2026-07-21). CLAUDE.md still describes the Worker as "claude-sonnet-5 via
+    # Anthropic"; the model is unchanged, only the transport is (OpenRouter's
+    # id for it is `anthropic/claude-sonnet-5`). One provider means one key,
+    # one client construction, and one place to compare models — which is what
+    # makes the curator's cheap-vs-expensive A/B a config change rather than a
+    # code change. Needs recording in the docs (see MILESTONES M7).
+    #
+    # `anthropic_api_key` is consequently OPTIONAL: nothing reads it while both
+    # roles go through OpenRouter. Kept rather than deleted because ADR-007's
+    # bridge philosophy applies here too — reverting the Worker to the direct
+    # Anthropic transport should not require a schema change. It is the one
+    # required-key exception to CLAUDE.md's "fails at startup on missing keys",
+    # and it is deliberate: failing startup over a key no code path uses is
+    # noise, not safety.
+    anthropic_api_key: str | None = None
     openrouter_api_key: str
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    planner_model: str = "qwen/qwen3-8b"
+    planner_model: str = "deepseek/deepseek-v4-flash"
     planner_thinking_budget_pre: int = 512
     planner_thinking_budget_post: int = 1024
-    worker_model: str = "claude-sonnet-5"
+    worker_model: str = "anthropic/claude-sonnet-5"
+    # Reasoning depth for the curator (docs/TASKS.md Task 5.3). `high`, by owner
+    # decision 2026-07-21 after the ice-core runs.
+    #
+    # Be precise about what was and was not established: at `high`, the curator
+    # produces valid registry predicates and 100% of its candidates clear the
+    # expressibility gate. `xhigh` was NEVER measured to completion — the first
+    # attempt died on the tool-calling bug, the second was stopped. So this is
+    # not "xhigh was tried and rejected"; it is "high demonstrably works and
+    # xhigh is not worth the latency to explore". Cost was never the deciding
+    # factor either way: the whole book runs for cents at any level.
+    curator_reasoning_effort: str = "high"
     embedding_model: str = "all-MiniLM-L6-v2"
 
     # SQLite

@@ -37,6 +37,19 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "embedding_dims": 384.0,  # dims the pinned EMBEDDING_MODEL produces (UNWIRED)
     "chunk_size_chars": 1000.0,  # ingester: target passage length — docs/TASKS.md Task 3.1 (UNWIRED)
     "chunk_overlap_chars": 150.0,  # ingester: overlap between consecutive passages (UNWIRED)
+    # Curator triage weights (owner-specified 2026-07-21, worker/curator.py).
+    # The score is TRIAGE, never verdict: it picks WHICH candidates survive
+    # curation_sanity_ceiling, and never touches weight, status or maturation
+    # (ADR-006 — belief does not grant integration). Seeded rather than
+    # hardcoded because they are an unvalidated prior: re-ranking an existing
+    # corpus with different weights must not cost an LLM call.
+    # NOTE they sum to 1.0 WITHOUT temporal_robustness, which the curator
+    # collects but does not weight — an explicit gap, see UNWEIGHTED_DIMENSIONS.
+    "curator_weight_generalizability": 0.30,  # (UNWIRED)
+    "curator_weight_testability": 0.25,  # (UNWIRED)
+    "curator_weight_actionability": 0.20,  # (UNWIRED)
+    "curator_weight_evidence_quality": 0.15,  # (UNWIRED)
+    "curator_weight_novelty": 0.10,  # (UNWIRED)
     "invariant_merge_threshold": 0.80,  # curation dedup: cosine similarity above which -> merge (UNWIRED)
     "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
     "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)
