@@ -266,6 +266,27 @@ uncertifiable path now forces `status='proposed'` and clears `validated_at`
 as provenance in `source`/`trace`, never as engine state. Belief does not
 grant integration — including the author's belief about their own invariant.
 
+**Amendment (M7, 2026-07-21) — reference knowledge is the one thing that DOES
+stay `proposed` forever, and that is correct.** This ADR's "nothing stays
+proposed forever" governs claims the engine can JUDGE. Reference knowledge —
+an Invariant with empty `condition` and no `effect` (DATA_MODELS: "a ponctual
+fact is NOT a new entity") — carries nothing to confront, so no verdict is
+reachable, ever. It is not stuck awaiting one; it is outside the verdict
+machinery by construction. `_force_uncertified` already routes it there with
+the reason `reference knowledge: no effect to measure`, keeping
+`market_score = 1.0` and `validated_at` NULL.
+
+The alternative — a fourth `status` such as `reference` — was considered and
+rejected: it buys a slightly more honest column at the cost of a schema
+change, a migration, and a new value every consumer must learn, when
+`condition = '[]'` already identifies these rows exactly. The rule stands with
+one stated exception rather than a new mechanism.
+
+Scale, so this is not a corner case: the M7 full-corpus run persisted 209
+reference notes against 34 weighted invariants. Most of what a book yields is
+knowledge the engine cannot measure — that is the normal outcome, not a
+degradation.
+
 **Amendment (M5-bis, 2026-07-15) — integration requires EVIDENCE, not just a
 score above θ.** The M5 amendment above put a confidence test on the
 REJECTION branch but left INTEGRATION a bare point test (`N ≥ N_min AND

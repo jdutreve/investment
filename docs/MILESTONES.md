@@ -586,6 +586,17 @@ build-time sanity read, not a runtime gate — ADR-006); the
 candidates/principles ratio tells whether the factory converges. The quality
 contract faces reality here.
 
+**Full-corpus result, 2026-07-21** (3 books, 1822 passages, 34 min, ~7 cents):
+1822 passages -> 45 candidates -> 34 weighted invariants + 209 reference notes
+-> 35y confrontation -> **1 integrated, 7 rejected, 26 insufficient evidence**.
+The 7 rejections are refutations, not data gaps: N runs 44-122 with scores
+0.38-0.52. The survivor is the inverted yield curve (market_score 0.88, N=8).
+One weighted invariant could not be measured at all (no benchmark for its
+handle).
+
+That funnel — 1822 passages for 1 integrated principle — IS the ratio this
+STOP asks about. Judge it before M8.
+
 ---
 
 ## M8 — Planner + Worker + gates + first full chain (2 d — Phases 4, 5, 6)

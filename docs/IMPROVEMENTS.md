@@ -1324,14 +1324,15 @@ persisted run exists — label a sample of pairs by hand, and pick the value
 that maximises separation rather than the one that looked reasonable. Cheap:
 re-tuning costs no tokens, only a re-scan of stored embeddings.
 
-**Also open — reference-note status (owner decision, not a measurement):**
-notes persist as invariants with empty `condition` / no `effect`
-(DATA_MODELS.md: "a ponctual fact is NOT a new entity"). They enter
-`proposed`, but they can never reach `integrated` by measurement — there is
-no condition to confront — so ADR-006's "nothing stays proposed forever" has
-no mechanism for them. `proposed` was chosen as the recoverable option. The
-alternatives are a dedicated terminal status, or accepting that reference
-knowledge simply sits outside the verdict machinery.
+**CLOSED, 2026-07-21 — reference-note status was never open.** This item
+raised it as an owner decision; that was a reading failure on my part, not a
+gap. `_mature_one` already handles it explicitly (`if effect is None:
+_force_uncertified(..., "reference knowledge: no effect to measure")`), and
+`_force_uncertified` is documented as load-bearing. Reference knowledge stays
+`proposed`, uncertified, `market_score = 1.0` — exactly what DATA_MODELS
+prescribes. The only real residue was documentary and is now fixed: ADR-006's
+"nothing stays proposed forever" carries a stated exception (ADR-006, M7
+amendment).
 
 **Trigger to revisit:** at the M7 STOP, when the owner inspects the first
 persisted corpus — both questions are answerable from that data.
@@ -1376,6 +1377,25 @@ the curator prompt updated to offer it.
 
 **Trigger to revisit:** after the M7 STOP, if the owner's inspection shows
 quantile-shaped claims are a recurring loss rather than a one-book artefact.
+
+**Owner decision, 2026-07-21 — debt-cycle signals are NOT being added.** The
+full corpus run made the question concrete: *Big Debt Crises* produced 21
+weighted invariants and 170 reference notes, a ratio of 8:1 against 1.7:1 for
+the countercyclical book. Its subject — debt-to-income, debt service
+coverage, foreign-currency debt share, policy-maker levers, the zero lower
+bound — has no expression in a registry built on inflation, growth,
+liquidity, real rates, credit spread, yield slope and equity trend.
+
+The owner's call: **Dalio feeds the Worker through reference notes only**,
+because a debt-cycle signal set is not ACTIONABLE at V1's horizon — it would
+add a large ingestion and vintage burden (ADR-003 applies to every new
+series) to produce conditions that fire on decade timescales, which the
+monthly market-signal stack cannot trade. The notes remain fully useful: they
+inform Worker reasoning without backing a strategy, which is precisely the
+role DATA_MODELS assigns reference knowledge.
+
+This does NOT close the percentile/z-score gap above — that one is about
+expressing EXISTING signals relative to their own history, and stays open.
 
 ---
 

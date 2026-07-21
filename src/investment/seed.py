@@ -766,17 +766,25 @@ async def run_seed(
         inventory["portfolio_nav"] = await _seed_portfolio_nav(db)
         inventory["benchmark_valuation"] = await _materialize_benchmark_valuation(db)
         inventory["backtests_favors"] = await _run_backtests_favors(db)
-        inventory["invariant_maturation"] = await _mature_seed_invariants(db)
-        inventory["scenario_warm_start"] = await _warm_start_scenario_probabilities(db)
-        inventory["invariant_contradictions"] = await _check_invariant_contradictions(db)
-        inventory["snapshot"] = await _seed_snapshot(db)
-        # Steps 6/6b LAST, though they are numbered early: curation reads the
-        # signal registry and the seeded invariants (the dedup gate compares
-        # against them, `link_supports` links to them), so the static graph
-        # must already be in place. Numeric step order is not execution order
-        # here — the same licence step 12 takes above.
+        # Steps 6/6b sit HERE — after 10b, before 11b — and the position is
+        # load-bearing at both ends:
+        #   after 10b, because `signal_ranges` inlines the observed range of
+        #     every signal into the curator prompt, and `real_rate` is only
+        #     materialised by step 10b;
+        #   before 11b, because MILESTONES says corpus invariants are "matured
+        #     the same way" and `mature_seed_invariants` is source-blind ("on
+        #     every invariant"). Running maturation first — as this did until
+        #     2026-07-21 — left 34 corpus invariants with 0 confrontations and
+        #     no verdict, silently exempt from the engine that exists to judge
+        #     them. Nothing failed; they were simply never measured.
         inventory["corpus"] = await _seed_corpus(db, settings)
         inventory["curation"] = await _seed_curation(db, settings)
+        inventory["invariant_maturation"] = await _mature_seed_invariants(db)
+        inventory["scenario_warm_start"] = await _warm_start_scenario_probabilities(db)
+        # After curation too: a contradiction between a seeded invariant and a
+        # freshly extracted one is exactly the kind the check exists to catch.
+        inventory["invariant_contradictions"] = await _check_invariant_contradictions(db)
+        inventory["snapshot"] = await _seed_snapshot(db)
 
         for step, reason in DEFERRED_STEPS.items():
             logger.warning("UC0 step %s SKIPPED (%s)", step, reason)
