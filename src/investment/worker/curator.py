@@ -82,7 +82,13 @@ logger = logging.getLogger(__name__)
 # the substitution already observed. The worst of the three was the macro one:
 # title and effect asserted different things, so a 35y verdict would have been
 # recorded against a claim the book never made.
-CURATION_PROMPT_VERSION = 4
+# v5 (2026-07-21): the v4 run lost 5 of 7 demoted candidates to
+# `unknown strategy: 'strategy:countercyclical_investing'`. Cause: the prompt
+# offered `effect.method: cross_strategy` and listed asset/asset-class handles
+# only — the strategy handles were loaded into the registry (and enforced by
+# the gate) but never shown. The model invented plausible ids. Same class as
+# the v1-v4 bugs, and the same fix: show the vocabulary instead of assuming it.
+CURATION_PROMPT_VERSION = 5
 
 # Score weights (owner-specified, 2026-07-21). Seeded in `system_thresholds`
 # so they are re-tunable without a code change — they are an unvalidated
@@ -441,6 +447,12 @@ def render_instructions(
     else:
         signals = ", ".join(known)
     classes = ", ".join(sorted(registries.asset_classes))
+    # The strategy handles, for the same reason the signals are inlined: the
+    # prompt offered `cross_strategy` as a method while never naming a single
+    # strategy, so the model invented ids ('strategy:countercyclical_investing')
+    # and the gate rejected 5 of 7 candidates in the v4 run. Offering a method
+    # whose vocabulary is hidden is a prompt bug, not a model failure.
+    strategy_handles = ", ".join(f"strategy:{s}" for s in sorted(registries.strategies))
     return f"""You extract FALSIFIABLE market invariants from investment literature.
 
 A candidate is a CONDITION that implies a MEASURABLE EFFECT — never a summary
@@ -500,7 +512,15 @@ TWO HARD REQUIREMENTS:
      historical-quantile one, and silently substituting it corrupts what gets
      confronted over 35 years.
    - operators: <, <=, >, >=, ==, !=
-   - effect.handle: asset:<TICKER> or asset-class:<one of {classes}>
+   - effect.handle: asset:<TICKER>, asset-class:<one of {classes}>, or one of
+     these EXACT strategy handles — no others exist and inventing one gets the
+     candidate rejected:
+     {strategy_handles}
+     Use a strategy handle with method `cross_strategy` (a strategy measured
+     against other strategies); use an asset or asset-class handle with
+     `cross_class` or `absolute`. Mixing them is rejected. If the passage
+     praises a strategy that is NOT in this list, it is a `reference_note` —
+     do not map it onto the nearest one.
    - effect.method: cross_class | cross_strategy | absolute
    - effect.direction: outperform | underperform
    - effect.metric: return
