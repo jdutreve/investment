@@ -8,3 +8,7 @@ __pycache__
 
 docs/Countercyclical+Investing_vF.1/
 docs/AssetAllocationBook
+# Corpus books: copyrighted, large, and ingested from ~/data/investment/inbox
+# at runtime — never part of the public repo (see docs/TASKS.md Task 3.1).
+*.pdf
+*.epub
