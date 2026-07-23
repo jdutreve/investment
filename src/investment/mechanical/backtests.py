@@ -38,6 +38,7 @@ REAL_YIELD_10Y_TICKER = "real_yield_10y"
 M2_YOY_TICKER = "m2_yoy"
 M2_ACCEL_TICKER = "m2_accel_12m"
 EQUITY_TREND_TICKER = "equity_trend"
+GOLD_10Y_DEV_TICKER = "gold_10y_dev"
 
 # The metrics `period_series_frame` computes — i.e. the ONLY values an
 # `effect.metric` may name (docs/ARCHITECTURE.md VALIDATION GATE: "`metric` a
@@ -220,6 +221,7 @@ async def _materialize_real_rates(db: InvestmentDB, default_lookback_days: int) 
 
     written.update(await _materialize_broad_money(db, default_lookback_days))
     written[EQUITY_TREND_TICKER] = await _materialize_equity_trend(db, default_lookback_days)
+    written[GOLD_10Y_DEV_TICKER] = await _materialize_gold_10y_dev(db, default_lookback_days)
     return written
 
 
@@ -282,6 +284,42 @@ async def _materialize_equity_trend(db: InvestmentDB, default_lookback_days: int
         return 0
     deriv = derivatives.compute_derivatives(trend, EQUITY_TREND_TICKER, default_lookback_days)
     rows = _ts_rows(EQUITY_TREND_TICKER, "MACRO", "USD", deriv)
+    await db.append_ts_batch("market_data", rows)
+    return len(rows)
+
+
+async def _materialize_gold_10y_dev(db: InvestmentDB, default_lookback_days: int) -> int:
+    """`gold_10y_dev` = log(GLD / DGS10 / SMA84m(GLD / DGS10)): gold priced in
+    units of the 10y nominal yield, as a log deviation from its own 7-year
+    trend (db/seed_data.py DERIVED_SIGNALS; inv-gold-ratio-trend-tilt).
+
+    The 84-month SMA is computed on a MONTHLY resample (the owner's literal
+    'SMA84', 84 monthly points), then forward-filled to a daily calendar so
+    the confrontation's daily condition sweep can read it — point-in-time: the
+    last known month-end deviation stands until the next month prints (ADR-003,
+    like every other monthly DERIVED_SIGNAL here). `speed` is a 6-month
+    lookback (market/derivatives.py override), matching the note's momentum
+    leg `D - D[-6 months]`. GLD carries its HISTORY_PROXIES splice and DGS10
+    reaches 1991, so the ratio starts ~1991 and the deviation ~1998 (7y of
+    SMA)."""
+    gld = await ratios.load_price(db, "GLD")
+    dgs10 = await ratios.load_price(db, "DGS10")
+    if gld.empty or dgs10.empty:
+        return 0
+    cal = pd.date_range(
+        max(gld.index.min(), dgs10.index.min()), max(gld.index.max(), dgs10.index.max()), freq="D"
+    )
+    ratio = gld.reindex(cal).ffill() / dgs10.reindex(cal).ffill().replace(0.0, np.nan)
+    monthly = ratio.resample("ME").last()
+    # min_periods=84: a 7-year trend from a half-formed window is not the
+    # claim (same discipline as equity_trend's 210-day min_periods).
+    sma84 = monthly.rolling(84, min_periods=84).mean()
+    log_dev = pd.Series(np.log(monthly / sma84), index=monthly.index)
+    deviation = log_dev.reindex(cal).ffill().dropna()
+    if deviation.empty:
+        return 0
+    deriv = derivatives.compute_derivatives(deviation, GOLD_10Y_DEV_TICKER, default_lookback_days)
+    rows = _ts_rows(GOLD_10Y_DEV_TICKER, "MACRO", "USD", deriv)
     await db.append_ts_batch("market_data", rows)
     return len(rows)
 

@@ -505,6 +505,17 @@ DERIVED_SIGNALS: dict[str, str] = {
     # Moskowitz-Ooi-Pedersen): >0 iff price sits above its 10-month SMA.
     # Confirms that liquidity is actually transmitting into risk-asset prices.
     "equity_trend": "SPY / SMA10m(SPY) - 1  # equity price vs its 10-month average",
+    # Gold priced in units of the 10y nominal yield (GLD / DGS10), as a log
+    # deviation from its own 7-year (84-month) trend. >0 = the ratio sits
+    # above its 7y average; its `speed` feature (6-month lookback,
+    # market/derivatives.py) is the owner's momentum leg. Owner note (2026-07)
+    # proposed it as a regime-TRANSITION feature at a 12-24m horizon; the
+    # engine can only score a handle over one 12w horizon, so what is matured
+    # here is its measurable kernel — a short-horizon gold tilt
+    # (inv-gold-ratio-trend-tilt). The edge survives with the low-real-yield
+    # regime removed (0.727 on N=33), so it is NOT a surface proxy of
+    # inv-gold-low-real-yield (CURATOR RULE 2).
+    "gold_10y_dev": "log(GLD / DGS10 / SMA84m(GLD / DGS10))  # gold/10y-yield ratio vs its 7y trend",
 }
 
 SIGNAL_ALIASES: dict[str, str] = {
@@ -527,6 +538,9 @@ SIGNAL_ALIASES: dict[str, str] = {
     # aliases; the raw tickers are already valid signals via allowed_tickers.
     "credit_spread": "BAA10Y",
     "yield_slope": "T10Y2Y",
+    # Gold/10y-yield ratio vs its 7y trend (see DERIVED_SIGNALS) — the signal
+    # backing inv-gold-ratio-trend-tilt.
+    "gold_10y_dev": "gold_10y_dev",
 }
 # The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
 # The Writeback VALIDATION GATE rejects a condition signal not in the registry.
@@ -1101,6 +1115,58 @@ INVARIANTS: list[dict[str, object]] = [
         "handle, and the `real_yield` 10y signal rather than `real_rate`): "
         "that one claims gold WINS, this one claims nominal bonds LOSE. Both "
         "can hold; they are scored independently.",
+    },
+    {
+        "id": "inv-gold-ratio-trend-tilt",
+        "title": "Gold/10y-yield above its 7y trend and rising favours gold-commodities",
+        "description": "When gold priced in units of the 10y nominal yield (GLD / DGS10) "
+        "sits above its own 7-year trend AND that deviation is still rising "
+        "over the trailing 6 months, gold-commodities outperform the median "
+        "of the other asset classes over the following horizon. A momentum/"
+        "trend claim on gold itself, not a macro-regime classification.",
+        "example": "Owner note (2026-07): Gold/US10Y crossing above its 7y moving average "
+        "with positive 6-month momentum flags 'inflation building'. Scored "
+        "here on gold's forward return, the only claim the engine can measure.",
+        "source": "owner note (2026-07) — 'Gold/US10Y vs 7y moving average', reduced from "
+        "a proposed 12-24m regime-TRANSITION feature to its measurable "
+        "short-horizon gold-tilt kernel",
+        "author": None,  # 'other'/null tier, floor 0.20 (no book/marks/dalio provenance)
+        "status": "proposed",
+        "condition": [
+            {"signal": "gold_10y_dev", "feature": "level", "op": ">", "value": 0.0},
+            {"signal": "gold_10y_dev", "feature": "speed", "op": ">", "value": 0.0},
+        ],
+        "effect": {
+            "handle": "asset-class:gold-commodities",
+            "metric": "return",
+            "method": "cross_class",
+            "direction": "outperform",
+        },
+        "tags": [
+            "gold",
+            "gold-commodities",
+            "trend",
+            "asset:GLD",
+            "indicator:gold-10y-ratio",
+            "source:owner-note",
+        ],
+        "weight_initial": 0.50,
+        "floor_weight": 0.20,
+        "trace": "Owner note (2026-07), 'Gold / US10Y vs 7y moving average'. The note "
+        "framed it as a regime-TRANSITION feature at a 12-24m horizon; that "
+        "claim is UNMATURABLE here (the engine confronts a handle over one "
+        "12w horizon, and the ~28y the 7y-SMA leaves yields only 11-14 "
+        "non-overlapping 12-24m moments — never enough evidence). What is "
+        "matured is the measurable kernel: gold's forward outperformance when "
+        "the ratio is above its 7y trend and rising. Ice-cored before wiring "
+        "(scratchpad): 0.659 on N=41 at 12w, and 0.727 on N=33 with the "
+        "low-real-yield regime removed — so it carries signal INDEPENDENT of "
+        "inv-gold-low-real-yield, not a surface proxy of it. The note's "
+        "disinflation leg (D<0 -> gold underperforms) is DROPPED: the engine "
+        "scores it 0.474/proposed and rejects it (0.200) at longer horizons. "
+        "In-sample by construction (ADR-003): this market_score is a weight "
+        "prior, not out-of-sample proof; the edge leans on the 2001-2011 / "
+        "2019-2026 gold bulls.",
     },
 ]
 

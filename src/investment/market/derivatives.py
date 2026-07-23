@@ -14,10 +14,16 @@ import pandas as pd
 # derivative lookback = 1 observation, not a calendar-day window.
 MONTHLY_OBSERVATION_TICKERS = frozenset({"CPIAUCSL", "UNRATE", "INDPRO", "GROWTH_COMPOSITE"})
 
-# GLOBAL_LIQUIDITY blends weekly/monthly components but is itself sampled at
-# whatever cadence its components print; the pinned lookback is calendar
-# days, not 1 observation (docs/DATA_MODELS.md semantics table).
-WEEKLY_LOOKBACK_DAYS_TICKERS: dict[str, int] = {"GLOBAL_LIQUIDITY": 7}
+# Per-ticker CALENDAR-DAY lookback overrides for speed/acceleration, for
+# daily series whose natural derivative window is neither 1 observation nor
+# the generic short default:
+#   - GLOBAL_LIQUIDITY blends weekly/monthly components but is itself sampled
+#     at whatever cadence its components print (docs/DATA_MODELS.md).
+#   - gold_10y_dev's `speed` IS the owner's defined momentum leg,
+#     `speed = D - D[-6 months]` (~182 calendar days), not the 30-day default:
+#     the invariant's "& rising" predicate is a 6-month impulse, not a
+#     one-month wiggle (db/seed_data.py inv-gold-ratio-trend-tilt).
+WEEKLY_LOOKBACK_DAYS_TICKERS: dict[str, int] = {"GLOBAL_LIQUIDITY": 7, "gold_10y_dev": 182}
 
 
 def apply_transform(series: pd.Series, transform: str) -> pd.Series:
