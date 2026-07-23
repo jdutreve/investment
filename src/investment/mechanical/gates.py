@@ -259,6 +259,40 @@ def turnover_pct(current: Mapping[str, float], proposed: Mapping[str, float]) ->
     return sum(abs(proposed.get(t, 0.0) - current.get(t, 0.0)) for t in tickers) / 2.0
 
 
+def cited_invariant_eligible(
+    status: str,
+    weight_effective: float,
+    total_confrontations: int,
+    market_score: float,
+    active: bool,
+    *,
+    weight_min: float,
+    refuted_min: int,
+    refuted_score: float,
+) -> bool:
+    """UC8-B gate 6 eligibility for ONE cited invariant (docs/USE_CASES.md UC8-B
+    gate 6; docs/TASKS.md Phase 6). A reallocation may only lean on an invariant
+    that is:
+    - `status='integrated'` — belief is not enough, history is (ADR-006). The
+      M8 open decision (MILESTONES) is whether to also admit high-weight
+      'proposed' invariants; this implements the strict spec (integrated only),
+      the safe direction — loosening it later only ADDS candidates.
+    - heavy enough (`weight_effective >= weight_min`);
+    - NOT measurably refuted (`>= refuted_min` confrontations AND
+      `market_score < refuted_score` → ineligible, floor or not — a floored
+      weight must not smuggle a refuted invariant back in);
+    - ACTIVE now (its condition holds today, or is 'always'). A dormant
+      invariant describes a market that is not present, so it cannot back a
+      move made today."""
+    if status != "integrated":
+        return False
+    if weight_effective < weight_min:
+        return False
+    if total_confrontations >= refuted_min and market_score < refuted_score:
+        return False
+    return active
+
+
 def reallocation_gates(
     current: Mapping[str, float],
     proposed: Mapping[str, float],
