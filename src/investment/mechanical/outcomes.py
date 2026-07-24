@@ -26,13 +26,15 @@ DEFERRED, with a real boundary — NOT a stub:
 import dataclasses
 import json
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
+from ulid import ULID
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
+from investment.mechanical.invariants import compute_weight_update
 
 CASH = ratios.CASH_TICKER
 OUTCOME_EVENT = "OutcomeEvent"
@@ -150,8 +152,86 @@ async def _proposed_allocation(db: InvestmentDB, proposal: dict[str, Any]) -> di
     return {str(k): float(v) for k, v in parsed.items()}
 
 
+async def _cited_invariants(db: InvestmentDB, proposal: dict[str, Any]) -> list[str]:
+    """The invariants a Proposal leaned on (docs/ARCHITECTURE.md confrontation
+    rule, FROM PROPOSALS): a reallocation's are the `proposal_cites` relation
+    written at commit; a switch's are the challenger portfolio's BACKED_BY
+    invariants (challenger -> holds -> strategy -> backed_by)."""
+    pid = str(proposal["id"])
+    if proposal["proposal_type"] == "reallocation":
+        rows = await db.query(
+            "SELECT invariant_id FROM proposal_cites WHERE proposal_id = :id", id=pid
+        )
+    else:
+        rows = await db.query(
+            "SELECT DISTINCT b.invariant_id FROM holds h "
+            "JOIN backed_by b ON b.strategy_id = h.strategy_id WHERE h.portfolio_id = :c",
+            c=str(proposal["challenger_id"]),
+        )
+    return [str(r["invariant_id"]) for r in rows]
+
+
+async def _confront_cited(
+    db: InvestmentDB, proposal: dict[str, Any], won: bool, half_life: float, today: date
+) -> None:
+    """source='proposal' confrontations (docs/ARCHITECTURE.md: "won -> confirmation
+    for each qualifying cited invariant; lost -> infirmation"). Called inside
+    `_evaluate_one`'s transaction. The reallocation's cited invariants were
+    proven condition-ACTIVE by gate 6 at proposal time, so they qualify by
+    construction; a per-window as-of re-check is a refinement (deferred).
+    Weights move through the SAME compute_weight_update primitive as every other
+    source."""
+    pid = str(proposal["id"])
+    cited = await _cited_invariants(db, proposal)
+    if not cited:
+        return
+    verdict_tag = "confirmed" if won else "refuted"
+    placeholders = ",".join(f":i{n}" for n in range(len(cited)))
+    params = {f"i{n}": iid for n, iid in enumerate(cited)}
+    rows = await db.query(
+        "SELECT id, weight_initial, floor_weight, confirmation_count, infirmation_count "
+        f"FROM invariant WHERE id IN ({placeholders})",
+        **params,
+    )
+    now = datetime.now(UTC).isoformat()
+    for row in rows:
+        cc = int(row["confirmation_count"]) + (1 if won else 0)
+        ic = int(row["infirmation_count"]) + (0 if won else 1)
+        score, recency, w_eff = compute_weight_update(
+            float(row["weight_initial"]), float(row["floor_weight"]), cc, ic, 0, half_life
+        )
+        await db.command(
+            "INSERT INTO invariant_confrontations "
+            "(id, invariant_id, moment_context, date, verdict, severity, source, source_id) "
+            "VALUES (:id, :iid, :ctx, :date, :verdict, 1.0, 'proposal', :src)",
+            id=str(ULID()),
+            iid=str(row["id"]),
+            ctx=f"proposal:{pid}",
+            date=today.isoformat(),
+            verdict=verdict_tag,
+            src=pid,
+        )
+        await db.command(
+            "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
+            "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
+            "updated_at = :now WHERE id = :id",
+            cc=cc,
+            ic=ic,
+            score=score,
+            recency=recency,
+            weff=w_eff,
+            now=now,
+            id=str(row["id"]),
+        )
+
+
 async def _evaluate_one(
-    db: InvestmentDB, proposal: dict[str, Any], cost_bps: float, horizon: timedelta, today: date
+    db: InvestmentDB,
+    proposal: dict[str, Any],
+    cost_bps: float,
+    horizon: timedelta,
+    half_life: float,
+    today: date,
 ) -> ProposalOutcome:
     pid = str(proposal["id"])
     start_d = date.fromisoformat(str(proposal["date"]))
@@ -197,6 +277,8 @@ async def _evaluate_one(
             when=today.isoformat(),
             id=pid,
         )
+        # Close the loop: confront the invariants the proposal cited (same txn).
+        await _confront_cited(db, proposal, won=v == "won", half_life=half_life, today=today)
     return ProposalOutcome(pid, v, proposed_return, incumbent_return)
 
 
@@ -215,6 +297,7 @@ async def evaluate_proposals(
     }
     horizon = timedelta(weeks=int(thresholds["proposal_outcome_weeks"]))
     cost_bps = float(thresholds["replay_cost_bps"])
+    half_life = float(thresholds["recency_half_life_days"])
 
     # Pending = NULL outcome (fresh) OR verdict still 'pending'. `json_extract`
     # on a NULL column returns NULL, so both are captured by the IS NULL / =
@@ -226,5 +309,5 @@ async def evaluate_proposals(
     )
     results = []
     for proposal in proposals:
-        results.append(await _evaluate_one(db, proposal, cost_bps, horizon, today))
+        results.append(await _evaluate_one(db, proposal, cost_bps, horizon, half_life, today))
     return results

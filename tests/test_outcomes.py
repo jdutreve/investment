@@ -48,7 +48,11 @@ async def _seed_common(db: InvestmentDB) -> None:
     async def cmd(stmt: str, **p: object) -> None:
         await db.command(stmt, **p)
 
-    for key, value in (("proposal_outcome_weeks", 12.0), ("replay_cost_bps", 10.0)):
+    for key, value in (
+        ("proposal_outcome_weeks", 12.0),
+        ("replay_cost_bps", 10.0),
+        ("recency_half_life_days", 365.0),
+    ):
         await cmd(
             "INSERT INTO system_thresholds (key, value, updated_at) "
             "VALUES (:k, :v, '2026-01-01')",
@@ -150,6 +154,32 @@ async def test_a_proposal_before_its_window_is_left_pending(db: InvestmentDB) ->
     row = (await db.query("SELECT outcome, evaluated_at FROM proposal WHERE id='p-young'"))[0]
     assert row["outcome"] is None
     assert row["evaluated_at"] is None
+
+
+async def test_won_reallocation_confirms_its_cited_invariants(db: InvestmentDB) -> None:
+    # a reallocation into the rising asset, citing an invariant via proposal_cites
+    await db.command(
+        "INSERT INTO invariant (id, title, description, source, status, condition, "
+        "weight_initial, floor_weight, weight_effective, confirmation_count, infirmation_count, "
+        "market_score, trace, created_at, updated_at) VALUES ('inv-c', 't', 'd', 's', "
+        "'integrated', '[]', 0.6, 0.2, 0.6, 4, 1, 0.8, 'tr', '2026-01-01', '2026-01-01')"
+    )
+    await _add_proposal(db, "p-cite", "reallocation", START, proposed_allocation='{"SPY": 100}')
+    await db.command(
+        "INSERT INTO proposal_cites (proposal_id, invariant_id) VALUES ('p-cite', 'inv-c')"
+    )
+    (res,) = await outcomes.evaluate_proposals(db, today=TODAY)
+    assert res.verdict == "won"  # SPY beats flat TLT defender
+    inv = (
+        await db.query("SELECT confirmation_count, market_score FROM invariant WHERE id='inv-c'")
+    )[0]
+    assert inv["confirmation_count"] == 5  # 4 -> 5, a won proposal confirms its citation
+    assert inv["market_score"] == pytest.approx(5 / 6)
+    conf = await db.query(
+        "SELECT source, verdict, source_id FROM invariant_confrontations WHERE invariant_id='inv-c'"
+    )
+    assert conf[0]["source"] == "proposal" and conf[0]["verdict"] == "confirmed"
+    assert conf[0]["source_id"] == "p-cite"
 
 
 async def test_already_decided_proposals_are_not_re_evaluated(db: InvestmentDB) -> None:
