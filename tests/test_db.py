@@ -68,13 +68,14 @@ async def _stub_fetch_raw(ticker_row: Any, api_key: str, start: date | None) -> 
     return pd.Series(100.0 + 0.01 * range(800), index=dates)
 
 
-async def test_schema_creates_all_32_tables(db: InvestmentDB) -> None:
+async def test_schema_creates_all_33_tables(db: InvestmentDB) -> None:
     rows = await db.query("SELECT name FROM sqlite_master WHERE type='table'")
     tables = {row["name"] for row in rows}
     expected = ENTITY_TABLES | RELATION_TABLES | TS_TABLES | DOCUMENT_TABLES
     assert expected <= tables
-    # 31 in the spec + `curated_passage`, the M7 curation checkpoint.
-    assert len(expected) == 32
+    # 31 in the spec + `curated_passage` (M7 curation checkpoint) + `proposal_cites`
+    # (M8 reallocation citations, for the source='proposal' confrontations).
+    assert len(expected) == 33
 
 
 async def test_trace_mandatory_on_vertices(db: InvestmentDB) -> None:
