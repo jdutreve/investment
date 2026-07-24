@@ -291,6 +291,17 @@ CREATE TABLE IF NOT EXISTS supports (
   PRIMARY KEY (passage_id, invariant_id)
 );
 
+-- The invariants a reallocation Proposal cited (Worker's supporting_invariants).
+-- A RELATION, not a column, so outcomes.py can read the cited set back at +12w
+-- (source='proposal' confrontations) and the digest can join it — a switch
+-- proposal derives its citations from the challenger's backed_by instead, so
+-- this table carries reallocation citations only.
+CREATE TABLE IF NOT EXISTS proposal_cites (
+  proposal_id  TEXT NOT NULL REFERENCES proposal(id),
+  invariant_id TEXT NOT NULL REFERENCES invariant(id),
+  PRIMARY KEY (proposal_id, invariant_id)
+);
+
 -- ============================================================
 -- TIME-SERIES TABLES (3) — full daily granularity, no downsampling
 -- ============================================================
@@ -547,7 +558,7 @@ ENTITY_TABLES = {
     "passage",
     "event_log",
 }
-RELATION_TABLES = {"favors", "backed_by", "holds", "designed_for", "supports"}
+RELATION_TABLES = {"favors", "backed_by", "holds", "designed_for", "supports", "proposal_cites"}
 TS_TABLES = {"market_data", "scenario_probability", "portfolio_nav"}
 DOCUMENT_TABLES = {
     "user_profile",

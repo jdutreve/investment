@@ -137,6 +137,9 @@ async def test_dispose_pass_commits_proposal_eventlog_first(db: InvestmentDB) ->
     # nothing here, but it must EXIST and reference the proposal
     ev = await db.query("SELECT source_id FROM event_log WHERE type='ProposalEvent'")
     assert [e["source_id"] for e in ev] == [pid]
+    # cited invariants persisted as a relation, for the +12w confrontations
+    cites = await db.query("SELECT invariant_id FROM proposal_cites WHERE proposal_id=:i", i=pid)
+    assert [c["invariant_id"] for c in cites] == ["inv-ok"]
     # snapshot recommendation upgraded
     snap = await db.query(
         "SELECT recommendation FROM portfolio_weekly_snapshot WHERE portfolio_id='def-pf'"

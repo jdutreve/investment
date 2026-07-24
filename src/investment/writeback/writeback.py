@@ -164,6 +164,17 @@ async def _commit_reallocation(
             trace=trace,
             now=today.isoformat(),
         )
+        # The cited invariants as a RELATION (proposal_cites) — so outcomes.py
+        # can read the cited set back at +12w for the source='proposal'
+        # confrontations. Gate 6 already proved every one exists and is
+        # eligible, so these inserts cannot orphan.
+        for invariant_id in reallocation.supporting_invariants:
+            await db.command(
+                "INSERT OR IGNORE INTO proposal_cites (proposal_id, invariant_id) "
+                "VALUES (:pid, :iid)",
+                pid=proposal_id,
+                iid=invariant_id,
+            )
         # Upgrade the defender's latest snapshot recommendation so the digest
         # reflects that a paper-test was emitted (no-op if no snapshot yet).
         await db.command(
