@@ -33,7 +33,7 @@ from investment.mechanical.gates import (
 from investment.mechanical.invariants import compute_weight_update
 from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
-from investment.worker.result import ReallocationProposal
+from investment.worker.result import ImprovementProposal, ReallocationProposal
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +41,11 @@ PROPOSAL_EVENT = "ProposalEvent"
 CONFRONTATION_EVENT = "ConfrontationEvent"
 EVALUATION_EVENT = "EvaluationEvent"
 SCENARIO_EVENT = "ScenarioEvent"
+INNOVATION_EVENT = "InnovationEvent"
 SOURCE_UC = "UC8"
 _SCENARIO_KINDS = frozenset({"bull", "base", "bear"})
 _SCENARIO_SUM_TOLERANCE = 0.1
+_STRATEGY_INNOVATION_TYPES = frozenset({"new_strategy", "strategy_revision"})
 
 
 def effective_caps(user_profile: dict[str, Any], portfolio: dict[str, Any] | None) -> Caps:
@@ -420,6 +422,77 @@ async def _commit_scenario_updates(
     return committed
 
 
+async def _commit_strategy_innovation(
+    db: InvestmentDB, proposal: ImprovementProposal, today: date
+) -> str:
+    """Create a proposed Strategy vertex from a new_strategy / strategy_revision
+    innovation (docs/ARCHITECTURE.md "System Evolution"; docs/TASKS.md Phase 6).
+    Born `status='proposed'`, `enabled=false` — it enters mechanical probation
+    (strategy_probation_check) and auto-activates on PASS; nothing is enabled by
+    the mere proposal (ADR-006). A revision records its lineage in `trace`; the
+    superseded vertex is closed only on probation PASS, not here. Returns the new
+    strategy id."""
+    spec = proposal.spec or {}
+    strategy_id = str(spec.get("id") or f"strat-{ULID()}")
+    now = datetime.now(UTC).isoformat()
+    supersedes = spec.get("supersedes")
+    trace = proposal.trace + (f" [supersedes {supersedes}]" if supersedes else "")
+    async with db.transaction():
+        await db.append_event(
+            type=INNOVATION_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=strategy_id,
+            payload={"type": proposal.type, "title": proposal.title, "supersedes": supersedes},
+            event_date=today,
+        )
+        await db.command(
+            "INSERT OR IGNORE INTO strategy (id, title, description, regime_type_id, framework_id, "
+            "conviction, enabled, conditions, source, status, date_opened, trace, created_at, "
+            "updated_at) VALUES (:id, :title, :desc, :rt, :fw, :conv, 0, :cond, 'agent-discovery', "
+            "'proposed', :today, :trace, :now, :now)",
+            id=strategy_id,
+            title=proposal.title,
+            desc=proposal.rationale,
+            rt=spec.get("regime_type_id"),
+            fw=spec.get("framework_id", "4seasons"),
+            conv=float(spec.get("conviction", 50.0)),
+            cond=str(spec.get("conditions", "")),
+            today=today.isoformat(),
+            trace=trace,
+            now=now,
+        )
+    return strategy_id
+
+
+async def commit_innovations(
+    db: InvestmentDB, post_result: PostPlannerResult, today: date
+) -> int:
+    """Commit the innovations the analysis proposed (docs/TASKS.md Phase 6,
+    "Innovations"). new_strategy / strategy_revision create a proposed,
+    disabled Strategy vertex that enters probation. new_invariant is NOT handled
+    here: it requires the cosine + structural DEDUP GATE (no duplicate is ever
+    proposed) that the curator's KnowledgeWriteback already
+    implements — routing it through a second, weaker gate would risk the exact
+    duplicates the gate exists to prevent, so it awaits a shared-dedup refactor.
+    process / data proposals are recorded as InnovationEvents (no V1 vertex type
+    — I-27)."""
+    committed = 0
+    for innovation in post_result.innovations:
+        if innovation.type in _STRATEGY_INNOVATION_TYPES:
+            await _commit_strategy_innovation(db, innovation, today)
+            committed += 1
+        else:
+            async with db.transaction():
+                await db.append_event(
+                    type=INNOVATION_EVENT,
+                    source_uc=SOURCE_UC,
+                    source_id=None,
+                    payload={"type": innovation.type, "title": innovation.title, "pending": True},
+                    event_date=today,
+                )
+    return committed
+
+
 async def commit_knowledge(
     db: InvestmentDB,
     post_result: PostPlannerResult,
@@ -443,8 +516,10 @@ async def commit_knowledge(
     )
     conviction = await _commit_evaluations(db, post_result, today)
     scenarios = await _commit_scenario_updates(db, post_result, today)
+    innovations = await commit_innovations(db, post_result, today)
     return KnowledgeCommit(
         confrontations=confrontations,
         conviction_updates=conviction,
         scenario_updates=scenarios,
+        innovations=innovations,
     )

@@ -11,7 +11,7 @@ import pytest
 
 from investment.db.sqlite import InvestmentDB
 from investment.planner.post import Confrontation, PostPlannerResult
-from investment.worker.result import EvaluationDraft, ScenarioAdjustment
+from investment.worker.result import EvaluationDraft, ImprovementProposal, ScenarioAdjustment
 from investment.writeback.writeback import commit_knowledge
 
 THRESHOLDS = {"recency_half_life_days": 365.0}
@@ -149,6 +149,29 @@ async def test_incoherent_scenario_update_is_skipped(db: InvestmentDB) -> None:
     summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
     assert summary.scenario_updates == 0
     assert await db.query("SELECT scenario FROM scenario_probability") == []
+
+
+async def test_new_strategy_innovation_is_born_proposed_and_disabled(db: InvestmentDB) -> None:
+    result = PostPlannerResult(
+        innovations=[
+            ImprovementProposal(
+                type="new_strategy",
+                title="Counter-cyclical credit tilt",
+                rationale="tilt into credit when spreads gap",
+                spec={"id": "strat-cc", "framework_id": "4s", "conviction": 55,
+                      "conditions": "credit_spread > 2"},
+                trace="agent-discovery",
+            )
+        ]
+    )
+    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    assert summary.innovations == 1
+    row = (await db.query("SELECT status, enabled, source FROM strategy WHERE id='strat-cc'"))[0]
+    assert row["status"] == "proposed"
+    assert row["enabled"] == 0  # disabled until probation passes (ADR-006)
+    assert row["source"] == "agent-discovery"  # -> will enter strategy_probation_check
+    ev = await db.query("SELECT source_id FROM event_log WHERE type='InnovationEvent'")
+    assert ev[0]["source_id"] == "strat-cc"
 
 
 async def test_empty_result_is_a_clean_no_op(db: InvestmentDB) -> None:
