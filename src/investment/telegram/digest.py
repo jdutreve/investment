@@ -164,21 +164,28 @@ def render_digest(
 
 
 async def build_scoreboard(db: InvestmentDB) -> dict[str, Any]:
-    """Assemble the scoreboard from the proposal ledger (docs/TASKS.md Task
-    6bis.1): the cumulative +12w hit-rate (won / decided) and the paper-tests
-    still in progress. Probation / calibration flags come from OutcomeEvents
-    once score_scenarios / strategy_probation_check land (the cycle's other
-    functions) — empty here, so the block simply omits them."""
+    """Assemble the scoreboard (docs/TASKS.md Task 6bis.1): the cumulative +12w
+    hit-rate (won / decided) and the paper-tests still in progress from the
+    proposal ledger, plus the agent-discovery strategies still under probation
+    (activated, enabled, not yet judged by strategy_probation_check — no
+    probation OutcomeEvent). `calibration_flags` stays empty: scenario
+    calibration is SUPERSEDED by ADR-007 (score_scenarios was removed), so there
+    is no calibration to flag — the block omits it."""
     rows = await db.query(
-        "SELECT json_extract(outcome, '$.verdict') AS verdict, paper_started, "
-        "json_extract(outcome, '$.verdict') AS v FROM proposal"
+        "SELECT json_extract(outcome, '$.verdict') AS verdict, paper_started FROM proposal"
     )
     won = sum(1 for r in rows if r["verdict"] == "won")
     lost = sum(1 for r in rows if r["verdict"] == "lost")
     paper = [r for r in rows if r["paper_started"] and r["verdict"] in (None, "pending")]
+    probations = await db.query(
+        "SELECT id FROM strategy WHERE source = 'agent-discovery' AND status = 'active' "
+        "AND enabled = 1 AND id NOT IN ("
+        "  SELECT source_id FROM event_log WHERE type = 'OutcomeEvent' "
+        "  AND json_extract(payload, '$.kind') = 'probation')"
+    )
     return {
         "hit_rate": (won, won + lost),
         "paper_tests": paper,
-        "probations": [],
+        "probations": probations,
         "calibration_flags": [],
     }

@@ -153,6 +153,32 @@ async def test_bear_shift_reallocation_passes_gates_and_persists(rig) -> None:  
     assert [e["source_id"] for e in ev] == [result.proposal_id]
 
 
+async def test_defender_stricter_single_asset_cap_binds(rig) -> None:  # type: ignore[no-untyped-def]
+    """CLAUDE.md "Binding caps": the defender's OWN cap may be stricter than the
+    user's, and Writeback enforces the stricter of the two. The snapshot carries
+    no cap columns, so uc8 must fetch the `portfolio` row and thread it in — this
+    proves that wiring. SPY 45 clears the user's 50 cap but breaches the
+    defender's own 40, so the proposal must be blocked, not persisted."""
+    db, pre, worker, post = rig
+    # the defender as a portfolio with a STRICTER 40 single-asset cap
+    await db.command(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('def-pf', 'D', '4s', 1, 1, 'CHF', 'SPY', '{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', "
+        "-0.15, 40.0, 'accumulation', 't', '2026-01-01')"
+    )
+    realloc = dict(_REALLOC, proposed_allocation={"SPY": 45.0, "GLD": 30.0, "IEF": 25.0})
+    q, s, w, p = _overrides(pre, worker, post, _worker_output(realloc))
+    with q, s, w, p:
+        result: UC8Result = await run_decision_cycle(
+            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
+        )
+    assert result.gate_outcome is not None
+    assert result.gate_outcome.failed_gate == "max_single_asset_pct"
+    assert result.proposal_id is None
+    assert await db.query("SELECT id FROM proposal") == []  # nothing persisted
+
+
 async def test_no_reallocation_is_a_knowledge_only_cycle(rig) -> None:  # type: ignore[no-untyped-def]
     db, pre, worker, post = rig
     q, s, w, p = _overrides(pre, worker, post, _worker_output(None))

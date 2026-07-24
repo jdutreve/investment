@@ -55,6 +55,19 @@ def _defender_row(ranking: list[dict[str, Any]]) -> dict[str, Any] | None:
     return next((row for row in ranking if row.get("defender")), None)
 
 
+async def _defender_portfolio(db: InvestmentDB, portfolio_id: str) -> dict[str, Any] | None:
+    """The defender's OWN cap rules (CLAUDE.md "Binding caps": per-portfolio
+    rules may only be STRICTER; Writeback enforces the stricter of the two). The
+    snapshot the ranking is read from carries no cap columns — they live on
+    `portfolio` — so they must be fetched here and threaded into
+    `dispose_reallocation`, else only the looser user caps would bind."""
+    rows = await db.query(
+        "SELECT max_single_asset_pct, max_drawdown_rule FROM portfolio WHERE id = :pid",
+        pid=portfolio_id,
+    )
+    return dict(rows[0]) if rows else None
+
+
 def _allocation(row: dict[str, Any]) -> dict[str, float]:
     alloc = row.get("allocation")
     if isinstance(alloc, str):
@@ -149,15 +162,18 @@ async def run_decision_cycle(
     reallocation = worker_result.reallocation_proposed
     defender = _defender_row(context.ranking)
     if reallocation is not None and defender is not None:
+        defender_id = str(defender["portfolio_id"])
+        portfolio = await _defender_portfolio(db, defender_id)
         gate_outcome, proposal_id = await dispose_reallocation(
             db,
             reallocation,
-            str(defender["portfolio_id"]),
+            defender_id,
             _allocation(defender),
             user_profile,
             thresholds,
             regime_type,
             _market_context(context),
+            portfolio=portfolio,
             today=today,
         )
 
