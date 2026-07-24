@@ -3,24 +3,21 @@
 outcomes.py; docs/USE_CASES.md line 524). Weekly 08:52, after ranking, before
 UC8.
 
-M8 slice: `evaluate_proposals()` — the VERDICT core. Each Proposal that reaches
-`proposal_outcome_weeks` (12) of age is measured: the proposed allocation's
-synthetic-NAV return since `Proposal.date`, net of `replay_cost_bps x turnover`,
-vs the incumbent (defender allocation as of that date) held. proposed > incumbent
-→ 'won', else 'lost'. The verdict lands as `Proposal.outcome` + an OutcomeEvent
-(kind=proposal), EventLog first (CLAUDE.md "EventLog" rule).
+Functions of the cycle:
+- `evaluate_proposals()` — the VERDICT core. Each Proposal at `proposal_outcome_
+  weeks` (12) is measured: the proposed allocation's synthetic-NAV return since
+  `Proposal.date`, net of `replay_cost_bps x turnover`, vs the incumbent held.
+  proposed > incumbent -> 'won'. The verdict lands as `Proposal.outcome` + an
+  OutcomeEvent, and CONFRONTS the invariants the proposal cited (source=
+  'proposal', via the proposal_cites relation / a switch's BACKED_BY).
+- `strategy_probation_check()` — INNOVATION-activated strategies judged on their
+  FAVORS standing in the current regime at +strategy_probation_weeks; the 4
+  seeded strategies never enter probation.
+- `paper_test_progress()` — proposed-vs-incumbent to date for accepted
+  paper-tests (read-only; feeds the digest scoreboard).
 
-DEFERRED, with a real boundary — NOT a stub:
-- **invariant confrontations source='proposal'** (the loop-closing step,
-  ARCHITECTURE): a won/lost verdict should confirm/infirm the invariants the
-  proposal cited. But the cited set is not machine-readable from a Proposal
-  row — a reallocation cites its invariants only inside free-text `reasoning`
-  (docs/DATA_MODELS.md Proposal: no structured cited-invariant column), and how
-  Writeback persists them is a Phase-6 decision not yet made. This lands with
-  the Writeback wiring, where the linkage is defined, not before.
-- **paper-test tracking** (proposed-vs-incumbent to date from `paper_started`)
-  and **score_scenarios / strategy_probation_check**: separate functions of the
-  same cycle, following increments.
+DEFERRED: `score_scenarios()` (scenario calibration — needs the bull/base/bear
+-> scenario-id resolution, paired with the scenario_updates commit).
 """
 
 import dataclasses
@@ -29,6 +26,7 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from ulid import ULID
 
@@ -311,3 +309,124 @@ async def evaluate_proposals(
     for proposal in proposals:
         results.append(await _evaluate_one(db, proposal, cost_bps, horizon, half_life, today))
     return results
+
+
+# -- strategy probation + paper-test tracking -------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class ProbationResult:
+    strategy_id: str
+    verdict: str  # 'keep' | 'review'
+    sortino: float | None
+    median: float | None
+    skipped_reason: str | None = None
+
+
+async def _current_regime_type(db: InvestmentDB) -> str | None:
+    rows = await db.query("SELECT regime_type_id FROM regime WHERE is_current = 1 LIMIT 1")
+    return str(rows[0]["regime_type_id"]) if rows else None
+
+
+async def strategy_probation_check(
+    db: InvestmentDB, today: date | None = None
+) -> list[ProbationResult]:
+    """Probation verdicts for INNOVATION-activated strategies (docs/ARCHITECTURE.md
+    "strategy_probation_check"). The 4 SEEDED strategies (source='corpus') are
+    the baseline and never enter probation; an agent-discovered strategy is
+    judged `strategy_probation_weeks` after activation on its FAVORS standing in
+    the CURRENT regime type: 'keep' if its Sortino is at or above the median of
+    the enabled strategies, else 'review' (-> Telegram closure proposal, M9).
+
+    Idempotent: a strategy that already has a probation OutcomeEvent is not
+    re-judged (verdicts are emitted once at the window)."""
+    today = today or date.today()
+    thresholds = {
+        r["key"]: r["value"] for r in await db.query("SELECT key, value FROM system_thresholds")
+    }
+    cutoff = (today - timedelta(weeks=int(thresholds["strategy_probation_weeks"]))).isoformat()
+    regime_type = await _current_regime_type(db)
+
+    due = await db.query(
+        "SELECT id FROM strategy WHERE source = 'agent-discovery' AND status = 'active' "
+        "AND enabled = 1 AND date_opened <= :cutoff ORDER BY id",
+        cutoff=cutoff,
+    )
+    already = {
+        str(r["source_id"])
+        for r in await db.query(
+            "SELECT source_id FROM event_log WHERE type = 'OutcomeEvent' "
+            "AND json_extract(payload, '$.kind') = 'probation'"
+        )
+    }
+    if regime_type is None:
+        return [ProbationResult(str(s["id"]), "", None, None, "no current regime") for s in due]
+
+    favors = await db.query(
+        "SELECT strategy_id, sortino_rolling FROM favors WHERE regime_type_id = :rt",
+        rt=regime_type,
+    )
+    sortino_by = {str(f["strategy_id"]): f["sortino_rolling"] for f in favors}
+    peers = sorted(v for v in sortino_by.values() if v is not None)
+    median = float(np.median(peers)) if peers else None
+
+    results: list[ProbationResult] = []
+    for row in due:
+        sid = str(row["id"])
+        if sid in already:
+            continue
+        sortino = sortino_by.get(sid)
+        if sortino is None or median is None:
+            results.append(ProbationResult(sid, "", sortino, median, "no FAVORS in current regime"))
+            continue
+        verdict = "keep" if sortino >= median else "review"
+        async with db.transaction():
+            await db.append_event(
+                type=OUTCOME_EVENT,
+                source_uc=SOURCE_UC,
+                source_id=sid,
+                payload={
+                    "kind": "probation",
+                    "verdict": verdict,
+                    "sortino": sortino,
+                    "median": median,
+                },
+                event_date=today,
+            )
+        results.append(ProbationResult(sid, verdict, sortino, median))
+    return results
+
+
+async def paper_test_progress(
+    db: InvestmentDB, today: date | None = None
+) -> list[dict[str, Any]]:
+    """Proposed-vs-incumbent to date for every ACCEPTED paper-test still running
+    (docs/ARCHITECTURE.md: "tracked EVERY week from paper_started"). Read-only —
+    feeds the digest scoreboard; the +12w verdict is evaluate_proposals's job.
+    Returns one row per live paper-test with the running excess (proposed minus
+    incumbent since paper_started), or None where prices don't yet cover it."""
+    today = today or date.today()
+    rows = await db.query(
+        "SELECT * FROM proposal WHERE paper_started IS NOT NULL "
+        "AND (outcome IS NULL OR json_extract(outcome, '$.verdict') = 'pending')"
+    )
+    end = pd.Timestamp(today)
+    progress: list[dict[str, Any]] = []
+    for proposal in rows:
+        start = pd.Timestamp(date.fromisoformat(str(proposal["paper_started"])))
+        incumbent = normalize(
+            await _allocation_at(db, str(proposal["defender_id"]), str(proposal["date"]))
+        )
+        proposed = normalize(await _proposed_allocation(db, proposal))
+        inc_ret = await _window_return(db, incumbent, start, end) if incumbent else None
+        pro_ret = await _window_return(db, proposed, start, end) if proposed else None
+        excess = pro_ret - inc_ret if (inc_ret is not None and pro_ret is not None) else None
+        progress.append(
+            {
+                "proposal_id": str(proposal["id"]),
+                "proposed_return": pro_ret,
+                "incumbent_return": inc_ret,
+                "excess": excess,
+            }
+        )
+    return progress
