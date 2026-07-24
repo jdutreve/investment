@@ -3,13 +3,15 @@ Phase 6; docs/USE_CASES.md UC8). "Worker proposes, Writeback disposes"
 (CLAUDE.md): the Worker's reallocation is validated by DETERMINISTIC gates here
 and only then persisted, EventLog-first (CLAUDE.md "EventLog" rule).
 
-This slice is the reallocation disposition — the path M8's Definition of
-Verified exercises ("bear-shift fixture → reallocation proposal passes gates").
-It adds the two gates the mechanical replay could not supply before M8
-(mechanical/gates.py module docstring): gate 6 (cited-invariant eligibility,
-now that a real Worker cites invariants) and `effective_caps` (the stricter-of
-user/portfolio caps). The switch disposition and the knowledge/innovation commit
-are the following increments.
+Two responsibilities: the reallocation DISPOSITION (gates 1-6, then commit the
+Proposal EventLog-first) and the knowledge COMMIT (`commit_knowledge`) — the
+guardrailed PostPlannerResult persisted to the graph: source='evaluation'
+confrontations (weight-moving, condition-gated), conviction nudges, and coherent
+scenario-probability updates. gate 6 (cited-invariant eligibility) and
+`effective_caps` (stricter-of user/portfolio caps) are the two gates the
+mechanical replay could not supply before M8 (mechanical/gates.py docstring).
+The switch disposition and the innovation commit (dedup + maturation) are the
+remaining increments.
 """
 
 import dataclasses
@@ -38,7 +40,10 @@ logger = logging.getLogger(__name__)
 PROPOSAL_EVENT = "ProposalEvent"
 CONFRONTATION_EVENT = "ConfrontationEvent"
 EVALUATION_EVENT = "EvaluationEvent"
+SCENARIO_EVENT = "ScenarioEvent"
 SOURCE_UC = "UC8"
+_SCENARIO_KINDS = frozenset({"bull", "base", "bear"})
+_SCENARIO_SUM_TOLERANCE = 0.1
 
 
 def effective_caps(user_profile: dict[str, Any], portfolio: dict[str, Any] | None) -> Caps:
@@ -245,6 +250,7 @@ class KnowledgeCommit:
 
     confrontations: int
     conviction_updates: int
+    scenario_updates: int = 0
     innovations: int = 0
 
 
@@ -360,6 +366,60 @@ async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, 
     return committed
 
 
+async def _commit_scenario_updates(
+    db: InvestmentDB, post_result: PostPlannerResult, today: date
+) -> int:
+    """New scenario probabilities (docs/ARCHITECTURE.md scenario updates).
+    Call 2 names updates as (strategy, bull|base|bear); the stored row is keyed
+    by the scenario's ID, so this resolves name -> id via the `scenario` table.
+    COHERENCE GATE: a strategy's updates commit only if all THREE scenarios are
+    present AND sum to 100 (the three-probabilities-sum-to-100 invariant) — a
+    partial or incoherent update is skipped, not half-written."""
+    if not post_result.scenario_updates:
+        return 0
+    by_strategy: dict[str, dict[str, float]] = {}
+    for sc in post_result.scenario_updates:
+        by_strategy.setdefault(sc.strategy_id, {})[sc.scenario] = sc.probability
+
+    eligible: dict[str, dict[str, float]] = {}  # strategy -> {scenario_id: probability}
+    for sid, by_name in by_strategy.items():
+        if set(by_name) != _SCENARIO_KINDS:
+            continue
+        if abs(sum(by_name.values()) - 100.0) > _SCENARIO_SUM_TOLERANCE:
+            continue
+        rows = await db.query(
+            "SELECT id, name FROM scenario WHERE strategy_id = :s", s=sid
+        )
+        name_to_id = {str(r["name"]): str(r["id"]) for r in rows}
+        if not set(name_to_id) >= _SCENARIO_KINDS:
+            continue
+        eligible[sid] = {name_to_id[name]: prob for name, prob in by_name.items()}
+
+    if not eligible:
+        return 0
+    committed = 0
+    async with db.transaction():
+        await db.append_event(
+            type=SCENARIO_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=None,
+            payload={"strategies": sorted(eligible)},
+            event_date=today,
+        )
+        for scenario_probs in eligible.values():
+            for scenario_id, probability in scenario_probs.items():
+                await db.command(
+                    "INSERT OR REPLACE INTO scenario_probability "
+                    "(strategy_id, scenario, ts, probability) VALUES "
+                    "((SELECT strategy_id FROM scenario WHERE id = :sc), :sc, :ts, :p)",
+                    sc=scenario_id,
+                    ts=today.isoformat(),
+                    p=probability,
+                )
+                committed += 1
+    return committed
+
+
 async def commit_knowledge(
     db: InvestmentDB,
     post_result: PostPlannerResult,
@@ -382,4 +442,9 @@ async def commit_knowledge(
         db, post_result, regime_type, active, thresholds, today
     )
     conviction = await _commit_evaluations(db, post_result, today)
-    return KnowledgeCommit(confrontations=confrontations, conviction_updates=conviction)
+    scenarios = await _commit_scenario_updates(db, post_result, today)
+    return KnowledgeCommit(
+        confrontations=confrontations,
+        conviction_updates=conviction,
+        scenario_updates=scenarios,
+    )

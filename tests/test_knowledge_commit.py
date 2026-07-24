@@ -11,7 +11,7 @@ import pytest
 
 from investment.db.sqlite import InvestmentDB
 from investment.planner.post import Confrontation, PostPlannerResult
-from investment.worker.result import EvaluationDraft
+from investment.worker.result import EvaluationDraft, ScenarioAdjustment
 from investment.writeback.writeback import commit_knowledge
 
 THRESHOLDS = {"recency_half_life_days": 365.0}
@@ -101,6 +101,54 @@ async def test_evaluation_nudges_conviction(db: InvestmentDB) -> None:
     conviction = (await db.query("SELECT conviction FROM strategy WHERE id='s1'"))[0]["conviction"]
     assert conviction == pytest.approx(68.0)  # 60 + 8
     assert len(await db.query("SELECT type FROM event_log WHERE type='EvaluationEvent'")) == 1
+
+
+def _scen(strategy: str, kind: str, prob: float) -> ScenarioAdjustment:
+    return ScenarioAdjustment(strategy_id=strategy, scenario=kind, probability=prob, rationale="r")
+
+
+async def test_scenario_update_commits_a_coherent_triple(db: InvestmentDB) -> None:
+    # the strategy's three scenarios (name -> id), keyed by id in scenario_probability
+    for sid, name in (("sc-s1-bull", "bull"), ("sc-s1-base", "base"), ("sc-s1-bear", "bear")):
+        await db.command(
+            "INSERT INTO scenario (id, strategy_id, name, probability, triggers, "
+            "target_allocation, currency, trace, updated_at) VALUES (:id, 's1', :n, 33.0, '[]', "
+            "'{}', 'USD', 't', '2026-01-01')",
+            id=sid,
+            n=name,
+        )
+    result = PostPlannerResult(
+        scenario_updates=[_scen("s1", "bull", 55.0), _scen("s1", "base", 30.0),
+                          _scen("s1", "bear", 15.0)]
+    )
+    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    assert summary.scenario_updates == 3  # all three written
+    probs = await db.query(
+        "SELECT scenario, probability FROM scenario_probability WHERE strategy_id='s1' "
+        "ORDER BY scenario"
+    )
+    assert {p["scenario"]: p["probability"] for p in probs} == {
+        "sc-s1-base": 30.0, "sc-s1-bear": 15.0, "sc-s1-bull": 55.0
+    }
+    assert len(await db.query("SELECT type FROM event_log WHERE type='ScenarioEvent'")) == 1
+
+
+async def test_incoherent_scenario_update_is_skipped(db: InvestmentDB) -> None:
+    for sid, name in (("sc-s1-bull", "bull"), ("sc-s1-base", "base"), ("sc-s1-bear", "bear")):
+        await db.command(
+            "INSERT INTO scenario (id, strategy_id, name, probability, triggers, "
+            "target_allocation, currency, trace, updated_at) VALUES (:id, 's1', :n, 33.0, '[]', "
+            "'{}', 'USD', 't', '2026-01-01')",
+            id=sid,
+            n=name,
+        )
+    # only two scenarios, and they don't sum to 100 -> the whole strategy is skipped
+    result = PostPlannerResult(
+        scenario_updates=[_scen("s1", "bull", 55.0), _scen("s1", "base", 30.0)]
+    )
+    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    assert summary.scenario_updates == 0
+    assert await db.query("SELECT scenario FROM scenario_probability") == []
 
 
 async def test_empty_result_is_a_clean_no_op(db: InvestmentDB) -> None:
