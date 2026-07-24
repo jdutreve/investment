@@ -31,7 +31,7 @@ from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import run_worker
 from investment.worker.result import WorkerResult
-from investment.writeback.writeback import dispose_reallocation
+from investment.writeback.writeback import KnowledgeCommit, commit_knowledge, dispose_reallocation
 
 
 @dataclasses.dataclass(frozen=True)
@@ -43,6 +43,7 @@ class UC8Result:
     context: PlannerContext
     worker_result: WorkerResult
     post_result: PostPlannerResult
+    knowledge: KnowledgeCommit  # what the guardrailed knowledge commit persisted
     gate_outcome: GateOutcome | None  # None iff the Worker proposed no reallocation
     proposal_id: str | None
 
@@ -138,6 +139,9 @@ async def run_decision_cycle(
     worker_result = await run_worker(worker_agent, render_context_for_worker(context))
     post_result = await planner_post.run(worker_result, context)
 
+    regime_type = context.regime.get("regime_type_id")
+    knowledge = await commit_knowledge(db, post_result, regime_type, thresholds, today=today)
+
     gate_outcome: GateOutcome | None = None
     proposal_id: str | None = None
     reallocation = worker_result.reallocation_proposed
@@ -150,9 +154,11 @@ async def run_decision_cycle(
             _allocation(defender),
             user_profile,
             thresholds,
-            context.regime.get("regime_type_id"),
+            regime_type,
             _market_context(context),
             today=today,
         )
 
-    return UC8Result(context, worker_result, post_result, gate_outcome, proposal_id)
+    return UC8Result(
+        context, worker_result, post_result, knowledge, gate_outcome, proposal_id
+    )

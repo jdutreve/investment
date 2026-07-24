@@ -12,8 +12,10 @@ user/portfolio caps). The switch disposition and the knowledge/innovation commit
 are the following increments.
 """
 
+import dataclasses
 import json
-from datetime import date
+import logging
+from datetime import UTC, date, datetime
 from typing import Any
 
 from ulid import ULID
@@ -26,10 +28,16 @@ from investment.mechanical.gates import (
     cited_invariant_eligible,
     reallocation_gates,
 )
+from investment.mechanical.invariants import compute_weight_update
 from investment.planner.context import active_invariant_ids
+from investment.planner.post import PostPlannerResult
 from investment.worker.result import ReallocationProposal
 
+logger = logging.getLogger(__name__)
+
 PROPOSAL_EVENT = "ProposalEvent"
+CONFRONTATION_EVENT = "ConfrontationEvent"
+EVALUATION_EVENT = "EvaluationEvent"
 SOURCE_UC = "UC8"
 
 
@@ -225,3 +233,153 @@ async def dispose_reallocation(
         db, defender_id, reallocation, current_allocation, market_context, today
     )
     return GateOutcome(passed=True), proposal_id
+
+
+# -- knowledge commit (PostPlannerResult -> graph) --------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class KnowledgeCommit:
+    """What the knowledge commit persisted this cycle. Innovations are the next
+    increment (dedup + maturation), so they are reported as 0 here."""
+
+    confrontations: int
+    conviction_updates: int
+    innovations: int = 0
+
+
+async def _commit_confrontations(
+    db: InvestmentDB,
+    post_result: PostPlannerResult,
+    context_regime_type: str | None,
+    active: set[str],
+    thresholds: dict[str, float],
+    today: date,
+) -> int:
+    """source='evaluation' confrontations (docs/ARCHITECTURE.md confrontation
+    rule). CONDITION GATE: only invariants ACTIVE now are confronted — a
+    dormant lighthouse describes a market not present, so crediting/blaming it
+    would be noise. Each confrontation bumps the count and recomputes the
+    weight through the SHARED primitive (`compute_weight_update`) every
+    confrontation source funnels into; `days_since=0` because the condition is
+    active right now."""
+    confrontations = [c for c in post_result.confrontations if c.invariant_id in active]
+    if not confrontations:
+        return 0
+
+    ids = [c.invariant_id for c in confrontations]
+    placeholders = ",".join(f":i{n}" for n in range(len(ids)))
+    params = {f"i{n}": iid for n, iid in enumerate(ids)}
+    rows = await db.query(
+        "SELECT id, weight_initial, floor_weight, confirmation_count, infirmation_count "
+        f"FROM invariant WHERE id IN ({placeholders})",
+        **params,
+    )
+    inv = {str(r["id"]): r for r in rows}
+    half_life = thresholds["recency_half_life_days"]
+    descriptor = f"evaluation:{context_regime_type}"
+    now = datetime.now(UTC).isoformat()
+
+    committed = 0
+    async with db.transaction():
+        await db.append_event(
+            type=CONFRONTATION_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=None,
+            payload={"source": "evaluation", "count": len(confrontations)},
+            event_date=today,
+        )
+        for cf in confrontations:
+            row = inv.get(cf.invariant_id)
+            if row is None:
+                continue
+            cc = int(row["confirmation_count"]) + (1 if cf.verdict == "confirmed" else 0)
+            ic = int(row["infirmation_count"]) + (1 if cf.verdict == "refuted" else 0)
+            score, recency, w_eff = compute_weight_update(
+                float(row["weight_initial"]), float(row["floor_weight"]), cc, ic, 0, half_life
+            )
+            await db.command(
+                "INSERT INTO invariant_confrontations "
+                "(id, invariant_id, moment_context, date, verdict, severity, source, source_id) "
+                "VALUES (:id, :iid, :ctx, :date, :verdict, 1.0, 'evaluation', NULL)",
+                id=str(ULID()),
+                iid=cf.invariant_id,
+                ctx=descriptor,
+                date=today.isoformat(),
+                verdict=cf.verdict,
+            )
+            await db.command(
+                "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
+                "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
+                "updated_at = :now WHERE id = :id",
+                cc=cc,
+                ic=ic,
+                score=score,
+                recency=recency,
+                weff=w_eff,
+                now=now,
+                id=cf.invariant_id,
+            )
+            committed += 1
+    return committed
+
+
+async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, today: date) -> int:
+    """Record the evaluations as an EvaluationEvent and apply each
+    conviction_delta to its strategy (clamped 0-100). The verdict itself
+    matures MECHANICALLY at +12w (outcomes.py) — this only nudges the Worker's
+    running conviction, it does not adopt/reject anything (ADR-006)."""
+    if not post_result.evaluations:
+        return 0
+    now = datetime.now(UTC).isoformat()
+    committed = 0
+    async with db.transaction():
+        await db.append_event(
+            type=EVALUATION_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=None,
+            payload={
+                "evaluations": [
+                    {"strategy_id": e.strategy_id, "verdict": e.verdict}
+                    for e in post_result.evaluations
+                ]
+            },
+            event_date=today,
+        )
+        for ev in post_result.evaluations:
+            if ev.conviction_delta == 0.0:
+                continue
+            await db.command(
+                "UPDATE strategy SET conviction = MAX(0, MIN(100, conviction + :d)), "
+                "updated_at = :now WHERE id = :id",
+                d=ev.conviction_delta,
+                now=now,
+                id=ev.strategy_id,
+            )
+            committed += 1
+    return committed
+
+
+async def commit_knowledge(
+    db: InvestmentDB,
+    post_result: PostPlannerResult,
+    regime_type: str | None,
+    thresholds: dict[str, float],
+    today: date | None = None,
+) -> KnowledgeCommit:
+    """Commit the guardrailed PostPlannerResult to the graph (docs/TASKS.md
+    Phase 6). The guardrail already dropped every unknown id and every
+    unevidenced verdict, so this is pure mechanical persistence: source=
+    'evaluation' confrontations (weight-moving, condition-gated) and the
+    evaluation record + conviction nudges. Scenario updates (which need the
+    bull/base/bear -> scenario-id resolution) and innovations (dedup +
+    maturation) are the following increments."""
+    today = today or date.today()
+    active = await active_invariant_ids(
+        db, [c.invariant_id for c in post_result.confrontations], regime_type
+    )
+    confrontations = await _commit_confrontations(
+        db, post_result, regime_type, active, thresholds, today
+    )
+    conviction = await _commit_evaluations(db, post_result, today)
+    return KnowledgeCommit(confrontations=confrontations, conviction_updates=conviction)
