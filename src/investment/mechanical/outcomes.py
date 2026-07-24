@@ -16,8 +16,14 @@ Functions of the cycle:
 - `paper_test_progress()` — proposed-vs-incumbent to date for accepted
   paper-tests (read-only; feeds the digest scoreboard).
 
-DEFERRED: `score_scenarios()` (scenario calibration — needs the bull/base/bear
--> scenario-id resolution, paired with the scenario_updates commit).
+NOT BUILT — `score_scenarios()` (scenario calibration): SUPERSEDED by ADR-007
+(docs/V1_STRATEGY.md "DEMOTED / superseded"): "Scenarios (bull/base/bear per
+strategy) + scenario probabilities. Out of the decision; the credit-spread/slope
+regime replaces the scenario read." Calibrating scenario probabilities would
+score a mechanism the pivot took out of the live allocation decision (the
+scenarios survive only as part of the retained Dalio bridge). Its live-path
+analog is calibrating the MARKET-SIGNAL regime, not bull/base/bear — a job for
+the market-signal stack (V1_STRATEGY roadmap Step 0-7), not this function.
 """
 
 import dataclasses

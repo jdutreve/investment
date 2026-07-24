@@ -140,7 +140,9 @@ async def run_decision_cycle(
     post_result = await planner_post.run(worker_result, context)
 
     regime_type = context.regime.get("regime_type_id")
-    knowledge = await commit_knowledge(db, post_result, regime_type, thresholds, today=today)
+    knowledge = await commit_knowledge(
+        db, post_result, regime_type, thresholds, today=today, embedder=planner_pre.embedder
+    )
 
     gate_outcome: GateOutcome | None = None
     proposal_id: str | None = None

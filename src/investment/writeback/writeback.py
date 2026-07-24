@@ -22,6 +22,7 @@ from typing import Any
 
 from ulid import ULID
 
+from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import (
     Caps,
@@ -30,10 +31,15 @@ from investment.mechanical.gates import (
     cited_invariant_eligible,
     reallocation_gates,
 )
-from investment.mechanical.invariants import compute_weight_update
+from investment.mechanical.invariants import compute_weight_update, mature_seed_invariants
 from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ReallocationProposal
+from investment.writeback.knowledge import (
+    DEDUP_COSINE_THRESHOLD,
+    find_duplicate,
+    load_invariant_corpus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -464,23 +470,103 @@ async def _commit_strategy_innovation(
     return strategy_id
 
 
+async def _commit_invariant_innovation(
+    db: InvestmentDB,
+    proposal: ImprovementProposal,
+    embedder: Embedder,
+    corpus: list[Any],
+    matrix: Any,
+    today: date,
+) -> str | None:
+    """Persist a new_invariant innovation through the SHARED dedup gate
+    (writeback/knowledge.py `find_duplicate`) — the SAME gate the curator uses,
+    so a Worker-proposed invariant and a curator-extracted one dedup against the
+    corpus identically. On a duplicate the invariant is NOT re-created (an
+    InnovationEvent records the merge target); otherwise it is born
+    status='proposed' and matured over 35y by the caller. Returns the new id, or
+    None when merged."""
+    spec = proposal.spec or {}
+    condition = spec.get("condition", [])
+    effect = spec.get("effect")
+    title, description = proposal.title, proposal.rationale
+    vector = embedder.encode([invariant_embedding_input(title, description)])[0]
+
+    match = find_duplicate(
+        vector, condition, effect, corpus, matrix, DEDUP_COSINE_THRESHOLD, label=title[:60]
+    )
+    if match is not None:
+        async with db.transaction():
+            await db.append_event(
+                type=INNOVATION_EVENT,
+                source_uc=SOURCE_UC,
+                source_id=match,
+                payload={"type": "new_invariant", "title": title, "merged_into": match},
+                event_date=today,
+            )
+        return None
+
+    invariant_id = str(spec.get("id") or f"inv-{ULID()}")
+    async with db.transaction() as tx:
+        await tx.append_event(
+            type=INNOVATION_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=invariant_id,
+            payload={"type": "new_invariant", "title": title},
+            event_date=today,
+        )
+        await tx.create_vertex(
+            "invariant",
+            {
+                "id": invariant_id,
+                "title": title,
+                "description": description,
+                "source": "agent-discovery",
+                "author": proposal.author,
+                "status": "proposed",  # ADR-006: it earns its verdict from the 35y sweep
+                "tags": spec.get("tags", []),
+                "embedding": to_blob(vector),
+                "condition": condition,
+                "effect": effect,
+                "weight_initial": proposal.weight_initial,
+                "floor_weight": proposal.floor_weight,
+                "trace": proposal.trace or "UC8 agent-discovery innovation",
+            },
+        )
+    return invariant_id
+
+
 async def commit_innovations(
-    db: InvestmentDB, post_result: PostPlannerResult, today: date
+    db: InvestmentDB,
+    post_result: PostPlannerResult,
+    today: date,
+    embedder: Embedder | None = None,
 ) -> int:
     """Commit the innovations the analysis proposed (docs/TASKS.md Phase 6,
-    "Innovations"). new_strategy / strategy_revision create a proposed,
-    disabled Strategy vertex that enters probation. new_invariant is NOT handled
-    here: it requires the cosine + structural DEDUP GATE (no duplicate is ever
-    proposed) that the curator's KnowledgeWriteback already
-    implements — routing it through a second, weaker gate would risk the exact
-    duplicates the gate exists to prevent, so it awaits a shared-dedup refactor.
-    process / data proposals are recorded as InnovationEvents (no V1 vertex type
-    — I-27)."""
+    "Innovations"): new_strategy / strategy_revision -> a proposed, disabled
+    Strategy vertex that enters probation; new_invariant -> the shared dedup
+    gate then a proposed Invariant vertex, matured over 35y (needs the embedder;
+    without it new_invariants are recorded as pending InnovationEvents).
+    process / data -> InnovationEvent only (no V1 vertex type — I-27)."""
     committed = 0
+    corpus: list[Any] = []
+    matrix: Any = None
+    corpus_loaded = False
+    created_invariant = False
+
     for innovation in post_result.innovations:
         if innovation.type in _STRATEGY_INNOVATION_TYPES:
             await _commit_strategy_innovation(db, innovation, today)
             committed += 1
+        elif innovation.type == "new_invariant" and embedder is not None:
+            if not corpus_loaded:
+                corpus, matrix = await load_invariant_corpus(db)
+                corpus_loaded = True
+            new_id = await _commit_invariant_innovation(
+                db, innovation, embedder, corpus, matrix, today
+            )
+            if new_id is not None:
+                committed += 1
+                created_invariant = True
         else:
             async with db.transaction():
                 await db.append_event(
@@ -490,6 +576,11 @@ async def commit_innovations(
                     payload={"type": innovation.type, "title": innovation.title, "pending": True},
                     event_date=today,
                 )
+
+    # Mature the new invariant(s) over 35y (fingerprint-guarded: only the fresh
+    # ones sweep). Run once, after all creates, and only if any were created.
+    if created_invariant:
+        await mature_seed_invariants(db)
     return committed
 
 
@@ -499,6 +590,7 @@ async def commit_knowledge(
     regime_type: str | None,
     thresholds: dict[str, float],
     today: date | None = None,
+    embedder: Embedder | None = None,
 ) -> KnowledgeCommit:
     """Commit the guardrailed PostPlannerResult to the graph (docs/TASKS.md
     Phase 6). The guardrail already dropped every unknown id and every
@@ -516,7 +608,7 @@ async def commit_knowledge(
     )
     conviction = await _commit_evaluations(db, post_result, today)
     scenarios = await _commit_scenario_updates(db, post_result, today)
-    innovations = await commit_innovations(db, post_result, today)
+    innovations = await commit_innovations(db, post_result, today, embedder=embedder)
     return KnowledgeCommit(
         confrontations=confrontations,
         conviction_updates=conviction,

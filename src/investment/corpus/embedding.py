@@ -17,7 +17,7 @@ a command that never embeds anything.
 
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
@@ -25,6 +25,15 @@ if TYPE_CHECKING:  # pragma: no cover - import cost is the reason it is deferred
     from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+
+class Embedder(Protocol):
+    """The one thing every consumer needs from the embedder — text to
+    normalized vectors. A Protocol so a stub can stand in for the model in
+    tests (InProcessEmbedder satisfies it), and so modules that only embed a
+    query or a claim need not import the concrete class."""
+
+    def encode(self, texts: list[str]) -> np.ndarray: ...
 
 # The dimension `all-MiniLM-L6-v2` produces. NOT authoritative on its own: the
 # real value is `InProcessEmbedder.dims`, read from the loaded model. The

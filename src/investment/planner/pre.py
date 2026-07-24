@@ -208,6 +208,12 @@ class PlannerPre:
             model_name, api_key, reasoning_effort=reasoning_effort, base_url=base_url
         )
 
+    @property
+    def embedder(self) -> QueryEmbedder:
+        """The shared embedder, exposed so the UC8 cycle can hand it to the
+        knowledge commit (new_invariant dedup) without rebuilding one."""
+        return self._embedder
+
     async def run(
         self, trigger: str, history: list[dict[str, Any]] | None = None
     ) -> tuple[PlannerContext, WorkerTools]:

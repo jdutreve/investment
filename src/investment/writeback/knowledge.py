@@ -300,71 +300,21 @@ class KnowledgeWriteback:
         corpus: list["_Existing"],
         matrix: np.ndarray,
     ) -> str | None:
-        """The id of an existing invariant this one RESTATES, or None.
-
-        TWO conditions, both required. Prose similarity proposes; structure
-        disposes. Ranked by similarity so the closest structurally-compatible
-        match wins rather than merely the closest."""
-        if not corpus or matrix.size == 0:
-            return None
-        similarities = cosine_matrix(vector.reshape(1, -1), matrix)[0]
-        condition = [p.model_dump() for p in item.candidate.condition]
-        effect = item.candidate.effect.model_dump()
-
-        # FIRST: exact structural identity, with NO cosine gate at all.
-        # Two invariants with the same predicates and the same effect produce
-        # byte-identical confrontation results over 35 years — they ARE one
-        # invariant, whatever their prose says. Measured 2026-07-21: "the S&P
-        # 500 trades below its 200-day moving average" and "the equity trend
-        # is negative" both compiled to `equity_trend.level < 0` -> SPY
-        # underperform, yet sat at cosine 0.668 and were persisted twice.
-        # Prose can mislead in BOTH directions: the structural guard below
-        # stops it over-merging, this stops it under-merging.
-        for index, existing in enumerate(corpus):
-            if _identical_structure(condition, effect, existing):
-                logger.info(
-                    "writeback: merged into %s (identical structure, cosine %.3f)",
-                    existing.id,
-                    float(similarities[index]),
-                )
-                return existing.id
-        for index in np.argsort(similarities)[::-1]:
-            score = float(similarities[index])
-            if score < self._dedup_threshold:
-                return None
-            existing = corpus[int(index)]
-            if not _same_invariant(condition, effect, existing):
-                # The measured trap: "wide spreads -> equities underperform"
-                # and "tight spreads -> equities outperform" sit at cosine
-                # 0.907. Disjoint conditions (or an inverted direction) mean
-                # these are two claims, not one phrasing of one claim.
-                logger.info(
-                    "writeback: kept %r apart from %s despite cosine %.3f (structure differs)",
-                    item.candidate.claim[:60],
-                    existing.id,
-                    score,
-                )
-                continue
-            logger.info("writeback: merged into %s (cosine %.3f)", existing.id, score)
-            return existing.id
-        return None
+        """Delegates to the shared `find_duplicate` (below) — the same gate
+        UC8's innovation commit uses, so a Worker-proposed invariant and a
+        curator-extracted one dedup against the corpus identically."""
+        return find_duplicate(
+            vector,
+            [p.model_dump() for p in item.candidate.condition],
+            item.candidate.effect.model_dump(),
+            corpus,
+            matrix,
+            self._dedup_threshold,
+            label=(item.candidate.claim or "")[:60],
+        )
 
     async def _existing_embeddings(self) -> tuple[list["_Existing"], np.ndarray]:
-        rows = await self._db.query(
-            "SELECT id, embedding, condition, effect FROM invariant WHERE embedding IS NOT NULL"
-        )
-        if not rows:
-            return [], np.empty((0, self._embedder.dims), dtype=np.float32)
-        corpus = [
-            _Existing(
-                id=str(row["id"]),
-                condition=json.loads(row["condition"] or "[]"),
-                effect=json.loads(row["effect"]) if row["effect"] else None,
-            )
-            for row in rows
-        ]
-        matrix = np.vstack([from_blob(row["embedding"]) for row in rows])
-        return corpus, matrix
+        return await load_invariant_corpus(self._db)
 
     async def _document_author(self, document_id: str) -> str | None:
         rows = await self._db.query("SELECT author FROM document WHERE id = :d", d=document_id)
@@ -543,6 +493,84 @@ def _same_invariant(
     # vs tight spreads — mean the two can never be active together, so they
     # cannot be one invariant.
     return same_effect and conditions_can_overlap(condition, existing.condition)
+
+
+async def load_invariant_corpus(db: InvestmentDB) -> tuple[list["_Existing"], np.ndarray]:
+    """Every embedded invariant reduced to what the dedup gate needs — its id +
+    machine-readable structure — plus the stacked embedding matrix. Shared by
+    the curator's writeback and UC8's innovation commit, so both dedup against
+    the same corpus. Empty corpus -> a `(0, 0)` matrix (`find_duplicate`
+    short-circuits on `matrix.size == 0`, so the exact width is immaterial)."""
+    rows = await db.query(
+        "SELECT id, embedding, condition, effect FROM invariant WHERE embedding IS NOT NULL"
+    )
+    if not rows:
+        return [], np.empty((0, 0))
+    corpus = [
+        _Existing(
+            id=str(row["id"]),
+            condition=json.loads(row["condition"] or "[]"),
+            effect=json.loads(row["effect"]) if row["effect"] else None,
+        )
+        for row in rows
+    ]
+    matrix = np.vstack([from_blob(row["embedding"]) for row in rows])
+    return corpus, matrix
+
+
+def find_duplicate(
+    vector: np.ndarray,
+    condition: list[dict[str, Any]],
+    effect: dict[str, Any] | None,
+    corpus: list["_Existing"],
+    matrix: np.ndarray,
+    threshold: float,
+    *,
+    label: str = "",
+) -> str | None:
+    """The id of an existing invariant this one RESTATES, or None — the shared
+    dedup gate (docs/TASKS.md Phase 6 "DEDUP GATE"). TWO conditions, both
+    required: prose similarity proposes, structure disposes. Ranked by
+    similarity so the closest structurally-compatible match wins.
+
+    `effect is None` (a reference note) is never a duplicate — it carries no
+    structure to compare, and merging on wording alone is exactly what this
+    gate distrusts."""
+    if not corpus or matrix.size == 0 or effect is None:
+        return None
+    similarities = cosine_matrix(vector.reshape(1, -1), matrix)[0]
+
+    # FIRST: exact structural identity, with NO cosine gate. Same predicates +
+    # same effect produce byte-identical 35y confrontations — they ARE one
+    # invariant whatever the prose says (measured 2026-07-21: two phrasings of
+    # `equity_trend.level < 0` sat at cosine 0.668 and were persisted twice).
+    for index, existing in enumerate(corpus):
+        if _identical_structure(condition, effect, existing):
+            logger.info(
+                "dedup: merged into %s (identical structure, cosine %.3f)",
+                existing.id,
+                float(similarities[index]),
+            )
+            return existing.id
+    for index in np.argsort(similarities)[::-1]:
+        score = float(similarities[index])
+        if score < threshold:
+            return None
+        existing = corpus[int(index)]
+        if not _same_invariant(condition, effect, existing):
+            # The measured trap: "wide spreads -> equities underperform" and
+            # "tight spreads -> equities outperform" sit at cosine 0.907.
+            # Disjoint conditions (or inverted direction) => two claims.
+            logger.info(
+                "dedup: kept %r apart from %s despite cosine %.3f (structure differs)",
+                label,
+                existing.id,
+                score,
+            )
+            continue
+        logger.info("dedup: merged into %s (cosine %.3f)", existing.id, score)
+        return existing.id
+    return None
 
 
 def _cited(claimed: list[str], batch: list[str]) -> list[str]:
