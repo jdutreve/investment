@@ -87,11 +87,24 @@ async def _seed(db: InvestmentDB) -> None:
             a=alloc,
             r=rank,
         )
-    # scenarios: two ts for one (strategy, scenario) → week-over-week shift
+    # scenarios: the TS is keyed by the Scenario ID (mechanical/scenarios.py), so
+    # the strategy + scenario vertices must exist for the name to be joined in.
+    await cmd(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
+        "('s1', 't', 'd', '4seasons', 60, 1, 'c', 'corpus', 'active', '2026-01-01', 'tr', "
+        "'2026-01-01', '2026-01-01')"
+    )
+    await cmd(
+        "INSERT INTO scenario (id, strategy_id, name, probability, triggers, target_allocation, "
+        "currency, trace, updated_at) VALUES ('sc-s1-bull', 's1', 'bull', 50.0, '[]', "
+        "'{\"SPY\": 100}', 'USD', 'tr', '2026-01-01')"
+    )
+    # two ts for one (strategy, scenario) → week-over-week shift
     for ts, prob in (("2026-06-01", 50.0), ("2026-06-08", 62.0)):
         await cmd(
             "INSERT INTO scenario_probability (strategy_id, scenario, ts, probability) "
-            "VALUES ('s1', 'bull', :ts, :p)",
+            "VALUES ('s1', 'sc-s1-bull', :ts, :p)",
             ts=ts,
             p=prob,
         )
@@ -146,6 +159,16 @@ async def test_scenario_shift_is_week_over_week(seeded: InvestmentDB) -> None:
     (row,) = b.scenarios
     assert row["probability"] == 62.0
     assert row["shift"] == pytest.approx(12.0)  # 62 - 50
+
+
+async def test_scenario_carries_the_name_beside_the_id(seeded: InvestmentDB) -> None:
+    """The LLM boundary speaks bull/base/bear; the TS is keyed by the Scenario
+    id. Both must reach the context or writeback's name -> id resolution can
+    never match what Call 2 returns."""
+    b = await bl.gather_baseline(seeded)
+    (row,) = b.scenarios
+    assert row["scenario"] == "sc-s1-bull"  # the stored key
+    assert row["name"] == "bull"  # what the Worker reads and Call 2 gives back
 
 
 async def test_bucket_priority_dedup_and_integrated_only(seeded: InvestmentDB) -> None:

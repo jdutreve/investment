@@ -46,6 +46,23 @@ def test_known_context_collects_ids_and_evidence_tokens() -> None:
     assert {"s1", "inv-gold", "stag", "bull", "gold"} <= kc.tokens
 
 
+def test_known_context_drops_stopwords_from_title_tokens() -> None:
+    """Title words are PROSE: 'in'/'the' in the bag would make any sentence
+    'traceable to the context' and the downgrade rule would never fire."""
+    kc = known_context(_context())
+    assert "in" not in kc.tokens  # too short, and a function word
+    assert not {"the", "this", "with", "from"} & kc.tokens
+
+
+def test_a_verdict_evidenced_only_by_a_stopword_is_still_downgraded() -> None:
+    result = PostPlannerResult(
+        # 'in' is the only overlap with the invariant title — not evidence
+        evaluations=[_eval("s1", "confirms", ["conditions improved in general"])]
+    )
+    cleaned = apply_guardrail(result, _context())
+    assert cleaned.evaluations[0].verdict == "neutral"
+
+
 # -- the four guardrail behaviours -------------------------------------------
 
 
@@ -99,6 +116,37 @@ def test_confrontation_of_unknown_invariant_is_dropped() -> None:
     cleaned = apply_guardrail(result, _context())
     assert [c.invariant_id for c in cleaned.confrontations] == ["inv-gold"]
     assert "unknown invariant inv-ghost" in cleaned.regime_notes
+
+
+def test_confrontation_with_an_out_of_vocabulary_verdict_is_dropped() -> None:
+    """invariant_confrontations.verdict has no CHECK constraint, so the guardrail
+    IS the vocabulary gate: anything else would insert a ledger row that moves
+    neither counter."""
+    result = PostPlannerResult(
+        confrontations=[
+            Confrontation(invariant_id="inv-gold", verdict="neutral"),
+        ]
+    )
+    cleaned = apply_guardrail(result, _context())
+    assert cleaned.confrontations == []
+    assert "neither 'confirmed' nor 'refuted'" in cleaned.regime_notes
+
+
+def test_a_repeat_confrontation_of_one_invariant_is_dropped() -> None:
+    """Writeback recomputes the weight from counters read BEFORE its loop, so a
+    second entry would write a weight ignoring the first — and confirmed next to
+    refuted is a contradiction, not evidence."""
+    result = PostPlannerResult(
+        confrontations=[
+            Confrontation(invariant_id="inv-gold", verdict="confirmed"),
+            Confrontation(invariant_id="inv-gold", verdict="refuted"),
+        ]
+    )
+    cleaned = apply_guardrail(result, _context())
+    assert [(c.invariant_id, c.verdict) for c in cleaned.confrontations] == [
+        ("inv-gold", "confirmed")
+    ]
+    assert "repeat confrontation" in cleaned.regime_notes
 
 
 def test_a_clean_result_is_left_untouched() -> None:

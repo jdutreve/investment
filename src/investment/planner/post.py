@@ -14,7 +14,10 @@ innovations, regime_notes). Then `apply_guardrail` — the deterministic part,
   invariant, or portfolio — is DROPPED and flagged (never act on something that
   was not in front of the Worker);
 - a scenario update that names no qualitative trigger (empty rationale) is
-  dropped and flagged.
+  dropped and flagged;
+- a confrontation whose verdict is not 'confirmed'/'refuted', or a SECOND
+  confrontation of an invariant already confronted this cycle, is dropped and
+  flagged — Writeback moves each weight ONCE, from ONE verdict.
 
 The guardrail never raises: it degrades to a smaller, honest result and records
 why in regime_notes (the digest shows it). Only an unparseable LLM output —
@@ -44,6 +47,66 @@ TRANSPORT_RETRIES = 2
 OUTPUT_RETRIES = 2
 POST_TIMEOUT_SECONDS = 120.0
 POST_REASONING_EFFORT = "high"  # extraction + guardrail is the careful pass
+
+# The only verdicts a confrontation may carry (docs/DATA_MODELS.md
+# invariant_confrontations.verdict). The column has no CHECK constraint, so this
+# IS the enforcement point: an out-of-vocabulary verdict would otherwise insert a
+# ledger row that moves neither counter — silent pollution of the evidence base.
+CONFRONTATION_VERDICTS = frozenset({"confirmed", "refuted"})
+
+# Evidence matching (`_is_evidenced`) ignores tokens this short and these
+# function words. Invariant TITLES are tokenized into the bag, so without the
+# filter "the"/"a"/"in" land in it and any prose whatsoever matches — the
+# downgrade rule would pass its fixture and never fire in production.
+EVIDENCE_MIN_TOKEN_LEN = 4
+EVIDENCE_STOPWORDS = frozenset(
+    {
+        "that",
+        "this",
+        "then",
+        "than",
+        "with",
+        "from",
+        "when",
+        "what",
+        "will",
+        "have",
+        "been",
+        "into",
+        "over",
+        "under",
+        "after",
+        "before",
+        "while",
+        "about",
+        "above",
+        "below",
+        "their",
+        "there",
+        "which",
+        "would",
+        "should",
+        "could",
+        "more",
+        "most",
+        "less",
+        "least",
+        "each",
+        "every",
+        "some",
+        "very",
+        "also",
+        "only",
+        "even",
+        "does",
+        "same",
+        "such",
+        "they",
+        "them",
+        "your",
+        "ours",
+    }
+)
 
 
 class Confrontation(BaseModel):
@@ -82,16 +145,31 @@ class KnownContext:
     tokens: frozenset[str]  # lowercased ids + names for the evidence check
 
 
+def _title_tokens(title: str) -> set[str]:
+    """The words of an invariant title that can serve as EVIDENCE anchors —
+    long enough and not a function word. A title is prose, so unlike an id it
+    cannot enter the bag whole."""
+    return {
+        word
+        for word in title.lower().split()
+        if len(word) >= EVIDENCE_MIN_TOKEN_LEN and word not in EVIDENCE_STOPWORDS
+    }
+
+
 def known_context(context: PlannerContext) -> KnownContext:
     strategies = {str(s["strategy_id"]) for s in context.scenarios}
     invariants = {str(i["id"]) for i in context.top_invariants}
     portfolios = {str(r["portfolio_id"]) for r in context.ranking}
 
+    # Ids and names enter the bag WHOLE (they are exact handles, however short);
+    # only prose is filtered.
     tokens: set[str] = {s.lower() for s in strategies | invariants | portfolios}
     for inv in context.top_invariants:
-        tokens.update(str(inv.get("title", "")).lower().split())
+        tokens |= _title_tokens(str(inv.get("title", "")))
     for scenario in context.scenarios:
         tokens.add(str(scenario["scenario"]).lower())
+        if scenario.get("name"):
+            tokens.add(str(scenario["name"]).lower())
     for key in ("regime_type_id", "regime_name"):
         value = context.regime.get(key)
         if value:
@@ -144,10 +222,27 @@ def apply_guardrail(result: PostPlannerResult, context: PlannerContext) -> PostP
         scenario_updates.append(sc)
 
     confrontations: list[Confrontation] = []
+    confronted: set[str] = set()
     for cf in result.confrontations:
         if cf.invariant_id not in kc.invariants:
             flags.append(f"dropped confrontation of unknown invariant {cf.invariant_id}")
             continue
+        if cf.verdict not in CONFRONTATION_VERDICTS:
+            flags.append(
+                f"dropped confrontation of {cf.invariant_id}: verdict '{cf.verdict}' is "
+                "neither 'confirmed' nor 'refuted'"
+            )
+            continue
+        # ONE confrontation per invariant per cycle. Writeback recomputes the
+        # weight from the counters it read BEFORE its loop, so a second entry
+        # would write a weight that ignores the first — and a `confirmed` next
+        # to a `refuted` for one invariant is a contradiction, not evidence.
+        if cf.invariant_id in confronted:
+            flags.append(
+                f"dropped repeat confrontation of {cf.invariant_id}: already confronted this cycle"
+            )
+            continue
+        confronted.add(cf.invariant_id)
         confrontations.append(cf)
 
     notes = result.regime_notes
@@ -179,7 +274,8 @@ PostPlannerResult:
 - scenario_updates: probability shifts, each NAMING the qualitative trigger it
   interprets (an empty rationale will be dropped).
 - confrontations: invariants the findings confirm or refute — only invariants
-  present in the context.
+  present in the context, verdict exactly 'confirmed' or 'refuted', and AT MOST
+  ONE entry per invariant (a second one is dropped).
 - innovations: new invariants/strategies the analysis proposes.
 - regime_notes: your framing, and any contradiction you see between the Worker's
   claims and the baseline data.
@@ -241,9 +337,7 @@ class PlannerPost:
             model_name, api_key, reasoning_effort=reasoning_effort, base_url=base_url
         )
 
-    async def run(
-        self, worker_result: WorkerResult, context: PlannerContext
-    ) -> PostPlannerResult:
+    async def run(self, worker_result: WorkerResult, context: PlannerContext) -> PostPlannerResult:
         """Extract, then guardrail. The returned result is always coherent with
         the context — Writeback commits it as-is."""
         extracted = await self.agent.run(_render(worker_result, context))

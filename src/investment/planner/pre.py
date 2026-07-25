@@ -7,7 +7,7 @@ Call 1b.
 Flow (docs/ARCHITECTURE.md):
   PYTHON baseline → summary → CALL 1a (QueryStrategies, the VARIABLE margin) →
   PYTHON embed queries + retrieve + zooms → CALL 1b (ContextSelection) →
-  PYTHON active-now + assemble → (PlannerContext, tool_registry).
+  PYTHON active-now + assemble → PlannerContext.
 
 Two robustness knobs, split as everywhere else: `max_retries` on the HTTP
 client covers transport faults; PydanticAI's `retries` covers schema-validation
@@ -46,7 +46,6 @@ from investment.planner.context import (
     render_baseline_summary,
 )
 from investment.planner.retrieval import QueryStrategies, RetrievalPool, retrieve
-from investment.worker.tools import WorkerTools
 
 logger = logging.getLogger(__name__)
 
@@ -216,11 +215,12 @@ class PlannerPre:
 
     async def run(
         self, trigger: str, history: list[dict[str, Any]] | None = None
-    ) -> tuple[PlannerContext, WorkerTools]:
-        """(PlannerContext, tool_registry) — the Worker's context plus the three
-        bridged tools bound to the db (their connection captured in the closure,
-        never handed to the Worker). `history` is reserved for future framing;
-        the baseline already carries `recent_proposals`."""
+    ) -> PlannerContext:
+        """The Worker's context for this cycle. The three bridged tools are NOT
+        returned here — `worker/agent.py` binds its own `WorkerTools(db)` into
+        the agent at build time, so a second registry would be dead weight.
+        `history` is reserved for future framing; the baseline already carries
+        `recent_proposals`."""
         baseline = await gather_baseline(self._db)
         summary = render_baseline_summary(baseline)
 
@@ -239,5 +239,4 @@ class PlannerPre:
 
         regime_type = baseline.regime.get("regime_type_id")
         active = await active_invariant_ids(self._db, selection.invariant_ids, regime_type)
-        context = assemble_context(baseline, pool, selection, active)
-        return context, WorkerTools(self._db)
+        return assemble_context(baseline, pool, selection, active)

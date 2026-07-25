@@ -15,7 +15,6 @@ from pydantic_ai.models.test import TestModel
 from investment.db.sqlite import InvestmentDB
 from investment.planner.context import PlannerContext
 from investment.planner.pre import PlannerPre
-from investment.worker.tools import WorkerTools
 
 
 class _StubEmbedder:
@@ -65,13 +64,12 @@ async def test_run_assembles_a_planner_context_end_to_end(pre: PlannerPre) -> No
         custom_output_args={"invariant_ids": [], "passage_ids": [], "notes": "quiet week"}
     )
     with pre.query_agent.override(model=query), pre.context_agent.override(model=select):
-        context, registry = await pre.run("weekly")
+        context = await pre.run("weekly")
 
     assert isinstance(context, PlannerContext)
     assert context.regime["regime_type_id"] == "stag"  # baseline passes through
     assert context.top_invariants == []  # empty selection -> empty
     assert context.notes == "quiet week"
-    assert isinstance(registry, WorkerTools)
     # the Call 1a corpus_queries were actually embedded on the way to retrieval
     assert pre._embedder.calls == [["regime shift"]]  # type: ignore[attr-defined]
 

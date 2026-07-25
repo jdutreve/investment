@@ -177,10 +177,7 @@ async def active_invariant_ids(
     conditions = {str(r["id"]): json.loads(r["condition"]) if r["condition"] else [] for r in rows}
 
     referenced = {
-        p["signal"]
-        for cond in conditions.values()
-        for p in cond
-        if p["signal"] != _REGIME_SIGNAL
+        p["signal"] for cond in conditions.values() for p in cond if p["signal"] != _REGIME_SIGNAL
     }
     latest = await _latest_signals(db, referenced)
 
@@ -256,8 +253,10 @@ def render_baseline_summary(baseline: Baseline) -> str:
     if moved:
         lines.append("Biggest scenario shifts:")
         for s in moved:
+            # NAME, not the Scenario id — the LLM boundary speaks bull/base/bear
+            # (baseline._scenarios docstring).
             lines.append(
-                f"  {s.get('strategy_id')}/{s.get('scenario')}: "
+                f"  {s.get('strategy_id')}/{s.get('name') or s.get('scenario')}: "
                 f"{s.get('probability')} ({s.get('shift'):+})"
             )
 

@@ -679,12 +679,17 @@ score_scenarios():
   → OutcomeEvent (kind=calibration, batch)
 
 strategy_probation_check():
-  For each Strategy activated VIA INNOVATION (new or revision — anchored
-  on its InnovationEvent date; the 4 SEEDED strategies are the baseline
-  and never enter probation) strategy_probation_weeks ago:
+  For each Strategy BORN of an innovation (new or revision — status
+  'proposed', enabled 0, anchored on its InnovationEvent date, which is
+  also its date_opened; the 4 SEEDED strategies are the baseline and
+  never enter probation) strategy_probation_weeks ago:
   compare its FAVORS percentile in the current regime type vs the
   median → OutcomeEvent (kind=probation) verdict 'keep' | 'review'
-  ('review' → Telegram: propose closure, user decides)
+  → the verdict is APPLIED in the same transaction (ADR-006, no human
+    gate): 'keep' runs the activation transaction below, 'review'
+    closes the vertex. The digest REPORTS both; it does not ask.
+  (No current regime → no FAVORS standing → the verdict WAITS; the
+   strategy stays proposed and is re-judged next cycle.)
 ```
 
 The digest renders a **scoreboard**: cumulative proposal hit-rate (the live

@@ -4,6 +4,7 @@ and the full dispose->commit (pass + block paths) against a real throwaway
 SQLite, asserting the EventLog precedes the Proposal vertex."""
 
 from collections.abc import AsyncIterator
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,7 @@ THRESHOLDS = {
     "proposal_invariant_weight_min": 0.1,
     "invariant_refuted_min_confrontations": 4.0,
     "invariant_refuted_score": 0.35,
+    "proposal_cooldown_weeks": 4.0,
 }
 
 
@@ -68,8 +70,15 @@ async def _seed(db: InvestmentDB) -> None:
         ("inv-ok", "integrated", 0.7, 5, 1, 0.83, "[]"),
         ("inv-proposed", "proposed", 0.7, 5, 1, 0.83, "[]"),
         ("inv-refuted", "integrated", 0.5, 3, 5, 0.30, "[]"),
-        ("inv-dormant", "integrated", 0.7, 5, 1, 0.83,
-         '[{"signal": "inflation", "feature": "level", "op": ">", "value": 99}]'),
+        (
+            "inv-dormant",
+            "integrated",
+            0.7,
+            5,
+            1,
+            0.83,
+            '[{"signal": "inflation", "feature": "level", "op": ">", "value": 99}]',
+        ),
     ]
     for iid, status, weff, conf, infirm, score, cond in invs:
         await cmd(
@@ -77,7 +86,13 @@ async def _seed(db: InvestmentDB) -> None:
             "weight_initial, floor_weight, weight_effective, confirmation_count, "
             "infirmation_count, market_score, trace, created_at, updated_at) VALUES (:id, 't', "
             "'d', 's', :st, :cond, 0.5, 0.2, :w, :cc, :ic, :ms, 'tr', '2026-01-01', '2026-01-01')",
-            id=iid, st=status, cond=cond, w=weff, cc=conf, ic=infirm, ms=score,
+            id=iid,
+            st=status,
+            cond=cond,
+            w=weff,
+            cc=conf,
+            ic=infirm,
+            ms=score,
         )
     await cmd(
         "INSERT INTO framework (id, name, enabled, trace, created_at) "
@@ -145,6 +160,160 @@ async def test_dispose_pass_commits_proposal_eventlog_first(db: InvestmentDB) ->
         "SELECT recommendation FROM portfolio_weekly_snapshot WHERE portfolio_id='def-pf'"
     )
     assert snap[0]["recommendation"] == "paper-test"
+
+
+async def test_dispose_pass_starts_the_paper_test(db: InvestmentDB) -> None:
+    """ADR-006: there is no user 'accept' step left, so a proposal that passed
+    every gate IS the paper-test — `paper_started` must be set at commit, or
+    outcomes.paper_test_progress() and the digest scoreboard track nothing."""
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    realloc = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"])
+    _outcome, pid = await W.dispose_reallocation(
+        db,
+        realloc,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 20),
+    )
+    rows = await db.query(
+        "SELECT date, paper_started, created_at FROM proposal WHERE id = :i", i=pid
+    )
+    assert rows[0]["paper_started"] == "2026-07-20"
+    # created_at is a UTC TIMESTAMP, not the business date (CLAUDE.md dev standards)
+    assert str(rows[0]["created_at"]).startswith(datetime.now(UTC).strftime("%Y-%m-%dT"))
+    assert str(rows[0]["created_at"]) != rows[0]["date"]
+
+
+async def test_cooldown_refuses_a_near_identical_repeat(db: InvestmentDB) -> None:
+    """The anti-repetition pre-gate: the same tilt again, inside
+    proposal_cooldown_weeks and in the same regime, is refused."""
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    first = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"])
+    _o, pid = await W.dispose_reallocation(
+        db,
+        first,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 6),
+    )
+    assert pid is not None
+
+    # 2 weeks later, the same allocation +-2 pts: no asset differs by the 5-pt
+    # min-change, so it is the SAME proposal.
+    repeat = _realloc({"SPY": 38.0, "GLD": 37.0, "IEF": 25.0}, ["inv-ok"])
+    outcome, pid2 = await W.dispose_reallocation(
+        db,
+        repeat,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 20),
+    )
+    assert outcome.failed_gate == "cooldown_repeat_proposal"
+    assert pid2 is None
+    assert len(await db.query("SELECT id FROM proposal")) == 1  # nothing new persisted
+
+
+async def test_cooldown_admits_a_materially_different_tilt(db: InvestmentDB) -> None:
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    first = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"])
+    await W.dispose_reallocation(
+        db,
+        first,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 6),
+    )
+    # GLD 35 -> 25 and IEF 25 -> 35: a 10-pt move away from the first proposal.
+    different = _realloc({"SPY": 40.0, "GLD": 25.0, "IEF": 35.0}, ["inv-ok"])
+    outcome, pid2 = await W.dispose_reallocation(
+        db,
+        different,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 20),
+    )
+    assert outcome.passed is True
+    assert pid2 is not None
+
+
+async def test_cooldown_lifts_when_the_regime_type_changed(db: InvestmentDB) -> None:
+    """The escape clause docs/USE_CASES.md UC8-A keeps ("unless the regime type
+    has changed"): the same tilt is a NEW argument in a new world."""
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    realloc = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"])
+    await W.dispose_reallocation(
+        db,
+        realloc,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 6),
+    )
+    outcome, pid2 = await W.dispose_reallocation(
+        db,
+        realloc,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "reflation",
+        {"regime": "reflation"},
+        today=date(2026, 7, 20),
+    )
+    assert outcome.passed is True
+    assert pid2 is not None
+
+
+async def test_cooldown_expires_after_the_window(db: InvestmentDB) -> None:
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    realloc = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"])
+    await W.dispose_reallocation(
+        db,
+        realloc,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 5, 4),
+    )
+    outcome, pid2 = await W.dispose_reallocation(  # 11 weeks later, well past the 4
+        db,
+        realloc,
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+        today=date(2026, 7, 20),
+    )
+    assert outcome.passed is True
+    assert pid2 is not None
 
 
 async def test_dispose_blocks_on_concentration_without_persisting(db: InvestmentDB) -> None:

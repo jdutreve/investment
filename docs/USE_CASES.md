@@ -472,6 +472,17 @@ innovations, reallocation proposals). V1 never auto-applies.
 Pre-gate (anti-repetition): a challenger rejected by the user within the
 last `proposal_cooldown_weeks` (4) is skipped, unless the regime type has
 changed since the rejection.
+**ADR-006 amendment (M8):** user rejections no longer exist, so this trigger
+can never fire as written. The pre-gate is re-keyed onto a recently COMMITTED
+proposal and moved to the path that exists (UC8-B, `writeback.cooldown_pre_gate`,
+`failed_gate='cooldown_repeat_proposal'`): a reallocation is refused when a
+proposal for the same defender inside the window proposed a NEAR-IDENTICAL
+allocation — no asset differing by `proposal_min_allocation_change_pts`, the same
+test gate 3 applies to the current book, so no new knob. The escape clause is
+kept verbatim: a changed regime type lifts the cooldown. Rationale: the harm is
+one bet entering the outcome ledger many times (UC9 may re-run UC8 once a day),
+and a blunter "any proposal within 4 weeks" would block the first genuinely new
+tilt after new information.
 A challenger may pass with a worse Calmar or drawdown than the defender as
 long as it stays above the absolute Calmar threshold — the digest must then
 flag the weaker downside profile (see EXAMPLE.md Step 8B).

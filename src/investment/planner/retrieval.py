@@ -161,13 +161,19 @@ async def _linked_invariant_ids(db: InvestmentDB, passage_ids: list[str]) -> lis
 
 
 async def _fetch_invariants(db: InvestmentDB, invariant_ids: list[str]) -> list[dict[str, Any]]:
+    """The retrieved invariants, minus the REJECTED ones. The baseline buckets
+    are `integrated`-only (baseline.py); this path is looser on purpose — a
+    `proposed` invariant still maturing is legitimate reading for the Worker —
+    but a rejected one has been MEASURABLY refuted (ADR-006), and showing a
+    refuted lighthouse as guidance is the one thing the corpus must not do."""
     if not invariant_ids:
         return []
     placeholders = ",".join(f":i{n}" for n in range(len(invariant_ids)))
     params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
     return await db.query(
         "SELECT id, title, weight_effective, tags, author, status FROM invariant "
-        f"WHERE id IN ({placeholders}) ORDER BY weight_effective DESC",
+        f"WHERE id IN ({placeholders}) AND status != 'rejected' "
+        "ORDER BY weight_effective DESC",
         **params,
     )
 
@@ -231,16 +237,13 @@ async def retrieve(
         passage_rows, passage_matrix = await _load_matrix(db, "passage", "content")
         for idx, sim in top_k_union(cosine_matrix(query_vectors, passage_matrix), passage_k):
             row = passage_rows[idx]
-            passages.append(
-                {"id": row["id"], "excerpt": row["content"], "similarity": sim}
-            )
+            passages.append({"id": row["id"], "excerpt": row["content"], "similarity": sim})
             passage_ids.append(str(row["id"]))
 
         invariant_rows, invariant_matrix = await _load_matrix(db, "invariant", "title")
         invariant_sims = cosine_matrix(query_vectors, invariant_matrix)
         direct_invariant_ids = [
-            str(invariant_rows[idx]["id"])
-            for idx, _sim in top_k_union(invariant_sims, invariant_k)
+            str(invariant_rows[idx]["id"]) for idx, _sim in top_k_union(invariant_sims, invariant_k)
         ]
 
     linked_ids = await _linked_invariant_ids(db, passage_ids)

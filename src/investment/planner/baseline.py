@@ -45,7 +45,7 @@ class Baseline:
     regime: dict[str, Any]  # current regime instance + its type name/aliases; {} if none
     global_liquidity: dict[str, Any]  # latest GLOBAL_LIQUIDITY level/speed; {} if none
     ranking: list[dict[str, Any]]  # latest snapshot rows, rank ASC
-    scenarios: list[dict[str, Any]]  # per (strategy, scenario): latest prob + wow shift
+    scenarios: list[dict[str, Any]]  # per (strategy, scenario id + name): prob + wow shift
     top_invariants: list[dict[str, Any]]  # 3 relevance buckets, integrated, ≤20 deduped
     recent_proposals: list[dict[str, Any]]  # last 3, any status
 
@@ -149,7 +149,14 @@ async def _scenarios(db: InvestmentDB) -> list[dict[str, Any]]:
     """Latest probability per (strategy, scenario) with the week-over-week
     shift (docs/TASKS.md ③: "LAG on scenario_probability"). `shift` is 0.0 on
     the first ever print (no prior week to differ from) — COALESCE to the
-    current value makes the difference exactly zero, not NULL."""
+    current value makes the difference exactly zero, not NULL.
+
+    `scenario` is the Scenario ID (mechanical/scenarios.py: the bare
+    'bull'/'base'/'bear' collides across strategies), so `name` is joined in
+    alongside it: the LLM boundary speaks NAMES — the Worker reads them, Call 2
+    returns them, and `writeback._commit_scenario_updates` resolves name -> id
+    to commit. Without the name in the context, every scenario update the Worker
+    made would name an id and die on that resolution."""
     rows = await db.query(
         "WITH ranked AS ("
         "  SELECT strategy_id, scenario, ts, probability,"
@@ -159,10 +166,11 @@ async def _scenarios(db: InvestmentDB) -> list[dict[str, Any]]:
         "           (PARTITION BY strategy_id, scenario ORDER BY ts DESC) AS rn"
         "  FROM scenario_probability"
         ") "
-        "SELECT strategy_id, scenario, ts, probability, "
-        "       probability - COALESCE(prev_prob, probability) AS shift "
-        "FROM ranked WHERE rn = 1 "
-        "ORDER BY strategy_id, scenario"
+        "SELECT r.strategy_id, r.scenario, s.name, r.ts, r.probability, "
+        "       r.probability - COALESCE(r.prev_prob, r.probability) AS shift "
+        "FROM ranked r LEFT JOIN scenario s ON s.id = r.scenario "
+        "WHERE r.rn = 1 "
+        "ORDER BY r.strategy_id, r.scenario"
     )
     return [dict(r) for r in rows]
 
@@ -195,9 +203,7 @@ async def _top_invariants(
     regime_type_id = regime.get("regime_type_id")
     regime_bucket: list[dict[str, Any]] = []
     if regime_type_id:
-        regime_bucket = await _bucket(
-            db, "tags LIKE :pat", {"pat": f'%"regime:{regime_type_id}"%'}
-        )
+        regime_bucket = await _bucket(db, "tags LIKE :pat", {"pat": f'%"regime:{regime_type_id}"%'})
 
     asset_where, asset_params = _asset_tag_predicate(held_assets(ranking))
     asset_bucket = await _bucket(db, asset_where, asset_params)

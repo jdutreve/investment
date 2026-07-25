@@ -18,7 +18,7 @@ from investment.chain import run_chain
 from investment.db.sqlite import InvestmentDB
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
-from investment.telegram.digest import build_scoreboard, render_digest
+from investment.telegram.digest import build_digest
 from investment.uc8 import UC8Result, run_decision_cycle
 from investment.worker.agent import build_worker_agent
 
@@ -33,6 +33,7 @@ THRESHOLDS = {
     "proposal_invariant_weight_min": 0.1,
     "invariant_refuted_min_confrontations": 4.0,
     "invariant_refuted_score": 0.35,
+    "proposal_cooldown_weeks": 4.0,
 }
 
 
@@ -92,18 +93,6 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await conn.close()
 
 
-def _proposal_view(cycle: UC8Result) -> dict[str, Any]:
-    realloc = cycle.worker_result.reallocation_proposed
-    assert realloc is not None
-    defender = next(r for r in cycle.context.ranking if r.get("defender"))
-    return {
-        "proposal_type": "reallocation",
-        "current_allocation": defender["allocation"],
-        "proposed_allocation": realloc.proposed_allocation,
-        "reasoning": realloc.reasoning,
-    }
-
-
 async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: InvestmentDB) -> None:
     pre = PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test")
     worker = build_worker_agent(db, "anthropic/x", "sk-test")
@@ -150,15 +139,9 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
         )
 
     async def digest_step() -> None:
-        cycle: UC8Result = holder["cycle"]
-        holder["digest"] = render_digest(
-            regime=cycle.context.regime,
-            global_liquidity=cycle.context.global_liquidity,
-            ranking=cycle.context.ranking,
-            invariants=cycle.context.top_invariants,
-            proposal=_proposal_view(cycle),
-            scoreboard=await build_scoreboard(db),
-        )
+        # The production assembler, not a hand-built payload: the digest reads
+        # what UC8 actually COMMITTED (docs/MILESTONES.md M8 DoV).
+        holder["digest"] = await build_digest(db)
 
     with (
         pre.query_agent.override(model=query),
@@ -187,3 +170,5 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
     assert "GLD stagflation hedge" in digest
     assert "GLD 25→35" in digest  # the tilt into gold
     assert "Proposals hit-rate: 0/0" in digest  # no decided proposals yet
+    # the passing proposal STARTED its paper-test (ADR-006: no accept step)
+    assert "Paper-tests in progress: 1" in digest

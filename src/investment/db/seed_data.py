@@ -53,8 +53,8 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "invariant_merge_threshold": 0.80,  # curation dedup: cosine similarity above which -> merge (UNWIRED)
     "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
     "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)
-    "proposal_cooldown_weeks": 4.0,  # anti-repetition: weeks after a user rejection before re-cite (UNWIRED)
-    "proposal_invariant_weight_min": 0.10,  # realloc gate: min weight_effective to be citable (UNWIRED)
+    "proposal_cooldown_weeks": 4.0,  # anti-repetition: weeks before a near-identical realloc may repeat
+    "proposal_invariant_weight_min": 0.10,  # realloc gate 6: min weight_effective to be citable
     "invariant_refuted_min_confrontations": 4.0,  # N floor for the REFUTED/INADEQUATE branches
     "invariant_refuted_score": 0.35,  # score below which an amply-confronted invariant is REFUTED
     "strategy_probation_weeks": 12.0,  # weeks a new/revised Strategy runs before auto-keep/close (UNWIRED)

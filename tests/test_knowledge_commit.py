@@ -55,16 +55,23 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 
 
 async def test_confrontation_moves_weight_and_logs_source_evaluation(db: InvestmentDB) -> None:
-    before = (await db.query("SELECT confirmation_count, market_score FROM invariant "
-                             "WHERE id='inv-active'"))[0]
+    before = (
+        await db.query(
+            "SELECT confirmation_count, market_score FROM invariant WHERE id='inv-active'"
+        )
+    )[0]
     result = PostPlannerResult(
         confrontations=[Confrontation(invariant_id="inv-active", verdict="confirmed")]
     )
     summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
     assert summary.confrontations == 1
 
-    after = (await db.query("SELECT confirmation_count, infirmation_count, market_score "
-                            "FROM invariant WHERE id='inv-active'"))[0]
+    after = (
+        await db.query(
+            "SELECT confirmation_count, infirmation_count, market_score "
+            "FROM invariant WHERE id='inv-active'"
+        )
+    )[0]
     assert after["confirmation_count"] == before["confirmation_count"] + 1  # 4 -> 5
     assert after["market_score"] == pytest.approx(5 / 6)  # 5 confirmed of 6
 
@@ -77,23 +84,30 @@ async def test_confrontation_moves_weight_and_logs_source_evaluation(db: Investm
 
 
 async def test_dormant_invariant_is_not_confronted(db: InvestmentDB) -> None:
-    before = (await db.query("SELECT confirmation_count FROM invariant "
-                             "WHERE id='inv-dormant'"))[0]["confirmation_count"]
+    before = (await db.query("SELECT confirmation_count FROM invariant WHERE id='inv-dormant'"))[0][
+        "confirmation_count"
+    ]
     result = PostPlannerResult(
         confrontations=[Confrontation(invariant_id="inv-dormant", verdict="confirmed")]
     )
     summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
     assert summary.confrontations == 0  # condition can't fire -> not confronted
-    after = (await db.query("SELECT confirmation_count FROM invariant "
-                            "WHERE id='inv-dormant'"))[0]["confirmation_count"]
+    after = (await db.query("SELECT confirmation_count FROM invariant WHERE id='inv-dormant'"))[0][
+        "confirmation_count"
+    ]
     assert after == before  # untouched
 
 
 async def test_evaluation_nudges_conviction(db: InvestmentDB) -> None:
     result = PostPlannerResult(
         evaluations=[
-            EvaluationDraft(strategy_id="s1", verdict="confirms", conviction_delta=8.0,
-                            events=["stag"], reasoning="r"),
+            EvaluationDraft(
+                strategy_id="s1",
+                verdict="confirms",
+                conviction_delta=8.0,
+                events=["stag"],
+                reasoning="r",
+            ),
         ]
     )
     summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
@@ -118,8 +132,11 @@ async def test_scenario_update_commits_a_coherent_triple(db: InvestmentDB) -> No
             n=name,
         )
     result = PostPlannerResult(
-        scenario_updates=[_scen("s1", "bull", 55.0), _scen("s1", "base", 30.0),
-                          _scen("s1", "bear", 15.0)]
+        scenario_updates=[
+            _scen("s1", "bull", 55.0),
+            _scen("s1", "base", 30.0),
+            _scen("s1", "bear", 15.0),
+        ]
     )
     summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
     assert summary.scenario_updates == 3  # all three written
@@ -128,7 +145,9 @@ async def test_scenario_update_commits_a_coherent_triple(db: InvestmentDB) -> No
         "ORDER BY scenario"
     )
     assert {p["scenario"]: p["probability"] for p in probs} == {
-        "sc-s1-base": 30.0, "sc-s1-bear": 15.0, "sc-s1-bull": 55.0
+        "sc-s1-base": 30.0,
+        "sc-s1-bear": 15.0,
+        "sc-s1-bull": 55.0,
     }
     assert len(await db.query("SELECT type FROM event_log WHERE type='ScenarioEvent'")) == 1
 
@@ -158,8 +177,12 @@ async def test_new_strategy_innovation_is_born_proposed_and_disabled(db: Investm
                 type="new_strategy",
                 title="Counter-cyclical credit tilt",
                 rationale="tilt into credit when spreads gap",
-                spec={"id": "strat-cc", "framework_id": "4s", "conviction": 55,
-                      "conditions": "credit_spread > 2"},
+                spec={
+                    "id": "strat-cc",
+                    "framework_id": "4s",
+                    "conviction": 55,
+                    "conditions": "credit_spread > 2",
+                },
                 trace="agent-discovery",
             )
         ]
@@ -172,6 +195,69 @@ async def test_new_strategy_innovation_is_born_proposed_and_disabled(db: Investm
     assert row["source"] == "agent-discovery"  # -> will enter strategy_probation_check
     ev = await db.query("SELECT source_id FROM event_log WHERE type='InnovationEvent'")
     assert ev[0]["source_id"] == "strat-cc"
+
+
+async def test_strategy_innovation_survives_an_invented_fk(db: InvestmentDB) -> None:
+    """`INSERT OR IGNORE` does NOT absorb foreign-key violations in SQLite, so an
+    id the model invented would raise IntegrityError and abort the Monday chain.
+    The unresolvable reference is dropped; the innovation still lands."""
+    result = PostPlannerResult(
+        innovations=[
+            ImprovementProposal(
+                type="new_strategy",
+                title="Ghost-anchored tilt",
+                rationale="r",
+                spec={
+                    "id": "strat-ghost",
+                    "regime_type_id": "no-such-regime",  # invented FK
+                    "framework_id": "no-such-framework",  # invented FK
+                    "conviction": "quite high",  # prose where a number belongs
+                },
+                trace="agent-discovery",
+            )
+        ]
+    )
+    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    assert summary.innovations == 1
+    row = (
+        await db.query(
+            "SELECT regime_type_id, framework_id, conviction, status FROM strategy "
+            "WHERE id='strat-ghost'"
+        )
+    )[0]
+    assert row["regime_type_id"] is None  # dropped, not fabricated
+    # framework_id is NOT NULL, so it degrades to an EXISTING framework (here the
+    # fixture's only one) rather than to the unseeded '4seasons' default
+    assert row["framework_id"] == "4s"
+    assert row["conviction"] == 50.0
+    assert row["status"] == "proposed"
+
+
+async def test_strategy_innovation_records_its_spec_for_activation(db: InvestmentDB) -> None:
+    """The InnovationEvent must carry the spec: probation activation builds the 3
+    Scenario vertices and the BACKED_BY edges from it, and a proposed strategy row
+    has nowhere to keep them meanwhile."""
+    spec = {
+        "id": "strat-spec",
+        "framework_id": "4s",
+        "scenarios": [{"name": "bull", "probability": 30, "target_allocation": {"SPY": 100}}],
+        "cites": ["inv-active"],
+    }
+    result = PostPlannerResult(
+        innovations=[
+            ImprovementProposal(
+                type="new_strategy", title="t", rationale="r", spec=spec, trace="agent-discovery"
+            )
+        ]
+    )
+    await commit_knowledge(db, result, "stag", THRESHOLDS)
+    payload = (
+        await db.query(
+            "SELECT json_extract(payload, '$.spec.cites[0]') AS cite FROM event_log "
+            "WHERE type='InnovationEvent'"
+        )
+    )[0]
+    assert payload["cite"] == "inv-active"
 
 
 async def test_empty_result_is_a_clean_no_op(db: InvestmentDB) -> None:

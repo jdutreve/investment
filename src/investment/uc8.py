@@ -11,10 +11,9 @@ earlier M8 slices into one call.
 The Worker is handed the context as TEXT and stays unaware of the Planner,
 Writeback and storage (docs/ARCHITECTURE.md WORKER) — `render_context_for_worker`
 is that boundary. Writeback runs ONLY on what the Worker proposed: no
-reallocation, no gate run, no vertex. Knowledge commit (evaluations / scenarios
-/ innovations from the PostPlannerResult) is the following increment; this slice
-delivers the reallocation decision path M8's Definition of Verified exercises
-end to end.
+reallocation, no gate run, no vertex. The knowledge commit (confrontations,
+conviction nudges, scenario probabilities, innovations) runs on every cycle,
+proposal or not — a quiet week still learns.
 """
 
 import dataclasses
@@ -99,8 +98,11 @@ def render_context_for_worker(context: PlannerContext) -> str:
     lines.append("")
     lines.append("SCENARIOS (probability, week-over-week shift):")
     for sc in context.scenarios:
+        # The NAME (bull/base/bear), not the Scenario id: it is what the Worker
+        # and Call 2 must give back for a scenario update to resolve
+        # (baseline._scenarios docstring).
         lines.append(
-            f"  {sc.get('strategy_id')}/{sc.get('scenario')}: "
+            f"  {sc.get('strategy_id')}/{sc.get('name') or sc.get('scenario')}: "
             f"{sc.get('probability')} ({sc.get('shift', 0.0):+})"
         )
     lines.append("")
@@ -109,7 +111,18 @@ def render_context_for_worker(context: PlannerContext) -> str:
         flag = "[ACTIVE]" if inv.get("active") else "[dormant]"
         lines.append(
             f"  {flag} {inv.get('id')} — {inv.get('title', '')} "
-            f"(weight {inv.get('weight_effective', '?')}, {inv.get('author', 'null')})"
+            f"(weight {inv.get('weight_effective', '?')}, {inv.get('author', 'null')}, "
+            f"{inv.get('status', '?')})"
+        )
+    # The Worker cannot see the gates, but it CAN be told the citation rule —
+    # otherwise it leans on a dormant or non-integrated lighthouse and the whole
+    # reallocation dies on UC8-B gate 6 for a reason it had no way to know
+    # (docs/MILESTONES.md M8 "gate 6 may be near-unsatisfiable").
+    if context.top_invariants:
+        lines.append(
+            "  → to support a reallocation, cite ONLY invariants marked [ACTIVE] and "
+            "status 'integrated': a dormant lighthouse describes a market that is not "
+            "here, and an unproven one is not yet evidence."
         )
     if context.passages:
         lines.append("")
@@ -148,7 +161,7 @@ async def run_decision_cycle(
     a reallocation AND a defender exists to reallocate; otherwise the cycle is
     knowledge-only (gate_outcome / proposal_id stay None). Returns everything
     the digest renders."""
-    context, _tools = await planner_pre.run(trigger)
+    context = await planner_pre.run(trigger)
     worker_result = await run_worker(worker_agent, render_context_for_worker(context))
     post_result = await planner_post.run(worker_result, context)
 
@@ -177,6 +190,4 @@ async def run_decision_cycle(
             today=today,
         )
 
-    return UC8Result(
-        context, worker_result, post_result, knowledge, gate_outcome, proposal_id
-    )
+    return UC8Result(context, worker_result, post_result, knowledge, gate_outcome, proposal_id)

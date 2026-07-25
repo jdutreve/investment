@@ -10,9 +10,11 @@ Functions of the cycle:
   proposed > incumbent -> 'won'. The verdict lands as `Proposal.outcome` + an
   OutcomeEvent, and CONFRONTS the invariants the proposal cited (source=
   'proposal', via the proposal_cites relation / a switch's BACKED_BY).
-- `strategy_probation_check()` — INNOVATION-activated strategies judged on their
-  FAVORS standing in the current regime at +strategy_probation_weeks; the 4
-  seeded strategies never enter probation.
+- `strategy_probation_check()` — INNOVATION-born strategies (`status='proposed'`)
+  judged on their FAVORS standing in the current regime at
+  +strategy_probation_weeks, and the verdict APPLIED: 'keep' activates the vertex
+  (status/enabled + its 3 Scenarios + BACKED_BY edges), 'review' closes it. No
+  human gate (ADR-006). The 4 seeded strategies never enter probation.
 - `paper_test_progress()` — proposed-vs-incumbent to date for accepted
   paper-tests (read-only; feeds the digest scoreboard).
 
@@ -42,6 +44,9 @@ from investment.mechanical.invariants import compute_weight_update
 
 CASH = ratios.CASH_TICKER
 OUTCOME_EVENT = "OutcomeEvent"
+# The 3 scenario names a strategy carries (docs/DATA_MODELS.md scenario.name);
+# activation creates exactly these from the innovation spec.
+_SCENARIO_NAMES = frozenset({"bull", "base", "bear"})
 # The proposals being closed originate in UC8; the measurement is its own job
 # but belongs to that use-case's loop (docs/USE_CASES.md UC8 / "Outcome
 # evaluation").
@@ -63,6 +68,16 @@ class ProposalOutcome:
 
 
 # -- pure core --------------------------------------------------------------
+
+
+def _as_float(value: Any, default: float) -> float:
+    """A spec-supplied number, `default` when the field holds prose. Innovation
+    specs are LLM-authored (writeback `_safe_float`, same rationale): one
+    malformed scenario probability must not abort an activation."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def normalize(allocation: Mapping[str, float]) -> dict[str, float]:
@@ -286,9 +301,7 @@ async def _evaluate_one(
     return ProposalOutcome(pid, v, proposed_return, incumbent_return)
 
 
-async def evaluate_proposals(
-    db: InvestmentDB, today: date | None = None
-) -> list[ProposalOutcome]:
+async def evaluate_proposals(db: InvestmentDB, today: date | None = None) -> list[ProposalOutcome]:
     """Close every Proposal that has reached `proposal_outcome_weeks` and is
     still pending (docs/ARCHITECTURE.md "Unified improvement cycle"). Idempotent:
     a proposal whose verdict is already 'won'/'lost' is not re-read; one whose
@@ -323,7 +336,7 @@ async def evaluate_proposals(
 @dataclasses.dataclass(frozen=True)
 class ProbationResult:
     strategy_id: str
-    verdict: str  # 'keep' | 'review'
+    verdict: str  # 'keep' (-> activated) | 'review' (-> closed)
     sortino: float | None
     median: float | None
     skipped_reason: str | None = None
@@ -334,18 +347,123 @@ async def _current_regime_type(db: InvestmentDB) -> str | None:
     return str(rows[0]["regime_type_id"]) if rows else None
 
 
+async def _innovation_spec(db: InvestmentDB, strategy_id: str) -> dict[str, Any]:
+    """The spec the InnovationEvent carried when this strategy was proposed
+    (writeback `_commit_strategy_innovation`). Activation needs it to build the 3
+    Scenario vertices and the BACKED_BY edges; `{}` when the event predates the
+    payload carrying a spec — activation then flips the status alone."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = 'InnovationEvent' AND source_id = :sid "
+        "ORDER BY id DESC LIMIT 1",
+        sid=strategy_id,
+    )
+    if not rows:
+        return {}
+    payload = json.loads(str(rows[0]["payload"]))
+    spec = payload.get("spec")
+    return spec if isinstance(spec, dict) else {}
+
+
+async def _activate_strategy(db: InvestmentDB, strategy_id: str, today: date) -> None:
+    """The activation transaction (docs/ARCHITECTURE.md "System Evolution",
+    probation PASSES): in ONE transaction the vertex becomes `status='active',
+    enabled=1`, its 3 Scenario vertices + HAS_SCENARIO edges are created from the
+    innovation spec, BACKED_BY edges point at the invariants it cited, and a
+    revision closes the vertex it supersedes (`date_revised` stamped, HOLDS edges
+    NOT migrated — repointing a Portfolio stays a user action, UC9).
+
+    Scenarios and edges are created HERE and not at proposal time on purpose: a
+    proposed strategy is not part of the graph the weekly jobs read, so it must
+    not carry scenarios that `scenarios.py` or the ranking could pick up before
+    it earned activation. Called inside the caller's OutcomeEvent transaction."""
+    spec = await _innovation_spec(db, strategy_id)
+    now = datetime.now(UTC).isoformat()
+    await db.command(
+        "UPDATE strategy SET status = 'active', enabled = 1, updated_at = :now WHERE id = :id",
+        now=now,
+        id=strategy_id,
+    )
+    scenarios = spec.get("scenarios")
+    for scenario in scenarios if isinstance(scenarios, list) else []:
+        if not isinstance(scenario, dict) or scenario.get("name") not in _SCENARIO_NAMES:
+            continue
+        await db.command(
+            "INSERT OR IGNORE INTO scenario (id, strategy_id, name, probability, triggers, "
+            "target_allocation, currency, trace, updated_at) VALUES (:id, :sid, :name, :prob, "
+            ":trig, :alloc, :cur, :trace, :now)",
+            id=str(scenario.get("id") or f"sc-{strategy_id}-{scenario['name']}"),
+            sid=strategy_id,
+            name=str(scenario["name"]),
+            prob=_as_float(scenario.get("probability"), 0.0),
+            trig=json.dumps(scenario.get("triggers", [])),
+            alloc=json.dumps(scenario.get("target_allocation", {})),
+            cur=str(scenario.get("currency", "USD")),
+            trace=f"probation PASS {today.isoformat()}: activated with its parent strategy",
+            now=now,
+        )
+    for invariant_id in spec.get("cites") or []:
+        # FK-safe: an invariant the spec named but that does not exist is skipped
+        # rather than aborting the activation (writeback `_resolve_fk` rationale).
+        known = await db.query("SELECT 1 FROM invariant WHERE id = :id", id=str(invariant_id))
+        if not known:
+            continue
+        await db.command(
+            "INSERT OR IGNORE INTO backed_by (strategy_id, invariant_id, strength, added_at) "
+            "VALUES (:sid, :iid, NULL, :now)",
+            sid=strategy_id,
+            iid=str(invariant_id),
+            now=now,
+        )
+    supersedes = spec.get("supersedes")
+    if supersedes:
+        await db.command(
+            "UPDATE strategy SET status = 'closed', enabled = 0, date_revised = :today, "
+            "updated_at = :now WHERE id = :id AND id != :new",
+            today=today.isoformat(),
+            now=now,
+            id=str(supersedes),
+            new=strategy_id,
+        )
+
+
+async def _close_strategy(db: InvestmentDB, strategy_id: str, today: date, reason: str) -> None:
+    """Probation FAILS → `status='closed'`, `enabled` stays 0, the reason appended
+    to `trace` (docs/ARCHITECTURE.md). A superseded vertex stays active: the
+    revision failed, so the incumbent was not displaced."""
+    await db.command(
+        "UPDATE strategy SET status = 'closed', enabled = 0, "
+        "trace = trace || :suffix, updated_at = :now WHERE id = :id",
+        suffix=f" | probation {today.isoformat()}: closed — {reason}",
+        now=datetime.now(UTC).isoformat(),
+        id=strategy_id,
+    )
+
+
 async def strategy_probation_check(
     db: InvestmentDB, today: date | None = None
 ) -> list[ProbationResult]:
-    """Probation verdicts for INNOVATION-activated strategies (docs/ARCHITECTURE.md
-    "strategy_probation_check"). The 4 SEEDED strategies (source='corpus') are
-    the baseline and never enter probation; an agent-discovered strategy is
-    judged `strategy_probation_weeks` after activation on its FAVORS standing in
-    the CURRENT regime type: 'keep' if its Sortino is at or above the median of
-    the enabled strategies, else 'review' (-> Telegram closure proposal, M9).
+    """Probation verdicts for INNOVATION-born strategies (docs/ARCHITECTURE.md
+    "strategy_probation_check" + "System Evolution"). The 4 SEEDED strategies
+    (source='corpus') are the baseline and never enter probation.
 
-    Idempotent: a strategy that already has a probation OutcomeEvent is not
-    re-judged (verdicts are emitted once at the window)."""
+    A strategy born of an innovation is `status='proposed', enabled=0`
+    (writeback `_commit_strategy_innovation`); `strategy_probation_weeks` after
+    that birth it is judged on its FAVORS standing in the CURRENT regime type
+    against the median of its peers, and the verdict is APPLIED mechanically
+    (ADR-006 — "New strategies auto-enable after mechanical probation; no human
+    gate", DECISIONS.md:338):
+      'keep'   -> the activation transaction (`_activate_strategy`);
+      'review' -> closed (`_close_strategy`).
+    ARCHITECTURE's other mention of 'review' ("Telegram: propose closure, user
+    decides") predates ADR-006; the mechanical path is the one ADR-006 pins, and
+    the digest still REPORTS both outcomes.
+
+    The window is anchored on `date_opened`, which `_commit_strategy_innovation`
+    stamps in the same transaction as the InnovationEvent — so it IS the
+    innovation date ARCHITECTURE anchors on, without a second lookup.
+
+    Idempotent: a strategy that already has a probation OutcomeEvent is never
+    re-judged, so the status transition happens exactly once."""
     today = today or date.today()
     thresholds = {
         r["key"]: r["value"] for r in await db.query("SELECT key, value FROM system_thresholds")
@@ -353,11 +471,6 @@ async def strategy_probation_check(
     cutoff = (today - timedelta(weeks=int(thresholds["strategy_probation_weeks"]))).isoformat()
     regime_type = await _current_regime_type(db)
 
-    due = await db.query(
-        "SELECT id FROM strategy WHERE source = 'agent-discovery' AND status = 'active' "
-        "AND enabled = 1 AND date_opened <= :cutoff ORDER BY id",
-        cutoff=cutoff,
-    )
     already = {
         str(r["source_id"])
         for r in await db.query(
@@ -365,8 +478,22 @@ async def strategy_probation_check(
             "AND json_extract(payload, '$.kind') = 'probation'"
         )
     }
+    due = [
+        str(row["id"])
+        for row in await db.query(
+            "SELECT id FROM strategy WHERE source = 'agent-discovery' AND status = 'proposed' "
+            "AND date_opened <= :cutoff ORDER BY id",
+            cutoff=cutoff,
+        )
+        if str(row["id"]) not in already
+    ]
+    if not due:
+        return []
     if regime_type is None:
-        return [ProbationResult(str(s["id"]), "", None, None, "no current regime") for s in due]
+        # No regime, no FAVORS standing to judge against: the verdict WAITS. It
+        # is not a failure — closing a strategy for want of a regime read would
+        # punish the system's own blind spot.
+        return [ProbationResult(sid, "", None, None, "no current regime") for sid in due]
 
     favors = await db.query(
         "SELECT strategy_id, sortino_rolling FROM favors WHERE regime_type_id = :rt",
@@ -377,15 +504,14 @@ async def strategy_probation_check(
     median = float(np.median(peers)) if peers else None
 
     results: list[ProbationResult] = []
-    for row in due:
-        sid = str(row["id"])
-        if sid in already:
-            continue
+    for sid in due:
         sortino = sortino_by.get(sid)
         if sortino is None or median is None:
             results.append(ProbationResult(sid, "", sortino, median, "no FAVORS in current regime"))
             continue
         verdict = "keep" if sortino >= median else "review"
+        # EventLog append precedes the vertex writes, same transaction
+        # (CLAUDE.md "EventLog"): the verdict and what it DID are one fact.
         async with db.transaction():
             await db.append_event(
                 type=OUTCOME_EVENT,
@@ -399,13 +525,17 @@ async def strategy_probation_check(
                 },
                 event_date=today,
             )
+            if verdict == "keep":
+                await _activate_strategy(db, sid, today)
+            else:
+                await _close_strategy(
+                    db, sid, today, f"Sortino {sortino:.3f} below the peer median {median:.3f}"
+                )
         results.append(ProbationResult(sid, verdict, sortino, median))
     return results
 
 
-async def paper_test_progress(
-    db: InvestmentDB, today: date | None = None
-) -> list[dict[str, Any]]:
+async def paper_test_progress(db: InvestmentDB, today: date | None = None) -> list[dict[str, Any]]:
     """Proposed-vs-incumbent to date for every ACCEPTED paper-test still running
     (docs/ARCHITECTURE.md: "tracked EVERY week from paper_started"). Read-only —
     feeds the digest scoreboard; the +12w verdict is evaluate_proposals's job.

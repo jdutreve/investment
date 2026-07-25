@@ -3,21 +3,24 @@ Phase 6; docs/USE_CASES.md UC8). "Worker proposes, Writeback disposes"
 (CLAUDE.md): the Worker's reallocation is validated by DETERMINISTIC gates here
 and only then persisted, EventLog-first (CLAUDE.md "EventLog" rule).
 
-Two responsibilities: the reallocation DISPOSITION (gates 1-6, then commit the
-Proposal EventLog-first) and the knowledge COMMIT (`commit_knowledge`) — the
-guardrailed PostPlannerResult persisted to the graph: source='evaluation'
-confrontations (weight-moving, condition-gated), conviction nudges, and coherent
-scenario-probability updates. gate 6 (cited-invariant eligibility) and
-`effective_caps` (stricter-of user/portfolio caps) are the two gates the
-mechanical replay could not supply before M8 (mechanical/gates.py docstring).
-The switch disposition and the innovation commit (dedup + maturation) are the
-remaining increments.
+Two responsibilities: the reallocation DISPOSITION (the cooldown pre-gate, then
+gates 1-6, then commit the Proposal EventLog-first) and the knowledge COMMIT
+(`commit_knowledge`) — the guardrailed PostPlannerResult persisted to the graph:
+source='evaluation' confrontations (weight-moving, condition-gated), conviction
+nudges, coherent scenario-probability updates, and innovations (dedup +
+maturation). gate 6 (cited-invariant eligibility) and `effective_caps`
+(stricter-of user/portfolio caps) are the two gates the mechanical replay could
+not supply before M8 (mechanical/gates.py docstring).
+
+The UC8-A SWITCH disposition is deliberately absent: ADR-007 superseded the
+ranked defender/challenger duel, so no live cycle emits a switch. `switch_gates`
+(mechanical/gates.py) stays, because the retained-bridge replay still runs it.
 """
 
 import dataclasses
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from ulid import ULID
@@ -29,6 +32,7 @@ from investment.mechanical.gates import (
     GateOutcome,
     ProposalThresholds,
     cited_invariant_eligible,
+    max_allocation_change_pts,
     reallocation_gates,
 )
 from investment.mechanical.invariants import compute_weight_update, mature_seed_invariants
@@ -52,6 +56,11 @@ SOURCE_UC = "UC8"
 _SCENARIO_KINDS = frozenset({"bull", "base", "bear"})
 _SCENARIO_SUM_TOLERANCE = 0.1
 _STRATEGY_INNOVATION_TYPES = frozenset({"new_strategy", "strategy_revision"})
+# Fallbacks for a strategy innovation whose spec omits (or invents) them:
+# '4seasons' is V1's primary framework (db/seed_data.py), and a mid conviction
+# states "unproven" — the probation verdict, not the spec, decides its fate.
+DEFAULT_FRAMEWORK = "4seasons"
+DEFAULT_CONVICTION = 50.0
 
 
 def effective_caps(user_profile: dict[str, Any], portfolio: dict[str, Any] | None) -> Caps:
@@ -91,6 +100,58 @@ async def _allowed_reallocation_tickers(db: InvestmentDB) -> frozenset[str]:
         "SELECT ticker FROM allowed_tickers WHERE active = 1 AND asset_class != 'MACRO'"
     )
     return frozenset({str(r["ticker"]) for r in rows} | {"cash"})
+
+
+async def cooldown_pre_gate(
+    db: InvestmentDB,
+    defender_id: str,
+    proposed: dict[str, float],
+    thresholds: dict[str, float],
+    regime_type: str | None,
+    today: date,
+) -> GateOutcome:
+    """The anti-repetition pre-gate (CLAUDE.md "UC8 — Worker proposes, Writeback
+    disposes": "a 4-week anti-repetition cooldown").
+
+    ADR-006 REINTERPRETATION, stated explicitly because it departs from the
+    letter of docs/USE_CASES.md UC8-A: the spec keys the cooldown on "a
+    challenger rejected BY THE USER within the last proposal_cooldown_weeks",
+    and ADR-006 deleted user rejections entirely — so the trigger as written can
+    never fire. What survives is the PURPOSE (don't re-litigate the same idea
+    every cycle) and the escape clause ("unless the regime type has changed"),
+    both kept here, re-keyed onto what V1 actually has: a recently COMMITTED
+    proposal for the same defender.
+
+    Refused iff a proposal for this defender inside the window proposed a
+    NEAR-IDENTICAL allocation — near-identical meaning no asset differs by
+    `proposal_min_allocation_change_pts`, the same test gate 3 uses against the
+    current book, so the cooldown introduces no new knob. A genuinely different
+    tilt passes: the UC9 ad-hoc re-run (one per day) exists to act on new
+    information, and blocking it would cost signal. The regime escape lifts the
+    cooldown when the world changed under the old proposal.
+
+    Blocked proposals never reach the ledger, so only proposals actually EMITTED
+    can start a cooldown — nothing was shown to the owner, so there is nothing
+    to not-repeat."""
+    window_weeks = thresholds["proposal_cooldown_weeks"]
+    since = (today - timedelta(weeks=int(window_weeks))).isoformat()
+    rows = await db.query(
+        "SELECT proposed_allocation, market_context FROM proposal "
+        "WHERE defender_id = :pid AND proposed_allocation IS NOT NULL AND date >= :since "
+        "ORDER BY date DESC",
+        pid=defender_id,
+        since=since,
+    )
+    min_change = thresholds["proposal_min_allocation_change_pts"]
+    for row in rows:
+        previous = json.loads(str(row["proposed_allocation"]))
+        if max_allocation_change_pts(previous, proposed) >= min_change:
+            continue  # a materially different tilt — not a repeat
+        context = json.loads(str(row["market_context"])) if row["market_context"] else {}
+        if regime_type is not None and context.get("regime") != regime_type:
+            continue  # the regime type changed since: the escape clause lifts it
+        return GateOutcome.refused("cooldown_repeat_proposal")
+    return GateOutcome(passed=True)
 
 
 async def gate6_cited_invariants(
@@ -147,7 +208,14 @@ async def _commit_reallocation(
     """Persist a passing reallocation: ProposalEvent to the EventLog FIRST, then
     the Proposal vertex, then upgrade the defender's latest snapshot
     recommendation — all in ONE transaction (CLAUDE.md "EventLog"). `outcome` is
-    left NULL: evaluate_proposals() picks it up as pending at +12w."""
+    left NULL: evaluate_proposals() picks it up as pending at +12w.
+
+    `paper_started` is set to `today` (ADR-006): the schema comment "set when
+    user accepts a paper-test" predates the no-user-gate decision, and there is
+    no accept step left — a proposal that passed every gate IS the paper-test,
+    and paper_test_progress() / the digest scoreboard track it from this date. It
+    is the same date as `date` today; they are kept distinct because they answer
+    different questions (when it was proposed vs when tracking began)."""
     proposal_id = str(ULID())
     allocation_diff = {
         t: reallocation.proposed_allocation.get(t, 0.0) - current.get(t, 0.0)
@@ -172,9 +240,9 @@ async def _commit_reallocation(
         )
         await db.command(
             "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
-            "recommendation, gap, market_context, reasoning, trace, created_at) VALUES "
-            "(:id, :date, 'reallocation', :defender, :alloc, 'paper-test', :gap, :ctx, :reason, "
-            ":trace, :now)",
+            "recommendation, gap, market_context, reasoning, paper_started, trace, created_at) "
+            "VALUES (:id, :date, 'reallocation', :defender, :alloc, 'paper-test', :gap, :ctx, "
+            ":reason, :date, :trace, :now)",
             id=proposal_id,
             date=today.isoformat(),
             defender=defender_id,
@@ -183,7 +251,9 @@ async def _commit_reallocation(
             ctx=json.dumps(market_context),
             reason=reallocation.reasoning,
             trace=trace,
-            now=today.isoformat(),
+            # created_at is a TIMESTAMP, not the proposal's business date
+            # (CLAUDE.md: all persisted timestamps UTC).
+            now=datetime.now(UTC).isoformat(),
         )
         # The cited invariants as a RELATION (proposal_cites) — so outcomes.py
         # can read the cited set back at +12w for the source='proposal'
@@ -220,11 +290,15 @@ async def dispose_reallocation(
     portfolio: dict[str, Any] | None = None,
     today: date | None = None,
 ) -> tuple[GateOutcome, str | None]:
-    """Run the reallocation gates (UC8-B 1-5, then gate 6) and, on pass, commit
-    the Proposal. Returns `(outcome, proposal_id)` — `proposal_id` is None on a
-    block (no vertex; the caller sends the ⛔ Telegram note with the failed
-    gate). "Worker proposes, Writeback disposes" — nothing is persisted until
-    every gate passes."""
+    """Run the anti-repetition pre-gate, the reallocation gates (UC8-B 1-5) and
+    gate 6 and, on pass, commit the Proposal. Returns `(outcome, proposal_id)` —
+    `proposal_id` is None on a block (no vertex; the caller sends the ⛔ Telegram
+    note with the failed gate). "Worker proposes, Writeback disposes" — nothing
+    is persisted until every gate passes.
+
+    Order: the PURE gates run before the two DB-backed ones (cooldown, gate 6),
+    so a malformed proposal costs no query. That ordering only decides WHICH gate
+    name the digest reports when several would refuse."""
     today = today or date.today()
     caps = effective_caps(user_profile, portfolio)
     thr = proposal_thresholds(thresholds)
@@ -235,6 +309,12 @@ async def dispose_reallocation(
     )
     if not outcome.passed:
         return outcome, None
+
+    cooldown = await cooldown_pre_gate(
+        db, defender_id, reallocation.proposed_allocation, thresholds, regime_type, today
+    )
+    if not cooldown.passed:
+        return cooldown, None
 
     gate6 = await gate6_cited_invariants(
         db, reallocation.supporting_invariants, thresholds, regime_type
@@ -253,8 +333,9 @@ async def dispose_reallocation(
 
 @dataclasses.dataclass(frozen=True)
 class KnowledgeCommit:
-    """What the knowledge commit persisted this cycle. Innovations are the next
-    increment (dedup + maturation), so they are reported as 0 here."""
+    """What the knowledge commit persisted this cycle — the counts the digest
+    reports. `innovations` counts what was CREATED: a new_invariant merged into
+    an existing one by the dedup gate is not a creation."""
 
     confrontations: int
     conviction_updates: int
@@ -395,9 +476,7 @@ async def _commit_scenario_updates(
             continue
         if abs(sum(by_name.values()) - 100.0) > _SCENARIO_SUM_TOLERANCE:
             continue
-        rows = await db.query(
-            "SELECT id, name FROM scenario WHERE strategy_id = :s", s=sid
-        )
+        rows = await db.query("SELECT id, name FROM scenario WHERE strategy_id = :s", s=sid)
         name_to_id = {str(r["name"]): str(r["id"]) for r in rows}
         if not set(name_to_id) >= _SCENARIO_KINDS:
             continue
@@ -428,27 +507,83 @@ async def _commit_scenario_updates(
     return committed
 
 
+def _safe_float(value: Any, default: float) -> float:
+    """A spec number as a float, `default` when the model put prose in the field.
+    Every `spec` value is LLM-authored, so a bare `float()` here would raise and
+    abort the whole Monday chain over one malformed innovation."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+async def _resolve_fk(db: InvestmentDB, table: str, value: Any, default: str | None) -> str | None:
+    """A spec-supplied FK id, but only if the row EXISTS — else `default`.
+    `INSERT OR IGNORE` does NOT absorb foreign-key violations in SQLite (ON
+    CONFLICT covers UNIQUE/NOT NULL/CHECK/PK only), so an id the model invented
+    would raise IntegrityError and abort the chain. Validating beats catching:
+    the innovation still lands, minus the unresolvable reference."""
+    if value is None:
+        return default
+    rows = await db.query(f"SELECT 1 FROM {table} WHERE id = :id", id=str(value))
+    if rows:
+        return str(value)
+    logger.warning("innovation spec named unknown %s '%s' — falling back", table, value)
+    return default
+
+
+async def _resolve_framework(db: InvestmentDB, spec_value: Any) -> str | None:
+    """The framework a new strategy belongs to. `framework_id` is NOT NULL, so
+    unlike `regime_type_id` it cannot degrade to NULL: the spec's id if it exists,
+    else the primary framework, else any framework at all. `None` only on a DB
+    with no frameworks (unseeded) — the caller then skips the create instead of
+    raising an FK error mid-chain."""
+    resolved = await _resolve_fk(db, "framework", spec_value, None)
+    if resolved is None:
+        resolved = await _resolve_fk(db, "framework", DEFAULT_FRAMEWORK, None)
+    if resolved is None:
+        rows = await db.query("SELECT id FROM framework ORDER BY id LIMIT 1")
+        resolved = str(rows[0]["id"]) if rows else None
+    return resolved
+
+
 async def _commit_strategy_innovation(
     db: InvestmentDB, proposal: ImprovementProposal, today: date
-) -> str:
+) -> str | None:
     """Create a proposed Strategy vertex from a new_strategy / strategy_revision
     innovation (docs/ARCHITECTURE.md "System Evolution"; docs/TASKS.md Phase 6).
     Born `status='proposed'`, `enabled=false` — it enters mechanical probation
-    (strategy_probation_check) and auto-activates on PASS; nothing is enabled by
-    the mere proposal (ADR-006). A revision records its lineage in `trace`; the
-    superseded vertex is closed only on probation PASS, not here. Returns the new
-    strategy id."""
+    (outcomes.strategy_probation_check) and is activated there on PASS; nothing
+    is enabled by the mere proposal (ADR-006). A revision records its lineage in
+    `trace`; the superseded vertex is closed only on probation PASS, not here.
+    Returns the new strategy id, or None when no framework can be resolved (see
+    `_resolve_framework`).
+
+    The InnovationEvent payload carries the FULL spec, because activation at
+    +probation needs it: ARCHITECTURE's activation transaction creates the 3
+    Scenario vertices and the BACKED_BY edges from this spec, and the strategy row
+    itself has nowhere to keep them while the vertex is still proposed."""
     spec = proposal.spec or {}
     strategy_id = str(spec.get("id") or f"strat-{ULID()}")
     now = datetime.now(UTC).isoformat()
     supersedes = spec.get("supersedes")
     trace = proposal.trace + (f" [supersedes {supersedes}]" if supersedes else "")
+    regime_type_id = await _resolve_fk(db, "regime_type", spec.get("regime_type_id"), None)
+    framework_id = await _resolve_framework(db, spec.get("framework_id"))
+    if framework_id is None:
+        logger.warning("strategy innovation '%s' skipped: no framework exists", proposal.title)
+        return None
     async with db.transaction():
         await db.append_event(
             type=INNOVATION_EVENT,
             source_uc=SOURCE_UC,
             source_id=strategy_id,
-            payload={"type": proposal.type, "title": proposal.title, "supersedes": supersedes},
+            payload={
+                "type": proposal.type,
+                "title": proposal.title,
+                "supersedes": supersedes,
+                "spec": spec,
+            },
             event_date=today,
         )
         await db.command(
@@ -459,9 +594,9 @@ async def _commit_strategy_innovation(
             id=strategy_id,
             title=proposal.title,
             desc=proposal.rationale,
-            rt=spec.get("regime_type_id"),
-            fw=spec.get("framework_id", "4seasons"),
-            conv=float(spec.get("conviction", 50.0)),
+            rt=regime_type_id,
+            fw=framework_id,
+            conv=_safe_float(spec.get("conviction"), DEFAULT_CONVICTION),
             cond=str(spec.get("conditions", "")),
             today=today.isoformat(),
             trace=trace,
@@ -555,8 +690,8 @@ async def commit_innovations(
 
     for innovation in post_result.innovations:
         if innovation.type in _STRATEGY_INNOVATION_TYPES:
-            await _commit_strategy_innovation(db, innovation, today)
-            committed += 1
+            if await _commit_strategy_innovation(db, innovation, today) is not None:
+                committed += 1
         elif innovation.type == "new_invariant" and embedder is not None:
             if not corpus_loaded:
                 corpus, matrix = await load_invariant_corpus(db)
@@ -593,12 +728,12 @@ async def commit_knowledge(
     embedder: Embedder | None = None,
 ) -> KnowledgeCommit:
     """Commit the guardrailed PostPlannerResult to the graph (docs/TASKS.md
-    Phase 6). The guardrail already dropped every unknown id and every
-    unevidenced verdict, so this is pure mechanical persistence: source=
-    'evaluation' confrontations (weight-moving, condition-gated) and the
-    evaluation record + conviction nudges. Scenario updates (which need the
-    bull/base/bear -> scenario-id resolution) and innovations (dedup +
-    maturation) are the following increments."""
+    Phase 6). The guardrail already dropped every unknown id, every unevidenced
+    verdict and every malformed/repeat confrontation, so this is pure mechanical
+    persistence: source='evaluation' confrontations (weight-moving,
+    condition-gated), the evaluation record + conviction nudges, the coherent
+    scenario-probability updates (bull/base/bear -> scenario id), and the
+    innovations (dedup gate + 35y maturation)."""
     today = today or date.today()
     active = await active_invariant_ids(
         db, [c.invariant_id for c in post_result.confrontations], regime_type

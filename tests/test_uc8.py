@@ -28,6 +28,7 @@ THRESHOLDS = {
     "proposal_invariant_weight_min": 0.1,
     "invariant_refuted_min_confrontations": 4.0,
     "invariant_refuted_score": 0.35,
+    "proposal_cooldown_weeks": 4.0,
 }
 
 _REALLOC = {
@@ -146,8 +147,9 @@ async def test_bear_shift_reallocation_passes_gates_and_persists(rig) -> None:  
     # the cited invariant is shown to the Worker as ACTIVE
     assert result.context.top_invariants[0]["active"] is True
     # persisted, EventLog-first
-    prop = await db.query("SELECT proposal_type, recommendation FROM proposal WHERE id=:i",
-                          i=result.proposal_id)
+    prop = await db.query(
+        "SELECT proposal_type, recommendation FROM proposal WHERE id=:i", i=result.proposal_id
+    )
     assert prop[0]["recommendation"] == "paper-test"
     ev = await db.query("SELECT source_id FROM event_log WHERE type='ProposalEvent'")
     assert [e["source_id"] for e in ev] == [result.proposal_id]
@@ -210,4 +212,7 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
     text = render_context_for_worker(ctx)
     assert "def-pf *" in text  # defender starred
     assert "[ACTIVE] inv-gold" in text
+    # the citation rule is stated, so gate 6 cannot fail for a reason the Worker
+    # had no way to know (docs/MILESTONES.md M8 gate-6 watch item)
+    assert "cite ONLY invariants marked [ACTIVE]" in text
     assert "COACH NOTES: framed" in text
