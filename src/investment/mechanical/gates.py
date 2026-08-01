@@ -273,10 +273,15 @@ def cited_invariant_eligible(
     """UC8-B gate 6 eligibility for ONE cited invariant (docs/USE_CASES.md UC8-B
     gate 6; docs/TASKS.md Phase 6). A reallocation may only lean on an invariant
     that is:
-    - `status='integrated'` — belief is not enough, history is (ADR-006). The
-      M8 open decision (MILESTONES) is whether to also admit high-weight
-      'proposed' invariants; this implements the strict spec (integrated only),
-      the safe direction — loosening it later only ADDS candidates.
+    - `status='integrated'` — belief is not enough, history is (ADR-006).
+      SETTLED at M8 (2026-07-30, measured on the live DB — MILESTONES.md M8):
+      integrated-only stays. Admitting high-weight 'proposed' was rejected
+      because `weight_effective` is dominated by the author-tier FLOOR, not by
+      evidence — it would take the citable set from 2 to 218/253, letting a real
+      allocation move lean on the 209 curator notes that carry no measurable
+      effect. The evidence-shaped variant (score >= theta and N >= N_min) is
+      principled but adds 0 citable invariants today; revisit once the corpus
+      has matured.
     - heavy enough (`weight_effective >= weight_min`);
     - NOT measurably refuted (`>= refuted_min` confrontations AND
       `market_score < refuted_score` → ineligible, floor or not — a floored

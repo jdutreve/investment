@@ -608,10 +608,13 @@ fixtures (UC3 event watch not built yet → the chain SKIPS it until M9),
 digest rendered in terminal.
 
 **Definition of Verified**
-- [ ] simulated Monday on fixtures end to end
-- [ ] bear-shift fixture (+35pts) → reallocation proposal passes gates
-- [ ] Call 2 downgrades an unevidenced verdict to neutral (fixture)
-- [ ] digest readable and complete
+- [x] simulated Monday on fixtures end to end (`test_simulated_monday.py`)
+- [x] bear-shift fixture (+35pts) → reallocation proposal passes gates
+      (`test_uc8.py::test_bear_shift_reallocation_passes_gates_and_persists`)
+- [x] Call 2 downgrades an unevidenced verdict to neutral
+      (`test_planner_post.py::test_unevidenced_verdict_is_downgraded_to_neutral`)
+- [x] digest readable and complete (`test_digest.py::test_render_is_complete_and_readable`,
+      `::test_build_digest_renders_from_the_db_alone`)
 
 **✅ Blocker CLEARED 2026-07-21 — ADR-008.** The `proposal` table was shaped
 for the ranked defender/challenger duel ADR-007 superseded. Owner chose option
@@ -623,15 +626,46 @@ nothing, and pre-go-live `CREATE TABLE IF NOT EXISTS` absorbs it without
 opening the numbered-migration convention). Readers must now branch on
 `proposal_type` before trusting either column.
 
-**⚠️ Watch, not a blocker — gate 6 may be near-unsatisfiable.**
-`gates.reallocation_gates` gate 6 requires a CITED INVARIANT that is eligible
-and condition-ACTIVE now. After the M7 corpus run, exactly **1 of 42** weighted
-invariants is `integrated` (the inverted yield curve). If the Worker may only
-cite integrated invariants, almost every proposal will die on gate 6 — not
-because the reasoning is poor but because the evidence bar upstream is high
-(I-44). Decide at M8 whether gate 6 reads `integrated` only, or also
-`proposed` invariants above some weight; measure the pass rate on the first
-simulated Monday rather than discovering it live.
+**✅ Watch CLEARED 2026-07-30 — gate 6 stays `integrated`-only.** Measured on
+the live DB with the production predicates (`cited_invariant_eligible` +
+`condition_active_now`), not estimated:
+
+- The corpus is 253 rows but **209 are UC4 curator notes flagged `reference
+  knowledge: no effect to measure`** — empty condition, never confronted, not
+  confrontable by construction. The **measurable corpus is 44**: 4 `integrated`,
+  11 `rejected`, 29 `proposed`. The "1 of 42" figure above was a pre-maturation
+  snapshot.
+- **Citable today under the strict rule: 2** (`inv-low-real-yields-favor-gold`
+  score 0.65 / N=82, `inv-high-inflation-equities` score 0.64 / N=44). The other
+  two `integrated` are dormant right now, not disqualified. Gate 6 is
+  satisfiable — the near-unsatisfiability fear does not survive measurement.
+- The clause that actually binds is **ACTIVE-now (16/44)**, not `status`
+  (`N >= N_min` passes 42/44, `score >= θ` 11/44). Loosening `status` therefore
+  buys much less than it looks.
+- **Loosening by WEIGHT is rejected outright**: it takes the citable set to
+  218/253 (184 even at a 0.50 bar), because `weight_effective` is dominated by
+  the author-tier FLOOR (0.40 for dalio) and the 209 unmeasurable notes have an
+  empty condition, so they read as permanently active. Weight measures tier, not
+  evidence — that variant would let a real allocation move lean on never-measured
+  prose.
+- The evidence-shaped variant (`proposed` + `score >= θ` + `N >= N_min` — clears
+  the effect-size test, fails only the binomial tail) is principled but currently
+  **empty: +5 measurable candidates, all dormant today, 0 change to the citable
+  set.** Revisit when the corpus has matured, not now.
+
+Owner decision: keep the strict spec. Method of record, to re-run at M8b/M11:
+open the live DB read-only, exclude the `reference knowledge` rows, then apply
+`gates.cited_invariant_eligible` and `context.condition_active_now` verbatim —
+the gate itself, never a paraphrase of it — and report the clause-by-clause
+funnel (integrated / weight / score>=theta / N>=N_min / ACTIVE-now) rather than
+the single final count, which hides which clause binds.
+
+**Still open, separate from gate 6** — those 209 `reference knowledge` rows are
+permanently `proposed`, which contradicts ADR-006's "nothing stays proposed
+forever". They are not confrontable, so no maturation can ever resolve them:
+they need a distinct status (`reference`) rather than sitting in the weighted
+pool and skewing every corpus count. Not a gate-6 problem; queued as its own
+decision.
 
 **⚔️ Challenge:** Worker reasoning quality; are the 12-15 selected
 invariants the right ones?
