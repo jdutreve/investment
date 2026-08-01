@@ -1229,28 +1229,39 @@ STRATEGIES: list[dict[str, object]] = [
         "trace": "Dynamic rotation by detected regime.",
     },
     # ADR-007 — the ADOPTED V1 strategy (docs/V1_STRATEGY.md). One Strategy;
-    # its 3 concentrated books are Portfolios below. The book<->regime map and
-    # the 200d trend overlay live in mechanical/market_signal.py (validated
-    # 9.85%/yr, +2.5 vs B, 1991-2026 backtest), NOT in a static regime_type_id:
-    # the market-signal regimes (growth/inflation/slowdown) are a different axis
-    # from the 5 macro RegimeTypes, so this Strategy carries none.
+    # its 3 concentrated books are Portfolios below. The book<->regime map, the
+    # 200d trend overlay and the switch hysteresis live in
+    # mechanical/market_signal.py (validated 11.26%/yr, Sortino 1.11, -23.8%,
+    # 1991-2026 backtest), NOT in a static regime_type_id: the market-signal
+    # regimes are a different axis from the 5 macro RegimeTypes, so this
+    # Strategy carries none.
     {
         "id": "market-signal-stack",
         "title": "Market-Signal Countercyclical Stack",
+        # Book names kept in sync with BOOKS (ADR-007 third addendum): this
+        # prose is Worker-visible context, so the old growth/inflation/slowdown
+        # names were the exact reasoning hazard that addendum removed from the
+        # code — it renamed the portfolios and missed this field (fixed
+        # 2026-08-01). The ENTITY IDs stay frozen; only the prose tracks BOOKS.
         "description": "Market-priced credit-spread(BAA10Y)/slope(T10Y2Y) regime "
-        "selects one of three concentrated books (growth/inflation/"
-        "slowdown); a 200-day trend overlay redirects the equity/gold "
-        "sleeves to intermediate Treasuries below trend. MONTHLY.",
+        "selects one of three concentrated books (credit-spread-wide / "
+        "credit-spread-tight-yield-curve-flat / credit-spread-tight-yield-curve-steep); "
+        "a 200-day trend overlay redirects the equity/gold sleeves to "
+        "intermediate Treasuries below trend. A book switch waits for 3 "
+        "confirming monthly decisions; the overlay does not wait. MONTHLY.",
         "regime_type_id": None,
         "framework_id": "market-signal",
         "status": "active",
         "enabled": True,
         "conviction": 70,
-        "conditions": "market-signal regime (BAA10Y/T10Y2Y vs 10y trailing medians); "
-        "trend overlay on SPY/GLD 200d MA — see mechanical/market_signal.py",
+        "conditions": "market-signal regime (BAA10Y/T10Y2Y vs 10y trailing medians), "
+        "switch confirmed over 3 monthly decisions; trend overlay on SPY/GLD "
+        "200d MA, unconfirmed — see mechanical/market_signal.py",
         "source": "corpus",
-        "trace": "ADR-007 adopted V1 strategy; backtest 9.85%/yr, +2.5 vs B "
-        "(1991-2026). Forward paper-mode (M9) is the go-live gate.",
+        "trace": "ADR-007 adopted V1 strategy; backtest 11.26%/yr, Sortino 1.11, "
+        "maxDD -23.8% (1991-2026, post-hysteresis fourth addendum; 9.85% was the "
+        "un-damped pair the pivot was signed on). Forward paper-mode (M9) is the "
+        "go-live gate.",
     },
 ]
 

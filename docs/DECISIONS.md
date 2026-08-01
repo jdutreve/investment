@@ -493,6 +493,42 @@ that guarantee and is commented at the seed site. Zero allocation change: the
 weights are untouched and the anti-drift replay still reproduces 9.85% CAGR /
 -23.8% maxDD.
 
+**Fourth addendum (2026-08-01, owner sign-off) — the book switch waits for
+3 confirming decisions; the pinned pair becomes 11.26% / -23.8%.**
+`classify_regime` compares each signal to a trailing median and nothing else, so
+a signal hovering at its own median flips the book on an arbitrarily small
+difference. Measured over the 409 monthly decisions: of 36 book changes, **25%
+were decided by a margin under 2% and 14 reversed within 3 months** — while a
+flip between the wide and steep books is a ~90% round trip (they share only
+IWN). The 4-quadrant detector this pivot DEMOTED from allocation has both a
+noise dead-band and 3-print hysteresis; the path PROMOTED to allocation had
+neither.
+
+`market_signal.CONFIRM_DECISIONS = 3`: the stack holds its book until a
+different one has been signalled 3 monthly decisions running. Measured on the
+same window, same NAV engine, same 20bps costs: **CAGR 9.85% → 11.26%, Sortino
+0.94 → 1.11, max drawdown UNCHANGED at -23.8%**, turnover 53.9x → 42.0x.
+
+Why this is not a curve-fit: the improvement holds in **both halves of the
+history split independently** (10.76%/1.00 then 10.43%/1.07 at confirm 2,
+rising through confirm 4); the sweep **degrades past ~4 and collapses at a 50%
+dead-band** (-34.8% drawdown), so there is a real interior optimum rather than a
+monotone "trade less" gradient; and buy-and-hold — the zero-turnover control —
+scores a higher CAGR (10.32%) but Sortino 0.74 and **-52% drawdown**, so the
+edge is not the absence of turnover. The literal "hold both candidate books
+while undetermined" variant measured WORSE than simply waiting, and raised
+turnover; it was rejected.
+
+Cost: up to 3 months late on a genuine turn. The drawdown does not degrade
+because the 200d trend overlay is deliberately NOT damped — it re-reads on every
+decision, so the drawdown control keeps reacting while the book waits.
+
+3 is `regime_confirm_prints`' value, reused as a convention, but kept as a
+SEPARATE constant: recalibrating the macro detector must never silently move the
+allocation. Timing note: the live monthly decision path was not yet wired
+(M6-bis "Remaining"), so this cost no migration. **The pinned anti-drift pair is
+now 11.26% / -23.8%**; 9.85% is history, not a target.
+
 ---
 
 ## ADR-008 — `proposal` accommodates the market-signal path by NULL, not by convention

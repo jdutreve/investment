@@ -45,11 +45,17 @@ risk-parity All Weather):
 
 | | value |
 |---|---|
-| CAGR | 9.85%/yr (+2.5 vs B, robust in AND out of sample) |
-| Sortino | 0.94 (B: 0.95) · Sharpe ≈ B |
-| Max drawdown (daily) | **-24%** (breaches the user's -15% rule) |
-| Changes | 3.4/yr · median holding ~61 days |
+| CAGR | 11.26%/yr (+4.0 vs B, both halves of the split independently) |
+| Sortino | 1.11 (B: 0.95) |
+| Max drawdown (daily) | **-23.8%** (breaches the user's -15% rule) |
+| Changes | 2.8/yr |
 | Fee drag | ~1.5 pt/yr already netted out |
+
+Those are the post-hysteresis numbers (ADR-007 fourth addendum, 2026-08-01:
+`CONFIRM_DECISIONS = 3` — a book switch waits for 3 confirming monthly
+decisions). The pivot was signed on the un-damped **9.85% / 0.94 / -24% / 3.4
+changes-a-year**; that pair is history, not a target. Only the flip rule
+changed — same books, same signals, same overlay, same caps.
 
 ## Why monthly
 
@@ -145,8 +151,9 @@ contradicted silently). This is where OPEN #3 is signed off.
 **Step 1 — M6-bis: wire the stack, keep the bridge.** Move it from scratchpad
 to production: seed the 3 books, build the market-signal regime module + the
 200d trend overlay + the monthly decision path through the existing gates.
-**Replay-validate it reproduces 9.85%/-24%** (anti-drift check — the same
-guarantee that caught the M6 rebalance bug). Ship an inspection view.
+**Replay-validate it reproduces 11.26%/-23.8%** (anti-drift check — the same
+guarantee that caught the M6 rebalance bug; 9.85% was the pre-hysteresis pair,
+ADR-007 fourth addendum). Ship an inspection view.
 CRUCIAL: **do NOT delete M3/M5/UC7-8** — keep the old design wired as
 fallback + benchmark until forward paper-mode earns the full switch. Passing a
 crossroads ≠ burning the bridge.

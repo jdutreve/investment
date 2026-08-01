@@ -2,9 +2,10 @@
 (docs/V1_STRATEGY.md, ADR-007) — `classify_regime`, `apply_trend_overlay`,
 `build_targets` in `mechanical/market_signal.py`, no DB.
 
-The full anti-drift reproduction of the 9.85%/-24% backtest is an integration
-check on the live DB (scratchpad/validate_market_signal.py); these pin the classifier
-and the overlay at the edges the backtest exercised.
+The full anti-drift reproduction of the 11.26%/-23.8% backtest is an integration
+check on the live DB (scratchpad/validate_market_signal.py); these pin the classifier,
+the overlay and the switch hysteresis at the edges the backtest exercised.
+(9.85%/-24% was the pre-hysteresis pair — ADR-007 fourth addendum.)
 """
 
 import pandas as pd
@@ -89,14 +90,67 @@ def test_build_targets_emits_only_on_change() -> None:
     assert targets[idx[0]] == market_signal.BOOKS[WIDE]
 
 
-def test_build_targets_switches_on_regime_change() -> None:
+def _steady_switch_frame(
+    n_after: int,
+) -> tuple[pd.DatetimeIndex, tuple[pd.Series, ...], dict, dict]:
+    """One wide print, then `n_after` consecutive tight+steep prints."""
+    idx = pd.to_datetime(["2020-01-06"] + [f"2020-{m:02d}-03" for m in range(2, 2 + n_after)])
+    spread = pd.Series([2.5] + [1.2] * n_after, index=idx)  # wide, then tight
+    slope = pd.Series([1.0] + [2.0] * n_after, index=idx)  # then steep
+    spread_med = pd.Series([1.8] * len(idx), index=idx)
+    slope_med = pd.Series([1.0] * len(idx), index=idx)
+    # Prices ABOVE their MA: the overlay is a no-op, so these tests isolate the
+    # hysteresis and assert against the plain books.
+    mas = {t: pd.Series([1.0] * len(idx), index=idx) for t in market_signal.TREND_SLEEVES}
+    prices = {
+        t: pd.Series([1000.0] * len(idx), index=idx) for t in ("SPY", "IWN", "GLD", "VCIT", "IEF")
+    }
+    return idx, (spread, slope, spread_med, slope_med), mas, prices
+
+
+def test_build_targets_switches_after_confirmation() -> None:
+    # CONFIRM_DECISIONS consecutive prints of the NEW state commit the switch,
+    # and not one decision earlier (measured 2026-08-01 — see the constant).
+    n = market_signal.CONFIRM_DECISIONS
+    idx, series, mas, prices = _steady_switch_frame(n)
+    targets = build_targets(idx, *series, mas, prices)
+    assert list(targets) == [idx[0], idx[n]]
+    assert targets[idx[n]] == market_signal.BOOKS[TIGHT_STEEP]
+
+
+def test_build_targets_holds_through_an_unconfirmed_signal() -> None:
+    # One decision short of confirmation: the stack must still hold the wide book.
+    n = market_signal.CONFIRM_DECISIONS
+    idx, series, mas, prices = _steady_switch_frame(n - 1)
+    targets = build_targets(idx, *series, mas, prices)
+    assert list(targets) == [idx[0]]
+    assert targets[idx[0]] == market_signal.BOOKS[WIDE]
+
+
+def test_build_targets_resets_the_count_when_the_candidate_flickers() -> None:
+    # tight/steep, back to wide, tight/steep again: the streak restarts, so a
+    # flickering signal never accumulates its way into a switch.
+    idx = pd.to_datetime(["2020-01-06", "2020-02-03", "2020-03-02", "2020-04-06", "2020-05-04"])
+    spread = pd.Series([2.5, 1.2, 2.5, 1.2, 1.2], index=idx)
+    slope = pd.Series([1.0, 2.0, 1.0, 2.0, 2.0], index=idx)
+    spread_med = pd.Series([1.8] * 5, index=idx)
+    slope_med = pd.Series([1.0] * 5, index=idx)
+    mas = {t: pd.Series([1000.0] * 5, index=idx) for t in market_signal.TREND_SLEEVES}
+    prices = {t: pd.Series([1.0] * 5, index=idx) for t in ("SPY", "IWN", "GLD", "VCIT", "IEF")}
+    targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
+    assert list(targets) == [idx[0]]  # only 2 consecutive at the end, short of 3
+
+
+def test_trend_overlay_is_not_damped_by_the_hysteresis() -> None:
+    # The book waits for confirmation; the 200d drawdown control must not. SPY
+    # drops below its MA on the second decision while the regime is unchanged.
     idx = pd.to_datetime(["2020-01-06", "2020-02-03"])
-    spread = pd.Series([2.5, 1.2], index=idx)  # wide -> credit-spread-wide, then tight
-    slope = pd.Series([1.0, 2.0], index=idx)  # then steep -> credit-spread-tight-yield-curve-steep
+    spread = pd.Series([2.5, 2.5], index=idx)  # wide throughout -> no regime change
+    slope = pd.Series([1.0, 1.0], index=idx)
     spread_med = pd.Series([1.8, 1.8], index=idx)
     slope_med = pd.Series([1.0, 1.0], index=idx)
-    mas = {t: pd.Series([1000.0, 1000.0], index=idx) for t in market_signal.TREND_SLEEVES}
-    prices = {t: pd.Series([1.0, 1.0], index=idx) for t in ("SPY", "IWN", "GLD", "VCIT", "IEF")}
+    mas = {"SPY": pd.Series([1.0, 1000.0], index=idx), "GLD": pd.Series([1.0, 1.0], index=idx)}
+    prices = {t: pd.Series([1.0, 1.0], index=idx) for t in ("SPY", "IWN", "GLD", "IEF")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0], idx[1]]
-    assert targets[idx[1]] == market_signal.BOOKS[TIGHT_STEEP]
+    assert targets[idx[1]]["IEF"] == market_signal.BOOKS[WIDE]["SPY"]  # SPY sleeve redirected

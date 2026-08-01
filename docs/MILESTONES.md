@@ -515,9 +515,10 @@ positive lead is the market-signal stack, not momentum (8.1% / Sharpe 0.46 / -37
    caps (now -25% per ADR-007).
 
 **Definition of Verified:** replay-validate the wired stack reproduces the
-scratchpad numbers (**9.85% CAGR / -24% daily maxDD**) — the anti-drift check
-that caught the M6 rebalance-order bug — and it runs monthly end-to-end through
-the caps. The OLD design stays wired as fallback + benchmark; forward
+pinned numbers (**11.26% CAGR / -23.8% daily maxDD** since the ADR-007 fourth
+addendum; **9.85% / -24%** was the pre-hysteresis pair the pivot was signed on)
+— the anti-drift check that caught the M6 rebalance-order bug — and it runs
+monthly end-to-end through the caps. The OLD design stays wired as fallback + benchmark; forward
 paper-mode (M9), not this milestone, is what earns the full switch.
 
 **Status (2026-07-20): core DoV MET — anti-drift PASSES, caps clean.**
@@ -525,6 +526,15 @@ paper-mode (M9), not this milestone, is what earns the full switch.
 `build_targets` + `run_market_signal` driver) reproduces the numbers EXACTLY on the
 live DB: CAGR 9.85%, Sortino 0.94, maxDD -23.8%, 3.4 changes/yr, ZERO cap
 breach. 10 unit tests + 204 suite green.
+
+**Superseded 2026-08-01 (ADR-007 fourth addendum, owner-arbitrated):**
+`CONFIRM_DECISIONS = 3` hysteresis on the book switch → **CAGR 11.26%, Sortino
+1.11, maxDD -23.8% (unchanged), 2.8 changes/yr, turnover 53.9x → 42.0x**,
+re-verified exactly against the A/B prototype on a DB snapshot. Motivation: 25%
+of the 36 historical book changes were decided by a sub-2% margin and 14
+reversed within 3 months, on flips costing ~90% turnover. Robust in both split
+halves; the sweep has an interior optimum (it collapses at a 50% dead-band); the
+zero-turnover control has a higher CAGR but -52% drawdown.
 
 **Cap finding RESOLVED (ADR-007 addendum, choice (a)).** When BOTH SPY and GLD
 are below their 200d MA (risk-off: 2008-09, 2020, 2022...), the overlay
@@ -710,6 +720,28 @@ idempotency/async-jobs hardening.
 - [ ] deposit → candidates on Telegram within ~5 min
 - [ ] lid closed Monday → wake → due-on-start chain runs once
 - [ ] a Fed press item → triaged event document (or discarded as routine)
+- [ ] **re-seed first** (see the carried-over item below) — the live
+      `market-signal-stack` prose must be current before the Worker reads it
+
+**⚠️ Carried over — the live DB's strategy prose is STALE (deferred
+2026-08-01, owner decision).** `seed_data.py` is correct; the live
+`strategy` row is not. Three Worker-visible fields on `market-signal-stack`
+still hold superseded text:
+
+- `description` names the books `growth/inflation/slowdown` — the OLD names.
+  ADR-007's third addendum renamed them *because* a book name asserting a macro
+  reading it does not carry is a reasoning hazard for an LLM; that addendum
+  updated the code and the three portfolios' name/trace, and missed this field.
+- `conditions` and `trace` predate the fourth addendum (no confirmation rule;
+  `trace` still advertises the un-damped 9.85%).
+
+Harmless until now — the live decision path is not wired and the Worker has
+never read these rows. It stops being harmless the moment paper-mode starts,
+which is exactly M9. Fix = re-run `python -m investment.seed` (idempotent
+upserts; it also re-does the 35y backfill, which is why it was deferred rather
+than run mid-session). `_seed_strategies` no longer clobbers a matured
+`conviction` on re-run, so the re-seed is safe to do after the chain has been
+running — that guard was added the same day.
 
 ---
 

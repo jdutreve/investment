@@ -360,11 +360,22 @@ async def _seed_invariants(db: InvestmentDB) -> int:
 
 
 async def _seed_strategies(db: InvestmentDB) -> int:
-    """Step 5 — 4 strategies, all enabled, + BACKED_BY edges."""
+    """Step 5 — 4 strategies, all enabled, + BACKED_BY edges.
+
+    Same re-run discipline as `_seed_invariants`: `conviction` is MATURED
+    mechanically (Writeback's knowledge commit moves it on real outcomes), so a
+    re-seed — the supported way to refresh seeded prose like `description` /
+    `conditions` / `trace` — must not reset a strategy's earned conviction to
+    its pristine seed value. For a row that already exists, the seed's number is
+    replaced by the current one."""
     today = date.today().isoformat()
+    existing = {str(r["id"]): r for r in await db.query("SELECT id, conviction FROM strategy")}
     for st in STRATEGIES:
         props = _without_id(st)
         props.setdefault("date_opened", today)
+        existing_row = existing.get(_vertex_id(st))
+        if existing_row is not None:
+            props["conviction"] = existing_row["conviction"]
         await db.upsert_vertex("strategy", _vertex_id(st), props)
     for strategy_id, invariant_id in BACKED_BY_EDGES:
         await db.create_edge(

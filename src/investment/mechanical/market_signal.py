@@ -15,8 +15,13 @@ out of a scratchpad backtest (`global_table_daily.py`, the "signal+trend"
 line). This is that logic ported verbatim onto the SAME NAV engine the backtest
 used (`replay.shadow_book_nav`, itself pinned equal to the M4-validated
 `ratios.synthesize_nav`), so wiring the stack cannot silently diverge from the
-figures ADR-007 was signed on. `run_market_signal` reproduces them; M6-bis's Definition
-of Verified is that reproduction.
+figures ADR-007 was signed on.
+
+Those figures were superseded ONCE, deliberately (2026-08-01, owner-arbitrated):
+`CONFIRM_DECISIONS` hysteresis moved the stack to 11.26% CAGR / Sortino 1.11 at
+the same -23.8% drawdown. The pinned pair is now **11.26% / -23.8%**, and the
+un-damped 9.85% is history, not a target. Any OTHER divergence from 11.26% is
+drift and must be explained, which is what this module exists to guarantee.
 
 PURE decision logic (`classify_regime`, `apply_trend_overlay`, `build_targets`)
 takes already-loaded series and holds no I/O — the same separation as
@@ -76,6 +81,26 @@ MA_WINDOW_DAYS = 200
 STACK_TICKERS: tuple[str, ...] = ("SPY", "IWN", "GLD", "VCIT", "IEF")
 
 COST_BPS = 20.0
+
+# Consecutive monthly decisions that must name the SAME new book before the
+# stack switches (measured 2026-08-01, full 35y + split sample).
+#
+# `classify_regime` is a bare comparison against a trailing median, so a signal
+# hovering at its own median flips the book on an arbitrarily small difference:
+# of the 36 book changes over 409 monthly decisions, 25% were decided by a
+# margin under 2% and 14 reversed within 3 months. Books barely overlap (wide is
+# SPY/IWN/GLD, steep is VCIT/IEF/IWN), so such a flip is close to a 90% round
+# trip. Waiting for confirmation lifts CAGR 9.85% -> 11.26% and Sortino
+# 0.94 -> 1.11 at an UNCHANGED -23.8% drawdown, in both halves of the history
+# split independently; the sweep degrades past ~4, so this is a real optimum,
+# not "trade less" (buy-and-hold scores 10.32% CAGR but -52% drawdown).
+#
+# 3 is `regime_confirm_prints`' value, deliberately: one hysteresis convention
+# across the project. A separate constant, NOT a read of that threshold —
+# recalibrating the macro detector must never silently move the allocation.
+# Holding the two candidate books during the wait (the literal "intersection"
+# proposal) measured WORSE than simply waiting, and raised turnover.
+CONFIRM_DECISIONS = 3
 
 
 @dataclasses.dataclass(frozen=True)
@@ -141,13 +166,31 @@ def build_targets(
 ) -> dict[pd.Timestamp, dict[str, float]]:
     """Walk the decision clock and emit a target ONLY when the book changes —
     the change-point map `shadow_book_nav` consumes (a monthly re-evaluation
-    that lands on the same book pays no turnover)."""
+    that lands on the same book pays no turnover).
+
+    Holds `CONFIRM_DECISIONS` hysteresis over the raw signal state: the stack
+    stays in the book it is committed to until a DIFFERENT book has been named
+    that many decisions in a row. The first decision commits immediately (there
+    is nothing to hold yet), and a candidate that flickers back resets the
+    count. The trend overlay is NOT damped — it re-reads the 200d MA on every
+    decision, so the drawdown control keeps reacting while the book waits."""
     targets: dict[pd.Timestamp, dict[str, float]] = {}
     previous: dict[str, float] | None = None
+    held: str | None = None
+    pending: str | None = None
+    pending_count = 0
     for t in dates:
-        regime = classify_regime(
+        signalled = classify_regime(
             _at(spread, t), _at(spread_median, t), _at(slope, t), _at(slope_median, t)
         )
+        if held is None or signalled == held:
+            held, pending, pending_count = signalled, None, 0
+        else:
+            pending_count = pending_count + 1 if pending == signalled else 1
+            pending = signalled
+            if pending_count >= CONFIRM_DECISIONS:
+                held, pending, pending_count = signalled, None, 0
+        regime = held
         below_trend = frozenset(
             ticker
             for ticker in TREND_SLEEVES
@@ -239,6 +282,7 @@ async def run_market_signal(
 
 async def stack_metrics(db: InvestmentDB, run: MarketSignalRun) -> NavMetrics:
     """Daily NAV metrics of the run (CAGR, Sortino, max drawdown) — the numbers
-    the DoV checks against 9.85% / -24%."""
+    the DoV checks against 11.26% / -23.8% (see the module's ANTI-DRIFT note;
+    9.85% was the pre-hysteresis pair)."""
     rf = await ratios.load_rf_daily(db)
     return nav_metrics(run.nav.dropna(), rf)
