@@ -1641,12 +1641,16 @@ PORTFOLIOS: list[dict[str, object]] = [
         # strategy as one continuous series, and it is what belongs in the
         # ranking, in the digest, and under the -25% drawdown rule.
         #
-        # `allocation` is NOT a fixed target, unlike every other row here: it
-        # carries the book CURRENTLY in force and is rewritten at each monthly
-        # decision (mechanical/market_signal.py `persist_stack_nav`). Seeded to
-        # the credit-spread-wide book because that is `classify_regime`'s
-        # documented warm-up default, i.e. what the stack holds before 10y of
-        # signal history exists. Its NAV is likewise built by a different
+        # `allocation` is NOT a fixed target, unlike every other row here: it is
+        # STATE. It carries the book CURRENTLY in force and is rewritten at each
+        # monthly decision that emits a proposal, inside
+        # `writeback.dispose_market_signal`'s transaction. The value below is
+        # therefore only the INITIAL one — `seed._seed_portfolios` keeps it on
+        # first insert and never writes it over an existing row, or a re-seed
+        # would reset the live held position. Seeded to the credit-spread-wide
+        # book because that is `classify_regime`'s documented warm-up default,
+        # i.e. what the stack holds before 10y of signal history exists.
+        # Its NAV is likewise built by a different
         # producer (`shadow_book_nav`, a change-point map) — `synthesize_nav`'s
         # constant weights cannot express a strategy that rotates.
         "id": "ms-stack",

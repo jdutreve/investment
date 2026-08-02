@@ -15,6 +15,7 @@ from typing import Any
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
+from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
 # corpus (docs/EXAMPLE.md Step 8A shows a handful).
@@ -86,17 +87,31 @@ def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _market_signal_block(proposal: dict[str, Any]) -> list[str]:
-    """ADR-007's live monthly decision, rendered from the record the proposal
-    carries (market_signal_cycle `build_market_context`). Shows the two signal
-    comparisons and the overlay reads, not just the resulting book: the owner
-    places these orders by hand and is entitled to see what moved the money.
-    Falls back gracefully on a thin `market_context` — a digest must never be
-    the thing that fails on Monday morning."""
-    context = _json_map(proposal.get("market_context"))
-    signals = context.get("signals") or {}
-    held = context.get("held_allocation") or {}
-    target = _json_map(proposal.get("proposed_allocation"))
+def _market_signal_block(decision: dict[str, Any] | None) -> list[str]:
+    """ADR-007's live monthly decision, rendered from its JOURNAL entry
+    (`MarketSignalDecisionEvent`, writeback `dispose_market_signal`), not from a
+    Proposal row.
+
+    WHY THE JOURNAL. The adopted strategy decides every month but emits a
+    Proposal only on the ~3 months a year it moves, and the bridge's UC8 can
+    emit a reallocation on the same Monday. Reading this block off
+    `_latest_proposal` therefore lost the decision twice over: on every holding
+    month (no proposal exists) and — worse — on a moving month, where the 09:00
+    reallocation has the later `created_at` and won the single ORDER BY slot.
+    The months the digest dropped were exactly the months the owner had an order
+    to place. The journal has one row per decision date, moved or not, blocked or
+    not, so this block is now unconditional and the proposal slot below stays the
+    bridge's.
+
+    Shows the two signal comparisons and the overlay reads, not just the
+    resulting book: the owner places these orders by hand and is entitled to see
+    what moved the money. Falls back gracefully on a thin payload — a digest must
+    never be the thing that fails on Monday morning."""
+    if not decision:
+        return []
+    signals = decision.get("signals") or {}
+    held = decision.get("held_allocation") or {}
+    target = decision.get("target_allocation") or {}
     moves = [
         f"{t} {held.get(t, 0):g}→{target.get(t, 0):g}"
         for t in sorted(set(held) | set(target))
@@ -105,26 +120,35 @@ def _market_signal_block(proposal: dict[str, Any]) -> list[str]:
     lines = [
         "",
         f"🧭 Market-signal decision (paper-test) — book "
-        f"{context.get('held_book', proposal.get('defender_id', '?'))}:",
-        "   " + (" | ".join(moves) if moves else "no change"),
+        f"{decision.get('held_book', '?')}, decided {decision.get('decision_date', '?')}:",
+        "   " + (" | ".join(moves) if moves else "no change — the stack holds its book"),
     ]
+    # A refused decision writes no Proposal (ADR-009: the gates are regression
+    # guards, so this means a config or code change, never a market event). It
+    # must be LOUD rather than absent — otherwise it renders identically to a
+    # month that legitimately did not move.
+    gate = decision.get("gate")
+    if gate and gate != "passed":
+        lines.append(f"   🚨 BLOCKED by gate '{gate}' — nothing was proposed, the stack is frozen.")
     for ticker, read in signals.items():
         median = read.get("trailing_median")
         lines.append(
             f"   {ticker} {_g(read.get('value'))} vs 10y median {_g(median)}"
             f" (knowable {read.get('knowable_at', '?')})"
         )
-    overlay = context.get("trend_overlay") or {}
+    overlay = decision.get("trend_overlay") or {}
     below = overlay.get("below_trend") or []
     lines.append(
         f"   200d overlay: {', '.join(below)} below trend" if below else "   200d overlay: clear"
     )
-    hysteresis = context.get("hysteresis") or {}
+    hysteresis = decision.get("hysteresis") or {}
     if hysteresis.get("pending_book"):
         lines.append(
             f"   Pending switch to {hysteresis['pending_book']}: "
             f"{hysteresis.get('pending_count')}/{hysteresis.get('confirm_decisions')} confirmations"
         )
+    if decision.get("reasoning"):
+        lines.append(f"   Why: {decision['reasoning']}")
     return lines
 
 
@@ -132,7 +156,15 @@ def _stack_block(stack: dict[str, Any] | None) -> list[str]:
     """The stack's own standing — shown every week, proposal or not. The
     36-month drawdown here is the number the -25% rule is about (ADR-009); the
     alert at the top of the digest fires off this same column, so a reader can
-    always see how close it is rather than only hearing when it breaks."""
+    always see how close it is rather than only hearing when it breaks.
+
+    Labelled PAPER, and the label is not modesty: `ms-stack`'s `portfolio_nav`
+    is built by `shadow_book_nav` from the decision walk, so it assumes every
+    monthly decision filled at the close of its anchor date. It is what the
+    strategy would have done, printed beside portfolios measured the same way —
+    never a statement about the owner's account (V1 executes nothing, ADR-006).
+    'drawdown 36M' is the DEEPEST drawdown inside the trailing 756 days, not
+    today's distance from a high (mechanical/alerts.py states the same)."""
     if not stack:
         return []
     # Every indicator is formatted defensively, as everywhere else in this file:
@@ -142,9 +174,9 @@ def _stack_block(stack: dict[str, Any] | None) -> list[str]:
     # that prints 'n/a'.
     return [
         "",
-        f"🧱 Market-signal stack: Sortino {_num(stack.get('sortino_rolling'))} | "
+        f"🧱 Market-signal stack (paper): Sortino {_num(stack.get('sortino_rolling'))} | "
         f"Calmar {_num(stack.get('calmar_rolling'))} | "
-        f"drawdown 36M {pct(stack.get('drawdown'))}",
+        f"deepest drawdown 36M {pct(stack.get('drawdown'))}",
     ]
 
 
@@ -160,10 +192,12 @@ def _g(value: Any) -> str:
 
 
 def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
+    """The BRIDGE's proposal slot (switch / reallocation). Market-signal
+    proposals are deliberately not routed here — they are rendered by
+    `_market_signal_block` off their journal, so the two paths cannot compete
+    for one slot."""
     if proposal is None:
-        return ["", "🟢 No proposal this week — maintain."]
-    if proposal.get("proposal_type") == "market-signal":
-        return [*_market_signal_block(proposal), f"   Why: {proposal.get('reasoning', '')}"]
+        return ["", "🟢 No bridge proposal this week — maintain."]
     if proposal.get("proposal_type") == "reallocation":
         current = proposal.get("current_allocation", {})
         proposed = proposal.get("proposed_allocation", {})
@@ -248,17 +282,24 @@ def render_digest(
     defender_metrics: dict[str, Any] | None = None,
     alerts: list[Alert] | None = None,
     stack: dict[str, Any] | None = None,
+    market_signal: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
-    fractions."""
+    fractions.
+
+    `market_signal` (the ADOPTED path's latest journalled decision) and
+    `proposal` (the RETAINED BRIDGE's latest switch/reallocation) are separate
+    inputs on purpose — see `_market_signal_block`. The adopted path is rendered
+    FIRST, above the bridge's slot, because it is the one the owner acts on."""
     blocks = [
         _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
         _ranking_block(ranking),
         _invariant_block(invariants),
-        _proposal_block(proposal),
+        _market_signal_block(market_signal),
         _stack_block(stack),
+        _proposal_block(proposal),
         _scoreboard_block(scoreboard),
         _defender_block(defender_metrics),
     ]
@@ -316,12 +357,21 @@ def _json_map(raw: Any) -> dict[str, Any]:
 async def _latest_proposal(
     db: InvestmentDB, ranking: list[dict[str, Any]]
 ) -> dict[str, Any] | None:
-    """The proposal the digest renders: the most recent one, resolved into what
-    `_proposal_block` reads. A reallocation needs `current_allocation` — the
-    allocation it moves AWAY from, which lives on the defender's snapshot row, not
-    on the Proposal (the vertex stores the target and the diff). `None` when the
-    ledger is empty: the digest then says "no proposal this week"."""
-    rows = await db.query("SELECT * FROM proposal ORDER BY date DESC, created_at DESC LIMIT 1")
+    """The BRIDGE proposal the digest renders: the most recent switch or
+    reallocation, resolved into what `_proposal_block` reads. A reallocation
+    needs `current_allocation` — the allocation it moves AWAY from, which lives
+    on the defender's snapshot row, not on the Proposal (the vertex stores the
+    target and the diff). `None` when the ledger is empty.
+
+    MARKET-SIGNAL ROWS ARE EXCLUDED. They are rendered from their journal by
+    `_market_signal_block`; leaving them in this ORDER BY meant the two paths
+    raced for one slot, and on a moving month the 09:00 reallocation's later
+    `created_at` beat the 08:55 decision — hiding the only order the owner
+    actually had to place."""
+    rows = await db.query(
+        "SELECT * FROM proposal WHERE proposal_type != 'market-signal' "
+        "ORDER BY date DESC, created_at DESC LIMIT 1"
+    )
     if not rows:
         return None
     proposal = dict(rows[0])
@@ -373,7 +423,35 @@ async def build_digest(db: InvestmentDB) -> str:
         defender_metrics=dict(defender) if defender else None,
         alerts=await collect_alerts(db),
         stack=await _stack_standing(db),
+        market_signal=await _latest_market_signal_decision(db),
     )
+
+
+async def _latest_market_signal_decision(db: InvestmentDB) -> dict[str, Any] | None:
+    """The latest journalled market-signal decision (writeback
+    `MARKET_SIGNAL_EVENT`), plus the `reasoning` prose of the Proposal it
+    emitted, if it emitted one.
+
+    Read off the EventLog — whose monotonic ULID id IS the append order
+    (CLAUDE.md "EventLog") — so `ORDER BY id DESC LIMIT 1` is the latest by
+    construction. The journal carries one row per decision date whether or not
+    money moved, which is exactly why the digest reads it instead of the
+    Proposal ledger. `None` before the first decision."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=MARKET_SIGNAL_EVENT,
+    )
+    if not rows:
+        return None
+    decision = _json_map(rows[0]["payload"])
+    if not decision:
+        return None
+    proposal_id = decision.get("proposal_id")
+    if proposal_id:
+        prose = await db.query("SELECT reasoning FROM proposal WHERE id = :id", id=str(proposal_id))
+        if prose:
+            decision["reasoning"] = prose[0]["reasoning"]
+    return decision
 
 
 async def _stack_standing(db: InvestmentDB) -> dict[str, Any] | None:

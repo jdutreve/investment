@@ -650,6 +650,43 @@ market grounds. That is deliberate and now explicit: V1 never auto-executes, the
 owner places every order, and the system's job at -25% is to tell them clearly —
 not to withhold the instruction that would have moved them to safety.
 
+**Addendum, 2026-08-02 (coherence pass on the implementing commit).** Three
+things this ADR asserted turned out to be imprecise or unguarded once the code
+was read back. None reverses the decision; all three change what it is safe to
+believe about it.
+
+1. **"36-month rolling drawdown" is the DEEPEST drawdown inside the trailing
+   756 days, not today's distance from a 36-month high.**
+   `ratios.rolling_max_drawdown` is `min(NAV/cummax(NAV) - 1)` WITHIN the
+   window. A stack at an all-time high still reports -30% if it fell that far
+   two years ago. Two consequences the ADR did not state: the alert's message
+   must not read "is X% below" (it did, and was corrected), and once breached
+   the alert re-fires **every Monday until the episode ages out of the window —
+   up to three years, including after a full recovery.** That is accepted for
+   now: the alternative measures (current drawdown from the trailing peak) would
+   introduce a second drawdown convention for one alert, and the historical
+   stack never reached -25% at all. Revisit if it ever fires.
+2. **The series it is measured on is PAPER, not realized.** ADR-009 says the
+   stack "gets a real `portfolio_nav` series"; what it gets is
+   `shadow_book_nav` over the decision walk, which assumes every monthly target
+   filled at the close of its anchor date — no slippage, no delay between the
+   digest and the owner's order, no partial fill. That is the honest instrument
+   available while V1 executes nothing (ADR-006), and it is comparable to the
+   ranking rows because they are priced the same way. It is not a statement
+   about the owner's account, and `alerts.py`, `persist_stack_nav` and the
+   digest now all say so in those words. Closing the gap is forward paper-mode
+   (V1_STRATEGY Step 6).
+3. **Making the digest the only safety organ makes the digest safety-critical.**
+   If nothing can refuse a decision, then everything rests on the owner being
+   TOLD — and two defects in that path were found in the same pass: the market
+   signal decision competed with the bridge's UC8 reallocation for one digest
+   proposal slot (losing it on exactly the months it moved money), and
+   `mechanical/alerts.py` shipped with no tests at all. Both fixed
+   (`tests/test_alerts.py`; the decision now renders from its journal, which has
+   one row per decision date whether or not money moved). The standing rule this
+   sets: **anything ADR-009 delegates to the alert path carries the test burden
+   a gate would have carried.**
+
 ---
 
 ## ADR-010 — Every NAV is charged the same trading cost, at one rate

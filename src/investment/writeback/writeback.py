@@ -434,11 +434,25 @@ async def dispose_market_signal(
     book. Keying the emit on `held_allocation` makes the path self-healing: the
     next monthly decision re-proposes what the blocked one could not.
 
-    Returns `(outcome, proposal_id)`; `proposal_id` is None when nothing moved
-    (outcome `no_change`) or a gate refused."""
+    Returns `(outcome, proposal_id)`. `outcome.passed` answers "did the gates
+    admit this decision", and NOTHING else: a month that legitimately does not
+    move returns a PASSING outcome with `proposal_id` None. It used to return
+    `refused("no_change")`, which contradicted this function's own comment —
+    2.8 book changes a year means ~9 holding months, and reporting the strategy
+    working as a gate refusal made the log and the result object lie about the
+    only distinction that matters here. Callers separate the two cases on
+    `proposal_id`."""
     book_id = BOOK_PORTFOLIO_IDS[decision.held]
-    portfolio = await portfolio_caps(db, book_id)
-    caps = effective_caps(user_profile, portfolio)
+    # The STRICTER of three, not two (CLAUDE.md "Binding caps": per-portfolio
+    # rules may only be stricter). The object actually held is the STACK
+    # (ADR-009), so its row binds; the book's row binds too because the target
+    # IS that book, post-overlay. Identical today (both 50 / -25), but reading
+    # only the book's meant tightening `ms-stack`'s own cap would have been
+    # silently ignored by the live path.
+    stack_caps = effective_caps(user_profile, await portfolio_caps(db, STACK_PORTFOLIO_ID))
+    # `Caps`'s field names are exactly `effective_caps`'s user-profile shape, so
+    # the result of one round feeds straight into the next.
+    caps = effective_caps(dataclasses.asdict(stack_caps), await portfolio_caps(db, book_id))
     allowed = await _allowed_reallocation_tickers(db)
     outcome = market_signal_gates(decision.target, caps, allowed)
 
@@ -476,8 +490,6 @@ async def dispose_market_signal(
                 now=datetime.now(UTC).isoformat(),
                 id=STACK_PORTFOLIO_ID,
             )
-    if not moves:
-        return GateOutcome.refused("no_change"), None
     return outcome, proposal_id
 
 

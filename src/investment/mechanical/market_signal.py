@@ -296,8 +296,11 @@ def walk_decisions(
             for ticker in TREND_SLEEVES
             if ticker in prices
         }
+        # `ticker`, not `t` — `t` is the decision date in this scope, and while
+        # a generator expression has its own, reusing the name here reads as a
+        # shadow to anyone auditing the walk.
         book = apply_trend_overlay(
-            BOOKS[held], frozenset(t for t, read in trend.items() if read.below)
+            BOOKS[held], frozenset(ticker for ticker, read in trend.items() if read.below)
         )
         decisions.append(
             Decision(
@@ -450,6 +453,20 @@ async def persist_stack_nav(
     db: InvestmentDB, run: MarketSignalRun, window: int
 ) -> ratios.NavBackfillResult:
     """Write the stack's daily NAV to `portfolio_nav` under STACK_PORTFOLIO_ID.
+
+    A PAPER SERIES, and every reader of it must know so. `shadow_book_nav`
+    prices the DECISION WALK: it assumes each monthly target was executed at the
+    close of its anchor date, with no slippage, no partial fill and no delay
+    between the digest landing and the owner placing the order. V1 executes
+    nothing (ADR-006), so no realized series exists to compare it to; this is
+    what the STRATEGY would have done, and it is legitimate to rank it against
+    portfolios measured the same way — but it is not a statement about the
+    owner's account, and the digest and the drawdown alert both say so. Closing
+    that gap is forward paper-mode (docs/V1_STRATEGY.md Step 6). One consequence
+    worth naming: the walk includes the current month's target even if
+    `market_signal_gates` then refused it, so a blocked decision leaves the NAV
+    a month ahead of the position. Reachable only through a code or config
+    change (ADR-009), which is a bug being surfaced, not a market event.
 
     The series is `run.nav` — the one `shadow_book_nav` already produced, which
     follows the book through every switch AND every overlay redirect. Persisting

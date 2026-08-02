@@ -87,12 +87,23 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
        regime/book decision") has the numbers to work from.
 
     Empty before the first live decision — then the block is simply absent
-    rather than asserting a state that does not exist yet."""
+    rather than asserting a state that does not exist yet.
+
+    HELD AND TARGET ARE BOTH SHOWN, and separately. They are the same thing on
+    a normal month, and they DIVERGE on exactly the months worth talking about:
+    one where a gate refused the move (`gate` != passed, so the stack is frozen
+    off its target) and the first one after such a refusal, which re-proposes
+    it. Printing only the target under the label "effective allocation" told the
+    Worker the stack held something it did not — the same error
+    `outcomes._incumbent_allocation` exists to avoid on the scoring side."""
     if not state:
         return []
     signals = state.get("signals") or {}
     overlay = state.get("trend_overlay") or {}
     hysteresis = state.get("hysteresis") or {}
+    held = state.get("held_allocation") or {}
+    target = state.get("target_allocation") or {}
+    gate = state.get("gate")
     lines = [
         "",
         "MARKET-SIGNAL ALLOCATION (already decided mechanically — do NOT re-pick "
@@ -100,8 +111,15 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
         f"  book in force: {state.get('held_book', '?')} "
         f"(signal now: {state.get('signal_state', '?')}), "
         f"decided {state.get('decision_date', '?')}",
-        f"  effective allocation: {state.get('target_allocation', {})}",
+        f"  currently held: {held or '(nothing yet — this is the opening entry)'}",
     ]
+    if gate and gate != "passed":
+        lines.append(
+            f"  target {target} was BLOCKED by a mechanical guard ({gate}); the stack is "
+            "frozen off its target until the next monthly decision."
+        )
+    elif target != held:
+        lines.append(f"  moving to: {target}")
     for ticker, read in signals.items():
         lines.append(
             f"  {ticker}: {read.get('value')} vs its 10y trailing median "

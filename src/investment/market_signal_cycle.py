@@ -102,7 +102,13 @@ _EMPTY = pd.Series(dtype=float)
 class MarketSignalCycleResult:
     """One monthly decision's outcome. `skipped_reason` is set (everything else
     empty) when the month was already decided or the stack has no decision date
-    yet — both normal, neither an error."""
+    yet — both normal, neither an error.
+
+    `gate_outcome.passed` and `proposal_id` are INDEPENDENT: passed + no
+    proposal is a holding month (the common case), refused + no proposal is a
+    regression guard tripping (ADR-009: only a code or config change can do
+    that). `emitted` and `blocked` name the two, so no caller has to re-derive
+    the combination."""
 
     decision: Decision | None
     held_allocation: dict[str, float]
@@ -113,6 +119,10 @@ class MarketSignalCycleResult:
     @property
     def emitted(self) -> bool:
         return self.proposal_id is not None
+
+    @property
+    def blocked(self) -> bool:
+        return self.gate_outcome is not None and not self.gate_outcome.passed
 
 
 async def last_decision_date(db: InvestmentDB) -> str | None:
@@ -270,12 +280,15 @@ async def run_market_signal_cycle(
         db, decision, held, context, user_profile, today=today
     )
     logger.info(
-        "market-signal %s: signal=%s held=%s below-trend=%s gate=%s proposal=%s",
+        "market-signal %s: signal=%s held=%s below-trend=%s gate=%s outcome=%s",
         decision_date,
         decision.signalled,
         decision.held,
         list(decision.below_trend),
         outcome.failed_gate or "passed",
-        proposal_id or "-",
+        # THREE outcomes, not two, and the log must not conflate them: a gate
+        # refusal is a code/config bug (ADR-009), a hold is the strategy working
+        # (~9 months a year), a proposal is an order for the owner.
+        f"proposal {proposal_id}" if proposal_id else ("blocked" if not outcome.passed else "hold"),
     )
     return MarketSignalCycleResult(decision, held, outcome, proposal_id)

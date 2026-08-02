@@ -93,7 +93,7 @@ def test_render_is_complete_and_readable() -> None:
 
 def test_no_proposal_reads_as_maintain() -> None:
     text = _digest(proposal=None)
-    assert "No proposal this week — maintain." in text
+    assert "No bridge proposal this week — maintain." in text
 
 
 # -- scoreboard assembly -----------------------------------------------------
@@ -211,5 +211,5 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
 
 async def test_build_digest_on_an_empty_db_says_no_proposal(db: InvestmentDB) -> None:
     text = await D.build_digest(db)
-    assert "No proposal this week — maintain." in text
+    assert "No bridge proposal this week — maintain." in text
     assert "Proposals hit-rate: 0/0" in text

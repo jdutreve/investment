@@ -384,7 +384,10 @@ async def test_unchanged_month_journals_the_decision_without_a_proposal(
     second = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
     assert second.skipped_reason is None
     assert second.proposal_id is None
-    assert second.gate_outcome is not None and second.gate_outcome.failed_gate == "no_change"
+    # A holding month PASSES its gates — it is the strategy working, not a
+    # refusal. `emitted`/`blocked` are the two things a caller may ask.
+    assert second.gate_outcome is not None and second.gate_outcome.passed
+    assert not second.emitted and not second.blocked
     assert second.held_allocation == first.decision.target
 
     assert len(await db.query("SELECT id FROM proposal")) == 1
@@ -445,8 +448,7 @@ async def test_emit_is_keyed_on_what_is_held_not_on_the_walk(db: InvestmentDB) -
         USER,
         today=date(2026, 9, 1),
     )
-    assert outcome.failed_gate == "no_change"
-    assert proposal_id is None
+    assert outcome.passed and proposal_id is None
 
 
 async def test_decision_then_digest_through_the_chain_runner(db: InvestmentDB) -> None:
@@ -473,6 +475,66 @@ async def test_decision_then_digest_through_the_chain_runner(db: InvestmentDB) -
     assert "200d overlay: SPY below trend" in text
     assert f"{MS.TREND_HAVEN} 0→50" in text  # the overlay's redirect, in the move line
     assert "Paper-tests in progress: 1" in text
+
+
+async def test_a_bridge_reallocation_the_same_monday_cannot_hide_the_decision(
+    db: InvestmentDB,
+) -> None:
+    """The two paths write on the same Monday — the market-signal decision at
+    08:55, UC8's reallocation at 09:00 — with the same `Proposal.date`. Reading
+    the digest's single proposal slot by `date DESC, created_at DESC` therefore
+    handed the slot to the BRIDGE and dropped the adopted strategy's decision,
+    on precisely the months it moves money and the owner has an order to place.
+    Both must appear."""
+    await _market(db, spread=1.0, slope=2.0, spy_trend="down", spread_wide=True)
+    await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+
+    # The bridge's reallocation, committed later the same morning.
+    await db.command(
+        "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
+        "recommendation, market_context, reasoning, paper_started, trace, created_at) VALUES "
+        "('realloc-1', '2025-11-03', 'reallocation', 'def-pf', '{\"SPY\": 100}', 'paper-test', "
+        "'{}', 'bridge tilt', '2025-11-03', 't', '2999-01-01T09:00:00+00:00')"
+    )
+
+    text = await build_digest(db)
+    assert "🧭 Market-signal decision (paper-test)" in text
+    assert f"{MS.TREND_HAVEN} 0→50" in text
+    assert "🔧 Reallocation proposal" in text and "bridge tilt" in text
+
+
+async def test_the_digest_shows_the_decision_on_a_month_that_does_not_move(
+    db: InvestmentDB,
+) -> None:
+    """~9 months a year the stack holds, so no Proposal exists at all. The
+    decision still happened — it advanced the hysteresis and re-read the 200d
+    overlay — and the journal is what makes it renderable."""
+    await _market(db, spread=1.0, slope=2.0)
+    await MSC.run_market_signal_cycle(db, USER, today=date(2025, 10, 6))
+    second = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+    assert not second.emitted
+
+    text = await build_digest(db)
+    assert "🧭 Market-signal decision (paper-test)" in text
+    assert "no change — the stack holds its book" in text
+    assert "decided 2025-11-01" in text
+
+
+async def test_a_blocked_decision_is_loud_in_the_digest(db: InvestmentDB) -> None:
+    """A refused decision writes no Proposal, so without this line it renders
+    exactly like a month that legitimately held — while the stack is in fact
+    frozen off its target."""
+    await W.dispose_market_signal(
+        db,
+        _decision(target={"SPY": 60.0, "IWN": 40.0}),  # 60 breaches the 50 cap
+        {},
+        {"decision_date": "2026-08-03", "held_book": WIDE},
+        USER,
+        today=date(2026, 8, 3),
+    )
+    text = await build_digest(db)
+    assert "BLOCKED by gate 'max_single_asset_pct'" in text
+    assert "the stack is frozen" in text
 
 
 # -- the outcome end: scored against what was HELD ---------------------------

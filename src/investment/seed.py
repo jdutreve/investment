@@ -30,6 +30,7 @@ SeedEvent is a summary appended AFTER the vertices it describes, not before.
 
 import asyncio
 import dataclasses
+import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, date, datetime, timedelta
@@ -405,9 +406,27 @@ async def _seed_scenarios(db: InvestmentDB) -> int:
 
 async def _seed_portfolios(db: InvestmentDB) -> int:
     """Step 8 — exactly one defender=true (mechanically enforced by the
-    partial unique index ux_portfolio_defender); + HOLDS + DESIGNED_FOR."""
+    partial unique index ux_portfolio_defender); + HOLDS + DESIGNED_FOR.
+
+    A TIME-VARYING portfolio's `allocation` is STATE, not seed config: for
+    `ms-stack` it records the book currently held, rewritten at each monthly
+    decision by `writeback.dispose_market_signal`. `upsert_vertex` is an
+    ON CONFLICT DO UPDATE over every column it is handed, so seeding it
+    unconditionally reset the live held position to the warm-up book on every
+    incremental re-seed (docs/MILESTONES.md treats re-seeding as routine). The
+    seeded value is therefore only an INITIAL one — kept on first insert, never
+    written over an existing row."""
     for pf in PORTFOLIOS:
-        await db.upsert_vertex("portfolio", _vertex_id(pf), _without_id(pf))
+        pid = _vertex_id(pf)
+        props = _without_id(pf)
+        if pid in TIME_VARYING_PORTFOLIOS:
+            held = await _held_allocation(db, pid)
+            # Carried, not dropped: `allocation` is NOT NULL, and `upsert_vertex`
+            # builds one INSERT ... ON CONFLICT DO UPDATE, so omitting the column
+            # fails the constraint on the insert arm before the conflict resolves.
+            if held is not None:
+                props = {**props, "allocation": held}
+        await db.upsert_vertex("portfolio", pid, props)
     today = date.today().isoformat()
     for portfolio_id, strategy_id, is_primary in HOLDS_EDGES:
         await db.create_edge(
@@ -421,6 +440,17 @@ async def _seed_portfolios(db: InvestmentDB) -> int:
     for portfolio_id, regime_type_id, rationale in DESIGNED_FOR_EDGES:
         await db.create_edge("designed_for", portfolio_id, regime_type_id, {"rationale": rationale})
     return len(PORTFOLIOS)
+
+
+async def _held_allocation(db: InvestmentDB, portfolio_id: str) -> dict[str, float] | None:
+    """A time-varying portfolio's CURRENT allocation, or None if it has never
+    been seeded. `_seed_portfolios` writes this back so the re-seed preserves
+    live held state instead of resetting it to the initial book."""
+    rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=portfolio_id)
+    if not rows:
+        return None
+    parsed = json.loads(str(rows[0]["allocation"]))
+    return {str(k): float(v) for k, v in parsed.items()}
 
 
 def _rows_from_derivatives(

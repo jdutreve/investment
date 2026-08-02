@@ -557,8 +557,15 @@ growth/inflation/slowdown spelling because EventLog is append-only.
 decision path into UC8/Writeback" — is complete. `market_signal_cycle.py` runs
 the single live transaction end to end (PIT inputs → credit-spread/slope signal
 → book → 200d overlay → binding caps → EventLog → `Proposal(proposal_type=
-'market-signal')` → digest → +12w outcome), scheduled at 08:55 in the Monday
-chain and idempotent on the month's decision date.
+'market-signal')` → digest → +12w outcome), composable as a chain step
+(`tests/test_market_signal_cycle.py` runs it through the real `run_chain`) and
+idempotent on the month's decision date.
+
+**It is SPECIFIED at 08:55, not yet scheduled there.** `chain.py` is a
+scheduler-agnostic runner over a caller-supplied step list, and nothing
+assembles the Monday list outside tests — that wiring (launchd, the alert on
+abort, the actual 08:55 slot) is **M9**. The distinction matters: until M9 the
+adopted strategy decides only when something calls it.
 
 Anti-drift preserved BY CONSTRUCTION, not by parallel implementation: the live
 path and the replay both read `walk_decisions`, the single decision clock;
@@ -578,15 +585,21 @@ Design decisions taken during the wiring, each stated in the code:
   the one that could drift.
 - **Emit is keyed on the HELD allocation, not on `Decision.changed`** — that is
   what makes the path self-healing after a gate block.
-- **Gate set is deliberately not `reallocation_gates`.** Caps + allowed tickers
-  + stack drawdown APPLY; `max_turnover_pct` (30) and `min_allocation_change_pts`
-  do NOT (a book switch is a ~90-100% turnover move by construction — the 30%
-  ceiling would block every switch the strategy exists to make); gate 6 and the
-  4-week cooldown do NOT (nothing is cited, and the cooldown would suppress the
-  200d overlay's re-entry, which IS the drawdown control).
-- **The opening proposal is scored against 100% cash** (accruing at rf) — it has
-  no incumbent, and without a baseline it could never be scored at all, which
-  ADR-006 forbids.
+- **Gate set is deliberately not `reallocation_gates`.** Sum-to-100 + the
+  single-asset cap (IEF trend-haven exempt) + allowed tickers APPLY, and ADR-009
+  documents them for what they are — **regression guards against a config or
+  code change, not a safety control**; the DRAWDOWN leg is NOT among them (it
+  alerts, it never blocks). `max_turnover_pct` (30) and
+  `min_allocation_change_pts` do NOT apply (a book switch is a ~90-100% turnover
+  move by construction — the 30% ceiling would block every switch the strategy
+  exists to make); gate 6 and the 4-week cooldown do NOT (nothing is cited, and
+  the cooldown would suppress the 200d overlay's re-entry, which IS the
+  drawdown control).
+- **The opening proposal is scored against the BEST-RANKED portfolio** at that
+  date, excluding the stack itself — not against cash, which was the earlier
+  draft and the easier bar. The owner's real alternative to entering the stack
+  was to keep holding the best thing already available. Without a baseline it
+  could never be scored at all, which ADR-006 forbids.
 
 **⚠️ Carried forward to bridge retirement (Step 6):** the live path takes its
 trading calendar from `replay._book_calendar`, i.e. from the retained Dalio
@@ -594,6 +607,32 @@ defender's NAV index. Deliberate — it keeps the live clock bit-identical to th
 backtest's — but the ADOPTED strategy therefore cannot run on a DB without a
 NAV-backfilled bridge defender. Retiring the bridge must give the stack its own
 calendar and re-validate the pinned numbers in the same commit.
+
+**Coherence pass, 2026-08-02 (same day, after the wiring).** Re-reading the
+commit surfaced four defects and two imprecise claims; all are fixed, and the
+ones that changed what is safe to believe are recorded as an addendum to
+ADR-009 rather than silently patched.
+- The drawdown alert's message misdescribed its own number (`rolling_max_drawdown`
+  is the DEEPEST drawdown inside the trailing 756 days, not the distance from a
+  36-month high — a stack at an all-time high can report -30%).
+- `mechanical/alerts.py` shipped with **no tests**, while being the entirety of
+  what ADR-009 substituted for the removed gate → `tests/test_alerts.py`.
+- The digest's single proposal slot let the bridge's 09:00 reallocation beat the
+  08:55 market-signal decision on `created_at`, hiding the adopted strategy's
+  order on exactly the months it had one. The decision now renders from its
+  JOURNAL (one row per decision date, moved or not), and the proposal slot is
+  the bridge's alone.
+- A sleeve with ZERO price rows was invisible to the freshness check (no GROUP
+  BY row to be the `min`), so the worst feed failure read as the healthiest.
+- A re-seed reset `ms-stack.allocation` — which is now HELD STATE, not config —
+  back to the warm-up book. The seeded value is an initial one only.
+- `dispose_market_signal` returned `refused("no_change")` on a holding month:
+  ~9 months a year reported as a gate refusal. Gates and movement are now
+  independent (`emitted` / `blocked`).
+- Two claims restated honestly: the stack's `portfolio_nav` is a **paper**
+  series (it assumes every monthly target filled at its anchor close — V1
+  executes nothing), and the caps bound to the live decision are now the
+  stricter of user ∧ `ms-stack` ∧ book, not the book's alone.
 
 ---
 

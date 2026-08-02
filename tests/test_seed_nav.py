@@ -137,3 +137,46 @@ async def test_seed_steps_12_13_populate_nav_and_snapshot(tmp_path: Path) -> Non
         assert vs_benchmark_rows  # the benchmark backfills first, so this must be populated
     finally:
         await db.close()
+
+
+async def test_reseeding_does_not_reset_the_stack_held_allocation(tmp_path: Path) -> None:
+    """`ms-stack.allocation` is STATE, not seed config: it records the book
+    currently held and is rewritten by `writeback.dispose_market_signal` at each
+    committed monthly decision. `upsert_vertex` is an ON CONFLICT DO UPDATE over
+    every column it is handed, so seeding it unconditionally reset the live held
+    position to the warm-up book on every incremental re-seed — and re-seeding
+    is a routine operation (docs/MILESTONES.md "Incremental seed"). The seeded
+    value must therefore be an INITIAL one only.
+
+    Every OTHER portfolio's allocation is real config and must still be updated
+    by a re-seed, which is the second half of what this pins."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_static_graph_and_market_data(db, settings)
+        stack_id = market_signal.STACK_PORTFOLIO_ID
+        seeded = await db.query("SELECT allocation FROM portfolio WHERE id = :i", i=stack_id)
+        assert seeded  # the stack row exists on a first seed
+
+        # A monthly decision moves the stack into another book, and a static
+        # portfolio is edited out from under the seed.
+        held = {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0}
+        await db.command(
+            "UPDATE portfolio SET allocation = :a WHERE id = :i",
+            a=json.dumps(held),
+            i=stack_id,
+        )
+        static_id = str(PORTFOLIOS[0]["id"])
+        await db.command(
+            "UPDATE portfolio SET allocation = '{\"SPY\": 100}' WHERE id = :i", i=static_id
+        )
+
+        await seed._seed_portfolios(db)
+
+        after = await db.query("SELECT allocation FROM portfolio WHERE id = :i", i=stack_id)
+        assert json.loads(str(after[0]["allocation"])) == held
+        restored = await db.query("SELECT allocation FROM portfolio WHERE id = :i", i=static_id)
+        assert json.loads(str(restored[0]["allocation"])) == PORTFOLIOS[0]["allocation"]
+        assert stack_id in TIME_VARYING_PORTFOLIOS
+    finally:
+        await db.close()

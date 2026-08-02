@@ -1,0 +1,211 @@
+"""Live-path health alerts (mechanical/alerts.py, docs/DECISIONS.md ADR-009).
+
+WHY THIS FILE EXISTS. ADR-009 removed the drawdown GATE and replaced it with an
+alert, which makes this module the whole of what the system does when the -25%
+rule is breached or when the data feeding the 200d overlay dies. It shipped
+untested. Every assertion below is about a failure that is SILENT by
+construction — a dead feed and a stuck cycle both look exactly like a normal
+holding month — so an alert that does not fire is indistinguishable from
+health, and only a test can tell the two apart.
+
+Real throwaway SQLite, no mocks (CLAUDE.md "Tests").
+"""
+
+from collections.abc import AsyncIterator
+from datetime import date, timedelta
+from pathlib import Path
+
+import pytest
+
+from investment.db.sqlite import InvestmentDB
+from investment.mechanical import alerts as A
+from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS
+
+TODAY = date(2026, 8, 3)
+
+
+@pytest.fixture
+async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
+    conn = InvestmentDB(tmp_path / "alerts.db")
+    await conn.command(
+        "INSERT INTO user_profile (user_id, currency, benchmark, max_drawdown_pct, "
+        "max_single_asset_pct, phase, created_at, updated_at) VALUES ('u', 'CHF', 'b', -25.0, "
+        "50.0, 'accumulation', '2026-01-01', '2026-01-01')"
+    )
+    yield conn
+    await conn.close()
+
+
+async def _stack_nav(db: InvestmentDB, drawdown: float, ts: date = TODAY) -> None:
+    """One `portfolio_nav` row for the stack — the alert reads the LATEST
+    non-NULL `drawdown`, nothing else."""
+    await db.append_ts_batch(
+        "portfolio_nav",
+        [
+            {
+                "portfolio_id": STACK_PORTFOLIO_ID,
+                "currency": "USD",
+                "ts": ts.isoformat(),
+                "nav": 100.0,
+                "drawdown": drawdown,
+            }
+        ],
+    )
+
+
+async def _prices(db: InvestmentDB, latest: date, tickers: tuple[str, ...] = STACK_TICKERS) -> None:
+    await db.append_ts_batch(
+        "market_data",
+        [
+            {
+                "ts": latest.isoformat(),
+                "ticker": ticker,
+                "asset_class": "equities",
+                "currency": "USD",
+                "level": 100.0,
+            }
+            for ticker in tickers
+        ],
+    )
+
+
+async def _decision_event(db: InvestmentDB, event_date: date) -> None:
+    async with db.transaction():
+        await db.append_event(
+            type="MarketSignalDecisionEvent",
+            source_uc="UC8",
+            source_id=None,
+            payload={"decision_date": event_date.isoformat()},
+            event_date=event_date,
+        )
+
+
+# -- drawdown ---------------------------------------------------------------
+
+
+async def test_drawdown_inside_the_rule_says_nothing(db: InvestmentDB) -> None:
+    await _stack_nav(db, -0.238)  # the pinned -23.8%, inside the -25% rule
+    assert await A.stack_drawdown_alert(db) is None
+
+
+async def test_drawdown_past_the_rule_is_critical_and_names_the_measure(
+    db: InvestmentDB,
+) -> None:
+    await _stack_nav(db, -0.312)
+    alert = await A.stack_drawdown_alert(db)
+    assert alert is not None
+    assert alert.level == "critical" and alert.code == "stack_drawdown"
+    # The message must describe what `rolling_max_drawdown` actually is — the
+    # DEEPEST drawdown inside the trailing 756 days, not today's distance from a
+    # high — and must not claim to speak about the owner's account.
+    assert "-31.2%" in alert.message
+    assert "deepest drawdown over the last 36 months" in alert.message
+    assert "PAPER" in alert.message
+    # ADR-009's whole point: it tells, it never blocks.
+    assert "Nothing has been blocked" in alert.message
+
+
+async def test_drawdown_alert_is_silent_before_the_stack_has_a_nav(db: InvestmentDB) -> None:
+    """Nothing to say is not the same as "inside the limit" — and printing 0%
+    would read as health."""
+    assert await A.stack_drawdown_alert(db) is None
+
+
+async def test_drawdown_alert_needs_a_user_profile(db: InvestmentDB) -> None:
+    await db.command("DELETE FROM user_profile")
+    await _stack_nav(db, -0.90)
+    assert await A.stack_drawdown_alert(db) is None
+
+
+# -- market-data freshness --------------------------------------------------
+
+
+async def test_fresh_prices_say_nothing(db: InvestmentDB) -> None:
+    await _prices(db, TODAY - timedelta(days=3))
+    assert await A.market_data_freshness_alert(db, TODAY) is None
+
+
+async def test_stale_prices_are_critical(db: InvestmentDB) -> None:
+    await _prices(db, TODAY - timedelta(days=20))
+    alert = await A.market_data_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.code == "market_data_stale" and alert.level == "critical"
+    assert "20 days ago" in alert.message
+
+
+async def test_the_oldest_sleeve_binds_not_the_newest(db: InvestmentDB) -> None:
+    """THE failure this check exists for: a table-wide `MAX(ts)` reads fresh off
+    any one series still updating while the feed the 200d overlay depends on is
+    dead. Four fresh sleeves must not hide one stale one."""
+    await _prices(db, TODAY, tickers=("SPY", "IWN", "GLD", "VCIT"))
+    await _prices(db, TODAY - timedelta(days=30), tickers=("IEF",))
+    alert = await A.market_data_freshness_alert(db, TODAY)
+    assert alert is not None and alert.code == "market_data_stale"
+
+
+async def test_macro_series_lagging_by_design_do_not_trip_the_alert(db: InvestmentDB) -> None:
+    """CPI and friends publish monthly; the check is scoped to the stack's own
+    price sleeves precisely so their lag is not read as a dead feed."""
+    await _prices(db, TODAY)
+    await _prices(db, TODAY - timedelta(days=60), tickers=("CPIAUCSL",))
+    assert await A.market_data_freshness_alert(db, TODAY) is None
+
+
+async def test_a_sleeve_with_no_data_at_all_is_reported(db: InvestmentDB) -> None:
+    """A sleeve with ZERO rows produces no GROUP BY row, so it is invisible to a
+    `min` over what came back — the worst case reading as the healthiest."""
+    await _prices(db, TODAY, tickers=("SPY", "IWN", "GLD", "VCIT"))
+    alert = await A.market_data_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.code == "market_data_missing" and alert.level == "critical"
+    assert "IEF" in alert.message
+
+
+async def test_an_empty_market_data_table_is_reported_not_ignored(db: InvestmentDB) -> None:
+    alert = await A.market_data_freshness_alert(db, TODAY)
+    assert alert is not None and alert.code == "market_data_missing"
+
+
+# -- decision freshness -----------------------------------------------------
+
+
+async def test_a_decision_within_the_month_says_nothing(db: InvestmentDB) -> None:
+    await _decision_event(db, TODAY - timedelta(days=20))
+    assert await A.decision_freshness_alert(db, TODAY) is None
+
+
+async def test_a_missed_monthly_anchor_warns(db: InvestmentDB) -> None:
+    await _decision_event(db, TODAY - timedelta(days=70))
+    alert = await A.decision_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.code == "decision_stale" and alert.level == "warn"
+    assert "70 days" in alert.message
+
+
+async def test_the_threshold_is_shorter_than_two_cadences(db: InvestmentDB) -> None:
+    """An alarm that takes longer to fire than the cycle it watches can never
+    warn in time: one missed anchor must trip it, a normal month must not."""
+    assert 31 < A.DECISION_STALE_DAYS < 62
+
+
+async def test_no_decision_yet_is_not_an_alert(db: InvestmentDB) -> None:
+    assert await A.decision_freshness_alert(db, TODAY) is None
+
+
+# -- collection -------------------------------------------------------------
+
+
+async def test_collect_orders_critical_before_warn(db: InvestmentDB) -> None:
+    await _stack_nav(db, -0.40)
+    await _prices(db, TODAY - timedelta(days=20))
+    await _decision_event(db, TODAY - timedelta(days=70))
+    found = await A.collect_alerts(db, TODAY)
+    assert [a.code for a in found] == ["stack_drawdown", "market_data_stale", "decision_stale"]
+    assert [a.level for a in found] == ["critical", "critical", "warn"]
+
+
+async def test_a_healthy_db_collects_nothing(db: InvestmentDB) -> None:
+    await _stack_nav(db, -0.10)
+    await _prices(db, TODAY - timedelta(days=1))
+    await _decision_event(db, TODAY - timedelta(days=5))
+    assert await A.collect_alerts(db, TODAY) == []
