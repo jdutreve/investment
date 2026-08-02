@@ -186,6 +186,16 @@ mechanically in Writeback, plus a 4-week anti-repetition cooldown. Those govern
 the RANKING/BRIDGE paths; the market-signal path's much smaller gate set and the
 reasons for each exclusion are ADR-009. Gate details: docs/USE_CASES.md UC8.
 
+**Mechanical allocation is SOVEREIGN (ADR-011)** — the Worker READS the
+market-signal decision and contributes a qualitative reading; it may not cancel
+it, delay it, re-pick the book, or adjust its weights. Enforced as gate 0 of
+`dispose_reallocation` (refuses `mechanical_allocation` on any
+`TIME_VARYING_PORTFOLIOS` target, before any merit gate), not by prompt alone.
+A disagreement with the RULE rather than with the month goes through
+`innovations_proposed` (`strategy_revision`), where ADR-006's maturation
+measures it. The retained bridge's defender stays cognitive — it is the
+benchmark, deliberately.
+
 **Mechanical calculations** — Sharpe/Sortino/Calmar in numpy/pandas, no LLM;
 rolling window 756 trading days; cumulative `return_3m/6m/1y/3y/5y` on
 calendar windows; all formulas pinned in docs/DATA_MODELS.md "Calculation

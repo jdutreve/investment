@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from investment.db.seed_data import TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical import market_signal
 from investment.mechanical.gates import cited_invariant_eligible
 from investment.worker.result import ReallocationProposal
 from investment.writeback import writeback as W
@@ -336,3 +338,75 @@ async def test_dispose_blocks_on_gate6_ineligible_citation(db: InvestmentDB) -> 
     assert outcome.failed_gate == "gate6_cited_invariant_eligibility"
     assert pid is None
     assert await db.query("SELECT id FROM proposal") == []
+
+
+# -- gate 0: mechanical sovereignty (ADR-011) --------------------------------
+
+
+async def test_gate0_refuses_a_reallocation_aimed_at_a_mechanical_portfolio(
+    db: InvestmentDB,
+) -> None:
+    """ADR-011. The Worker's reallocation lever lands on whatever carries the
+    `defender` flag, and until this gate the separation from the adopted
+    market-signal stack held only because `ms-stack.defender` happens to be
+    False — a data flag, checked by nothing. Retiring the bridge
+    (docs/V1_STRATEGY.md Step 6) is precisely when that flag flips.
+
+    The proposal used here is otherwise IMPECCABLE: it would pass every cap,
+    the turnover ceiling, the min-change floor and gate 6. Only its target is
+    wrong, and that alone must refuse it."""
+    current = {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0}
+    realloc = _realloc({"SPY": 40.0, "IWN": 35.0, "GLD": 25.0}, ["inv-ok"])
+    outcome, pid = await W.dispose_reallocation(
+        db,
+        realloc,
+        market_signal.STACK_PORTFOLIO_ID,
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+    )
+    assert outcome.passed is False
+    assert outcome.failed_gate == "mechanical_allocation"
+    assert pid is None
+    # Nothing persisted — not even the EventLog, since gate 0 precedes commit.
+    assert await db.query("SELECT id FROM proposal") == []
+    assert await db.query("SELECT id FROM event_log WHERE type='ProposalEvent'") == []
+
+
+async def test_gate0_runs_before_the_merit_gates(db: InvestmentDB) -> None:
+    """Jurisdiction, not merit: a proposal that ALSO breaches a cap must be
+    refused for the reason that actually disqualifies it, or the digest would
+    report a fixable cap problem and hide the fact that the Worker aimed at
+    something it may never touch."""
+    realloc = _realloc({"SPY": 90.0, "GLD": 10.0}, ["inv-ok"])  # 90 breaches the 50 cap
+    outcome, _ = await W.dispose_reallocation(
+        db,
+        realloc,
+        market_signal.STACK_PORTFOLIO_ID,
+        {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+    )
+    assert outcome.failed_gate == "mechanical_allocation"
+
+
+async def test_gate0_leaves_the_cognitive_bridge_defender_alone(db: InvestmentDB) -> None:
+    """The retained bridge stays the Worker's, deliberately (ADR-011): it is the
+    benchmark the adopted strategy is measured against, and a benchmark the
+    Worker cannot influence is a different experiment."""
+    assert "def-pf" not in TIME_VARYING_PORTFOLIOS
+    outcome, pid = await W.dispose_reallocation(
+        db,
+        _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"]),
+        "def-pf",
+        {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0},
+        USER,
+        THRESHOLDS,
+        "stag",
+        {"regime": "stag"},
+    )
+    assert outcome.passed is True and pid is not None

@@ -183,10 +183,21 @@ regime/book decision (qualitative reading of the credit-spread/slope state).
 (`market_signal_cycle.py`, 08:55, before UC8) and its full record — signal
 values vs their trailing medians, the dates each input became knowable, the
 hysteresis position, the sleeves below their 200d MA — is passed into the
-Planner baseline and rendered into the Worker's context. The Worker reads and
-challenges that reading; it does not re-pick the book, because letting an LLM
-alter a mechanically-validated allocation is exactly the drift
-`mechanical/market_signal.py` exists to prevent.
+Planner baseline and rendered into the Worker's context.
+
+**"Nuances" is defined by ADR-011, and it is narrower than the word suggests.**
+The mechanical allocation is SOVEREIGN: the Worker can neither cancel it (no
+data path exists back into the cycle), nor delay it, nor adjust its weights
+(gate 0 of `dispose_reallocation` refuses any cognitive reallocation aimed at a
+`TIME_VARYING_PORTFOLIOS` row — until 2026-08-02 that separation held only
+because `ms-stack.defender` happens to be False, which **this Step 6 was
+scheduled to flip**). What the Worker contributes is the qualitative reading —
+where the decision looks wrong, what the signal cannot see, which lighthouses
+argue against it — journalled and rendered, never applied. A disagreement with
+the INSTRUMENT rather than with the month goes through `innovations_proposed`
+(`strategy_revision`), the audited channel that matures mechanically under
+ADR-006. Letting an LLM alter a mechanically-validated allocation is exactly
+the drift `mechanical/market_signal.py` exists to prevent.
 
 **Step 5 — M8b agentic replay** (best-case screen), same harness.
 
@@ -194,7 +205,13 @@ alter a mechanically-validated allocation is exactly the drift
 forward evidence over ~6-18 months, each proposal scored at +12w. The +2.5
 edge either reproduces on unseen data or it was in-sample. Only here does the
 stack stop being a hypothesis. This is also when the old-design bridge can be
-retired, if the forward evidence holds.
+retired, if the forward evidence holds. **Two things must be done in that same
+commit** (both recorded when they were found, so they cannot be rediscovered
+late): give the stack its own trading calendar — today it borrows the bridge
+defender's NAV index, so the adopted strategy cannot run without the bridge —
+and re-validate the pinned pair. Making the stack the defender is safe on the
+allocation side: ADR-011's gate 0 keys on `TIME_VARYING_PORTFOLIOS`, not on the
+defender flag.
 
 **Step 7 — V2 auto-execution**, only after forward validation earns it.
 

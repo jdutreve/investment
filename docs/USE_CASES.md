@@ -495,6 +495,16 @@ The Worker may propose adjusting the DEFENDER's own allocation via
 delta blend `0.4 × scenario_delta + 0.6 × favors_delta` (tactical scenario
 target vs structural FAVORS anchor), citing supporting invariants.
 Writeback validates mechanically:
+0. **(ADR-011) the target is not a mechanically-allocated portfolio.** Refused
+   as `mechanical_allocation` when the defender is in
+   `TIME_VARYING_PORTFOLIOS` — the market-signal stack's allocation is produced
+   by `market_signal_cycle.py` and is SOVEREIGN; the Worker reads it and may
+   not re-pick its book or move its weights. Runs FIRST, before every gate
+   below, because it is about jurisdiction rather than merit: such a proposal
+   must be refused for that reason, not for whichever cap it also breached.
+   Disagreement with the RULE (not with the month) goes through
+   `innovations_proposed` / `strategy_revision`, where ADR-006's maturation
+   measures it. The retained bridge's defender stays cognitive by design.
 1. `proposed_allocation` sums to 100 (±0.1);
 2. binding concentration caps pass on the proposed allocation;
 3. max per-asset change ≥ `proposal_min_allocation_change_pts` (5.0);

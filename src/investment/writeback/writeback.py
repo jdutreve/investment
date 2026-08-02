@@ -17,6 +17,14 @@ allocation decision: the mechanical stack proposes (mechanical/market_signal.py
 `walk_decisions`), the binding caps dispose, and the decision is journalled
 whether or not it moves money.
 
+THE TWO DISPOSITIONS DO NOT OVERLAP, and gate 0 of `dispose_reallocation` is
+what makes that structural rather than incidental (docs/DECISIONS.md ADR-011):
+the mechanical allocation is SOVEREIGN, so a cognitive reallocation aimed at a
+`TIME_VARYING_PORTFOLIOS` row is refused before any merit gate runs. The Worker
+reads the mechanical decision, challenges it in prose, and routes a real
+disagreement through `innovations_proposed` — the audited channel that already
+matures mechanically under ADR-006 — never through the allocation itself.
+
 The UC8-A SWITCH disposition is deliberately absent: ADR-007 superseded the
 ranked defender/challenger duel, so no live cycle emits a switch. `switch_gates`
 (mechanical/gates.py) stays, because the retained-bridge replay still runs it.
@@ -31,6 +39,7 @@ from typing import Any
 from ulid import ULID
 
 from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
+from investment.db.seed_data import TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import (
     ALLOCATION_SUM_TOLERANCE,
@@ -330,8 +339,26 @@ async def dispose_reallocation(
 
     Order: the PURE gates run before the two DB-backed ones (cooldown, gate 6),
     so a malformed proposal costs no query. That ordering only decides WHICH gate
-    name the digest reports when several would refuse."""
+    name the digest reports when several would refuse — except gate 0, which
+    runs FIRST because it is about jurisdiction, not merit: a proposal aimed at
+    a mechanically-allocated portfolio must be refused for THAT reason, not for
+    whichever cap it also happened to breach."""
     today = today or date.today()
+    # GATE 0 — mechanical sovereignty (docs/DECISIONS.md ADR-011). A portfolio
+    # whose allocation is produced by a mechanical decision path does not take
+    # cognitive reallocations, full stop.
+    #
+    # WHY THIS IS A GATE AND NOT A PROMPT LINE. Until now the separation held by
+    # accident: the Worker's reallocation is applied to whatever carries the
+    # `defender` flag, and `ms-stack` happens to be seeded `defender: False`.
+    # Nothing checked WHICH portfolio — the caps, turnover and citation gates
+    # all look at the allocation and never at its owner. So a single flag flip
+    # would have let the 0.4/0.6 blend overwrite the adopted allocation and
+    # persist it as a `Proposal(reallocation)` with every gate green. That flip
+    # is not hypothetical: retiring the bridge (docs/V1_STRATEGY.md Step 6) is
+    # exactly the moment someone makes the stack the defender.
+    if defender_id in TIME_VARYING_PORTFOLIOS:
+        return GateOutcome.refused("mechanical_allocation"), None
     caps = effective_caps(user_profile, portfolio)
     thr = proposal_thresholds(thresholds)
     allowed = await _allowed_reallocation_tickers(db)

@@ -757,3 +757,79 @@ NOT close execution risk — the backtest assumes every monthly order fills at t
 close on the decision date, and the stack's concentration means a single order
 can be a large fraction of the book. Slippage is not modelled anywhere, and
 forward paper-mode (V1_STRATEGY Step 6) is where it will show up, if it does.
+
+---
+
+## ADR-011 — The mechanical allocation is sovereign; the Worker reads it
+
+**Status:** accepted 2026-08-02 (owner decision).
+
+**Context.** ADR-007 makes the book a MECHANICAL readout: a market-priced
+credit-spread/slope signal, hysteresis, a 200d overlay, all validated over 35
+years. docs/V1_STRATEGY.md Step 4 says the Worker "nuances the monthly
+regime/book decision". Those two sentences were never reconciled, and "nuance"
+was never defined. Three questions had no written answer: may the Worker
+CANCEL a mechanical decision, DELAY it, or ADJUST its weights?
+
+Reading the code back gave two of the three answers already, and exposed why
+the third was only accidentally right.
+
+- **Cancel and delay: structurally impossible, and this is worth keeping.**
+  `market_signal_cycle` runs mechanically and reads no `WorkerResult`; there is
+  no data path from UC8 back into it. The decision is journalled before the
+  cognitive chain even starts.
+- **Adjust: prevented by a data flag, not by a rule.** The Worker's only
+  allocation lever is `reallocation_proposed`, and `decision_cycle` applies it
+  to whichever portfolio carries the `defender` flag. `ms-stack` is seeded
+  `defender: False`, so today the lever lands on the retained bridge. But no
+  gate looked at WHICH portfolio — caps, turnover and citations all inspect the
+  allocation and never its owner. One flag flip and the 0.4/0.6 blend would
+  have overwritten the adopted allocation, persisted as a
+  `Proposal(reallocation)` with every gate green. **That flip is scheduled**:
+  retiring the bridge (V1_STRATEGY Step 6) is precisely when someone makes the
+  stack the defender.
+
+**Decision.**
+
+1. **A portfolio whose allocation is produced by a mechanical decision path
+   does not accept cognitive reallocations.** Enforced as **gate 0** of
+   `writeback.dispose_reallocation`, refusing `mechanical_allocation` when the
+   target is in `TIME_VARYING_PORTFOLIOS`. It runs FIRST because it is about
+   jurisdiction, not merit: such a proposal must be refused for that reason,
+   not for whichever cap it also happened to breach. In Writeback rather than
+   in `decision_cycle` so every caller is covered — "Worker proposes, Writeback
+   disposes" (CLAUDE.md).
+2. **`TIME_VARYING_PORTFOLIOS` is the scope**, not `framework_id`. The frozenset
+   already means "allocation driven by another mechanism", the 3 static books
+   are unreachable by the Worker anyway (disabled, never defender), and the
+   Step-6 case is covered because the stack stays time-varying whatever its
+   defender flag becomes.
+3. **"Nuance" is defined**: the Worker READS the mechanical decision and
+   contributes a qualitative reading — where it looks wrong, what the signal
+   cannot see, which invariants argue against it. That reading is journalled
+   and rendered. It is not an allocation.
+4. **Disagreement has one audited channel: `innovations_proposed`
+   (`ImprovementType.strategy_revision`).** A Worker that believes the
+   INSTRUMENT is wrong — not this month's reading, but the rule — says so
+   there, where ADR-006's maturation measures the claim over a window before
+   anything is adopted. No fourth `proposal_type` was created: a "derogation"
+   proposal would be a parallel cognitive allocation path, which is the thing
+   this ADR closes. The system prompt states the distinction, and
+   ARCHITECTURE.md's verbatim copy is kept in sync.
+
+**Consequence, stated plainly.** The Worker cannot change what is held. Its
+entire influence on the adopted strategy is prose plus a measured innovation
+channel, and that is the intended trade: ADR-007 bought a 35-year-validated
+signal, and an LLM that could edit its output on a monthly impression would
+give back exactly the guarantee that was bought. The cost is real — if the
+signal is blind to something the Worker sees, the system will hold the wrong
+book for at least one month and possibly a full maturation window. That cost
+is accepted because the alternative is unmeasurable: an override applied once
+on conviction leaves no evidence either way, while an innovation leaves a
+verdict.
+
+**What this does NOT decide.** Whether the bridge's own defender should
+eventually become mechanical too. Today it is the retained cognitive path and
+gate 0 leaves it untouched, by design — it is the benchmark the adopted
+strategy is measured against, and a benchmark the Worker cannot influence is a
+different experiment from the one V1 is running.

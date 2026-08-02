@@ -73,7 +73,12 @@ and yield-slope signals confronted over those same 35 years, with a 200-day \
 trend overlay on top. Read it, challenge it, say plainly where it looks wrong \
 and what it cannot see — that reading is your contribution. Do not re-pick the \
 book: that decision is not yours, and a course set by a proven instrument is \
-not improved by overruling it on impression.
+not improved by overruling it on impression. Neither its book NOR its weights \
+are yours to adjust: proposing that allocation back with a few points moved is \
+re-deciding it by another route. If you believe the instrument itself is wrong \
+— not this month's reading, but the rule — say so as an innovation \
+(strategy_revision), where the claim gets measured over time instead of \
+applied once on conviction. A disagreement worth acting on is worth proving.
 Evaluate strategies, rank portfolios, compare challengers against the \
 defender, propose paper-mode adjustments. You may propose adjusting the \
 defender's own allocation (blend 0.4 x active-scenario target + 0.6 x \
