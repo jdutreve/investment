@@ -1,7 +1,7 @@
 """Health alerts on the live allocation path — what the owner must be TOLD,
 never what the system refuses to do (docs/DECISIONS.md ADR-009).
 
-Three checks, all read-only, all rendered into the Monday digest:
+Four checks, all read-only, all rendered into the Monday digest:
 
 - **drawdown** — the stack's 36M rolling drawdown against
   `user_profile.max_drawdown_pct`. This is the -25% rule of ADR-007, and it is
@@ -13,6 +13,11 @@ Three checks, all read-only, all rendered into the Monday digest:
   the 200d overlay, which re-reads its moving average once per monthly decision;
   if the data pipeline dies, the overlay goes blind while the code keeps
   reporting a perfectly normal month. In 2020 the fall took 25 days.
+- **signal freshness** — `BAA10Y` and `T10Y2Y`, the two series that pick the
+  book. Its own check because the failure differs in kind: a stale signal does
+  not blind the decision, it MISINFORMS it. The forward fill carries the last
+  print, so the stack keeps choosing a book from a spread quoted weeks ago and
+  nothing else in the digest looks wrong.
 - **decision freshness** — no new monthly anchor in over a month. The backstop
   for the case where data flows but the cycle is stuck.
 
@@ -37,11 +42,20 @@ import dataclasses
 from datetime import date
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS
+from investment.mechanical.market_signal import (
+    CREDIT_SPREAD,
+    STACK_PORTFOLIO_ID,
+    STACK_TICKERS,
+    YIELD_SLOPE,
+)
 
 # The weekly chain refreshes market data every Monday, so anything past a week
-# means at least one chain run did not happen or did not fetch.
+# means at least one chain run did not happen or did not fetch. The same figure
+# fits both watched groups: the sleeves are daily exchange prices and the two
+# FRED signals are daily business-day series with a ~1-day publication lag.
 MARKET_DATA_STALE_DAYS = 7
+# The two series that PICK the book (mechanical/market_signal.py).
+SIGNAL_TICKERS: tuple[str, ...] = (CREDIT_SPREAD, YIELD_SLOPE)
 # One monthly anchor missed. Longer than the cadence by design (35 > ~31), so a
 # normal month never trips it, but a skipped month always does.
 DECISION_STALE_DAYS = 35
@@ -100,30 +114,45 @@ async def stack_drawdown_alert(db: InvestmentDB) -> Alert | None:
     )
 
 
-async def market_data_freshness_alert(db: InvestmentDB, today: date | None = None) -> Alert | None:
-    """The newest MarketData row vs today. Silence here is the dangerous state:
-    a dead pipeline leaves the 200d overlay reading stale prices while every
-    other part of the chain reports success."""
-    today = today or date.today()
-    # Scoped to the STACK's own price sleeves, not `MAX(ts)` over the whole
-    # table. The table also holds monthly macro series (CPI, GDP) that lag by
-    # design, and — the failure that matters — a table-wide MAX would read fresh
-    # off any ONE series still updating while the price feed the 200d overlay
-    # depends on was dead. The check must watch what the overlay actually reads.
-    # The OLDEST of the sleeves is the binding one: a stack cannot be valued on
-    # a sleeve it has no price for.
-    placeholders = ",".join(f":t{n}" for n in range(len(STACK_TICKERS)))
+async def _oldest_series(
+    db: InvestmentDB, tickers: tuple[str, ...], today: date
+) -> tuple[list[str], str, int]:
+    """`(tickers with no rows at all, the OLDEST latest-ts among the rest, its
+    age in days)`. The oldest is the binding one in both groups: a stack cannot
+    be valued on a sleeve it has no price for, nor decided on a signal it has no
+    print for. Age is 0 when every ticker is absent (there is nothing to age).
+
+    Never `MAX(ts)` over the whole table: it also holds monthly macro series
+    (CPI, GDP) that lag by design, and — the failure that matters — a table-wide
+    MAX reads fresh off any ONE series still updating while the feed this check
+    exists to watch is dead.
+
+    A ticker with ZERO rows produces no GROUP BY row at all, so it would be
+    invisible to the `min` — the worst case (a feed that never delivered) reading
+    as fresh off its surviving siblings. Hence the absent list, returned
+    separately rather than folded into the age."""
+    placeholders = ",".join(f":t{n}" for n in range(len(tickers)))
     rows = await db.query(
         f"SELECT ticker, MAX(ts) AS latest FROM market_data WHERE ticker IN ({placeholders}) "
         "GROUP BY ticker",
-        **{f"t{n}": t for n, t in enumerate(STACK_TICKERS)},
+        **{f"t{n}": t for n, t in enumerate(tickers)},
     )
-    # A sleeve with ZERO rows produces no GROUP BY row at all, so it is invisible
-    # to the `min` below — the worst case (a feed that never delivered) would
-    # otherwise read as fresh off its four surviving siblings. `run_market_signal`
-    # refuses to run on a missing sleeve, but it raises inside the chain; this is
-    # the alert that says WHY on a Monday morning.
-    absent = sorted(set(STACK_TICKERS) - {str(r["ticker"]) for r in rows})
+    absent = sorted(set(tickers) - {str(r["ticker"]) for r in rows})
+    if not rows:
+        return absent, "", 0
+    latest = min(str(r["latest"]) for r in rows)
+    return absent, latest, (today - date.fromisoformat(latest[:10])).days
+
+
+async def market_data_freshness_alert(db: InvestmentDB, today: date | None = None) -> Alert | None:
+    """The newest MarketData row for the stack's own price SLEEVES vs today.
+    Silence here is the dangerous state: a dead pipeline leaves the 200d overlay
+    reading stale prices while every other part of the chain reports success.
+
+    `run_market_signal` refuses to run on a missing sleeve, but it raises inside
+    the chain; this is the alert that says WHY on a Monday morning."""
+    today = today or date.today()
+    absent, latest, age = await _oldest_series(db, STACK_TICKERS, today)
     if absent:
         return Alert(
             level="critical",
@@ -133,8 +162,6 @@ async def market_data_freshness_alert(db: InvestmentDB, today: date | None = Non
                 "be valued or decided — the monthly cycle will abort until the feed is restored."
             ),
         )
-    latest = min(str(r["latest"]) for r in rows)
-    age = (today - date.fromisoformat(latest[:10])).days
     if age <= MARKET_DATA_STALE_DAYS:
         return None
     return Alert(
@@ -144,6 +171,49 @@ async def market_data_freshness_alert(db: InvestmentDB, today: date | None = Non
             f"Stack price data stops at {latest}, {age} days ago. The 200d trend overlay — the "
             "stack's only downside control — cannot see past that date, and the decision "
             "cycle will keep reporting a normal month while blind."
+        ),
+    )
+
+
+async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) -> Alert | None:
+    """The two series that PICK the book — `BAA10Y` and `T10Y2Y` — vs today.
+
+    A DIFFERENT failure from the sleeves', and the reason this is its own check.
+    A dead price feed blinds the overlay; a dead signal feed does not stop the
+    decision at all — `run_market_signal` forward-fills the last print, so the
+    stack keeps choosing a book from a spread quoted weeks ago and the month
+    looks entirely normal. The decision is uninformed rather than absent, which
+    is the harder failure to notice.
+
+    An ALERT and never a block, twice over: ADR-003 says a stale print IS what
+    was knowable, so acting on it is correct vintage discipline rather than an
+    error, and ADR-009 scopes the live path to telling the owner rather than
+    refusing. The Proposal's `market_context` already records each input's
+    `knowable_at`; this is what puts that age in front of the owner without them
+    having to read a JSON payload. Total ABSENCE is the exception and does not
+    reach here as an alert alone — `run_market_signal` raises on it (it would
+    otherwise default to the 90%-equity book on no signal), and this message is
+    the Monday-morning explanation of that abort."""
+    today = today or date.today()
+    absent, latest, age = await _oldest_series(db, SIGNAL_TICKERS, today)
+    if absent:
+        return Alert(
+            level="critical",
+            code="signal_data_missing",
+            message=(
+                f"No data at all for market signal(s) {', '.join(absent)}. The book cannot be "
+                "chosen — the monthly cycle will abort until the feed is restored."
+            ),
+        )
+    if age <= MARKET_DATA_STALE_DAYS:
+        return None
+    return Alert(
+        level="critical",
+        code="signal_data_stale",
+        message=(
+            f"Market-signal data ({', '.join(SIGNAL_TICKERS)}) stops at {latest}, {age} days ago. "
+            "The monthly decision still runs, on the last print it can see: the book it picks is "
+            "that stale, and nothing else in the digest will look wrong."
         ),
     )
 
@@ -176,6 +246,7 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
     found = [
         await stack_drawdown_alert(db),
         await market_data_freshness_alert(db, today),
+        await signal_freshness_alert(db, today),
         await decision_freshness_alert(db, today),
     ]
     alerts = [a for a in found if a is not None]

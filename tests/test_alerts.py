@@ -166,6 +166,56 @@ async def test_an_empty_market_data_table_is_reported_not_ignored(db: Investment
     assert alert is not None and alert.code == "market_data_missing"
 
 
+# -- signal freshness -------------------------------------------------------
+
+
+async def test_fresh_signals_say_nothing(db: InvestmentDB) -> None:
+    await _prices(db, TODAY - timedelta(days=3), tickers=A.SIGNAL_TICKERS)
+    assert await A.signal_freshness_alert(db, TODAY) is None
+
+
+async def test_stale_signals_are_critical_and_say_the_decision_still_runs(
+    db: InvestmentDB,
+) -> None:
+    """The failure that separates this check from the sleeves': the forward fill
+    carries the last print, so the decision does NOT stop — it picks a book from
+    a spread quoted weeks ago, and the message has to say so or the owner reads
+    a normal-looking month."""
+    await _prices(db, TODAY - timedelta(days=20), tickers=A.SIGNAL_TICKERS)
+    alert = await A.signal_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.code == "signal_data_stale" and alert.level == "critical"
+    assert "20 days ago" in alert.message
+    assert "still runs" in alert.message
+
+
+async def test_the_older_of_the_two_signals_binds(db: InvestmentDB) -> None:
+    await _prices(db, TODAY, tickers=(A.CREDIT_SPREAD,))
+    await _prices(db, TODAY - timedelta(days=30), tickers=(A.YIELD_SLOPE,))
+    alert = await A.signal_freshness_alert(db, TODAY)
+    assert alert is not None and alert.code == "signal_data_stale"
+
+
+async def test_an_absent_signal_is_reported_and_names_itself(db: InvestmentDB) -> None:
+    """`run_market_signal` RAISES on this rather than defaulting to the
+    90%-equity book; the alert is the Monday-morning explanation of that abort."""
+    await _prices(db, TODAY, tickers=(A.CREDIT_SPREAD,))
+    alert = await A.signal_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.code == "signal_data_missing" and alert.level == "critical"
+    assert A.YIELD_SLOPE in alert.message
+
+
+async def test_fresh_sleeves_do_not_vouch_for_the_signals(db: InvestmentDB) -> None:
+    """The two groups are watched separately because they fail separately: a
+    perfectly healthy price feed says nothing about whether the book being
+    chosen is still informed."""
+    await _prices(db, TODAY)
+    await _prices(db, TODAY - timedelta(days=40), tickers=A.SIGNAL_TICKERS)
+    assert await A.market_data_freshness_alert(db, TODAY) is None
+    assert (await A.signal_freshness_alert(db, TODAY)) is not None
+
+
 # -- decision freshness -----------------------------------------------------
 
 
@@ -198,14 +248,21 @@ async def test_no_decision_yet_is_not_an_alert(db: InvestmentDB) -> None:
 async def test_collect_orders_critical_before_warn(db: InvestmentDB) -> None:
     await _stack_nav(db, -0.40)
     await _prices(db, TODAY - timedelta(days=20))
+    await _prices(db, TODAY - timedelta(days=20), tickers=A.SIGNAL_TICKERS)
     await _decision_event(db, TODAY - timedelta(days=70))
     found = await A.collect_alerts(db, TODAY)
-    assert [a.code for a in found] == ["stack_drawdown", "market_data_stale", "decision_stale"]
-    assert [a.level for a in found] == ["critical", "critical", "warn"]
+    assert [a.code for a in found] == [
+        "stack_drawdown",
+        "market_data_stale",
+        "signal_data_stale",
+        "decision_stale",
+    ]
+    assert [a.level for a in found] == ["critical", "critical", "critical", "warn"]
 
 
 async def test_a_healthy_db_collects_nothing(db: InvestmentDB) -> None:
     await _stack_nav(db, -0.10)
     await _prices(db, TODAY - timedelta(days=1))
+    await _prices(db, TODAY - timedelta(days=1), tickers=A.SIGNAL_TICKERS)
     await _decision_event(db, TODAY - timedelta(days=5))
     assert await A.collect_alerts(db, TODAY) == []

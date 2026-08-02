@@ -555,11 +555,21 @@ growth/inflation/slowdown spelling because EventLog is append-only.
 
 **Live wiring: DONE 2026-08-02.** The remaining build — "wire the live monthly
 decision path into UC8/Writeback" — is complete. `market_signal_cycle.py` runs
-the single live transaction end to end (PIT inputs → credit-spread/slope signal
-→ book → 200d overlay → binding caps → EventLog → `Proposal(proposal_type=
-'market-signal')` → digest → +12w outcome), composable as a chain step
-(`tests/test_market_signal_cycle.py` runs it through the real `run_chain`) and
-idempotent on the month's decision date.
+the live monthly decision end to end (PIT inputs → credit-spread/slope signal →
+book → 200d overlay → binding caps → EventLog → `Proposal(proposal_type=
+'market-signal')`, and from there the existing machinery: digest, +12w outcome),
+composable as a chain step (`tests/test_market_signal_cycle.py` runs it through
+the real `run_chain`) and idempotent on the month's decision date.
+
+**What is atomic, precisely** (the earlier wording here claimed the whole
+pipeline was one transaction, which it is not): the DISPOSITION is — journal
+event, proposal event, Proposal vertex and `ms-stack.allocation` all commit
+together in `writeback.dispose_market_signal`. The stack's NAV refresh is
+deliberately OUTSIDE it and runs first, because the NAV is a weekly artefact and
+must move on the ~3 Mondays a month that decide nothing; a disposition that then
+fails leaves the paper NAV a step ahead of the position, which self-heals since
+`persist_stack_nav` rebuilds the whole derived series (INSERT OR REPLACE) on
+every run. The digest and the +12w outcome are separate jobs.
 
 **It is SPECIFIED at 08:55, not yet scheduled there.** `chain.py` is a
 scheduler-agnostic runner over a caller-supplied step list, and nothing
@@ -624,8 +634,8 @@ ADR-009 rather than silently patched.
   the bridge's alone.
 - A sleeve with ZERO price rows was invisible to the freshness check (no GROUP
   BY row to be the `min`), so the worst feed failure read as the healthiest.
-- A re-seed reset `ms-stack.allocation` — which is now HELD STATE, not config —
-  back to the warm-up book. The seeded value is an initial one only.
+- A re-seed reset `ms-stack.allocation` — which is now STATE, not config — back
+  to the warm-up book. The seeded value is an initial one only.
 - `dispose_market_signal` returned `refused("no_change")` on a holding month:
   ~9 months a year reported as a gate refusal. Gates and movement are now
   independent (`emitted` / `blocked`).
@@ -633,6 +643,35 @@ ADR-009 rather than silently patched.
   series (it assumes every monthly target filled at its anchor close — V1
   executes nothing), and the caps bound to the live decision are now the
   stricter of user ∧ `ms-stack` ∧ book, not the book's alone.
+
+**Second coherence pass, 2026-08-02.** One defect, one gap, one homonymy.
+- **An absent `BAA10Y` or `T10Y2Y` decided the book anyway.** `run_market_signal`
+  refused a missing price sleeve but not a missing SIGNAL: the empty series
+  reindexes to all-NaN, `classify_regime` reads that as warm-up, and the stack
+  silently holds `credit-spread-wide` — the 90%-equity book — on no signal at
+  all, indistinguishable from a genuine warm-up (`knowable_at` is None in both).
+  It now raises, symmetric with the sleeve guard. The seed keeps its own
+  pre-check and still SKIPS rather than raises (incremental-seed contract); the
+  live cycle had no pre-check, which is why the guard belongs in the driver.
+- **Stale signals now alert** (`alerts.signal_freshness_alert`, its own check
+  next to the sleeves'). Different failure in kind: a dead price feed BLINDS the
+  overlay, a dead signal feed MISINFORMS the decision — the forward fill carries
+  the last print, so the book is still chosen, from a spread quoted weeks ago,
+  and nothing else in the digest looks wrong. An alert and never a block: ADR-003
+  says a stale print is what was knowable, ADR-009 scopes the live path to
+  telling rather than refusing.
+- **Two things were both called "held".** `ms-stack.allocation` is the BOOK IN
+  FORCE — which book the strategy is in, never empty, read by the snapshot and
+  the ranking, consistent with a paper NAV that runs from 1991. The
+  market-signal Proposal chain is the OWNER POSITION — empty until the opening
+  entry, because V1 executes nothing and the owner holds what the digest told
+  them to buy. Before the first proposal they legitimately disagree; from it
+  onward they are written in one transaction and must match (pinned by a test).
+  No behaviour changed — `held_allocation` was already reading the right one —
+  but three comments claimed the decision reads the portfolio row, which it must
+  never do: on a fresh DB whose target equals the seeded warm-up book, that
+  reading emits no proposal and the opening order, the entire deliverable of a
+  paper-mode V1, never reaches the digest.
 
 ---
 

@@ -2,13 +2,23 @@
 (docs/V1_STRATEGY.md; docs/MILESTONES.md M6-bis "Remaining build: wire the live
 monthly decision path").
 
-One transaction, end to end:
+The monthly decision, end to end:
 
     PIT inputs -> credit-spread/slope signal -> target book -> 200d overlay
     -> binding caps -> EventLog -> Proposal(proposal_type='market-signal')
 
 and from there the existing machinery takes over unchanged: the digest renders
 the proposal, `outcomes.evaluate_proposals` scores it at +12w.
+
+WHAT IS AND IS NOT ATOMIC, stated because the arrow chain above invites the
+wrong reading. The DISPOSITION — journal event, proposal event, Proposal vertex,
+`ms-stack.allocation` — is one transaction, in `writeback.dispose_market_signal`.
+The NAV refresh below it is NOT in that transaction and deliberately runs before
+it (see `run_market_signal_cycle` on why it must happen on non-deciding Mondays
+too), so a disposition that then fails leaves the paper NAV a step ahead of the
+position. That self-heals: the NAV is wholly DERIVED from market data and the
+pure walk, and `persist_stack_nav` rebuilds it in full (INSERT OR REPLACE) on
+every run. The digest and the +12w outcome are separate jobs entirely.
 
 WHY THIS IS ITS OWN CYCLE, NOT PART OF UC8. UC8 is the cognitive chain (Planner
 -> Worker -> Planner -> Writeback); its output is a JUDGEMENT. The market-signal
@@ -142,15 +152,28 @@ async def last_decision_date(db: InvestmentDB) -> str | None:
 
 
 async def held_allocation(db: InvestmentDB) -> dict[str, float]:
-    """What the stack holds coming into this decision: the allocation of the
-    last market-signal Proposal actually EMITTED.
+    """The OWNER'S POSITION coming into this decision: the allocation of the last
+    market-signal Proposal actually EMITTED.
 
-    Not the book Portfolio's static `allocation` row, which is the BASE book
-    before the 200d overlay (db/seed_data.py says so explicitly) — holding SPY
-    50 when the overlay redirected that sleeve into IEF would misreport the
-    position and, downstream, misprice the incumbent leg of the +12w verdict.
-    Empty before the first proposal: the stack holds nothing yet, so the first
-    decision proposes the initial entry."""
+    One of TWO things the codebase calls "held", and the distinction decides
+    which one this function may read. `portfolio.allocation` on `ms-stack` is the
+    BOOK IN FORCE — which book the strategy is in, never empty, read by the
+    snapshot and the ranking. This is the other one: what the owner was actually
+    told to buy. V1 executes nothing (ADR-006), so before the opening entry the
+    owner holds NOTHING while the strategy has been in a book since 1991, and the
+    two legitimately disagree. Reading the row here would compare the target to a
+    position nobody has — and on a fresh DB whose target equals the seeded
+    warm-up book, it would emit no proposal at all and the opening order, the
+    entire deliverable of a paper-mode V1, would never reach the digest.
+
+    Nor the BOOK Portfolios' `allocation` rows, for a third reason: those are the
+    base books before the 200d overlay (db/seed_data.py says so explicitly), so
+    holding SPY 50 when the overlay redirected that sleeve into IEF would
+    misprice the incumbent leg of the +12w verdict.
+
+    Empty result = the opening entry, a case `outcomes._incumbent_allocation`
+    handles deliberately (scored against the best-ranked portfolio at that
+    date)."""
     rows = await db.query(
         "SELECT proposed_allocation FROM proposal WHERE proposal_type = 'market-signal' "
         "ORDER BY date DESC, created_at DESC LIMIT 1"

@@ -1642,14 +1642,27 @@ PORTFOLIOS: list[dict[str, object]] = [
         # ranking, in the digest, and under the -25% drawdown rule.
         #
         # `allocation` is NOT a fixed target, unlike every other row here: it is
-        # STATE. It carries the book CURRENTLY in force and is rewritten at each
-        # monthly decision that emits a proposal, inside
-        # `writeback.dispose_market_signal`'s transaction. The value below is
-        # therefore only the INITIAL one — `seed._seed_portfolios` keeps it on
-        # first insert and never writes it over an existing row, or a re-seed
-        # would reset the live held position. Seeded to the credit-spread-wide
-        # book because that is `classify_regime`'s documented warm-up default,
-        # i.e. what the stack holds before 10y of signal history exists.
+        # STATE — the BOOK IN FORCE, i.e. which book the strategy is in. It is
+        # rewritten at each monthly decision that emits a proposal, inside
+        # `writeback.dispose_market_signal`'s transaction, and it is what
+        # `snapshots.py` and the ranking read.
+        #
+        # NOT the same thing as the OWNER'S POSITION, and the two must not be
+        # conflated: what the owner actually holds is the last emitted
+        # market-signal Proposal, which is EMPTY until the opening entry (V1
+        # executes nothing — the owner holds what the digest told them to buy).
+        # `market_signal_cycle.held_allocation` therefore reads the proposal
+        # chain and never this column; reading this one would compare the target
+        # against a position nobody has and could suppress the opening order
+        # entirely. The two agree from the first emitted proposal onward
+        # (same transaction) and legitimately disagree before it.
+        #
+        # The value below is therefore only the INITIAL book in force —
+        # `seed._seed_portfolios` keeps it on first insert and never writes it
+        # over an existing row, or a re-seed would reset the live one. It is the
+        # credit-spread-wide book because that is `classify_regime`'s documented
+        # warm-up default, i.e. the book the strategy is in before 10y of signal
+        # history exists.
         # Its NAV is likewise built by a different
         # producer (`shadow_book_nav`, a change-point map) — `synthesize_nav`'s
         # constant weights cannot express a strategy that rotates.

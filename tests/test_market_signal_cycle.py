@@ -293,6 +293,23 @@ def test_turnover_and_min_change_do_not_bind_a_book_switch() -> None:
     assert W.market_signal_gates(dict(steep), caps, frozenset(MS.STACK_TICKERS)).passed
 
 
+@pytest.mark.parametrize("absent", [MS.CREDIT_SPREAD, MS.YIELD_SLOPE])
+async def test_an_absent_signal_series_refuses_the_run_instead_of_defaulting(
+    db: InvestmentDB, absent: str
+) -> None:
+    """The silent failure the sleeve guard already covers, on the two inputs that
+    PICK the book. With no `BAA10Y` rows the median is NaN, `classify_regime`
+    treats that as warm-up and answers `credit-spread-wide` — the 90%-equity book
+    — so a dead FRED feed would have quietly allocated the most aggressive book
+    on no signal at all, and `knowable_at: None` reads identically to a genuine
+    warm-up. The live cycle has no pre-check of its own (the seed's
+    `_missing_stack_series` does not run there), so the refusal belongs here."""
+    await _market(db, spread=1.0, slope=2.0)
+    await db.command("DELETE FROM market_data WHERE ticker = :t", t=absent)
+    with pytest.raises(ValueError, match=f"missing signal series.*{absent}"):
+        await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+
+
 # -- the live transaction ----------------------------------------------------
 
 
@@ -322,6 +339,48 @@ async def test_first_decision_emits_a_market_signal_proposal_eventlog_first(
     types = [e["type"] for e in events]
     assert types == [W.MARKET_SIGNAL_EVENT, W.PROPOSAL_EVENT]
     assert events[-1]["source_id"] == proposal["id"]
+
+
+async def test_the_stack_row_tracks_the_last_emitted_proposal(db: InvestmentDB) -> None:
+    """The two notions that both used to be called "held", pinned so they cannot
+    silently collapse into one.
+
+    `portfolio.allocation` on `ms-stack` is the BOOK IN FORCE — what the strategy
+    is in. `snapshots.py` and the ranking read it, and the paper NAV models the
+    stack as continuously invested since 1991, so it is never empty. The
+    market-signal Proposal chain is the OWNER POSITION — empty until the opening
+    entry, because V1 executes nothing and the owner holds what the digest told
+    them to buy. Before the first proposal the two legitimately DISAGREE (the
+    seeded warm-up book against nothing held), which is why the decision reads
+    the proposal chain and not the row. From the first emitted proposal onward
+    they must agree exactly: `dispose_market_signal` writes both inside one
+    transaction."""
+    await db.command(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "(:id, 'S', 'market-signal', 0, 1, 'CHF', 'b', :alloc, -25.0, 50.0, 'accumulation', 't', "
+        "'2026-01-01')",
+        id=MS.STACK_PORTFOLIO_ID,
+        alloc=json.dumps(MS.BOOKS[WIDE]),  # the seeded initial value
+    )
+    await _market(db, spread=1.0, slope=2.0)
+
+    async def stack_row() -> dict[str, float]:
+        rows = await db.query(
+            "SELECT allocation FROM portfolio WHERE id = :i", i=MS.STACK_PORTFOLIO_ID
+        )
+        return {str(k): float(v) for k, v in json.loads(str(rows[0]["allocation"])).items()}
+
+    # Before the opening entry: the row says a book, the decision says nothing
+    # held — and that gap is what makes the opening proposal happen at all.
+    assert await stack_row() == MS.BOOKS[WIDE]
+    assert await MSC.held_allocation(db) == {}
+
+    result = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+    assert result.emitted
+    proposal = (await db.query("SELECT proposed_allocation FROM proposal"))[0]
+    assert await stack_row() == json.loads(str(proposal["proposed_allocation"]))
+    assert await MSC.held_allocation(db) == await stack_row()
 
 
 async def test_proposal_records_the_full_audit_record(db: InvestmentDB) -> None:

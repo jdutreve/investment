@@ -425,6 +425,18 @@ async def run_market_signal(
     # is only auditable if the live path can say WHEN each input became knowable.
     spread_raw = await ratios.load_price(db, CREDIT_SPREAD)
     slope_raw = await ratios.load_price(db, YIELD_SLOPE)
+    absent = [t for t, s in ((CREDIT_SPREAD, spread_raw), (YIELD_SLOPE, slope_raw)) if s.empty]
+    if absent:
+        # The same refusal as the missing sleeve above, for a WORSE failure mode.
+        # An absent signal series reindexes to all-NaN, `classify_regime` reads
+        # that as warm-up, and the stack silently holds `credit-spread-wide` —
+        # the 90%-equity book — on no signal at all. It is not a warm-up: the
+        # decision would be uninformed rather than early, and nothing downstream
+        # could tell the two apart (`knowable_at` is None in both cases).
+        # `seed._missing_stack_series` pre-checks the same two series to SKIP
+        # rather than raise (the incremental-seed contract); the LIVE cycle has
+        # no such pre-check, and this is what stops it deciding blind.
+        raise ValueError(f"market-signal stack missing signal series for {absent}")
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()
     spread_median = spread.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()

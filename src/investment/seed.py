@@ -409,10 +409,12 @@ async def _seed_portfolios(db: InvestmentDB) -> int:
     partial unique index ux_portfolio_defender); + HOLDS + DESIGNED_FOR.
 
     A TIME-VARYING portfolio's `allocation` is STATE, not seed config: for
-    `ms-stack` it records the book currently held, rewritten at each monthly
-    decision by `writeback.dispose_market_signal`. `upsert_vertex` is an
+    `ms-stack` it records the BOOK IN FORCE (which book the strategy is in — not
+    the owner's position, which is the last emitted market-signal Proposal; see
+    db/seed_data.py on the stack row), rewritten at each monthly decision by
+    `writeback.dispose_market_signal`. `upsert_vertex` is an
     ON CONFLICT DO UPDATE over every column it is handed, so seeding it
-    unconditionally reset the live held position to the warm-up book on every
+    unconditionally reset the live book in force to the warm-up book on every
     incremental re-seed (docs/MILESTONES.md treats re-seeding as routine). The
     seeded value is therefore only an INITIAL one — kept on first insert, never
     written over an existing row."""
@@ -443,9 +445,9 @@ async def _seed_portfolios(db: InvestmentDB) -> int:
 
 
 async def _held_allocation(db: InvestmentDB, portfolio_id: str) -> dict[str, float] | None:
-    """A time-varying portfolio's CURRENT allocation, or None if it has never
+    """A time-varying portfolio's CURRENT book in force, or None if it has never
     been seeded. `_seed_portfolios` writes this back so the re-seed preserves
-    live held state instead of resetting it to the initial book."""
+    live state instead of resetting it to the initial book."""
     rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=portfolio_id)
     if not rows:
         return None
