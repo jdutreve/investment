@@ -13,6 +13,8 @@ import json
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.alerts import Alert, collect_alerts
+from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
 # corpus (docs/EXAMPLE.md Step 8A shows a handful).
@@ -29,8 +31,13 @@ def pct(fraction: float | None, *, signed: bool = False) -> str:
 
 
 def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[str]:
+    # `confidence` is one of the documented exceptions to "every other layer
+    # keeps decimal fractions": DATA_MODELS lists it with the `_pct`/`_rule`
+    # fields and pins it 0-100, and `regime.compute_confidence` clamps to that
+    # range. Running it through `pct` double-converted it — the live DB's 64.38
+    # rendered as "6438.1%".
     confidence = regime.get("confidence")
-    conf = pct(confidence) if isinstance(confidence, int | float) else str(confidence)
+    conf = f"{confidence:.1f}%" if isinstance(confidence, int | float) else str(confidence)
     lines = [
         f"📊 Regime: {regime.get('regime_name', '?')} "
         f"({conf} — {regime.get('regime_type_id', '?')})"
@@ -79,9 +86,84 @@ def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _market_signal_block(proposal: dict[str, Any]) -> list[str]:
+    """ADR-007's live monthly decision, rendered from the record the proposal
+    carries (market_signal_cycle `build_market_context`). Shows the two signal
+    comparisons and the overlay reads, not just the resulting book: the owner
+    places these orders by hand and is entitled to see what moved the money.
+    Falls back gracefully on a thin `market_context` — a digest must never be
+    the thing that fails on Monday morning."""
+    context = _json_map(proposal.get("market_context"))
+    signals = context.get("signals") or {}
+    held = context.get("held_allocation") or {}
+    target = _json_map(proposal.get("proposed_allocation"))
+    moves = [
+        f"{t} {held.get(t, 0):g}→{target.get(t, 0):g}"
+        for t in sorted(set(held) | set(target))
+        if held.get(t, 0) != target.get(t, 0)
+    ]
+    lines = [
+        "",
+        f"🧭 Market-signal decision (paper-test) — book "
+        f"{context.get('held_book', proposal.get('defender_id', '?'))}:",
+        "   " + (" | ".join(moves) if moves else "no change"),
+    ]
+    for ticker, read in signals.items():
+        median = read.get("trailing_median")
+        lines.append(
+            f"   {ticker} {_g(read.get('value'))} vs 10y median {_g(median)}"
+            f" (knowable {read.get('knowable_at', '?')})"
+        )
+    overlay = context.get("trend_overlay") or {}
+    below = overlay.get("below_trend") or []
+    lines.append(
+        f"   200d overlay: {', '.join(below)} below trend" if below else "   200d overlay: clear"
+    )
+    hysteresis = context.get("hysteresis") or {}
+    if hysteresis.get("pending_book"):
+        lines.append(
+            f"   Pending switch to {hysteresis['pending_book']}: "
+            f"{hysteresis.get('pending_count')}/{hysteresis.get('confirm_decisions')} confirmations"
+        )
+    return lines
+
+
+def _stack_block(stack: dict[str, Any] | None) -> list[str]:
+    """The stack's own standing — shown every week, proposal or not. The
+    36-month drawdown here is the number the -25% rule is about (ADR-009); the
+    alert at the top of the digest fires off this same column, so a reader can
+    always see how close it is rather than only hearing when it breaks."""
+    if not stack:
+        return []
+    # Every indicator is formatted defensively, as everywhere else in this file:
+    # `calmar_rolling` is cagr/|max_drawdown| and goes NULL when the window holds
+    # no drawdown at all, and the rolling indicators are NULL for the first rows
+    # of any series. A digest that raises on Monday morning is worse than one
+    # that prints 'n/a'.
+    return [
+        "",
+        f"🧱 Market-signal stack: Sortino {_num(stack.get('sortino_rolling'))} | "
+        f"Calmar {_num(stack.get('calmar_rolling'))} | "
+        f"drawdown 36M {pct(stack.get('drawdown'))}",
+    ]
+
+
+def _num(value: Any) -> str:
+    return f"{value:.2f}" if isinstance(value, int | float) else "n/a"
+
+
+def _g(value: Any) -> str:
+    """A signal level for the digest. These are rates in percent points (a
+    BAA10Y of 2.14 means 2.14 points), NOT the decimal fractions `pct` converts
+    — passing them through `pct` would print a credit spread of 214%."""
+    return "n/a" if not isinstance(value, int | float) else f"{value:.2f}"
+
+
 def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
     if proposal is None:
         return ["", "🟢 No proposal this week — maintain."]
+    if proposal.get("proposal_type") == "market-signal":
+        return [*_market_signal_block(proposal), f"   Why: {proposal.get('reasoning', '')}"]
     if proposal.get("proposal_type") == "reallocation":
         current = proposal.get("current_allocation", {})
         proposed = proposal.get("proposed_allocation", {})
@@ -103,6 +185,17 @@ def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
         ]
     lines.append(f"   Why: {proposal.get('reasoning', '')}")
     return lines
+
+
+def _alert_block(alerts: list[Alert]) -> list[str]:
+    """Health alerts FIRST in the digest, before the regime header — the two
+    freshness alarms mean the numbers below them may be describing a world that
+    no longer exists, so they cannot sit at the bottom where a skimmed digest
+    would miss them (mechanical/alerts.py)."""
+    if not alerts:
+        return []
+    icon = {"critical": "🚨", "warn": "⚠️"}
+    return [f"{icon.get(a.level, '⚠️')} {a.message}" for a in alerts] + [""]
 
 
 def _scoreboard_block(scoreboard: dict[str, Any]) -> list[str]:
@@ -153,15 +246,19 @@ def render_digest(
     proposal: dict[str, Any] | None,
     scoreboard: dict[str, Any],
     defender_metrics: dict[str, Any] | None = None,
+    alerts: list[Alert] | None = None,
+    stack: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
     fractions."""
     blocks = [
+        _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
         _ranking_block(ranking),
         _invariant_block(invariants),
         _proposal_block(proposal),
+        _stack_block(stack),
         _scoreboard_block(scoreboard),
         _defender_block(defender_metrics),
     ]
@@ -274,4 +371,17 @@ async def build_digest(db: InvestmentDB) -> str:
         proposal=await _latest_proposal(db, [dict(r) for r in ranking]),
         scoreboard=await build_scoreboard(db),
         defender_metrics=dict(defender) if defender else None,
+        alerts=await collect_alerts(db),
+        stack=await _stack_standing(db),
     )
+
+
+async def _stack_standing(db: InvestmentDB) -> dict[str, Any] | None:
+    """The stack's latest NAV row. `None` before its NAV is backfilled — then
+    the block is simply absent rather than printing zeros."""
+    rows = await db.query(
+        "SELECT sortino_rolling, calmar_rolling, drawdown FROM portfolio_nav "
+        "WHERE portfolio_id = :p AND drawdown IS NOT NULL ORDER BY ts DESC LIMIT 1",
+        p=STACK_PORTFOLIO_ID,
+    )
+    return dict(rows[0]) if rows else None

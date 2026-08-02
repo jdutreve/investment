@@ -1,8 +1,9 @@
-"""Planner mechanical baseline — the 5 fixed context queries, NO LLM
+"""Planner mechanical baseline — the fixed context queries, NO LLM
 (docs/ARCHITECTURE.md "Detailed Planner Steps" → PYTHON Baseline; docs/TASKS.md
-Task 4.1 steps 1-5).
+Task 4.1 steps 1-5, plus ⑥ the live market-signal decision ADR-007 made the
+allocation path).
 
-"No judgment involved, so no LLM" (ARCHITECTURE): these five reads are the same
+"No judgment involved, so no LLM" (ARCHITECTURE): these reads are the same
 every week. Only the VARIABLE margin (Call 1a's corpus queries + zooms) needs a
 model. Splitting the baseline into its own pure-async module — rather than
 inlining it in `pre.py` — mirrors the mechanical/ split (a testable core with a
@@ -48,6 +49,7 @@ class Baseline:
     scenarios: list[dict[str, Any]]  # per (strategy, scenario id + name): prob + wow shift
     top_invariants: list[dict[str, Any]]  # 3 relevance buckets, integrated, ≤20 deduped
     recent_proposals: list[dict[str, Any]]  # last 3, any status
+    market_signal: dict[str, Any]  # latest live market-signal decision (ADR-007); {} if none
 
 
 # -- pure core --------------------------------------------------------------
@@ -182,6 +184,27 @@ async def _recent_proposals(db: InvestmentDB) -> list[dict[str, Any]]:
     return [_parse_json_fields(r, ("proposed_allocation",)) for r in rows]
 
 
+async def _market_signal(db: InvestmentDB) -> dict[str, Any]:
+    """The most recent LIVE market-signal decision (ADR-007), read off its
+    EventLog journal — whose monotonic ULID id is the append order, so
+    `ORDER BY id DESC LIMIT 1` is the latest by construction.
+
+    The journal, not the `proposal` table: most months hold the same book and
+    emit no proposal, and the Worker still needs to know which book is in force
+    and how close the signal is to flipping. `{}` before the first decision."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = 'MarketSignalDecisionEvent' "
+        "ORDER BY id DESC LIMIT 1"
+    )
+    if not rows:
+        return {}
+    with contextlib.suppress(json.JSONDecodeError, ValueError):
+        parsed = json.loads(str(rows[0]["payload"]))
+        if isinstance(parsed, dict):
+            return parsed
+    return {}
+
+
 async def _bucket(db: InvestmentDB, where: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     rows = await db.query(
         f"SELECT {_INVARIANT_COLS} FROM invariant "
@@ -214,15 +237,24 @@ async def _top_invariants(
 
 
 async def gather_baseline(db: InvestmentDB) -> Baseline:
-    """The 5 mechanical baseline queries (docs/ARCHITECTURE.md "Detailed
-    Planner Steps"). The independent reads gather concurrently; bucket ④ then
-    runs against the resolved regime + ranking (see module docstring)."""
-    regime, global_liquidity, ranking, scenarios, recent_proposals = await asyncio.gather(
+    """The mechanical baseline queries (docs/ARCHITECTURE.md "Detailed Planner
+    Steps") — the spec's 5, plus the live market-signal decision ADR-007 made
+    the allocation path. The independent reads gather concurrently; bucket ④
+    then runs against the resolved regime + ranking (see module docstring)."""
+    (
+        regime,
+        global_liquidity,
+        ranking,
+        scenarios,
+        recent_proposals,
+        market_signal,
+    ) = await asyncio.gather(
         _regime(db),
         _global_liquidity(db),
         _ranking(db),
         _scenarios(db),
         _recent_proposals(db),
+        _market_signal(db),
     )
     top_invariants = await _top_invariants(db, regime, ranking)
     return Baseline(
@@ -232,4 +264,5 @@ async def gather_baseline(db: InvestmentDB) -> Baseline:
         scenarios=scenarios,
         top_invariants=top_invariants,
         recent_proposals=recent_proposals,
+        market_signal=market_signal,
     )

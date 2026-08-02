@@ -11,6 +11,7 @@ the overlay and the switch hysteresis at the edges the backtest exercised.
 import pandas as pd
 
 from investment.mechanical import market_signal
+from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import apply_trend_overlay, build_targets, classify_regime
 
 # The book keys are deliberately verbose (ADR-007 third addendum: the Worker is
@@ -154,3 +155,35 @@ def test_trend_overlay_is_not_damped_by_the_hysteresis() -> None:
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0], idx[1]]
     assert targets[idx[1]]["IEF"] == market_signal.BOOKS[WIDE]["SPY"]  # SPY sleeve redirected
+
+
+def test_cap_violations_is_empty_over_a_run_and_names_what_breaks() -> None:
+    """M6-bis's DoV in one assertion: the caps are clean over a whole run.
+
+    This is the BUILD-TIME confrontation, distinct from the live gate — it walks
+    every target the run held, and its drawdown leg is the whole-window figure
+    (live, the rule is a 36-month rolling alert that never blocks — ADR-009)."""
+    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    idx = pd.to_datetime(["2020-01-06", "2020-02-03"])
+    # A risk-off run: both sleeves below trend, so IEF piles to 90 — the
+    # concentration the trend-haven exemption exists for.
+    run = market_signal.MarketSignalRun(
+        nav=pd.Series([100.0, 90.0], index=idx),
+        targets={idx[0]: {"IEF": 90.0, "IWN": 10.0}, idx[1]: dict(market_signal.BOOKS[WIDE])},
+        turnover=1.0,
+    )
+    assert market_signal.cap_violations(run, caps, -0.238) == []
+
+    # An UNMEASURED drawdown passes ("unmeasured is not bad"); a breaching one
+    # is named, as is a non-haven sleeve over the cap.
+    assert market_signal.cap_violations(run, caps, None) == []
+    assert market_signal.cap_violations(run, caps, -0.40) == ["max_drawdown_pct@stack"]
+
+    over = market_signal.MarketSignalRun(
+        nav=pd.Series([100.0], index=idx[:1]),
+        targets={idx[0]: {"SPY": 90.0, "IWN": 10.0}},
+        turnover=0.0,
+    )
+    assert market_signal.cap_violations(over, caps, -0.10) == [
+        f"max_single_asset_pct@{idx[0].date()}"
+    ]

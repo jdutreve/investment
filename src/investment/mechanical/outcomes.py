@@ -41,6 +41,7 @@ from ulid import ULID
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
 from investment.mechanical.invariants import compute_weight_update
+from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 
 CASH = ratios.CASH_TICKER
 OUTCOME_EVENT = "OutcomeEvent"
@@ -150,13 +151,70 @@ async def _window_return(
     if any(p.empty for p in prices.values()):
         return None
     rf = await ratios.load_rf_daily(db)
-    nav = ratios.synthesize_nav(fractions, prices, rf)
+    # `synthesize_nav` needs at least one PRICED sleeve — it builds its calendar
+    # from the price frame and returns empty when there is none. An all-cash
+    # allocation is not unvaluable though: it compounds at rf, which is exactly
+    # what the engine's own cash leg does. Reachable because 'cash' is an
+    # allowed reallocation ticker, so a fully defensive proposal is legal and
+    # must still be scorable rather than skipped forever as "unvaluable".
+    nav = (1.0 + rf).cumprod() if not non_cash else ratios.synthesize_nav(fractions, prices, rf)
     if nav.empty or nav.index.max() < end:
         return None
     v_start, v_end = _asof(nav, start), _asof(nav, end)
     if v_start is None or v_end is None or v_start == 0.0:
         return None
     return v_end / v_start - 1.0
+
+
+async def _incumbent_allocation(db: InvestmentDB, proposal: dict[str, Any]) -> dict[str, float]:
+    """What was HELD when the proposal was made — the leg the proposed
+    allocation must beat.
+
+    Ranking-path proposals read the defender's weekly snapshot. A MARKET-SIGNAL
+    proposal cannot: `defender_id` names the book Portfolio, whose snapshot
+    carries the BASE allocation, while what the stack actually held is that book
+    AFTER the 200d overlay (db/seed_data.py: the overlay "is applied at DECISION
+    time and is NOT reflected in these static rows"). Scoring against the base
+    book would credit or blame the overlay for a position it had already moved
+    out of — measuring a portfolio nobody held. The held allocation is therefore
+    recorded on the proposal itself at commit (market_signal_cycle
+    `build_market_context`) and read back from there.
+
+    The stack's OPENING proposal has no incumbent. Owner decision (2026-08-02):
+    it is scored against the BEST-RANKED portfolio at that date, not against
+    cash. Cash would have been the easier bar and the wrong question — the
+    owner's real alternative to entering the stack was to keep holding the best
+    thing already available, so that is what the stack has to beat. Without any
+    baseline the opening proposal could never be scored and would stay pending
+    forever, which ADR-006 forbids."""
+    if proposal["proposal_type"] != "market-signal":
+        return await _allocation_at(db, str(proposal["defender_id"]), str(proposal["date"]))
+    raw = proposal["market_context"]
+    context = json.loads(raw) if isinstance(raw, str) else (raw or {})
+    held = {str(k): float(v) for k, v in (context.get("held_allocation") or {}).items()}
+    return held or await _best_ranked_allocation(db, str(proposal["date"]))
+
+
+async def _best_ranked_allocation(db: InvestmentDB, as_of: str) -> dict[str, float]:
+    """The rank-1 portfolio's allocation in the latest snapshot at or before
+    `as_of` — the opening market-signal proposal's baseline.
+
+    EXCLUDES the stack itself: once `ms-stack` is ranked alongside the books,
+    it can be rank 1, and scoring the stack's opening move against the stack
+    would compare it to itself and always draw. `{}` when no ranking exists yet,
+    which the caller reports as an unmeasurable proposal rather than inventing
+    a comparison."""
+    rows = await db.query(
+        "SELECT allocation FROM portfolio_weekly_snapshot "
+        "WHERE date = (SELECT MAX(date) FROM portfolio_weekly_snapshot WHERE date <= :d) "
+        "AND portfolio_id != :stack ORDER BY rank ASC LIMIT 1",
+        d=as_of,
+        stack=STACK_PORTFOLIO_ID,
+    )
+    if not rows:
+        return {}
+    parsed = json.loads(str(rows[0]["allocation"]))
+    return {str(k): float(v) for k, v in parsed.items()}
 
 
 async def _proposed_allocation(db: InvestmentDB, proposal: dict[str, Any]) -> dict[str, float]:
@@ -173,19 +231,28 @@ async def _proposed_allocation(db: InvestmentDB, proposal: dict[str, Any]) -> di
 
 async def _cited_invariants(db: InvestmentDB, proposal: dict[str, Any]) -> list[str]:
     """The invariants a Proposal leaned on (docs/ARCHITECTURE.md confrontation
-    rule, FROM PROPOSALS): a reallocation's are the `proposal_cites` relation
-    written at commit; a switch's are the challenger portfolio's BACKED_BY
-    invariants (challenger -> holds -> strategy -> backed_by)."""
+    rule, FROM PROPOSALS): a SWITCH's are the challenger portfolio's BACKED_BY
+    invariants (challenger -> holds -> strategy -> backed_by); every other kind
+    reads the `proposal_cites` relation written at commit.
+
+    The branch is keyed on `proposal_type == 'switch'`, not on `== 'reallocation'`
+    — ADR-008 added a third type, and a market-signal proposal has a NULL
+    `challenger_id`, so the old else-branch would have queried `holds` for
+    `challenger_id IS NULL`, returned nothing, and silently skipped the
+    confrontation instead of reading its (empty) citation set. Same answer today,
+    since a market-signal decision cites nothing (writeback `market_signal_gates`),
+    but for the wrong reason — and the wrong reason is what breaks when a fourth
+    type arrives."""
     pid = str(proposal["id"])
-    if proposal["proposal_type"] == "reallocation":
-        rows = await db.query(
-            "SELECT invariant_id FROM proposal_cites WHERE proposal_id = :id", id=pid
-        )
-    else:
+    if proposal["proposal_type"] == "switch":
         rows = await db.query(
             "SELECT DISTINCT b.invariant_id FROM holds h "
             "JOIN backed_by b ON b.strategy_id = h.strategy_id WHERE h.portfolio_id = :c",
             c=str(proposal["challenger_id"]),
+        )
+    else:
+        rows = await db.query(
+            "SELECT invariant_id FROM proposal_cites WHERE proposal_id = :id", id=pid
         )
     return [str(r["invariant_id"]) for r in rows]
 
@@ -259,7 +326,7 @@ async def _evaluate_one(
         return ProposalOutcome(pid, "", None, None, "outcome window not yet reached")
 
     start, end = pd.Timestamp(start_d), pd.Timestamp(end_d)
-    incumbent_alloc = await _allocation_at(db, str(proposal["defender_id"]), str(proposal["date"]))
+    incumbent_alloc = await _incumbent_allocation(db, proposal)
     proposed_alloc = await _proposed_allocation(db, proposal)
     incumbent_frac, proposed_frac = normalize(incumbent_alloc), normalize(proposed_alloc)
     if not incumbent_frac or not proposed_frac:

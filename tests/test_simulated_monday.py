@@ -1,5 +1,5 @@
 """Simulated Monday end to end (docs/MILESTONES.md M8 Definition of Verified:
-"simulated Monday on fixtures end to end"). Wires the real UC8 cognitive cycle
+"simulated Monday on fixtures end to end"). Wires the real cognitive decision cycle
 and the real digest render through the real chain runner, against a seeded DB
 that stands in for the morning's mechanical jobs (each already tested on its
 own). The LLM roles are driven by PydanticAI TestModel; everything else — gates,
@@ -16,10 +16,10 @@ from pydantic_ai.models.test import TestModel
 
 from investment.chain import run_chain
 from investment.db.sqlite import InvestmentDB
+from investment.decision_cycle import UC8Result, run_decision_cycle
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.telegram.digest import build_digest
-from investment.uc8 import UC8Result, run_decision_cycle
 from investment.worker.agent import build_worker_agent
 
 USER = {"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0}
@@ -61,7 +61,7 @@ async def _seed(db: InvestmentDB) -> None:
     await cmd(
         "INSERT INTO regime (id, regime_type_id, tags, start_date, is_current, events, "
         "confidence, trace, created_at, updated_at) VALUES ('r1', 'stag', '[]', '2026-06-01', 1, "
-        "'[\"CPI up\"]', 0.78, 't', '2026-06-01', '2026-06-01')"
+        "'[\"CPI up\"]', 78.0, 't', '2026-06-01', '2026-06-01')"
     )
     await cmd(
         "INSERT INTO portfolio_weekly_snapshot (date, portfolio_id, defender, framework_id, "
@@ -133,7 +133,7 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
 
     holder: dict[str, Any] = {}
 
-    async def uc8_step() -> None:
+    async def decision_step() -> None:
         holder["cycle"] = await run_decision_cycle(
             db, pre, worker, post, trigger="monday", user_profile=USER, thresholds=THRESHOLDS
         )
@@ -150,12 +150,12 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
         post.agent.override(model=extract),
     ):
         result = await run_chain(
-            db, [("uc8", uc8_step), ("digest", digest_step)], "monday-2026-07-20"
+            db, [("decision-cycle", decision_step), ("digest", digest_step)], "monday-2026-07-20"
         )
 
     # the whole chain completed in order
     assert result.ok is True
-    assert result.completed == ["uc8", "digest"]
+    assert result.completed == ["decision-cycle", "digest"]
 
     # UC8 produced a passing reallocation, persisted EventLog-first
     cycle: UC8Result = holder["cycle"]

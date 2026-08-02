@@ -85,9 +85,18 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   step per new monthly print, NAV, expiry sweep) → 08:05 UC3 event watch →
   08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
   probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
-  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 09:00
-  UC8 decision cycle (Planner Pre → Worker → Planner Post → Writeback gates)
-  → 09:30 digest. Full annotated timeline: docs/USE_CASES.md.
+  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 08:55
+  **market-signal monthly decision** (`market_signal_cycle.py` — ADR-007's LIVE
+  allocation: PIT inputs → credit-spread/slope signal → book → 200d overlay →
+  binding caps → EventLog → `Proposal(proposal_type='market-signal')`; runs on
+  every Monday but is a no-op unless the month's decision date is new, so the
+  monthly cadence needs no separate schedule. It refreshes the stack's
+  `portfolio_nav` on EVERY run, before that monthly check — the NAV is a weekly
+  artefact feeding the ranking and the drawdown alert, only the DECISION is
+  monthly) → 09:00
+  UC8 decision cycle (Planner Pre → Worker → Planner Post → Writeback gates;
+  the Worker READS the market-signal decision as context and nuances it, it
+  never re-picks the book) → 09:30 digest. Full annotated timeline: docs/USE_CASES.md.
 - UC9 (user chat) may trigger one ad-hoc UC8 re-run per day.
 
 ## Stack
@@ -156,13 +165,26 @@ by the ADR-007 addendum for the deliberately concentrated market-signal books) a
 accumulation-horizon market-signal stack; it bounds the STACK's realized drawdown,
 not each book standalone) bind the defender role and ALL proposal candidacy;
 per-portfolio rules may only be STRICTER. Writeback enforces the stricter of
-the two and blocks any violating proposal.
+the two and blocks any violating proposal — **on the ranking/bridge paths.
+ADR-009 scopes the DRAWDOWN leg out of the market-signal path**: it is measured
+there on the stack's 36-month rolling drawdown and raises a digest ALERT,
+because refusing a proposal cannot exit a position, only freeze one — and the
+proposal blocked during a drawdown is the 200d overlay's flight to safety. The
+concentration cap still binds (with the IEF trend-haven exemption).
+
+**Trading costs (ADR-010)** — ONE rate, `ratios.TRADING_COST_BPS` = **23 bps
+per order** (Saxo actual; no FX leg, every portfolio is USD in a USD account),
+charged to EVERY NAV including the benchmark and including the monthly
+drift-rebalance. `system_thresholds.replay_cost_bps` must equal it: a replay
+that validates a strategy and a ranking that compares it have to charge the
+same rate.
 
 **UC8 — Worker proposes, Writeback disposes** — the 5 switch gates and the
 reallocation gates (user caps, min change, turnover cap, cited-invariant
 eligibility incl. condition-ACTIVE-now) are deterministic and run
-mechanically in Writeback, plus a 4-week anti-repetition cooldown. Gate
-details: docs/USE_CASES.md UC8.
+mechanically in Writeback, plus a 4-week anti-repetition cooldown. Those govern
+the RANKING/BRIDGE paths; the market-signal path's much smaller gate set and the
+reasons for each exclusion are ADR-009. Gate details: docs/USE_CASES.md UC8.
 
 **Mechanical calculations** — Sharpe/Sortino/Calmar in numpy/pandas, no LLM;
 rolling window 756 trading days; cumulative `return_3m/6m/1y/3y/5y` on

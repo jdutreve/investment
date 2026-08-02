@@ -421,9 +421,9 @@ REVISION_NOTES.md is not computable without it.
 - Explicit cost assumptions per asset (spread + commission, bps).
 - UC8 gate gains a turnover term: expected gain must exceed switching cost.
 - `system_thresholds`: `cost_bps_default`, `proposal_min_net_gain`.
-- Interim: the Phase 9 shadow replay already applies a flat
-  `replay_cost_bps` (10 bps/side) — this item refines it per asset when
-  the V2 boundary is evaluated.
+- Interim: every NAV in the system already carries a flat
+  `replay_cost_bps` (**23 bps/order** — Saxo actual, ADR-010) — this item
+  refines it per asset when the V2 boundary is evaluated.
 
 ---
 

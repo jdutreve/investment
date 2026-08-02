@@ -40,22 +40,33 @@ sleeve is therefore EXEMPT from the single-asset cap (ADR-007 addendum, choice
 **Cadence: MONTHLY.** No VIX crisis overlay (measured to hurt at monthly
 cadence: 7.57%/-25%).
 
-**Backtest performance** (live DB, 1991-2026, net 20 bps/rotation, vs B =
-risk-parity All Weather):
+**Backtest performance** (live DB, 1991-2026, net of Saxo's real 23 bps per
+order, vs B = risk-parity All Weather — **B is now net of the same cost**,
+ADR-010; it used to be quoted gross):
 
 | | value |
 |---|---|
-| CAGR | 11.26%/yr (+4.0 vs B, both halves of the split independently) |
-| Sortino | 1.11 (B: 0.95) |
+| CAGR | 11.14%/yr (+3.80 vs B, both sides net — both halves of the split independently) |
+| Sortino | 1.09 (B: 0.92) |
 | Max drawdown (daily) | **-23.8%** (breaches the user's -15% rule) |
 | Changes | 2.8/yr |
-| Fee drag | ~1.5 pt/yr already netted out |
+| Fee drag | **0.66 pt/yr** measured (gross 11.80% → net 11.14%) |
 
 Those are the post-hysteresis numbers (ADR-007 fourth addendum, 2026-08-01:
 `CONFIRM_DECISIONS = 3` — a book switch waits for 3 confirming monthly
-decisions). The pivot was signed on the un-damped **9.85% / 0.94 / -24% / 3.4
-changes-a-year**; that pair is history, not a target. Only the flip rule
-changed — same books, same signals, same overlay, same caps.
+decisions), restated under ADR-010's single cost rate. The pivot was signed on
+the un-damped **9.85% / 0.94 / -24% / 3.4 changes-a-year** and the hysteresis
+addendum on **11.26% / 1.11**, and the interim 10 bps/side estimate on
+**11.51% / 1.14**; all are history, not targets. Neither the books,
+the signals, the overlay nor the caps have changed.
+
+The "~1.5 pt/yr fee drag" this table used to claim was wrong by a factor of ~2:
+the measured drag at the REAL rate is **0.66 pt/yr**. The rate is no longer an
+assumption — 23 bps is the owner's actual Saxo per-order commission, with no FX
+leg, since every portfolio here is USD held in a USD account. The stack trades
+~4.6x more than the static books (1.21 vs ~0.26 sum|dW|/yr), so it carries ~10x
+their fee drag; that asymmetry is real and now fully priced in, and the +3.80
+edge survives it.
 
 ## Why monthly
 
@@ -151,7 +162,7 @@ contradicted silently). This is where OPEN #3 is signed off.
 **Step 1 — M6-bis: wire the stack, keep the bridge.** Move it from scratchpad
 to production: seed the 3 books, build the market-signal regime module + the
 200d trend overlay + the monthly decision path through the existing gates.
-**Replay-validate it reproduces 11.26%/-23.8%** (anti-drift check — the same
+**Replay-validate it reproduces 11.14%/-23.8%** (anti-drift check — the same
 guarantee that caught the M6 rebalance bug; 9.85% was the pre-hysteresis pair,
 ADR-007 fourth addendum). Ship an inspection view.
 CRUCIAL: **do NOT delete M3/M5/UC7-8** — keep the old design wired as
@@ -168,6 +179,14 @@ signals instead of the 4 quadrants.
 
 **Step 4 — M8 Planner + Worker + gates.** The Worker nuances the monthly
 regime/book decision (qualitative reading of the credit-spread/slope state).
+**Wired 2026-08-02:** the decision itself runs MECHANICALLY
+(`market_signal_cycle.py`, 08:55, before UC8) and its full record — signal
+values vs their trailing medians, the dates each input became knowable, the
+hysteresis position, the sleeves below their 200d MA — is passed into the
+Planner baseline and rendered into the Worker's context. The Worker reads and
+challenges that reading; it does not re-pick the book, because letting an LLM
+alter a mechanically-validated allocation is exactly the drift
+`mechanical/market_signal.py` exists to prevent.
 
 **Step 5 — M8b agentic replay** (best-case screen), same harness.
 

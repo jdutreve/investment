@@ -72,6 +72,11 @@ class PlannerContext:
     recent_proposals: list[dict[str, Any]]
     passages: list[dict[str, Any]]
     notes: str
+    # ADR-007's live allocation decision, passed through from the baseline. The
+    # Worker READS it — the book is already chosen, mechanically, by a signal
+    # validated over 35 years; the Worker's job is to nuance and challenge that
+    # reading (docs/V1_STRATEGY.md Step 4), never to re-pick the book.
+    market_signal: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
 # -- pure core: the pool the selection is validated against -----------------
@@ -215,6 +220,7 @@ def assemble_context(
         recent_proposals=baseline.recent_proposals,
         passages=passages,
         notes=selection.notes,
+        market_signal=baseline.market_signal,
     )
 
 

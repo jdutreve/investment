@@ -143,7 +143,12 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "min_backtest_periods": 3.0,  # min completed Regime instances before a RegimeType gets Backtest/FAVORS rows
     "derivative_lookback_short": 30.0,  # days: growth/inflation derivative lookback + benchmark_valuation lookback
     # shadow replay (Phase 9 — go-live gate)
-    "replay_cost_bps": 10.0,  # per-side trading cost applied to turnover in the replay cost model (UNWIRED)
+    # Per-side trading cost. 23 bps = Saxo's actual per-order commission
+    # (owner, 2026-08-02); no FX leg, every portfolio is USD in a USD account.
+    # MUST equal `ratios.TRADING_COST_BPS` (ADR-010): the replay that validates
+    # a strategy and the ranking that compares it have to charge the same rate,
+    # or the comparison measures arithmetic rather than strategies.
+    "replay_cost_bps": 23.0,
     "replay_confirmation_weeks": 2.0,  # replay harness acceptance-policy confirmation window (UNWIRED)
 }
 
@@ -1551,7 +1556,16 @@ PORTFOLIOS: list[dict[str, object]] = [
     # BASE above-trend allocations; the 200d trend overlay (which redirects
     # SPY/GLD to IEF below trend, and can concentrate IEF to ~90% in risk-off)
     # is applied at DECISION time by mechanical/market_signal.py and is NOT
-    # reflected in these static rows. Per-portfolio caps = the binding user caps
+    # reflected in these static rows.
+    #
+    # `enabled = False` since ADR-009, and it is the point rather than a
+    # detail: `enabled` drives the UC7 ranking and UC6 valuation, and ranking a
+    # book standalone measures a portfolio NOBODY HOLDS — each is held only when
+    # the signal selects it, and never as written. Left in the graph (not
+    # deleted) because they remain the components the decision names, their NAV
+    # series stay useful for diagnostics, and their ids are referenced by
+    # committed EventLog payloads. The row that competes in the ranking is
+    # `ms-stack`, the strategy as one continuous held series. Per-portfolio caps = the binding user caps
     # (50% single-asset, -25% drawdown — ADR-007 addenda); they may not be
     # looser. The 50% SPY/VCIT sleeves are why the single-asset cap is 50.
     {
@@ -1567,7 +1581,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "name": "Market-Signal Book — Credit Spread Wide",
         "framework_id": "market-signal",
         "defender": False,
-        "enabled": True,
+        "enabled": False,
         "currency": "CHF",
         "benchmark": "all-weather-USD",
         "allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
@@ -1587,7 +1601,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "name": "Market-Signal Book — Credit Spread Tight, Yield Curve Flat",
         "framework_id": "market-signal",
         "defender": False,
-        "enabled": True,
+        "enabled": False,
         "currency": "CHF",
         "benchmark": "all-weather-USD",
         "allocation": {"SPY": 50, "GLD": 40, "IWN": 10},
@@ -1607,7 +1621,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "name": "Market-Signal Book — Credit Spread Tight, Yield Curve Steep",
         "framework_id": "market-signal",
         "defender": False,
-        "enabled": True,
+        "enabled": False,
         "currency": "CHF",
         "benchmark": "all-weather-USD",
         "allocation": {"VCIT": 50, "IEF": 40, "IWN": 10},
@@ -1619,7 +1633,47 @@ PORTFOLIOS: list[dict[str, object]] = [
         "10y medians). ADR-007; renamed from 'slowdown' by the 2026-07-20 "
         "addendum (docs/IMPROVEMENTS.md I-39).",
     },
+    {
+        # THE STACK — the only market-signal object anyone actually holds. The 3
+        # books above are held CONDITIONALLY (when the signal selects them) and
+        # never as written (the 200d overlay rewrites them), so ranking a book
+        # standalone measures a portfolio with no owner. This row is the whole
+        # strategy as one continuous series, and it is what belongs in the
+        # ranking, in the digest, and under the -25% drawdown rule.
+        #
+        # `allocation` is NOT a fixed target, unlike every other row here: it
+        # carries the book CURRENTLY in force and is rewritten at each monthly
+        # decision (mechanical/market_signal.py `persist_stack_nav`). Seeded to
+        # the credit-spread-wide book because that is `classify_regime`'s
+        # documented warm-up default, i.e. what the stack holds before 10y of
+        # signal history exists. Its NAV is likewise built by a different
+        # producer (`shadow_book_nav`, a change-point map) — `synthesize_nav`'s
+        # constant weights cannot express a strategy that rotates.
+        "id": "ms-stack",
+        "name": "Market-Signal Stack (ADR-007)",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "The market-signal monthly stack as ONE holdable series: signal "
+        "-> book -> 200d overlay, priced on shadow_book_nav. ADR-007. The 3 "
+        "ms-*-book rows are its components, not its competitors — they are never "
+        "held as written, so only this row carries the strategy's realized "
+        "drawdown, which is what the -25% cap binds.",
+    },
 ]
+
+# Portfolios whose allocation VARIES over time, so their NAV cannot be built by
+# `ratios.backfill_nav` (constant weights) and they are not comparable to a
+# static book inside the replay's challenger search. Named once here; the seed
+# and the replay both read this rather than hard-coding the id.
+TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack"})
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("4s-balanced-defender", "four-seasons-rp", True),
@@ -1629,9 +1683,14 @@ HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("permanent-balanced", "permanent-browne", True),
     ("barbell-defensive", "barbell-taleb", True),
     ("momentum-macro-rotation", "momentum-macro", True),
-    # ADR-007 — growth book is the PRIMARY (the warm-up default; its NAV is the
-    # strategy's benchmark_valuation row — backtests._primary_portfolio_id).
-    ("ms-growth-book", "market-signal-stack", True),
+    # ADR-009 — the PRIMARY is the STACK, not a book. `_primary_portfolio_id`
+    # feeds the strategy's `benchmark_valuation` series, and pointing it at
+    # ms-growth-book valued the strategy by a static allocation it holds only
+    # some of the time and never as written (the overlay rewrites it). The stack
+    # row IS the strategy's realized NAV, so the benchmark now measures the
+    # thing the strategy actually is.
+    ("ms-stack", "market-signal-stack", True),
+    ("ms-growth-book", "market-signal-stack", False),
     ("ms-inflation-book", "market-signal-stack", False),
     ("ms-slowdown-book", "market-signal-stack", False),
 ]

@@ -1,7 +1,14 @@
-"""UC8 — the decision cycle (docs/USE_CASES.md UC8; docs/ARCHITECTURE.md
+"""The cognitive decision cycle (docs/USE_CASES.md UC8; docs/ARCHITECTURE.md
 "09:00 UC8: Planner Pre → Worker → Planner Post → Writeback"). The first full
 cognitive chain: it wires the three strictly-separated roles built in the
 earlier M8 slices into one call.
+
+Named for what it DOES, not for its spec coordinate — this file was `uc8.py`
+until 2026-08-02. The UC number is a pointer into a document, and this project
+has already superseded UC8's allocation role once (ADR-007); the reference
+belongs in this docstring, where it cannot rot into a misleading filename. Its
+sibling `market_signal_cycle.py` follows the same rule. Note that the EventLog
+`source_uc` values stay 'UC8': those are committed DATA, append-only.
 
   PlannerPre.run        → PlannerContext (baseline + Call 1a margin + Call 1b)
   Worker                → WorkerResult (interprets, proposes)
@@ -30,7 +37,12 @@ from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import run_worker
 from investment.worker.result import WorkerResult
-from investment.writeback.writeback import KnowledgeCommit, commit_knowledge, dispose_reallocation
+from investment.writeback.writeback import (
+    KnowledgeCommit,
+    commit_knowledge,
+    dispose_reallocation,
+    portfolio_caps,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -54,24 +66,59 @@ def _defender_row(ranking: list[dict[str, Any]]) -> dict[str, Any] | None:
     return next((row for row in ranking if row.get("defender")), None)
 
 
-async def _defender_portfolio(db: InvestmentDB, portfolio_id: str) -> dict[str, Any] | None:
-    """The defender's OWN cap rules (CLAUDE.md "Binding caps": per-portfolio
-    rules may only be STRICTER; Writeback enforces the stricter of the two). The
-    snapshot the ranking is read from carries no cap columns — they live on
-    `portfolio` — so they must be fetched here and threaded into
-    `dispose_reallocation`, else only the looser user caps would bind."""
-    rows = await db.query(
-        "SELECT max_single_asset_pct, max_drawdown_rule FROM portfolio WHERE id = :pid",
-        pid=portfolio_id,
-    )
-    return dict(rows[0]) if rows else None
-
-
 def _allocation(row: dict[str, Any]) -> dict[str, float]:
     alloc = row.get("allocation")
     if isinstance(alloc, str):
         alloc = json.loads(alloc)
     return {str(k): float(v) for k, v in (alloc or {}).items()}
+
+
+def _market_signal_lines(state: dict[str, Any]) -> list[str]:
+    """The live allocation state as the Worker reads it (ADR-007). Two things it
+    must convey, and the phrasing carries both:
+
+    1. this allocation is ALREADY DECIDED, mechanically, from a market-priced
+       signal validated over 35 years. The Worker is told so plainly, because a
+       model handed an allocation with no framing will treat it as a proposal to
+       improve — and "improving" it is exactly the drift
+       `mechanical/market_signal.py` exists to prevent;
+    2. what the signal actually said, so the qualitative reading the Worker DOES
+       own (docs/V1_STRATEGY.md Step 4: "the Worker nuances the monthly
+       regime/book decision") has the numbers to work from.
+
+    Empty before the first live decision — then the block is simply absent
+    rather than asserting a state that does not exist yet."""
+    if not state:
+        return []
+    signals = state.get("signals") or {}
+    overlay = state.get("trend_overlay") or {}
+    hysteresis = state.get("hysteresis") or {}
+    lines = [
+        "",
+        "MARKET-SIGNAL ALLOCATION (already decided mechanically — do NOT re-pick "
+        "the book; read it, and say where it looks wrong):",
+        f"  book in force: {state.get('held_book', '?')} "
+        f"(signal now: {state.get('signal_state', '?')}), "
+        f"decided {state.get('decision_date', '?')}",
+        f"  effective allocation: {state.get('target_allocation', {})}",
+    ]
+    for ticker, read in signals.items():
+        lines.append(
+            f"  {ticker}: {read.get('value')} vs its 10y trailing median "
+            f"{read.get('trailing_median')} (knowable {read.get('knowable_at')})"
+        )
+    below = overlay.get("below_trend") or []
+    lines.append(
+        f"  200d trend overlay: {', '.join(below)} below trend, redirected to the haven"
+        if below
+        else "  200d trend overlay: no sleeve below trend"
+    )
+    if hysteresis.get("pending_book"):
+        lines.append(
+            f"  pending switch to {hysteresis['pending_book']}: "
+            f"{hysteresis.get('pending_count')}/{hysteresis.get('confirm_decisions')} confirmations"
+        )
+    return lines
 
 
 def render_context_for_worker(context: PlannerContext) -> str:
@@ -84,6 +131,9 @@ def render_context_for_worker(context: PlannerContext) -> str:
         f"REGIME: {regime.get('regime_name', '?')} ({regime.get('regime_type_id', '?')}), "
         f"confidence {regime.get('confidence', '?')}",
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
+    ]
+    lines.extend(_market_signal_lines(context.market_signal))
+    lines += [
         "",
         "RANKED PORTFOLIOS (defender marked *):",
     ]
@@ -176,7 +226,10 @@ async def run_decision_cycle(
     defender = _defender_row(context.ranking)
     if reallocation is not None and defender is not None:
         defender_id = str(defender["portfolio_id"])
-        portfolio = await _defender_portfolio(db, defender_id)
+        # The defender's own caps: the ranking snapshot carries no cap columns
+        # (they live on `portfolio`), so without this only the looser user caps
+        # would bind — and per-portfolio rules may only be STRICTER.
+        portfolio = await portfolio_caps(db, defender_id)
         gate_outcome, proposal_id = await dispose_reallocation(
             db,
             reallocation,

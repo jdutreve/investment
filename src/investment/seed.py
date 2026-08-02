@@ -57,10 +57,18 @@ from investment.db.seed_data import (
     SCENARIOS,
     STRATEGIES,
     SYSTEM_THRESHOLDS,
+    TIME_VARYING_PORTFOLIOS,
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
-from investment.mechanical import backtests, invariants, ratios, scenarios, snapshots
+from investment.mechanical import (
+    backtests,
+    invariants,
+    market_signal,
+    ratios,
+    scenarios,
+    snapshots,
+)
 from investment.worker import curator as curator_mod
 from investment.writeback import knowledge
 
@@ -633,16 +641,55 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
     Portfolio, from the date all constituents exist (docs/TASKS.md Task
     1ter.7 item 4)."""
     window = int(SYSTEM_THRESHOLDS["rolling_window_days"])
+    # ADR-010: every NAV is net of the same per-side trading cost, including the
+    # benchmark — a benchmark charged nothing would be an alternative nobody can
+    # actually buy.
+    cost = ratios.TRADING_COST_BPS
     results: dict[str, Any] = {
         ratios.ALL_WEATHER_ID: dataclasses.asdict(
-            await ratios.backfill_nav(db, ratios.ALL_WEATHER_ID, ALL_WEATHER_BENCHMARK, window)
+            await ratios.backfill_nav(
+                db, ratios.ALL_WEATHER_ID, ALL_WEATHER_BENCHMARK, window, cost
+            )
         )
     }
     for pf in PORTFOLIOS:
+        if _vertex_id(pf) in TIME_VARYING_PORTFOLIOS:
+            continue  # rotates — built below from its own change-point map
         allocation = cast("dict[str, float]", pf["allocation"])
-        result = await ratios.backfill_nav(db, _vertex_id(pf), allocation, window)
+        result = await ratios.backfill_nav(db, _vertex_id(pf), allocation, window, cost)
         results[_vertex_id(pf)] = dataclasses.asdict(result)
+
+    # The stack LAST: `run_market_signal` reads the trading calendar off the
+    # defender's NAV index, so the static series above must exist first.
+    #
+    # SKIPPED, not failed, when its inputs are absent — the incremental-seed
+    # contract (docs/MILESTONES.md "Incremental seed": each run completes the
+    # steps whose prerequisites now exist and SKIPS the rest with a warning).
+    # `run_market_signal` raises on a missing sleeve on purpose (a stack quietly
+    # holding a sleeve at 0% is the bug that once crippled it), so the
+    # prerequisite is checked here rather than by catching that guard.
+    missing = await _missing_stack_series(db)
+    if missing:
+        logger.warning("step 12: market-signal stack NAV skipped, no series for %s", missing)
+        results[market_signal.STACK_PORTFOLIO_ID] = {"skipped": f"missing series: {missing}"}
+        return results
+    run = await market_signal.run_market_signal(db, end=date.today())
+    stack = await market_signal.persist_stack_nav(db, run, window)
+    results[market_signal.STACK_PORTFOLIO_ID] = dataclasses.asdict(stack)
     return results
+
+
+async def _missing_stack_series(db: InvestmentDB) -> list[str]:
+    """Which of the stack's inputs have no MarketData yet — its 5 sleeves plus
+    the two signals that pick the book. Empty list = the stack is buildable."""
+    needed = [*market_signal.STACK_TICKERS, market_signal.CREDIT_SPREAD, market_signal.YIELD_SLOPE]
+    placeholders = ",".join(f":t{n}" for n in range(len(needed)))
+    rows = await db.query(
+        f"SELECT DISTINCT ticker FROM market_data WHERE ticker IN ({placeholders})",
+        **{f"t{n}": t for n, t in enumerate(needed)},
+    )
+    present = {str(r["ticker"]) for r in rows}
+    return sorted(set(needed) - present)
 
 
 async def _seed_snapshot(db: InvestmentDB) -> dict[str, Any]:

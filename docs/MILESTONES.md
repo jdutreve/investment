@@ -515,8 +515,10 @@ positive lead is the market-signal stack, not momentum (8.1% / Sharpe 0.46 / -37
    caps (now -25% per ADR-007).
 
 **Definition of Verified:** replay-validate the wired stack reproduces the
-pinned numbers (**11.26% CAGR / -23.8% daily maxDD** since the ADR-007 fourth
-addendum; **9.85% / -24%** was the pre-hysteresis pair the pivot was signed on)
+pinned numbers (**11.14% CAGR / -23.8% daily maxDD** since ADR-010 put every
+NAV on Saxo's real 23 bps/order; **11.26%** was the same strategy at the old
+double-charged rate, and
+**9.85% / -24%** the pre-hysteresis pair the pivot was signed on)
 — the anti-drift check that caught the M6 rebalance-order bug — and it runs
 monthly end-to-end through the caps. The OLD design stays wired as fallback + benchmark; forward
 paper-mode (M9), not this milestone, is what earns the full switch.
@@ -551,16 +553,47 @@ entities with `holds` edges to the `market-signal-stack` strategy
 selects them — ADR-007 addendum 3; the entity IDs keep their original
 growth/inflation/slowdown spelling because EventLog is append-only.
 
-**Remaining M6-bis build (no urgency — paper-mode is slow):** wire the live
-monthly decision path into UC8/Writeback. `run_market_signal` is still the
-replay/validation driver, not the live chain decision. The pure decision logic
-and the gate-with-exemption it will call are done and tested; what remains is
-scheduling/persistence wiring. **This does NOT block M7** — M7's Definition of
-Verified is entirely corpus/curation (ingester, dedup, consolidation, SUPPORTS
-links) and touches no allocation path, and M7 explicitly carries only the
-KNOWLEDGE slice of Writeback while "the decision slice of Writeback comes at
-M8". The wiring therefore belongs with M8, next to the decision slice it
-depends on.
+**Live wiring: DONE 2026-08-02.** The remaining build — "wire the live monthly
+decision path into UC8/Writeback" — is complete. `market_signal_cycle.py` runs
+the single live transaction end to end (PIT inputs → credit-spread/slope signal
+→ book → 200d overlay → binding caps → EventLog → `Proposal(proposal_type=
+'market-signal')` → digest → +12w outcome), scheduled at 08:55 in the Monday
+chain and idempotent on the month's decision date.
+
+Anti-drift preserved BY CONSTRUCTION, not by parallel implementation: the live
+path and the replay both read `walk_decisions`, the single decision clock;
+`build_targets` is now a projection of it (`{d.date: d.target for d in walk if
+d.changed}`). Re-verified on the live DB after the refactor: **CAGR 11.26%,
+Sortino 1.11, maxDD -23.8%, 97 changes over 418 decisions, turnover 42.0x, ZERO
+cap violations** — the pinned pair of that day, unchanged to the digit. ADR-010
+then restated it at the owner's real Saxo commission (23 bps/order, no FX):
+**11.14% / 1.09 / -23.8%**, turnover and drawdown unmoved. That is now the
+anti-drift target. Same strategy throughout — only the price of a trade changed.
+
+Design decisions taken during the wiring, each stated in the code:
+- **No state table.** The held book is recomputed by replaying the walk to
+  `today` (so live and backtest cannot disagree); what the stack HOLDS is the
+  last emitted market-signal Proposal; every decision, moving or not, is
+  journalled as a `MarketSignalDecisionEvent`. A fourth copy of those facts is
+  the one that could drift.
+- **Emit is keyed on the HELD allocation, not on `Decision.changed`** — that is
+  what makes the path self-healing after a gate block.
+- **Gate set is deliberately not `reallocation_gates`.** Caps + allowed tickers
+  + stack drawdown APPLY; `max_turnover_pct` (30) and `min_allocation_change_pts`
+  do NOT (a book switch is a ~90-100% turnover move by construction — the 30%
+  ceiling would block every switch the strategy exists to make); gate 6 and the
+  4-week cooldown do NOT (nothing is cited, and the cooldown would suppress the
+  200d overlay's re-entry, which IS the drawdown control).
+- **The opening proposal is scored against 100% cash** (accruing at rf) — it has
+  no incumbent, and without a baseline it could never be scored at all, which
+  ADR-006 forbids.
+
+**⚠️ Carried forward to bridge retirement (Step 6):** the live path takes its
+trading calendar from `replay._book_calendar`, i.e. from the retained Dalio
+defender's NAV index. Deliberate — it keeps the live clock bit-identical to the
+backtest's — but the ADOPTED strategy therefore cannot run on a DB without a
+NAV-backfilled bridge defender. Retiring the bridge must give the stack its own
+calendar and re-validate the pinned numbers in the same commit.
 
 ---
 
@@ -620,7 +653,7 @@ digest rendered in terminal.
 **Definition of Verified**
 - [x] simulated Monday on fixtures end to end (`test_simulated_monday.py`)
 - [x] bear-shift fixture (+35pts) → reallocation proposal passes gates
-      (`test_uc8.py::test_bear_shift_reallocation_passes_gates_and_persists`)
+      (`test_decision_cycle.py::test_bear_shift_reallocation_passes_gates_and_persists`)
 - [x] Call 2 downgrades an unevidenced verdict to neutral
       (`test_planner_post.py::test_unevidenced_verdict_is_downgraded_to_neutral`)
 - [x] digest readable and complete (`test_digest.py::test_render_is_complete_and_readable`,

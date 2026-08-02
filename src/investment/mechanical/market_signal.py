@@ -17,17 +17,34 @@ used (`replay.shadow_book_nav`, itself pinned equal to the M4-validated
 `ratios.synthesize_nav`), so wiring the stack cannot silently diverge from the
 figures ADR-007 was signed on.
 
-Those figures were superseded ONCE, deliberately (2026-08-01, owner-arbitrated):
-`CONFIRM_DECISIONS` hysteresis moved the stack to 11.26% CAGR / Sortino 1.11 at
-the same -23.8% drawdown. The pinned pair is now **11.26% / -23.8%**, and the
-un-damped 9.85% is history, not a target. Any OTHER divergence from 11.26% is
-drift and must be explained, which is what this module exists to guarantee.
+Those figures have been superseded TWICE, both times deliberately and
+owner-arbitrated:
+- 2026-08-01, `CONFIRM_DECISIONS` hysteresis: 9.85% -> 11.26% CAGR, Sortino
+  0.94 -> 1.11, drawdown unchanged;
+- 2026-08-02, ADR-010's single cost rate: 11.26% -> **11.14%**, Sortino 1.09,
+  drawdown still -23.8%. Two disagreeing guesses were replaced by one measured
+  rate: the stack had been charged 20 bps PER SIDE while `replay_cost_bps` said
+  10 and the spec claimed "20 bps/rotation", and every static book it is ranked
+  against paid nothing at all. Now Saxo's real 23 bps/order (no FX — every
+  portfolio is USD in a USD account) bills all of them, drift-rebalance
+  included.
 
-PURE decision logic (`classify_regime`, `apply_trend_overlay`, `build_targets`)
-takes already-loaded series and holds no I/O — the same separation as
-`mechanical/gates.py`, so the classifier is unit-testable without a DB and the
-eventual live monthly decision path (M8 Writeback) calls the identical function
-the replay validates. `run_market_signal` is the thin I/O driver.
+The pinned pair is therefore **11.14% / -23.8%**. The earlier figures are
+history, not targets. Any OTHER divergence from 11.14% is drift and must be
+explained, which is what this module exists to guarantee.
+
+PURE decision logic (`classify_regime`, `apply_trend_overlay`,
+`advance_hysteresis`, `walk_decisions`) takes already-loaded series and holds no
+I/O — the same separation as `mechanical/gates.py`, so the classifier is
+unit-testable without a DB. `run_market_signal` is the thin I/O driver.
+
+`walk_decisions` is the SINGLE decision clock: it emits one `Decision` per
+monthly decision date, and BOTH consumers derive from it — the replay via
+`build_targets` (which keeps only the change points `shadow_book_nav` wants) and
+the LIVE monthly path (`market_signal_cycle.py`) via the last entry of the same
+walk run with `end=today`. That is how the live path "calls the identical
+function the replay validates": not a shared helper, the shared WALK. A live
+decision that disagreed with the backtest would have to disagree with itself.
 """
 
 import dataclasses
@@ -66,6 +83,27 @@ BOOKS: dict[str, dict[str, float]] = {
 TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD")
 TREND_HAVEN = "IEF"
 
+# The STACK itself as a Portfolio vertex — the object that is actually held, as
+# opposed to the 3 books, which are only ever held conditionally and always
+# through the overlay. It exists so the stack has a `portfolio_nav` series like
+# every other portfolio: without one, its 36M rolling drawdown (the measure the
+# -25% cap is about) cannot be computed at all, and the ranking compares three
+# static fictions nobody holds instead of the one thing that is (ADR-009).
+STACK_PORTFOLIO_ID = "ms-stack"
+
+# Decision key -> the seeded Portfolio vertex that IS that book (db/seed_data.py
+# PORTFOLIOS). The live path needs it because `Proposal.defender_id` is a
+# portfolio id, not a signal state. The entity ids keep their original
+# growth/inflation/slowdown spelling: they already appear in committed EventLog
+# payloads, which are append-only (seed_data's ms-growth-book note). This map is
+# the ONE place the frozen spelling meets the renamed decision keys, so no other
+# module has to know both vocabularies.
+BOOK_PORTFOLIO_IDS: dict[str, str] = {
+    "credit-spread-wide": "ms-growth-book",
+    "credit-spread-tight-yield-curve-flat": "ms-inflation-book",
+    "credit-spread-tight-yield-curve-steep": "ms-slowdown-book",
+}
+
 # The market-signal series and their trailing-median lookbacks. ~10y median
 # (2520 trading days) with a 1y warm-up floor, matching the backtest.
 CREDIT_SPREAD = "BAA10Y"
@@ -80,7 +118,11 @@ MA_WINDOW_DAYS = 200
 # the set here makes that omission impossible to repeat silently.
 STACK_TICKERS: tuple[str, ...] = ("SPY", "IWN", "GLD", "VCIT", "IEF")
 
-COST_BPS = 20.0
+# The stack is charged at the SAME per-order rate as every other NAV in the
+# system (ADR-010): Saxo's real 23 bps. Was 20 here — which happened to be
+# double `replay_cost_bps` AND double the "20 bps/rotation" the spec claimed,
+# while every static book it is ranked against paid nothing.
+COST_BPS = ratios.TRADING_COST_BPS
 
 # Consecutive monthly decisions that must name the SAME new book before the
 # stack switches (measured 2026-08-01, full 35y + split sample).
@@ -104,17 +146,67 @@ CONFIRM_DECISIONS = 3
 
 
 @dataclasses.dataclass(frozen=True)
+class TrendRead:
+    """One trend sleeve's 200d overlay read at a decision date. Carries the two
+    numbers the comparison was made on, not just its boolean answer: "SPY is
+    below trend" is unauditable, "SPY 512.40 vs MA200 548.10" is."""
+
+    price: float
+    moving_average: float | None  # None before MA_WINDOW_DAYS of history
+    below: bool
+
+
+@dataclasses.dataclass(frozen=True)
+class Decision:
+    """ONE monthly decision, with everything that produced it.
+
+    This is the audit record the live path persists (and the replay could): the
+    raw signal state, the book actually HELD after hysteresis, the sleeves below
+    their 200d MA, and the post-overlay target. `changed` is True iff the target
+    differs from the previous decision's — i.e. iff this decision moves money.
+
+    Medians are `None` during warm-up (before MEDIAN_MIN_DAYS of history), which
+    is the state `classify_regime` answers with the credit-spread-wide default;
+    keeping it None rather than NaN is what lets the whole record serialise
+    straight into a Proposal's `market_context` as valid JSON."""
+
+    date: pd.Timestamp
+    signalled: str  # what the signal said THIS decision, before hysteresis
+    held: str  # the book actually in force after hysteresis
+    pending: str | None  # a different book waiting for confirmation
+    pending_count: int  # consecutive decisions it has been waiting
+    spread: float
+    spread_median: float | None
+    slope: float
+    slope_median: float | None
+    trend: dict[str, TrendRead]  # per TREND_SLEEVES sleeve
+    target: dict[str, float]  # post-overlay effective allocation
+    changed: bool
+
+    @property
+    def below_trend(self) -> tuple[str, ...]:
+        """The sleeves the overlay redirected to TREND_HAVEN this decision."""
+        return tuple(t for t, read in self.trend.items() if read.below)
+
+
+@dataclasses.dataclass(frozen=True)
 class MarketSignalRun:
     """A backtest/replay of the stack over a window.
 
     `targets` maps each CHANGE date -> the book that took effect (only dates
     where the allocation actually changed, matching `shadow_book_nav`'s
     time-varying target contract); `turnover` is its summed round-trip turnover.
-    """
+    `decisions` is the FULL journal — every decision date, changed or not — which
+    is what the live path needs: a decision that lands on the held book still
+    advances the hysteresis counter and still has to be recorded.
+    `raw_series` keeps each input UN-forward-filled, so the live path can report
+    the date every input became knowable (ADR-003)."""
 
     nav: pd.Series
     targets: dict[pd.Timestamp, dict[str, float]]
     turnover: float
+    decisions: list[Decision] = dataclasses.field(default_factory=list)
+    raw_series: dict[str, pd.Series] = dataclasses.field(default_factory=dict)
 
 
 # -- pure decision logic (no I/O — unit-testable, shared with the live path) --
@@ -155,6 +247,78 @@ def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) 
     return adjusted
 
 
+def advance_hysteresis(
+    held: str | None, pending: str | None, pending_count: int, signalled: str
+) -> tuple[str, str | None, int]:
+    """One step of the `CONFIRM_DECISIONS` hysteresis: the stack stays in the
+    book it is committed to until a DIFFERENT book has been named that many
+    decisions in a row. The first decision commits immediately (`held is None` —
+    there is nothing to hold yet), and a candidate that flickers back resets the
+    count. Returns the state AFTER the step: `(held, pending, pending_count)`.
+
+    Pulled out of the walk so the state machine is one testable function rather
+    than a loop body — and so the live path can state its carried-over state in
+    the same three names it reads back from the previous decision."""
+    if held is None or signalled == held:
+        return signalled, None, 0
+    count = pending_count + 1 if pending == signalled else 1
+    if count >= CONFIRM_DECISIONS:
+        return signalled, None, 0
+    return held, signalled, count
+
+
+def walk_decisions(
+    dates: Sequence[pd.Timestamp],
+    spread: pd.Series,
+    slope: pd.Series,
+    spread_median: pd.Series,
+    slope_median: pd.Series,
+    moving_averages: Mapping[str, pd.Series],
+    prices: Mapping[str, pd.Series],
+) -> list[Decision]:
+    """Walk the decision clock and record EVERY decision — the full journal.
+
+    The trend overlay is NOT damped: it re-reads the 200d MA on every decision,
+    so the drawdown control keeps reacting while a book switch waits out its
+    confirmation window."""
+    decisions: list[Decision] = []
+    previous: dict[str, float] | None = None
+    held: str | None = None
+    pending: str | None = None
+    pending_count = 0
+    for t in dates:
+        signalled = classify_regime(
+            _at(spread, t), _at(spread_median, t), _at(slope, t), _at(slope_median, t)
+        )
+        held, pending, pending_count = advance_hysteresis(held, pending, pending_count, signalled)
+        trend = {
+            ticker: _trend_read(_at(prices[ticker], t), _at(moving_averages[ticker], t))
+            for ticker in TREND_SLEEVES
+            if ticker in prices
+        }
+        book = apply_trend_overlay(
+            BOOKS[held], frozenset(t for t, read in trend.items() if read.below)
+        )
+        decisions.append(
+            Decision(
+                date=t,
+                signalled=signalled,
+                held=held,
+                pending=pending,
+                pending_count=pending_count,
+                spread=_at(spread, t),
+                spread_median=_opt(_at(spread_median, t)),
+                slope=_at(slope, t),
+                slope_median=_opt(_at(slope_median, t)),
+                trend=trend,
+                target=book,
+                changed=book != previous,
+            )
+        )
+        previous = book
+    return decisions
+
+
 def build_targets(
     dates: Sequence[pd.Timestamp],
     spread: pd.Series,
@@ -164,45 +328,14 @@ def build_targets(
     moving_averages: Mapping[str, pd.Series],
     prices: Mapping[str, pd.Series],
 ) -> dict[pd.Timestamp, dict[str, float]]:
-    """Walk the decision clock and emit a target ONLY when the book changes —
-    the change-point map `shadow_book_nav` consumes (a monthly re-evaluation
-    that lands on the same book pays no turnover).
-
-    Holds `CONFIRM_DECISIONS` hysteresis over the raw signal state: the stack
-    stays in the book it is committed to until a DIFFERENT book has been named
-    that many decisions in a row. The first decision commits immediately (there
-    is nothing to hold yet), and a candidate that flickers back resets the
-    count. The trend overlay is NOT damped — it re-reads the 200d MA on every
-    decision, so the drawdown control keeps reacting while the book waits."""
-    targets: dict[pd.Timestamp, dict[str, float]] = {}
-    previous: dict[str, float] | None = None
-    held: str | None = None
-    pending: str | None = None
-    pending_count = 0
-    for t in dates:
-        signalled = classify_regime(
-            _at(spread, t), _at(spread_median, t), _at(slope, t), _at(slope_median, t)
-        )
-        if held is None or signalled == held:
-            held, pending, pending_count = signalled, None, 0
-        else:
-            pending_count = pending_count + 1 if pending == signalled else 1
-            pending = signalled
-            if pending_count >= CONFIRM_DECISIONS:
-                held, pending, pending_count = signalled, None, 0
-        regime = held
-        below_trend = frozenset(
-            ticker
-            for ticker in TREND_SLEEVES
-            if ticker in prices
-            and pd.notna(_at(moving_averages[ticker], t))
-            and _at(prices[ticker], t) < _at(moving_averages[ticker], t)
-        )
-        book = apply_trend_overlay(BOOKS[regime], below_trend)
-        if book != previous:
-            targets[t] = book
-            previous = book
-    return targets
+    """The change-point map `shadow_book_nav` consumes: a target ONLY on the
+    dates the book actually changes (a monthly re-evaluation that lands on the
+    same book pays no turnover). A pure projection of `walk_decisions` — the
+    replay and the live path cannot drift because there is only one walk."""
+    decisions = walk_decisions(
+        dates, spread, slope, spread_median, slope_median, moving_averages, prices
+    )
+    return {d.date: d.target for d in decisions if d.changed}
 
 
 def _at(series: pd.Series, t: pd.Timestamp) -> float:
@@ -210,6 +343,20 @@ def _at(series: pd.Series, t: pd.Timestamp) -> float:
     NaN), so `classify_regime`'s warm-up default fires instead of a KeyError."""
     value = series.get(t)
     return float("nan") if value is None else float(value)
+
+
+def _trend_read(price: float, moving_average: float) -> TrendRead:
+    """One sleeve's overlay read. A missing MA (warm-up) is NOT below trend —
+    the overlay stays out of the way until it has 200 days to speak with, the
+    same "unmeasured is not bad" rule `gates.drawdown_ok` applies."""
+    ma = _opt(moving_average)
+    return TrendRead(price=price, moving_average=ma, below=ma is not None and price < ma)
+
+
+def _opt(value: float) -> float | None:
+    """NaN -> None, so a warm-up median serialises as JSON `null` rather than
+    the bare token `NaN`, which `json.loads` accepts but no other reader does."""
+    return None if pd.isna(value) else value
 
 
 # -- gate confrontation (the caps still BIND the adopted stack — CLAUDE.md) ---
@@ -225,9 +372,15 @@ def cap_violations(run: MarketSignalRun, caps: Caps, stack_drawdown: float | Non
     TREND_HAVEN is exempted from the single-asset cap (ADR-007 addendum,
     choice (a)): the overlay's flight-to-safety can pile both equity/gold sleeves
     into IEF (~90% in risk-off), which is the deliberate drawdown control, not a
-    conviction bet. Uses the SAME `gates.py` predicate the live Writeback (M8)
-    will, with the same exemption, so a book that would be blocked live is
-    blocked here too."""
+    conviction bet. Uses the SAME `gates.py` predicate the live Writeback runs,
+    with the same exemption, so a book blocked live was blocked here too.
+
+    A BUILD-TIME check over a whole backtest, deliberately not the live gate:
+    the live path's equivalent (`writeback.market_signal_gates`) sees one
+    decision, this sees every target the run ever held, and it is the drawdown
+    leg that separates them — here it is the WHOLE-WINDOW figure the DoV
+    asserts, whereas live the rule is a 36-month rolling ALERT and never blocks
+    (ADR-009). Called by the M6-bis validation and by `test_market_signal.py`."""
     violations: list[str] = []
     haven = frozenset({TREND_HAVEN})
     for t, book in sorted(run.targets.items()):
@@ -263,8 +416,14 @@ async def run_market_signal(
         # stack silently missing a sleeve rather than hold it flat at 0%.
         raise ValueError(f"market-signal stack missing price series for {sorted(missing)}")
 
-    spread = (await ratios.load_price(db, CREDIT_SPREAD)).reindex(calendar).ffill()
-    slope = (await ratios.load_price(db, YIELD_SLOPE)).reindex(calendar).ffill()
+    # Keep the RAW series alongside the calendar-aligned one: the ffill that
+    # carries a stale print forward is right for the decision (it is what was
+    # knowable) but destroys the publication date, and ADR-003 vintage discipline
+    # is only auditable if the live path can say WHEN each input became knowable.
+    spread_raw = await ratios.load_price(db, CREDIT_SPREAD)
+    slope_raw = await ratios.load_price(db, YIELD_SLOPE)
+    spread = spread_raw.reindex(calendar).ffill()
+    slope = slope_raw.reindex(calendar).ffill()
     spread_median = spread.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
     slope_median = slope.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
     moving_averages = {
@@ -273,11 +432,43 @@ async def run_market_signal(
     }
 
     dates = replay.decision_dates(calendar, start, end, cadence)
-    targets = build_targets(
+    decisions = walk_decisions(
         dates, spread, slope, spread_median, slope_median, moving_averages, prices
     )
+    targets = {d.date: d.target for d in decisions if d.changed}
     nav, turnover = shadow_book_nav(targets, prices, rf, cost_bps, calendar)
-    return MarketSignalRun(nav=nav, targets=targets, turnover=turnover)
+    return MarketSignalRun(
+        nav=nav,
+        targets=targets,
+        turnover=turnover,
+        decisions=decisions,
+        raw_series={CREDIT_SPREAD: spread_raw, YIELD_SLOPE: slope_raw, **prices},
+    )
+
+
+async def persist_stack_nav(
+    db: InvestmentDB, run: MarketSignalRun, window: int
+) -> ratios.NavBackfillResult:
+    """Write the stack's daily NAV to `portfolio_nav` under STACK_PORTFOLIO_ID.
+
+    The series is `run.nav` — the one `shadow_book_nav` already produced, which
+    follows the book through every switch AND every overlay redirect. Persisting
+    it is what makes the stack measurable at all: `ratios.value_portfolios`, the
+    UC7 ranking and the digest all read `portfolio_nav`, so once this row exists
+    the stack's 36M rolling drawdown, Sortino and Calmar arrive through exactly
+    the same formulas as every portfolio it is compared against.
+
+    Rebuilt in full on each run rather than appended: the series is DERIVED from
+    market data and the pure walk, so recomputing is both cheap and the only way
+    a late-arriving price vintage can correct history it should have been in
+    (`append_ts_batch` is INSERT OR REPLACE, so this is idempotent).
+
+    The Portfolio vertex's `allocation` is deliberately NOT touched here. That
+    column records what the stack HOLDS, which changes only when a decision is
+    committed — so it is written inside `writeback.dispose_market_signal`'s
+    transaction, after its EventLog append (CLAUDE.md "EventLog"). Writing it
+    here would move held state on a week that decided nothing."""
+    return await ratios.persist_nav(db, STACK_PORTFOLIO_ID, run.nav.dropna(), window)
 
 
 async def stack_metrics(db: InvestmentDB, run: MarketSignalRun) -> NavMetrics:

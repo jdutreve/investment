@@ -571,3 +571,152 @@ removed, and they are exactly the two made nullable.
 branch on `proposal_type`. Any gate or renderer that assumes a rank must say
 so. The ranking path (RETAINED BRIDGE, ADR-007) keeps writing both columns
 unchanged, so nothing about the fallback/benchmark path is weakened.
+
+---
+
+## ADR-009 — The market-signal drawdown rule ALERTS; it never blocks
+
+**Status:** accepted 2026-08-02 (owner decision, after measurement).
+
+**Context.** ADR-007 raised the binding drawdown cap to **-25%** and scoped it
+to "the STACK's realized drawdown, not each book standalone". When the live
+monthly path was first wired, that cap was implemented as a Writeback *gate*:
+a decision whose drawdown breached it would be refused and no Proposal written.
+Two problems surfaced on inspection, both measured rather than argued.
+
+**1. The gate could never fire, and could not have protected anything if it
+had.** It was fed the drawdown of the 35-year BACKTESTED stack NAV (-23.8%), a
+historical constant, because no realized stack NAV existed — the 3 book
+Portfolios carried NAV series for their *static* allocations, and the stack,
+the only object anyone actually holds, had none. Enumerated over all 12
+reachable book x overlay states, no gate in the market-signal set can refuse a
+decision produced by the MARKET; only a config or code change can trip one.
+
+**2. Blocking is the wrong instrument, and would have sold the bottom.** A
+refused gate writes no Proposal, so no order reaches the owner and the stack
+stays exactly where it is. Blocking can FREEZE a position; it can never exit
+one. Worse, during a drawdown the proposal being blocked is precisely the 200d
+overlay's flight into IEF — the mechanism that carries the stack's -23.8%
+instead of -50%. Measured over the only three episodes in 35 years:
+
+| peak | trough | depth | holding at the trough | recovery |
+|---|---|---|---|---|
+| 2008-09-22 | 2009-03-09 | -23.2% | 50% IEF (overlay had fled) | 332d |
+| 2020-02-24 | 2020-03-20 | -23.8% | SPY 50 / GLD 40 / IWN 10 (**overlay had not moved**) | 185d |
+| 2021-12-29 | 2022-10-20 | -22.4% | 90% IEF (overlay had fled) | 831d |
+
+The stack never once reached -25% (54 days total below -20%). In the one
+episode where the overlay was too slow — 2020, a 25-day fall against a monthly
+decision clock — a -25% trigger would have fired on **2020-03-20, the exact
+bottom**, selling into the trough and forfeiting the 185-day recovery. A
+drawdown trigger on a monthly cadence arrives mechanically after the hole.
+
+**Decision.**
+- The stack gets a real `portfolio_nav` series (`ms-stack`), built by
+  `shadow_book_nav` from the change-point map rather than by `synthesize_nav`,
+  whose constant weights cannot express a rotating strategy. Its indicators come
+  from the same pinned `rolling_*` formulas as every portfolio it is ranked
+  against.
+- The drawdown rule is measured on that series over the **36-month rolling
+  window** (756 trading days) — the project's existing window for every
+  `*_rolling` indicator, so no new convention is introduced and the stack stays
+  comparable to the ranking rows. A since-inception maximum was rejected: it is
+  monotone, so a single bad year would pin it forever and it would stop
+  describing the present. The rolling window subsumes it anyway, since the
+  pinned convention grows the window until 756 days exist.
+- Breaching -25% raises a **critical alert** in the digest
+  (`mechanical/alerts.py`) and changes nothing the system does. The protection
+  remains the 200d overlay.
+- `market_signal_gates` keeps only sum-to-100, the single-asset cap (with the
+  IEF trend-haven exemption) and allowed-tickers, documented for what they are:
+  **regression guards** against a config or code change, not a safety control.
+
+**Also recorded here, previously only in code comments.** The market-signal path
+is exempt from the 4-week anti-repetition cooldown, from UC8-B gate 6
+(cited-invariant eligibility), from `max_turnover_pct` and from
+`min_allocation_change_pts`. Reasons: the book is chosen by a market-priced
+signal validated over 35 years, not argued from a cited lighthouse, so gate 6
+has no input (and only 2 invariants are citable today — MILESTONES M8, so it
+would block nearly every month); the cooldown would suppress the overlay's
+re-entry, which IS the drawdown control; a book switch is a ~90-100% turnover
+move by construction against a 30% ceiling, so that cap would block every switch
+the strategy exists to make. The min-change floor survives in a stricter form —
+a proposal is emitted only when the target differs from what is actually HELD.
+CLAUDE.md's "plus a 4-week anti-repetition cooldown" is hereby scoped to the
+switch/reallocation paths of the retained bridge.
+
+**Consequence.** Nothing in the live allocation path can refuse a decision on
+market grounds. That is deliberate and now explicit: V1 never auto-executes, the
+owner places every order, and the system's job at -25% is to tell them clearly —
+not to withhold the instruction that would have moved them to safety.
+
+---
+
+## ADR-010 — Every NAV is charged the same trading cost, at one rate
+
+**Status:** accepted 2026-08-02 (owner decision: "tout le monde au même régime,
+comparaison fair").
+
+**Context.** ADR-009 put the market-signal stack into the UC7 ranking as a real
+`portfolio_nav` row. That immediately exposed an unfair comparison: the stack's
+NAV was net of trading costs, while every static book's NAV was **gross** —
+`ratios.synthesize_nav` rebalances monthly to target and charged nothing for it.
+The one rotating strategy paid for its trades; the six books it was ranked
+against traded for free.
+
+Measuring it surfaced a second problem — the system held **two different cost
+rates for the same thing**:
+
+- `system_thresholds.replay_cost_bps = 10` (per side), used by the replay arms
+  and by `outcomes.evaluate_proposals`;
+- `market_signal.COST_BPS = 20` (per side), used for the stack.
+
+Both feed the same `sum(|delta weight|) x bps` formula, so the stack was paying
+**40 bps a rotation** — double the "net 20 bps/rotation" that
+docs/V1_STRATEGY.md says its pinned numbers are net of, and double what the
+replay charged the arms it was compared against.
+
+**Decision.**
+1. **One rate: `ratios.TRADING_COST_BPS = 23.0` bps per order** — Saxo's actual
+   commission on the owner's account (owner-supplied, 2026-08-02). NOT the
+   documented 10: the documented figure was an estimate, and an estimate that
+   disagreed with itself in two places. `system_thresholds.replay_cost_bps` is
+   moved to 23 alongside it and MUST stay equal — a replay that validates a
+   strategy and a ranking that compares it have to charge the same rate.
+   There is no FX leg: every portfolio here is USD, held in a USD account, so a
+   rebalance triggers no CHF conversion.
+2. **Every NAV pays it** — static books, the All-Weather benchmark, and the
+   stack. A benchmark charged nothing is an alternative nobody can actually buy.
+3. **The monthly drift-rebalance is billed too**, in BOTH engines. It was free
+   in `shadow_book_nav` on the reasoning that "both arms pay it equally, so
+   charging it would only add noise to A - B" — true inside the replay, false
+   once portfolios are ranked against each other. A rebalance is a real order
+   either way.
+
+**Measured impact.** Small, and it does not rescue or damage any conclusion.
+
+| | CAGR | Sortino | maxDD | turnover |
+|---|---|---|---|---|
+| stack, gross | 11.80% | 1.17 | -23.8% | 42.0 |
+| stack, old (20/side, drift free) | 11.22% | 1.11 | -23.8% | 42.0 |
+| stack, interim estimate (10/side) | 11.51% | 1.14 | -23.8% | 42.0 |
+| **stack, ADR-010 (23 bps/order)** | **11.14%** | **1.09** | **-23.8%** | 42.0 |
+
+Static books lose **0.01-0.04 pt/yr** each: their monthly drift is only ~0.26
+sum|dW| a year against the stack's 1.21, so the stack carries roughly 10x their
+fee drag. That asymmetry is real, and it is the point of charging everyone —
+before ADR-010 it was hidden by the books paying nothing. The ranking ORDER is
+unchanged. B goes 7.41% gross -> 7.34% net.
+
+**The pinned pair therefore moves: 11.26% / -23.8% becomes 11.14% / -23.8%**,
+Sortino 1.11 -> 1.09, and the edge over B is **+3.80 pt/yr with both sides net**
+(V1_STRATEGY quoted +4.0 with B gross). Max drawdown and turnover are unchanged.
+This is a restatement of the same strategy at its real cost, not a new result —
+the anti-drift check now targets 11.14%.
+
+**What this closes, and what it does not.** It closes the cost question: 23 bps
+is measured, not assumed, and the stack's edge survives it with room. It does
+NOT close execution risk — the backtest assumes every monthly order fills at the
+close on the decision date, and the stack's concentration means a single order
+can be a large fraction of the book. Slippage is not modelled anywhere, and
+forward paper-mode (V1_STRATEGY Step 6) is where it will show up, if it does.

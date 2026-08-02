@@ -25,6 +25,24 @@ from investment.db.sqlite import InvestmentDB
 ALL_WEATHER_ID = "all-weather-USD"
 CASH_TICKER = "cash"
 RF_TICKER = "^IRX"
+
+# THE trading cost rate, in basis points PER SIDE — the one rate every NAV in
+# the system is charged at since ADR-010, so that any two portfolios can be
+# compared. `shadow_book_nav` and `synthesize_nav` both charge
+# `sum|dW| x bps` with bps per SIDE, so a full switch (sum|dW| = 2.0) costs
+# 2 x bps.
+#
+# 23 bps = Saxo's actual per-order commission on the owner's account
+# (owner-supplied, 2026-08-02). No FX component: every portfolio in this system
+# is USD-denominated and held in a USD account, so the CHF conversion the
+# earlier estimate worried about does not occur on a rebalance.
+#
+# This replaces two disagreeing guesses. The stack ran at `COST_BPS = 20` per
+# side while `system_thresholds.replay_cost_bps` said 10, and
+# docs/V1_STRATEGY.md claimed "20 bps/rotation" — i.e. 10 per side — so the
+# stack was paying double its own documented assumption while every static book
+# paid nothing at all. One measured rate now bills all of them.
+TRADING_COST_BPS = 23.0
 TRADING_DAYS_PER_YEAR = 252
 # 252/52 rounded — converts a threshold expressed in WEEKS (e.g.
 # proposal_outcome_weeks) into the trading-day windows the rolling_* helpers
@@ -63,7 +81,10 @@ def _normalize_weights(allocation: Mapping[str, float]) -> dict[str, float]:
 
 
 def synthesize_nav(
-    weights: Mapping[str, float], prices: Mapping[str, pd.Series], rf: pd.Series
+    weights: Mapping[str, float],
+    prices: Mapping[str, pd.Series],
+    rf: pd.Series,
+    cost_bps: float = 0.0,
 ) -> pd.Series:
     """docs/DATA_MODELS.md 'Calculation conventions' NAV synthesis: constant
     target weights, rebalanced monthly on the first trading day of each
@@ -78,7 +99,18 @@ def synthesize_nav(
     day's own return is applied — i.e. the portfolio enters the month
     already rebalanced (Portfolio Visualizer's convention); this is a
     judgment call where the spec is silent on rebalance-day sequencing
-    (CLAUDE.md 'state assumptions explicitly')."""
+    (CLAUDE.md 'state assumptions explicitly').
+
+    `cost_bps` charges each monthly rebalance `sum(|delta weight|) x bps` —
+    the SAME per-side formula `replay.shadow_book_nav` uses, deltas measured
+    against the DRIFTED actual weights, i.e. the trade really placed. Owner
+    decision 2026-08-02 (ADR-010): a static book's monthly rebalance is a real
+    trade and must be billed, because otherwise the only portfolio in the
+    ranking paying its costs is the market-signal stack, and it would be judged
+    against six books trading for free. Defaults to 0.0 — the un-costed engine
+    is still what `test_shadow_book_matches_synthesize_nav` pins against
+    `shadow_book_nav(cost_bps=0)`, and the M4 Portfolio-Visualizer validation
+    was performed gross."""
     non_cash = [t for t in weights if t != CASH_TICKER]
     if non_cash:
         price_df = pd.concat({t: prices[t] for t in non_cash}, axis=1, sort=False).sort_index()
@@ -103,6 +135,14 @@ def synthesize_nav(
         period = index[i].to_period("M")
         if period != prev_period:
             total_prev = sum(sleeve.values()) + cash_value
+            if cost_bps and total_prev > 0:
+                drifted = {t: v / total_prev for t, v in sleeve.items()}
+                drifted[CASH_TICKER] = cash_value / total_prev
+                traded = sum(
+                    abs(weights.get(t, 0.0) - drifted.get(t, 0.0))
+                    for t in set(weights) | set(drifted)
+                )
+                total_prev *= 1.0 - traded * cost_bps / 10_000.0
             sleeve = {t: weights[t] * total_prev for t in non_cash}
             cash_value = cash_weight * total_prev
             prev_period = period
@@ -306,7 +346,11 @@ async def _vs_benchmark(
 
 
 async def backfill_nav(
-    db: InvestmentDB, portfolio_id: str, allocation: Mapping[str, float], window: int
+    db: InvestmentDB,
+    portfolio_id: str,
+    allocation: Mapping[str, float],
+    window: int,
+    cost_bps: float = 0.0,
 ) -> NavBackfillResult:
     """UC0 step 12 / Monday 08:00 catch-up writer. Idempotent (`append_ts_batch`
     is INSERT OR REPLACE). The ALL_WEATHER_BENCHMARK series (`portfolio_id=
@@ -317,11 +361,28 @@ async def backfill_nav(
     non_cash = [t for t in weights if t != CASH_TICKER]
     prices = {t: await _price_series(db, t) for t in non_cash}
     rf = await _rf_daily_series(db)
+    nav = synthesize_nav(weights, prices, rf, cost_bps)
+    return await persist_nav(db, portfolio_id, nav, window)
 
-    nav = synthesize_nav(weights, prices, rf)
+
+async def persist_nav(
+    db: InvestmentDB, portfolio_id: str, nav: pd.Series, window: int
+) -> NavBackfillResult:
+    """Derive the pinned rolling indicators over an ALREADY-BUILT NAV series and
+    write the `portfolio_nav` rows.
+
+    Split out of `backfill_nav` because a NAV can be built two ways and only one
+    of them fits constant weights. `synthesize_nav` rebalances to a FIXED target
+    every month, which cannot represent the market-signal stack: the stack's
+    target changes with the signal and with the 200d overlay, so its series comes
+    from `replay.shadow_book_nav` (a change-point map) instead. Everything AFTER
+    the series is built must stay identical for both, or the stack would be
+    ranked on indicators computed differently from every row it is ranked
+    against — which is exactly the unfair comparison persisting it is meant to
+    end. One function, one set of formulas, two producers."""
     if nav.empty:
         return NavBackfillResult(portfolio_id, 0, None)
-
+    rf = await _rf_daily_series(db)
     returns = daily_returns(nav)
     max_drawdown = rolling_max_drawdown(nav, window)
     frame = pd.DataFrame(

@@ -20,7 +20,7 @@ def test_pct_formats_fractions_and_none() -> None:
 
 def _digest(**over: object) -> str:
     kwargs: dict[str, object] = {
-        "regime": {"regime_name": "Stagflation", "regime_type_id": "stag", "confidence": 0.78},
+        "regime": {"regime_name": "Stagflation", "regime_type_id": "stag", "confidence": 78.0},
         "global_liquidity": {"level": 98.4, "speed": -0.80},
         "ranking": [
             {
@@ -170,7 +170,7 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
     )
     await db.command(
         "INSERT INTO regime (id, regime_type_id, tags, start_date, is_current, events, confidence, "
-        "trace, created_at, updated_at) VALUES ('r1', 'stag', '[]', '2026-06-01', 1, '[]', 0.78, "
+        "trace, created_at, updated_at) VALUES ('r1', 'stag', '[]', '2026-06-01', 1, '[]', 78.0, "
         "'t', '2026-06-01', '2026-06-01')"
     )
     await db.command(

@@ -15,8 +15,9 @@ import pandas as pd
 
 from investment import seed
 from investment.config import Settings
-from investment.db.seed_data import PORTFOLIOS
+from investment.db.seed_data import PORTFOLIOS, TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical import market_signal
 
 # Every ticker referenced by PORTFOLIOS.allocation or ALL_WEATHER_BENCHMARK
 # (excluding the synthetic 'cash' asset), plus the risk-free rate. IWN/VCIT are
@@ -83,17 +84,33 @@ async def test_seed_steps_12_13_populate_nav_and_snapshot(tmp_path: Path) -> Non
 
         assert nav_inventory["all-weather-USD"]["rows_written"] > 0
         for pf in PORTFOLIOS:
+            if pf["id"] in TIME_VARYING_PORTFOLIOS:
+                continue  # built from a change-point map, not a static allocation
             assert nav_inventory[pf["id"]]["rows_written"] > 0
 
-        assert snapshot_inventory["portfolios_valued"] == len(PORTFOLIOS)
-        assert snapshot_inventory["snapshot_rows"] == len(PORTFOLIOS)
+        # Valuation and ranking cover the ENABLED portfolios only. Since ADR-009
+        # the 3 ms-*-book rows are disabled: a book is held only when the signal
+        # selects it and never as written, so ranking one measures a portfolio
+        # nobody holds. `ms-stack` is what competes in their place — but this
+        # fixture carries no BAA10Y/T10Y2Y, so the stack's NAV is SKIPPED (the
+        # incremental-seed contract) and it is valued out. That skip is itself
+        # worth pinning: a partial seed must degrade, not raise.
+        assert "skipped" in nav_inventory[market_signal.STACK_PORTFOLIO_ID]
+        enabled = [pf for pf in PORTFOLIOS if pf["enabled"]]
+        # VALUATION skips a portfolio with no NAV series; RANKING still emits a
+        # row for it, with null indicators, so the two counts differ by exactly
+        # the skipped stack. Asserted rather than smoothed over: the ranking
+        # deliberately shows every enabled portfolio, including one it cannot
+        # score yet.
+        assert snapshot_inventory["portfolios_valued"] == len(enabled) - 1
+        assert snapshot_inventory["snapshot_rows"] == len(enabled)
 
         snap_rows = await db.query(
             "SELECT portfolio_id, defender, rank, gap_to_defender, market_context "
             "FROM portfolio_weekly_snapshot"
         )
-        assert len(snap_rows) == len(PORTFOLIOS)
-        assert sorted(r["rank"] for r in snap_rows) == list(range(1, len(PORTFOLIOS) + 1))
+        assert len(snap_rows) == len(enabled)
+        assert sorted(r["rank"] for r in snap_rows) == list(range(1, len(enabled) + 1))
 
         defender_rows = [r for r in snap_rows if r["defender"]]
         assert len(defender_rows) == 1

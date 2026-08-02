@@ -374,16 +374,31 @@ next cycle, so results stay reproducible by the replay. Hence no
 ---
 
 ### Proposal
-*V1 paper-mode recommendation. Persisted per weekly cycle when a gate is met.
-Two kinds (`proposal_type`): **switch** (replace defender with a challenger
-portfolio) and **reallocation** (adjust the defender's own allocation,
-Worker-proposed, Writeback-validated).*
+*V1 paper-mode recommendation. Persisted per cycle when a gate is met.
+Three kinds (`proposal_type`):*
+- ***switch*** *— replace the defender with a challenger portfolio (retained
+  Dalio bridge; no live cycle emits one since ADR-007).*
+- ***reallocation*** *— adjust the defender's own allocation, Worker-proposed,
+  Writeback-validated (retained bridge).*
+- ***market-signal*** *— ADR-007's ADOPTED live allocation, emitted MONTHLY by
+  `market_signal_cycle.py`. Mechanical, not Worker-proposed. `defender_id` is
+  the book Portfolio now in force; `challenger_id`, `defender_rank`,
+  `challenger_rank` and `gap` are NULL (ADR-008 — it has a signal state and a
+  book, not a rank and a duel); `proposed_allocation` is the POST-overlay
+  effective target. `market_context` carries the full decision record — both
+  signals with their trailing medians and the date each became knowable
+  (ADR-003), the hysteresis position, the sleeves below their 200d MA, and
+  `held_allocation`, the post-overlay book actually held coming in. That last
+  field is load-bearing, not informational: it is what
+  `outcomes.evaluate_proposals` scores the +12w verdict against, because no
+  weekly snapshot carries a post-overlay allocation. **Readers must branch on
+  `proposal_type` before trusting the rank/gap columns.***
 
 ```
 Proposal {
   id                  : STRING  PRIMARY KEY
   date                : DATE
-  proposal_type       : STRING  -- 'switch' | 'reallocation'
+  proposal_type       : STRING  -- 'switch' | 'reallocation' | 'market-signal'
   defender_id         : STRING  -- portfolio_id of current defender
   challenger_id       : STRING  -- portfolio_id of challenger (switch only; null
                                 --   for reallocation)
@@ -462,6 +477,22 @@ Adaptation {
 
 ### Portfolio
 *Concrete ETF allocation. Ranking unit. `defender=true` marks the current defender.*
+
+**Two exceptions to "a Portfolio is a fixed allocation", both ADR-009:**
+- **`ms-stack`** is the market-signal stack as ONE continuous held series. Its
+  `allocation` is not a target but a RECORD of the book currently in force,
+  rewritten by `writeback.dispose_market_signal` whenever a decision commits;
+  and its `portfolio_nav` is built by `replay.shadow_book_nav` from a
+  change-point map, because `ratios.synthesize_nav`'s constant weights cannot
+  express a rotating strategy. `db.seed_data.TIME_VARYING_PORTFOLIOS` names it,
+  and both the seed's NAV loop and `replay._load_portfolios` read that set to
+  exclude it from static-allocation handling.
+- **`ms-growth-book` / `ms-inflation-book` / `ms-slowdown-book`** are
+  `enabled=false`. They are the stack's COMPONENTS, not its competitors: each is
+  held only when the signal selects it and never as written (the 200d overlay
+  rewrites it), so ranking one measures a portfolio nobody holds. Kept in the
+  graph — their ids appear in committed EventLog payloads, and their NAV series
+  stay useful for diagnostics.
 
 ```
 Portfolio {

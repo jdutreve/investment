@@ -1,4 +1,6 @@
-"""UC8 decision cycle end to end (docs/USE_CASES.md UC8; src/investment/uc8.py).
+"""The cognitive decision cycle end to end (docs/USE_CASES.md UC8;
+src/investment/decision_cycle.py).
+
 The full cognitive chain — PlannerPre -> Worker -> PlannerPost -> Writeback —
 driven by PydanticAI TestModel on a real throwaway SQLite. Covers M8's Definition
 of Verified item: a reallocation the Worker proposes passes the gates and is
@@ -12,9 +14,9 @@ import pytest
 from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
+from investment.decision_cycle import UC8Result, render_context_for_worker, run_decision_cycle
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
-from investment.uc8 import UC8Result, render_context_for_worker, run_decision_cycle
 from investment.worker.agent import build_worker_agent
 
 USER = {"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0}
@@ -102,7 +104,7 @@ _Rig = tuple[InvestmentDB, PlannerPre, object, PlannerPost]
 
 @pytest.fixture
 async def rig(tmp_path: Path) -> AsyncIterator[_Rig]:
-    db = InvestmentDB(tmp_path / "uc8.db")
+    db = InvestmentDB(tmp_path / "decision_cycle.db")
     await _seed(db)
     pre = PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test")
     worker = build_worker_agent(db, "anthropic/x", "sk-test")
@@ -158,7 +160,7 @@ async def test_bear_shift_reallocation_passes_gates_and_persists(rig) -> None:  
 async def test_defender_stricter_single_asset_cap_binds(rig) -> None:  # type: ignore[no-untyped-def]
     """CLAUDE.md "Binding caps": the defender's OWN cap may be stricter than the
     user's, and Writeback enforces the stricter of the two. The snapshot carries
-    no cap columns, so uc8 must fetch the `portfolio` row and thread it in — this
+    no cap columns, so the cycle must fetch the `portfolio` row and thread it in — this
     proves that wiring. SPY 45 clears the user's 50 cap but breaches the
     defender's own 40, so the proposal must be blocked, not persisted."""
     db, pre, worker, post = rig

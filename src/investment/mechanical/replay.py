@@ -57,6 +57,7 @@ import pandas as pd
 from ulid import ULID
 
 from investment.config import Settings
+from investment.db.seed_data import TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import backtests, gates, ratios
 from investment.mechanical.gates import Caps, ProposalThresholds
@@ -196,11 +197,13 @@ def shadow_book_nav(
 
     COST MODEL (docs/TASKS.md Task 9.1 step 4): `cost = sum(|delta weight|) x
     replay_cost_bps` — the UN-halved sum, "= 2 x turnover; do NOT also x2",
-    because the bps are charged per SIDE. A full switch (sum|delta| = 2.0)
-    costs 20 bps. Deltas are measured against the book's ACTUAL drifted
-    weights, not its previous target: that is the trade the owner would really
-    place. TRADE FEES ONLY — taxes are deliberately out of scope (assume a
-    tax-advantaged wrapper).
+    because the bps are charged per ORDER. A full switch (sum|delta| = 2.0)
+    costs 2 x the rate — 46 bps at ADR-010's 23. Deltas are measured against the
+    book's ACTUAL drifted weights, not its previous target: that is the trade the
+    owner would really place. The monthly drift-rebalance is billed too since
+    ADR-010 (it used to be free here, which understated a static book against a
+    rotating one). TRADE FEES ONLY — taxes are deliberately out of scope (assume
+    a tax-advantaged wrapper).
 
     Returns (nav, total_turnover) where turnover is the summed `sum|delta|/2`
     over every rebalance to a NEW target (monthly drift-rebalances are not
@@ -254,10 +257,21 @@ def shadow_book_nav(
             cash_value = weights.get(ratios.CASH_TICKER, 0.0) * total
             prev_period = today.to_period("M")
 
-        # 2. monthly drift-rebalance to the STANDING target, at no cost — the
-        #    convention `ratios.synthesize_nav` pins (both arms pay it equally,
-        #    so charging it would only add noise to A - B).
+        # 2. monthly drift-rebalance to the STANDING target — BILLED since
+        #    ADR-010. It used to be free, on the reasoning that "both arms pay
+        #    it equally, so charging it would only add noise to A - B". True
+        #    within the replay, false once the stack is RANKED against static
+        #    books: there, the stack was the only row paying for its trades
+        #    while six books rebalanced monthly for nothing. A rebalance is a
+        #    real order either way, so it is billed either way.
         elif today.to_period("M") != prev_period:
+            if cost_bps and total > 0:
+                actual = _actual_fractions(sleeve, cash_value, total)
+                traded = sum(
+                    abs(weights.get(t, 0.0) - actual.get(t, 0.0))
+                    for t in set(weights) | set(actual)
+                )
+                total *= 1.0 - traded * cost_bps / 10_000.0
             sleeve = {t: weights[t] * total for t in non_cash}
             cash_value = weights.get(ratios.CASH_TICKER, 0.0) * total
             prev_period = today.to_period("M")
@@ -1027,6 +1041,13 @@ async def _load_portfolios(db: InvestmentDB) -> dict[str, PortfolioMeta]:
         " AS primary_strategy_id "
         "FROM portfolio WHERE enabled = 1 ORDER BY portfolio.id"
     )
+    # TIME-VARYING portfolios are excluded, not an oversight: the replay's
+    # shadow book treats every row here as a STATIC allocation it may switch
+    # into, and `PortfolioMeta.allocation` for the market-signal stack is only
+    # the book in force TODAY. Admitting it would let the replay "switch" into
+    # a 2026 allocation in 1998 — a look-ahead — and would double-count the
+    # stack against its own component books. The stack is measured by
+    # `run_market_signal`, which is the harness built for a rotating target.
     return {
         str(r["id"]): PortfolioMeta(
             portfolio_id=str(r["id"]),
@@ -1037,6 +1058,7 @@ async def _load_portfolios(db: InvestmentDB) -> dict[str, PortfolioMeta]:
             allocation=json.loads(r["allocation"]),
         )
         for r in rows
+        if str(r["id"]) not in TIME_VARYING_PORTFOLIOS
     }
 
 

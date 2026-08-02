@@ -12,6 +12,11 @@ maturation). gate 6 (cited-invariant eligibility) and `effective_caps`
 (stricter-of user/portfolio caps) are the two gates the mechanical replay could
 not supply before M8 (mechanical/gates.py docstring).
 
+A THIRD disposition, `dispose_market_signal`, carries ADR-007's live monthly
+allocation decision: the mechanical stack proposes (mechanical/market_signal.py
+`walk_decisions`), the binding caps dispose, and the decision is journalled
+whether or not it moves money.
+
 The UC8-A SWITCH disposition is deliberately absent: ADR-007 superseded the
 ranked defender/challenger duel, so no live cycle emits a switch. `switch_gates`
 (mechanical/gates.py) stays, because the retained-bridge replay still runs it.
@@ -28,14 +33,23 @@ from ulid import ULID
 from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import (
+    ALLOCATION_SUM_TOLERANCE,
     Caps,
     GateOutcome,
     ProposalThresholds,
     cited_invariant_eligible,
+    concentration_ok,
     max_allocation_change_pts,
     reallocation_gates,
 )
 from investment.mechanical.invariants import compute_weight_update, mature_seed_invariants
+from investment.mechanical.market_signal import (
+    BOOK_PORTFOLIO_IDS,
+    CONFIRM_DECISIONS,
+    STACK_PORTFOLIO_ID,
+    TREND_HAVEN,
+    Decision,
+)
 from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ReallocationProposal
@@ -48,6 +62,12 @@ from investment.writeback.knowledge import (
 logger = logging.getLogger(__name__)
 
 PROPOSAL_EVENT = "ProposalEvent"
+# ADR-007's live monthly allocation decision, journalled on EVERY decision date
+# — including the ones that change nothing. A decision that lands on the held
+# book still advanced the hysteresis counter and still read the 200d overlay;
+# without that row the record would show only the months the stack moved, which
+# is precisely the evidence forward paper-mode is NOT allowed to lose.
+MARKET_SIGNAL_EVENT = "MarketSignalDecisionEvent"
 CONFRONTATION_EVENT = "ConfrontationEvent"
 EVALUATION_EVENT = "EvaluationEvent"
 SCENARIO_EVENT = "ScenarioEvent"
@@ -91,6 +111,18 @@ def proposal_thresholds(thresholds: dict[str, float]) -> ProposalThresholds:
         blend_scenario_weight=thresholds["blend_scenario_weight"],
         blend_favors_weight=thresholds["blend_favors_weight"],
     )
+
+
+async def portfolio_caps(db: InvestmentDB, portfolio_id: str) -> dict[str, Any] | None:
+    """A portfolio's OWN cap rules (CLAUDE.md "Binding caps": per-portfolio rules
+    may only be STRICTER; `effective_caps` takes the stricter of these and the
+    user profile). `None` when the portfolio is unknown — then only the user
+    caps bind."""
+    rows = await db.query(
+        "SELECT max_single_asset_pct, max_drawdown_rule FROM portfolio WHERE id = :pid",
+        pid=portfolio_id,
+    )
+    return dict(rows[0]) if rows else None
 
 
 async def _allowed_reallocation_tickers(db: InvestmentDB) -> frozenset[str]:
@@ -326,6 +358,229 @@ async def dispose_reallocation(
         db, defender_id, reallocation, current_allocation, market_context, today
     )
     return GateOutcome(passed=True), proposal_id
+
+
+# -- ADR-007: the live monthly market-signal disposition --------------------
+
+
+def market_signal_gates(
+    target: dict[str, float], caps: Caps, allowed_tickers: frozenset[str]
+) -> GateOutcome:
+    """REGRESSION GUARDS on ADR-007's live allocation decision — and the name is
+    the honest one, because these cannot refuse a decision the MARKET produced.
+
+    What they actually catch is a CONFIGURATION or CODE change: a ticker
+    deactivated in `allowed_tickers`, a `BOOKS` weight edited to something that
+    no longer sums to 100 or breaches the single-asset cap. Over the 12
+    reachable book x overlay states, every one passes — measured, not assumed.
+    That is the correct outcome (the books were designed against these caps), but
+    it means the guards must not be read as a safety control on the allocation.
+    They assert the code still agrees with ADR-007; they do not protect capital.
+
+    1. the target sums to 100 (a malformed book is a bug, not an allocation);
+    2. `max_single_asset_pct`, with TREND_HAVEN exempt — the overlay can pile
+       both equity/gold sleeves into IEF (~90% in risk-off), the deliberate
+       flight to safety the validated -23.8% includes (ADR-007 addendum, choice
+       (a)). Same predicate and exemption as `market_signal.cap_violations`
+       applies over the 35y backtest;
+    3. every sleeve is an active tradable ticker.
+
+    THE DRAWDOWN RULE IS NOT HERE, and that is the correction this function
+    exists in its current shape to record (docs/DECISIONS.md ADR-009). Blocking
+    a proposal cannot protect anything: a refusal writes no Proposal, so no
+    order is put in front of the owner and the stack stays exactly where it is.
+    It can only FREEZE a position, never exit one — and during a drawdown the
+    proposal being blocked is precisely the 200d overlay's flight into IEF.
+    Measured over the three historical episodes (2008/2020/2022), a -25%
+    trigger would have fired on 2020-03-20, the exact bottom, selling into the
+    trough and missing the 185-day recovery. The rule now surfaces as an ALERT
+    on the stack's realized 36M drawdown (telegram/digest.py) and never blocks.
+
+    ALSO NOT APPLIED: `max_turnover_pct` (30) and `min_allocation_change_pts`
+    (5), knobs of the 0.4/0.6 reallocation BLEND that ADR-007 superseded. A book
+    switch is a ~90-100% turnover move by construction — the books barely
+    overlap — so that ceiling would block every switch the strategy exists to
+    make. And gate 6 (cited-invariant eligibility) plus the 4-week cooldown: the
+    book is chosen by a market-priced signal validated over 35 years, not argued
+    from a lighthouse, so there is no citation to check; the cooldown would
+    suppress the overlay's re-entry, which IS the drawdown control."""
+    if abs(sum(target.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
+        return GateOutcome.refused("allocation_sums_to_100")
+    if not concentration_ok(target, caps, exempt=frozenset({TREND_HAVEN})):
+        return GateOutcome.refused("max_single_asset_pct")
+    unknown = set(target) - allowed_tickers
+    if unknown:
+        return GateOutcome.refused("allowed_tickers")
+    return GateOutcome(passed=True)
+
+
+async def dispose_market_signal(
+    db: InvestmentDB,
+    decision: Decision,
+    held_allocation: dict[str, float],
+    market_context: dict[str, Any],
+    user_profile: dict[str, Any],
+    *,
+    today: date,
+) -> tuple[GateOutcome, str | None]:
+    """ADR-007's live monthly decision, disposed and persisted in ONE
+    transaction: the decision journal entry always, the Proposal only when the
+    target differs from what is HELD and every gate passes.
+
+    Held-relative, not walk-relative: `Decision.changed` compares against the
+    PREVIOUS decision in the walk, but what matters live is the gap to the book
+    actually held. The two diverge whenever a gate blocked an earlier move — and
+    then the walk says "no change" while the stack is still sitting in the wrong
+    book. Keying the emit on `held_allocation` makes the path self-healing: the
+    next monthly decision re-proposes what the blocked one could not.
+
+    Returns `(outcome, proposal_id)`; `proposal_id` is None when nothing moved
+    (outcome `no_change`) or a gate refused."""
+    book_id = BOOK_PORTFOLIO_IDS[decision.held]
+    portfolio = await portfolio_caps(db, book_id)
+    caps = effective_caps(user_profile, portfolio)
+    allowed = await _allowed_reallocation_tickers(db)
+    outcome = market_signal_gates(decision.target, caps, allowed)
+
+    # A decision that lands on what is already held is not a refusal — it is the
+    # strategy working (2.8 book changes a year; most months hold). It is
+    # journalled and no Proposal is emitted.
+    moves = max_allocation_change_pts(held_allocation, decision.target) > 0.0
+    emit = moves and outcome.passed
+    proposal_id = str(ULID()) if emit else None
+
+    async with db.transaction():
+        await db.append_event(
+            type=MARKET_SIGNAL_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=proposal_id,
+            payload={
+                **market_context,
+                "gate": "passed" if outcome.passed else outcome.failed_gate,
+                "moves": moves,
+                "proposal_id": proposal_id,
+            },
+            event_date=today,
+        )
+        if proposal_id is not None:
+            await _insert_market_signal_proposal(
+                db, proposal_id, book_id, decision, held_allocation, market_context, today
+            )
+            # The stack Portfolio's `allocation` records what is HELD, so it
+            # moves only when a proposal is actually emitted — inside this
+            # transaction, after the EventLog appends. A blocked or no-change
+            # decision leaves it exactly where it was, which is the truth.
+            await db.command(
+                "UPDATE portfolio SET allocation = :alloc, updated_at = :now WHERE id = :id",
+                alloc=json.dumps(decision.target),
+                now=datetime.now(UTC).isoformat(),
+                id=STACK_PORTFOLIO_ID,
+            )
+    if not moves:
+        return GateOutcome.refused("no_change"), None
+    return outcome, proposal_id
+
+
+async def _insert_market_signal_proposal(
+    db: InvestmentDB,
+    proposal_id: str,
+    book_id: str,
+    decision: Decision,
+    held_allocation: dict[str, float],
+    market_context: dict[str, Any],
+    today: date,
+) -> None:
+    """The Proposal vertex for a passing market-signal decision. Called inside
+    `dispose_market_signal`'s transaction, AFTER its EventLog append (CLAUDE.md
+    "EventLog": every UC side-effect is appended before its vertex commit).
+
+    ADR-008 shapes the row: `defender_id` is the book now in force, and
+    `challenger_id` / `defender_rank` / `challenger_rank` / `gap` are NULL —
+    a market-signal proposal has a signal state and a book, not a rank and a
+    duel. `paper_started = today` because a proposal that passed every gate IS
+    the paper-test (ADR-006 left no accept step), exactly as the reallocation
+    path sets it.
+
+    No `proposal_cites` rows: the decision cites no invariant (see
+    `market_signal_gates`). `outcomes.evaluate_proposals` reads the incumbent
+    back out of `market_context.held_allocation` rather than from a weekly
+    snapshot, because the held book is the POST-OVERLAY allocation and no
+    snapshot carries it."""
+    await db.append_event(
+        type=PROPOSAL_EVENT,
+        source_uc=SOURCE_UC,
+        source_id=proposal_id,
+        payload={
+            "proposal_type": "market-signal",
+            "defender_id": book_id,
+            "proposed_allocation": decision.target,
+            "signal_state": decision.signalled,
+            "held_book": decision.held,
+        },
+        event_date=today,
+    )
+    await db.command(
+        "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
+        "recommendation, market_context, reasoning, paper_started, trace, created_at) "
+        "VALUES (:id, :date, 'market-signal', :book, :alloc, 'paper-test', :ctx, :reason, "
+        ":date, :trace, :now)",
+        id=proposal_id,
+        date=today.isoformat(),
+        book=book_id,
+        alloc=json.dumps(decision.target),
+        ctx=json.dumps(market_context),
+        reason=_market_signal_reasoning(decision, held_allocation),
+        trace=(
+            "ADR-007 live monthly market-signal decision: "
+            f"signal={decision.signalled}, held={decision.held}, "
+            f"below-trend={list(decision.below_trend)}; passed the binding caps "
+            "(max_single_asset_pct with the IEF trend-haven exemption, allowed "
+            "tickers, stack max_drawdown_pct). ADR-008: rank/gap NULL."
+        ),
+        now=datetime.now(UTC).isoformat(),
+    )
+
+
+def _market_signal_reasoning(decision: Decision, held_allocation: dict[str, float]) -> str:
+    """`Proposal.reasoning` for a mechanical decision. The schema wants prose;
+    what the owner needs is WHY the book is what it is — the two signal
+    comparisons, the hysteresis state, and which sleeves the overlay moved. No
+    LLM wrote this and the text should not pretend one did."""
+    spread_side = _side(decision.spread, decision.spread_median, "wide", "tight")
+    slope_side = _side(decision.slope, decision.slope_median, "steep", "flat")
+    parts = [
+        f"Credit spread (BAA10Y) {decision.spread:.2f} is {spread_side} its 10y median "
+        f"({_num(decision.spread_median)}); yield slope (T10Y2Y) {decision.slope:.2f} is "
+        f"{slope_side} its 10y median ({_num(decision.slope_median)}) "
+        f"-> signal '{decision.signalled}'.",
+    ]
+    if decision.pending is not None:
+        parts.append(
+            f"Hysteresis: '{decision.pending}' has been signalled {decision.pending_count} of the "
+            f"{CONFIRM_DECISIONS} consecutive decisions it needs, so the stack still holds "
+            f"'{decision.held}'."
+        )
+    below = decision.below_trend
+    parts.append(
+        f"200d overlay: {', '.join(below)} below trend -> redirected to {TREND_HAVEN}."
+        if below
+        else "200d overlay: no sleeve below trend, the book is held as designed."
+    )
+    parts.append(f"Held {held_allocation or '(nothing yet)'} -> target {decision.target}.")
+    return " ".join(parts)
+
+
+def _side(value: float, median: float | None, above: str, below: str) -> str:
+    """Which side of its trailing median a signal sits on, in the strategy's own
+    vocabulary. `median is None` is the warm-up state `classify_regime` answers
+    with its credit-spread-wide default — say so rather than inventing a side."""
+    if median is None:
+        return "unmeasurable against (warm-up, under 10y of history)"
+    return above if value > median else below
+
+
+def _num(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
 
 
 # -- knowledge commit (PostPlannerResult -> graph) --------------------------

@@ -25,6 +25,9 @@ def _baseline(**over: object) -> Baseline:
                       {"strategy_id": "s1", "scenario": "base", "probability": 30.0, "shift": 0.0}],
         "top_invariants": [{"id": "i-base", "title": "from baseline", "weight_effective": 0.9}],
         "recent_proposals": [],
+        # No live market-signal decision journalled yet — the state these tests
+        # exercise (ADR-007's block is absent, not empty-and-asserted).
+        "market_signal": {},
     }
     base.update(over)
     return Baseline(**base)  # type: ignore[arg-type]
