@@ -724,6 +724,11 @@ replay charged the arms it was compared against.
    rebalance triggers no CHF conversion.
 2. **Every NAV pays it** — static books, the All-Weather benchmark, and the
    stack. A benchmark charged nothing is an alternative nobody can actually buy.
+   *(Correction 2026-08-02: read "every PERSISTED NAV". The temporary NAVs
+   `outcomes._window_return` builds to score a proposal at +12w charge the
+   switch but not the ~3 drift-rebalances inside the window — ~1.5 bp on both
+   legs, so no verdict moves. Named and to be closed before Step 6:
+   docs/IMPROVEMENTS.md I-45.)*
 3. **The monthly drift-rebalance is billed too**, in BOTH engines. It was free
    in `shadow_book_nav` on the reasoning that "both arms pay it equally, so
    charging it would only add noise to A - B" — true inside the replay, false
@@ -833,3 +838,14 @@ eventually become mechanical too. Today it is the retained cognitive path and
 gate 0 leaves it untouched, by design — it is the benchmark the adopted
 strategy is measured against, and a benchmark the Worker cannot influence is a
 different experiment from the one V1 is running.
+
+**Consequence carried to Step 6, stated here so it is not discovered there.**
+The Worker's lever is legal only against the bridge defender. Retiring the
+bridge (V1_STRATEGY Step 6) makes the stack the defender, and then the lever
+has no legal target at all: UC8-B in full becomes unreachable. Gate 0 is
+correct in that state — it simply leaves half of UC8 with nothing to do. The
+three futures (delete UC8-B / demote rather than retire the bridge / give the
+Worker a capped satellite sleeve) are specified in docs/IMPROVEMENTS.md I-46,
+which must be settled INSIDE the Step 6 plan. Not decided now on purpose: the
+answer depends on whether forward paper-mode retires the bridge at all, and if
+the stack fails, the question dissolves.

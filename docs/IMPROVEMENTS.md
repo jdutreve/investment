@@ -1478,6 +1478,87 @@ contaminating itself.
 
 ---
 
+## I-45 — ADR-010's "every NAV pays" is not literally true: +12w scoring is gross
+
+**Why deferred:** it is an inconsistency between an ADR's wording and one call
+site, whose measured effect is below the precision of the thing it feeds. Cheap
+to close either way, and closing it wrongly is worse than leaving it named.
+
+**What it is.** ADR-010 states one rate charged to every NAV. That holds for
+every PERSISTED `portfolio_nav` series — the static books, the All-Weather
+benchmark and the market-signal stack all pay 23 bps/order, drift-rebalance
+included. It does NOT hold for the temporary NAVs `outcomes._window_return`
+synthesizes to score a proposal at +12 weeks: those call
+`ratios.synthesize_nav` without `cost_bps`, so the ~3 monthly drift-rebalances
+inside the window are free. The one-off switch cost IS charged, separately
+(`outcomes._evaluate_one`, `turnover x replay_cost_bps`), so the gap is only
+the rebalances.
+
+**Size of the error.** ADR-010 measured static books at ~0.26 sum|dW| a year,
+so a 12-week window is ~0.065 sum|dW| ≈ **1.5 bp**, charged to BOTH legs. The
+verdict compares the two legs, so what actually matters is the DIFFERENCE
+between their drift, which is smaller again. No won/lost verdict flips unless
+the gap is already inside a basis point, where it was never meaningful.
+
+**The two honest resolutions**, one of which must be picked:
+1. pass `ratios.TRADING_COST_BPS` in `_window_return` — one argument, no
+   measurable change to any verdict, and the ADR becomes literally true;
+2. amend ADR-010 to say "every PERSISTED NAV", and state that proposal scoring
+   charges the switch only, on purpose (both legs drift alike, so the
+   rebalance cancels in a DIFFERENCE — the same argument `shadow_book_nav`
+   used before ADR-010 overturned it for the RANKING, where it was false
+   because the rows were not compared pairwise).
+
+Note that (2) resurrects the reasoning ADR-010 rejected. It is still valid HERE
+and was not there, and that distinction is the whole content of this item: a
+cost that cancels in a pairwise difference does not cancel in a shared ranking.
+
+**Trigger to revisit:** before Step 6 (forward paper-mode). Until then the
+outcome ledger holds fixtures; from Step 6 it becomes the evidence the go-live
+verdict rests on, and "the numbers are net" has to be true without a footnote.
+
+---
+
+## I-46 — After the bridge is retired, the Worker has no legal allocation target left
+
+**Why deferred:** the input that decides it has not arrived. The answer depends
+on whether the stack's edge reproduces in forward paper-mode, which is 6-18
+months of evidence away (docs/V1_STRATEGY.md Step 6). Deciding now means
+choosing between three futures when only one will happen.
+
+**What it is.** The Worker's only allocation lever is
+`WorkerResult.reallocation_proposed`, applied by `decision_cycle` to whichever
+portfolio carries the `defender` flag. ADR-011's gate 0 refuses any target in
+`TIME_VARYING_PORTFOLIOS`, so the lever is legal only against the retained
+bridge defender. Step 6 retires that bridge and makes the stack the defender —
+at which point the lever has no legal target at all, and UC8-B in full (the
+0.4/0.6 blend, gates 1-6, the cooldown, `proposal_cites`, the whole
+`ReallocationProposal` model) becomes unreachable. Not a bug: a consequence
+nobody decided. Gate 0 is CORRECT in that state — it just leaves half of UC8
+with nothing to do.
+
+**The three futures:**
+1. **Accept it.** After Step 6 the Worker is a reader and an innovator only,
+   and UC8-B is DELETED (CLAUDE.md: "delete obsolete code, don't disable").
+   Cleanest, and consistent with ADR-011's logic taken to its end. Cost: the
+   cognitive path loses its only quantitative output, and the knowledge factory
+   has to carry the whole burden of proving the Worker earns its tokens.
+2. **Demote rather than retire.** The bridge survives as the cognitive arm and
+   the benchmark, permanently. Then "Step 6 retires the bridge" is wrong as
+   written in V1_STRATEGY and must be reworded. Cost: two allocation paths
+   maintained forever, one of which nobody holds.
+3. **Give the Worker a legitimate lever elsewhere** — e.g. a satellite sleeve
+   sized as a fraction of the stack, mechanically capped, that it may tilt.
+   Cost: a new allocation surface, hence a new gate set and a new outcome
+   series, i.e. genuinely more system.
+
+**Trigger to revisit:** when forward paper-mode reaches its verdict on whether
+the bridge is retired at all — the same decision point, so this must be settled
+IN the Step 6 plan and not discovered during it. If the stack fails paper-mode
+the bridge stays and this item dissolves.
+
+---
+
 ## Implementation order recommendation
 
 If/when adding from this list, prioritize by dependency and impact:
@@ -1487,6 +1568,10 @@ If/when adding from this list, prioritize by dependency and impact:
    `outcomes.py` (unified improvement cycle).
 3. **I-30** (authoritative backfill) — a correctness fix on real stored data,
    not a feature; do it before go-live or at the next ticker/lag change.
+3-bis. **I-45** (+12w scoring is gross) — ten minutes, no verdict moves; the
+   point is that ADR-010's wording and the code must agree BEFORE the outcome
+   ledger stops being fixtures. **I-46** (the Worker's lever after Step 6) is
+   NOT here on purpose: it is settled inside the Step 6 plan or not at all.
 4. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
 5. **I-3 + I-11** (Hypothesis) — closes the epistemic loop, prevents post-hoc bias.
 6. **I-5** (two-tier half-life) — small change, real fairness gain for Dalio-grade.

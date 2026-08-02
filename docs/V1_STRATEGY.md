@@ -211,7 +211,12 @@ late): give the stack its own trading calendar — today it borrows the bridge
 defender's NAV index, so the adopted strategy cannot run without the bridge —
 and re-validate the pinned pair. Making the stack the defender is safe on the
 allocation side: ADR-011's gate 0 keys on `TIME_VARYING_PORTFOLIOS`, not on the
-defender flag.
+defender flag. **But it leaves the Worker with no legal allocation target at
+all** — UC8-B becomes unreachable in full. Delete it, demote the bridge instead
+of retiring it, or give the Worker a capped satellite sleeve: the three futures
+are specified in docs/IMPROVEMENTS.md I-46 and must be settled in THIS plan,
+not during it. Also close I-45 (+12w scoring is gross) before this step: from
+here the outcome ledger stops being fixtures and becomes the go-live evidence.
 
 **Step 7 — V2 auto-execution**, only after forward validation earns it.
 
