@@ -118,6 +118,17 @@ class PortfolioMeta:
     designed_regime_type_id: str | None
     primary_strategy_id: str | None
     allocation: dict[str, float]
+    # The portfolio's own cap rules, carried so `_valuation_rows_asof` can build
+    # a complete `ValuationRow`. NOT yet consulted by this harness: the replay
+    # builds its `Caps` from `user_profile` alone (`load_inputs`), so its
+    # `switch_gates` currently applies the USER cap to portfolios whose own rule
+    # is stricter (-15 on the 4s books, -10 on barbell) — looser than the live
+    # `writeback.dispose_reallocation`, which takes the stricter of the two.
+    # Tightening it would move numbers ADR-007 was signed on, so it is a
+    # separate, arbitrated change; carrying the fields is what makes that change
+    # a one-liner instead of a re-plumbing.
+    max_drawdown_rule: float | None = None
+    max_single_asset_pct: float | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -531,6 +542,8 @@ def _valuation_rows_asof(
                 designed_regime_type_id=meta.designed_regime_type_id,
                 primary_strategy_id=meta.primary_strategy_id,
                 allocation=meta.allocation,
+                max_drawdown_rule=meta.max_drawdown_rule,
+                max_single_asset_pct=meta.max_single_asset_pct,
                 sharpe_rolling=_get(asof, "sharpe_rolling"),
                 sortino_rolling=_get(asof, "sortino_rolling"),
                 calmar_rolling=_get(asof, "calmar_rolling"),
@@ -1034,6 +1047,7 @@ async def load_inputs(db: InvestmentDB) -> ReplayInputs:
 async def _load_portfolios(db: InvestmentDB) -> dict[str, PortfolioMeta]:
     rows = await db.query(
         "SELECT portfolio.id, portfolio.defender, portfolio.framework_id, portfolio.allocation, "
+        "portfolio.max_drawdown_rule, portfolio.max_single_asset_pct, "
         "(SELECT regime_type_id FROM designed_for "
         " WHERE designed_for.portfolio_id = portfolio.id LIMIT 1) AS designed_regime_type_id, "
         "(SELECT strategy_id FROM holds "
@@ -1056,6 +1070,8 @@ async def _load_portfolios(db: InvestmentDB) -> dict[str, PortfolioMeta]:
             designed_regime_type_id=r["designed_regime_type_id"],
             primary_strategy_id=r["primary_strategy_id"],
             allocation=json.loads(r["allocation"]),
+            max_drawdown_rule=r["max_drawdown_rule"],
+            max_single_asset_pct=r["max_single_asset_pct"],
         )
         for r in rows
         if str(r["id"]) not in TIME_VARYING_PORTFOLIOS

@@ -46,6 +46,8 @@ def _ranked(
         designed_regime_type_id=None,
         primary_strategy_id="four-seasons-rp",
         allocation=allocation or {"SPY": 30.0, "TLT": 30.0, "IEF": 20.0, "GLD": 20.0},
+        max_drawdown_rule=None,
+        max_single_asset_pct=None,
         sharpe_rolling=sortino,
         sortino_rolling=sortino,
         calmar_rolling=calmar,

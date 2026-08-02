@@ -182,6 +182,39 @@ async def test_won_reallocation_confirms_its_cited_invariants(db: InvestmentDB) 
     assert conf[0]["source_id"] == "p-cite"
 
 
+async def test_paper_tracking_prices_a_market_signal_test_against_what_was_held(
+    db: InvestmentDB,
+) -> None:
+    """The weekly paper-test tracking must resolve the incumbent the SAME way the
+    +12w verdict does (`_incumbent_allocation`), not by looking up the defender's
+    snapshot.
+
+    The regression is specific to the ADOPTED path and it silently erased the
+    measurement rather than skewing it: a market-signal proposal's `defender_id`
+    is a BOOK portfolio, the books are `enabled = 0` (ADR-009) so they never get
+    a weekly snapshot row — hence `ms-book-pf` below has none deliberately. The
+    old lookup returned `{}`, the incumbent leg was unvaluable, and every live
+    paper-test reported `excess: None` week after week.
+    """
+    await db.command(
+        "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
+        "recommendation, market_context, reasoning, paper_started, trace, created_at) VALUES "
+        "(:id, :d, 'market-signal', 'ms-book-pf', '{\"SPY\": 100}', 'paper-test', :ctx, 'r', "
+        ":d, 't', :d)",
+        id="p-ms",
+        d=START.isoformat(),
+        ctx=json.dumps({"held_allocation": {"TLT": 100}}),
+    )
+    (progress,) = await outcomes.paper_test_progress(db, today=TODAY)
+    assert progress["proposal_id"] == "p-ms"
+    assert progress["incumbent_return"] == pytest.approx(0.0, abs=1e-6)  # TLT flat
+    # Slightly PAST +20%: tracking runs to `today`, one day beyond the 12w window
+    # the verdict stops at, and the SPY fixture keeps ramping. That the two
+    # differ here is the point of the function — it reports progress to date.
+    assert progress["proposed_return"] == pytest.approx(0.2024, abs=1e-3)
+    assert progress["excess"] == pytest.approx(0.2024, abs=1e-3)
+
+
 async def test_already_decided_proposals_are_not_re_evaluated(db: InvestmentDB) -> None:
     decided = json.dumps({"proposed_return": 0.1, "incumbent_return": 0.0, "verdict": "won"})
     await _add_proposal(db, "p-done", "switch", START, challenger="challenger-pf", outcome=decided)

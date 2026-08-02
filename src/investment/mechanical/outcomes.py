@@ -680,9 +680,11 @@ async def strategy_probation_check(
 async def paper_test_progress(db: InvestmentDB, today: date | None = None) -> list[dict[str, Any]]:
     """Proposed-vs-incumbent to date for every ACCEPTED paper-test still running
     (docs/ARCHITECTURE.md: "tracked EVERY week from paper_started"). Read-only —
-    feeds the digest scoreboard; the +12w verdict is evaluate_proposals's job.
-    Returns one row per live paper-test with the running excess (proposed minus
-    incumbent since paper_started), or None where prices don't yet cover it."""
+    feeds the digest scoreboard (`digest.build_scoreboard`, which renders the
+    running excess docs/TASKS.md Task 6bis.1 asks for); the +12w verdict is
+    evaluate_proposals's job. Returns one row per live paper-test with the
+    running excess (proposed minus incumbent since paper_started), or None where
+    prices don't yet cover it."""
     today = today or date.today()
     rows = await db.query(
         "SELECT * FROM proposal WHERE paper_started IS NOT NULL "
@@ -692,9 +694,18 @@ async def paper_test_progress(db: InvestmentDB, today: date | None = None) -> li
     progress: list[dict[str, Any]] = []
     for proposal in rows:
         start = pd.Timestamp(date.fromisoformat(str(proposal["paper_started"])))
-        incumbent = normalize(
-            await _allocation_at(db, str(proposal["defender_id"]), str(proposal["date"]))
-        )
+        # The SAME incumbent resolution the +12w verdict uses, deliberately.
+        # Reading `_allocation_at(defender_id)` directly — as this did — is
+        # exactly the error `_incumbent_allocation` was written to prevent, and
+        # on the ADOPTED path it does not merely mis-price the incumbent, it
+        # erases it: a market-signal proposal's `defender_id` is a BOOK
+        # portfolio, the books are `enabled = 0` (ADR-009), and only enabled
+        # portfolios get a weekly snapshot — so the lookup returned `{}` and
+        # every live paper-test reported `excess: None` forever. The weekly
+        # tracking and the verdict must also agree by construction: a running
+        # excess computed against a different incumbent than the one that
+        # decides won/lost is a scoreboard that contradicts its own verdict.
+        incumbent = normalize(await _incumbent_allocation(db, proposal))
         proposed = normalize(await _proposed_allocation(db, proposal))
         inc_ret = await _window_return(db, incumbent, start, end) if incumbent else None
         pro_ret = await _window_return(db, proposed, start, end) if proposed else None

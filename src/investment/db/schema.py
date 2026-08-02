@@ -456,7 +456,25 @@ CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (
   gap_to_defender         TEXT,              -- JSON map, null for defender
   market_context          TEXT NOT NULL,     -- JSON map
   recommendation          TEXT NOT NULL,     -- 'maintain'|'monitor'|'paper-test'
+  -- The user-drawdown breach: "keeps the row ranked but excludes it from
+  -- defender role and proposal candidacy" (CLAUDE.md "Ranking rule";
+  -- docs/TASKS.md Phase 5bis "user-drawdown breach = defender/proposal
+  -- exclusion flag"). STORED rather than derived at render time, because it is
+  -- the only ranking verdict that depends on a mutable EXTERNAL knob: the
+  -- binding cap already moved once (-15 -> -25, ADR-007) and DECISIONS.md keeps
+  -- -30 on the table. `build_digest` re-renders any past Monday, so a derived
+  -- flag would re-judge a July row under December's cap. The demotion flag has
+  -- no column for the mirror reason: its only input, `calmar_rolling`, is on
+  -- this row already (snapshots.is_demoted).
+  -- NULL = not recorded (rows written before the column existed), which is
+  -- distinct from 0 = measured and within the rule.
   trace                   TEXT NOT NULL,
+  -- LAST on purpose, after `trace`: the live DB got this column through an
+  -- ALTER TABLE (2026-08-02, 31 rows, all left NULL), and SQLite appends. Every
+  -- read and write here names its columns so order is immaterial to the code —
+  -- but a fresh DB and the live one should still describe identically when
+  -- someone diffs the two schemas.
+  excluded_from_candidacy BOOLEAN,
   PRIMARY KEY (date, portfolio_id)
 );
 

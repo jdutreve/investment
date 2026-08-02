@@ -26,8 +26,15 @@ PURE module: no I/O, no DB. Every threshold arrives as an argument.
 
 import dataclasses
 from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
-from investment.mechanical.snapshots import RankedRow
+if TYPE_CHECKING:
+    # TYPE-ONLY, and deliberately so: `snapshots.build_snapshot` must call
+    # `effective_caps` + `drawdown_ok` below to stamp each ranked row with the
+    # user-drawdown exclusion (CLAUDE.md "Ranking rule"), and a runtime import
+    # here would make that a cycle (gates -> snapshots -> gates). Only
+    # `switch_gates` needs the type, and only as an annotation.
+    from investment.mechanical.snapshots import RankedRow
 
 # UC8-B gate 1: `proposed_allocation` sums to 100 (+-0.1).
 ALLOCATION_SUM_TOLERANCE = 0.1
@@ -111,6 +118,33 @@ def concentration_ok(
     return not considered or max(considered) <= caps.max_single_asset_pct
 
 
+def effective_caps(user_profile: Mapping[str, Any], portfolio: Mapping[str, Any] | None) -> Caps:
+    """The BINDING caps for one portfolio: the STRICTER of the user_profile and
+    the portfolio's own rule (CLAUDE.md "Binding caps": per-portfolio rules may
+    only be stricter). Both drawdown limits are negative, so stricter is the
+    LARGER (less-negative) — `max`; for the single-asset cap stricter is the
+    SMALLER — `min`. A portfolio without its own rule inherits the user cap
+    unchanged.
+
+    Lives HERE, beside `Caps` and the two predicates that consume it, rather
+    than in `writeback` where it was written: it is a pure function over two
+    mappings and this module's contract is exactly that ("PURE module: no I/O,
+    no DB"). Three callers now need it — the reallocation disposition, the
+    market-signal disposition, and `snapshots.build_snapshot`'s exclusion flag —
+    and the cap algebra has to be one implementation for the same reason the
+    percent/fraction conversion lives in `drawdown_ok`."""
+    single = float(user_profile["max_single_asset_pct"])
+    drawdown = float(user_profile["max_drawdown_pct"])
+    if portfolio is not None:
+        p_single = portfolio.get("max_single_asset_pct")
+        p_drawdown = portfolio.get("max_drawdown_rule")
+        if p_single is not None:
+            single = min(single, float(p_single))
+        if p_drawdown is not None:
+            drawdown = max(drawdown, float(p_drawdown))
+    return Caps(max_single_asset_pct=single, max_drawdown_pct=drawdown)
+
+
 def drawdown_ok(max_drawdown: float | None, caps: Caps) -> bool:
     """The user drawdown rule. Breaching it "keeps the row ranked but excludes
     it from defender role and proposal candidacy" (CLAUDE.md "Ranking rule").
@@ -142,8 +176,8 @@ def max_allocation_change_pts(current: Mapping[str, float], proposed: Mapping[st
 
 
 def switch_gates(
-    challenger: RankedRow,
-    defender: RankedRow,
+    challenger: "RankedRow",
+    defender: "RankedRow",
     caps: Caps,
     thresholds: ProposalThresholds,
 ) -> GateOutcome:
@@ -182,7 +216,7 @@ def switch_gates(
     return PASSED
 
 
-def _sortino_gap(challenger: RankedRow, defender: RankedRow) -> float | None:
+def _sortino_gap(challenger: "RankedRow", defender: "RankedRow") -> float | None:
     """Read off `gap_to_defender` when the ranker computed it (challenger rows
     always carry it), so the gate cannot disagree with the snapshot the digest
     renders."""

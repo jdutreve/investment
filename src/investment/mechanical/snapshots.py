@@ -16,8 +16,13 @@ from typing import Any
 
 from investment.db.sqlite import InvestmentDB
 from investment.market.regime import FRAMEWORK_ID
+from investment.mechanical.gates import Caps, drawdown_ok, effective_caps
 
 GAP_FIELDS = ("sharpe_rolling", "sortino_rolling", "calmar_rolling", "max_drawdown")
+
+# CLAUDE.md "Ranking rule" / docs/DATA_MODELS.md: `calmar_rolling < 1.0` is
+# demoted below every eligible row (the Invariant#calmar-accumulation gate).
+DEMOTION_CALMAR_MIN = 1.0
 
 # -- pure core ---------------------------------------------------------
 
@@ -30,6 +35,11 @@ class ValuationRow:
     designed_regime_type_id: str | None
     primary_strategy_id: str | None
     allocation: dict[str, float]
+    # The portfolio's OWN cap rules, carried so the exclusion flag can be the
+    # STRICTER of these and the user profile (CLAUDE.md "Binding caps") without
+    # a second query per row. None = no rule of its own, inherit the user's.
+    max_drawdown_rule: float | None
+    max_single_asset_pct: float | None
     sharpe_rolling: float | None
     sortino_rolling: float | None
     calmar_rolling: float | None
@@ -47,6 +57,11 @@ class RankedRow:
     row: ValuationRow
     rank: int
     gap_to_defender: dict[str, float | None] | None
+    # Breaching the binding drawdown rule "keeps the row ranked but excludes it
+    # from defender role and proposal candidacy" (CLAUDE.md "Ranking rule") —
+    # hence a field beside `rank` rather than a reordering: it changes what the
+    # row is ELIGIBLE for, never where it sits.
+    excluded_from_candidacy: bool = False
 
 
 def _gap_to_defender(row: ValuationRow, defender: ValuationRow) -> dict[str, float | None]:
@@ -54,6 +69,21 @@ def _gap_to_defender(row: ValuationRow, defender: ValuationRow) -> dict[str, flo
         return None if a is None or b is None else round(a - b, 6)
 
     return {field: delta(getattr(row, field), getattr(defender, field)) for field in GAP_FIELDS}
+
+
+def is_demoted(calmar_rolling: float | None) -> bool:
+    """Whether a row is Calmar-DEMOTED to the bottom of the ranking.
+
+    Exported because the digest has to say so, and it must not restate the rule
+    to do it: `_ranking_block` used to read a `demoted` key off the snapshot row
+    — a key no writer here has ever produced (see `portfolio_weekly_snapshot`'s
+    columns), so the warning was unreachable in production and only ever fired
+    on hand-built test dicts. One predicate, two readers: the ranker that DOES
+    the demoting and the digest that reports it.
+
+    A missing Calmar is demoted, matching `rank_portfolios`' own `or 0.0`: an
+    unmeasured Calmar cannot clear an absolute floor."""
+    return (calmar_rolling or 0.0) < DEMOTION_CALMAR_MIN
 
 
 def _indicator(value: float | None) -> float:
@@ -105,13 +135,23 @@ def _order_by_rule(rows: list[ValuationRow], tiebreak_window: float) -> list[Val
     return [row for _, row in sorted(grouped, key=sort_key)]
 
 
-def rank_portfolios(rows: list[ValuationRow], tiebreak_window: float) -> list[RankedRow]:
+def rank_portfolios(
+    rows: list[ValuationRow], tiebreak_window: float, user_caps: dict[str, Any] | None = None
+) -> list[RankedRow]:
     """docs/DATA_MODELS.md 'Ranking rule': `sortino_rolling` DESC, Sortino ties
     GROUPED against the group leader (see `_order_by_rule`); within a group
     `calmar_rolling` DESC, then `max_drawdown` (less negative wins).
     `calmar_rolling < 1.0` is demoted below every eligible row regardless of
     Sortino (Invariant#calmar-accumulation gate) — the demoted rows are ranked
-    among themselves by the same rule."""
+    among themselves by the same rule.
+
+    `user_caps` (the `user_profile` row) turns on the second, INDEPENDENT rule
+    of the same paragraph: a row breaching the binding drawdown cap "keeps the
+    row ranked but excludes it from defender role and proposal candidacy". It
+    does not move — it is flagged, per row, against the STRICTER of the user cap
+    and the portfolio's own rule (`gates.effective_caps`). Optional so the pure
+    ordering stays callable without a profile; then nothing is flagged, which is
+    the honest answer when no cap was supplied rather than a silent 'compliant'."""
     if not rows:
         return []
     defender = next((r for r in rows if r.defender), None)
@@ -119,7 +159,7 @@ def rank_portfolios(rows: list[ValuationRow], tiebreak_window: float) -> list[Ra
         raise ValueError("rank_portfolios: no defender in rows")
 
     def eligible(r: ValuationRow) -> bool:
-        return (r.calmar_rolling or 0.0) >= 1.0
+        return not is_demoted(r.calmar_rolling)
 
     ordered = _order_by_rule([r for r in rows if eligible(r)], tiebreak_window) + _order_by_rule(
         [r for r in rows if not eligible(r)], tiebreak_window
@@ -130,9 +170,44 @@ def rank_portfolios(rows: list[ValuationRow], tiebreak_window: float) -> list[Ra
             row=row,
             rank=i,
             gap_to_defender=None if row.defender else _gap_to_defender(row, defender),
+            excluded_from_candidacy=breaches_drawdown_rule(row, user_caps),
         )
         for i, row in enumerate(ordered, start=1)
     ]
+
+
+def binding_caps(row: ValuationRow, user_caps: dict[str, Any] | None) -> Caps | None:
+    """The caps that BIND this row: the stricter of the user profile and the
+    portfolio's own rule. `None` when no profile was supplied — the caller then
+    asserts nothing rather than assuming compliance.
+
+    A one-line adapter onto `gates.effective_caps` because a `ValuationRow` is
+    not the mapping that function reads; the cap ALGEBRA (which direction is
+    stricter, per field) stays there, unduplicated."""
+    if user_caps is None:
+        return None
+    return effective_caps(
+        user_caps,
+        {
+            "max_drawdown_rule": row.max_drawdown_rule,
+            "max_single_asset_pct": row.max_single_asset_pct,
+        },
+    )
+
+
+def breaches_drawdown_rule(row: ValuationRow, user_caps: dict[str, Any] | None) -> bool:
+    """Whether this row breaches its binding drawdown cap, and is therefore
+    excluded from the defender role and from proposal candidacy (CLAUDE.md
+    "Ranking rule"). Evaluated through `gates.drawdown_ok`, the SAME predicate
+    `switch_gates` refuses a challenger with — so the flag the digest shows and
+    the gate that would block the proposal can never disagree.
+
+    An unmeasured drawdown does not breach (`drawdown_ok`: "unmeasured is not
+    bad"), and neither does a row judged with no profile in hand."""
+    caps = binding_caps(row, user_caps)
+    if caps is None:
+        return False
+    return not drawdown_ok(row.max_drawdown, caps)
 
 
 # -- async DB layer (writer path — agent-only, ADR-004/ADR-005) ------------
@@ -215,6 +290,7 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
     query-planner change is not evidence)."""
     rows = await db.query(
         "SELECT portfolio.id, portfolio.defender, portfolio.framework_id, portfolio.allocation, "
+        "portfolio.max_drawdown_rule, portfolio.max_single_asset_pct, "
         "portfolio.sharpe_rolling, portfolio.sortino_rolling, portfolio.calmar_rolling, "
         "portfolio.max_drawdown, portfolio.volatility, portfolio.return_3m, portfolio.return_6m, "
         "portfolio.return_1y, portfolio.return_3y, portfolio.return_5y, "
@@ -233,6 +309,8 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
             designed_regime_type_id=r["designed_regime_type_id"],
             primary_strategy_id=r["primary_strategy_id"],
             allocation=json.loads(r["allocation"]),
+            max_drawdown_rule=r["max_drawdown_rule"],
+            max_single_asset_pct=r["max_single_asset_pct"],
             sharpe_rolling=r["sharpe_rolling"],
             sortino_rolling=r["sortino_rolling"],
             calmar_rolling=r["calmar_rolling"],
@@ -248,24 +326,60 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
     ]
 
 
+def _row_trace(ranked: RankedRow, tiebreak_window: float, user_caps: dict[str, Any] | None) -> str:
+    """This ROW's trace — the mandatory `trace` (CLAUDE.md) written per row
+    rather than one generic sentence copied across the batch.
+
+    docs/EXAMPLE.md Step 8B shows the shape a snapshot trace is expected to
+    carry: "Calmar-demoted; drawdown -18.2% breaches the -15% user rule →
+    excluded from defender role and proposal candidacy". A single shared string
+    recorded the RULE but never what the rule did to this portfolio, which is
+    the one thing a reader opening a past snapshot is looking for. The two
+    clauses are appended separately because they are separate rules with
+    separate consequences: demotion moves the row, the breach only restricts
+    what it is eligible for."""
+    row = ranked.row
+    caps = binding_caps(row, user_caps)
+    parts = [
+        "Mechanical ranking: sortino_rolling DESC, tie-break within "
+        f"{tiebreak_window} = calmar_rolling DESC, final tie-break = max_drawdown "
+        "(docs/DATA_MODELS.md 'Ranking rule')."
+    ]
+    if is_demoted(row.calmar_rolling):
+        calmar = "unmeasured" if row.calmar_rolling is None else f"{row.calmar_rolling:.2f}"
+        parts.append(f"Calmar-demoted: {calmar} below {DEMOTION_CALMAR_MIN}.")
+    # The two `is not None` are TYPE NARROWING, not logic: an excluded row
+    # necessarily has both a cap and a measured drawdown (`breaches_drawdown_
+    # rule` returns False without them).
+    if ranked.excluded_from_candidacy and caps is not None and row.max_drawdown is not None:
+        parts.append(
+            f"Drawdown {row.max_drawdown * 100:.1f}% breaches the binding "
+            f"{caps.max_drawdown_pct:.0f}% rule -> excluded from defender role and "
+            "proposal candidacy (the row keeps its rank)."
+        )
+    return " ".join(parts)
+
+
 async def build_snapshot(
     db: InvestmentDB, tiebreak_window: float, snapshot_date: date | None = None
 ) -> list[RankedRow]:
     """UC7 — ranks every enabled Portfolio (UC6 must have run first — this
     reads Portfolio.sharpe_rolling/etc, it does not compute them), writes one
     `portfolio_weekly_snapshot` row per portfolio, and appends a RankingEvent
-    for the batch BEFORE the snapshot rows (CLAUDE.md 'EventLog' rule)."""
+    for the batch BEFORE the snapshot rows (CLAUDE.md 'EventLog' rule).
+
+    The `user_profile` read is what arms the drawdown-exclusion flag; without a
+    profile row the ranking still runs and simply asserts no exclusion."""
     snapshot_date = snapshot_date or date.today()
     valuation_rows = await _valuation_rows(db)
     if not valuation_rows:
         return []
-    ranked = rank_portfolios(valuation_rows, tiebreak_window)
-    context = await _market_context(db)
-    trace = (
-        "Mechanical ranking: sortino_rolling DESC, tie-break within "
-        f"{tiebreak_window} = calmar_rolling DESC, final tie-break = max_drawdown "
-        "(docs/DATA_MODELS.md 'Ranking rule')."
+    profile = await db.query(
+        "SELECT max_drawdown_pct, max_single_asset_pct FROM user_profile LIMIT 1"
     )
+    user_caps = dict(profile[0]) if profile else None
+    ranked = rank_portfolios(valuation_rows, tiebreak_window, user_caps)
+    context = await _market_context(db)
 
     async with db.transaction():
         await db.append_event(
@@ -294,11 +408,12 @@ async def build_snapshot(
                 "(date, portfolio_id, defender, framework_id, designed_regime_type_id, "
                 " primary_strategy_id, allocation, rank, sharpe_rolling, sortino_rolling, "
                 " calmar_rolling, max_drawdown, volatility, return_3m, return_6m, return_1y, "
-                " return_3y, return_5y, gap_to_defender, market_context, recommendation, trace) "
+                " return_3y, return_5y, gap_to_defender, market_context, recommendation, "
+                " excluded_from_candidacy, trace) "
                 "VALUES (:date, :portfolio_id, :defender, :framework_id, "
                 " :designed_regime_type_id, :primary_strategy_id, :allocation, :rank, :sharpe, "
                 " :sortino, :calmar, :mdd, :vol, :r3m, :r6m, :r1y, :r3y, :r5y, :gap, :context, "
-                " :recommendation, :trace)",
+                " :recommendation, :excluded, :trace)",
                 date=snapshot_date.isoformat(),
                 portfolio_id=row.portfolio_id,
                 defender=row.defender,
@@ -323,7 +438,8 @@ async def build_snapshot(
                 # Writeback (M8) upgrades to 'paper-test' after a proposal
                 # gate passes (docs/TASKS.md portfolio_weekly_snapshot spec).
                 recommendation="maintain" if row.defender else "monitor",
-                trace=trace,
+                excluded=rr.excluded_from_candidacy,
+                trace=_row_trace(rr, tiebreak_window, user_caps),
             )
 
     return ranked

@@ -49,6 +49,7 @@ from investment.mechanical.gates import (
     ProposalThresholds,
     cited_invariant_eligible,
     concentration_ok,
+    effective_caps,
     max_allocation_change_pts,
     reallocation_gates,
 )
@@ -91,24 +92,6 @@ _STRATEGY_INNOVATION_TYPES = frozenset({"new_strategy", "strategy_revision"})
 # states "unproven" — the probation verdict, not the spec, decides its fate.
 DEFAULT_FRAMEWORK = "4seasons"
 DEFAULT_CONVICTION = 50.0
-
-
-def effective_caps(user_profile: dict[str, Any], portfolio: dict[str, Any] | None) -> Caps:
-    """The BINDING caps for a proposal: the STRICTER of the user_profile and the
-    portfolio's own rule (CLAUDE.md "Binding caps": per-portfolio rules may only
-    be stricter). Both drawdown limits are negative, so stricter is the LARGER
-    (less-negative) — `max`; for the single-asset cap stricter is the SMALLER —
-    `min`. A portfolio without its own rule inherits the user cap unchanged."""
-    single = float(user_profile["max_single_asset_pct"])
-    drawdown = float(user_profile["max_drawdown_pct"])
-    if portfolio is not None:
-        p_single = portfolio.get("max_single_asset_pct")
-        p_drawdown = portfolio.get("max_drawdown_rule")
-        if p_single is not None:
-            single = min(single, float(p_single))
-        if p_drawdown is not None:
-            drawdown = max(drawdown, float(p_drawdown))
-    return Caps(max_single_asset_pct=single, max_drawdown_pct=drawdown)
 
 
 def proposal_thresholds(thresholds: dict[str, float]) -> ProposalThresholds:

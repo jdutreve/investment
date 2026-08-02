@@ -502,7 +502,9 @@ async def persist_stack_nav(
 
 async def stack_metrics(db: InvestmentDB, run: MarketSignalRun) -> NavMetrics:
     """Daily NAV metrics of the run (CAGR, Sortino, max drawdown) — the numbers
-    the DoV checks against 11.26% / -23.8% (see the module's ANTI-DRIFT note;
-    9.85% was the pre-hysteresis pair)."""
+    the DoV checks against the pinned pair **11.14% / -23.8%** (see the module's
+    ANTI-DRIFT note). 11.26% was the pre-ADR-010 figure and 9.85% the
+    pre-hysteresis one; both are history, and naming a superseded target here is
+    how a drift check comes to certify the wrong number."""
     rf = await ratios.load_rf_daily(db)
     return nav_metrics(run.nav.dropna(), rf)

@@ -16,6 +16,8 @@ from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import WORKER_READING_EVENT
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
+from investment.mechanical.outcomes import paper_test_progress
+from investment.mechanical.snapshots import is_demoted
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
@@ -45,13 +47,28 @@ def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[st
         f"({conf} — {regime.get('regime_type_id', '?')})"
     ]
     if liquidity:
+        # Through `_num` like every other indicator in this file: these are raw
+        # REALs off `market_data`, and unformatted they print the full float
+        # repr (the live DB's level renders as 95.83616874214097).
         lines.append(
-            f"   Global liquidity: level {liquidity.get('level')}, speed {liquidity.get('speed')}"
+            f"   Global liquidity: level {_num(liquidity.get('level'))}, "
+            f"speed {_num(liquidity.get('speed'))}"
         )
     return lines
 
 
 def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
+    """The ranked table, with the two markers of CLAUDE.md's "Ranking rule" —
+    which are SEPARATE rules and must not be conflated into one warning:
+    `calmar_rolling < 1.0` MOVES the row to the bottom, while a drawdown breach
+    leaves it exactly where it is and only restricts what it is eligible for.
+
+    They are also sourced differently, and deliberately: demotion is derived
+    here through the ranker's own predicate (`snapshots.is_demoted`) because its
+    input is on the row, while the exclusion is READ from the column the ranking
+    job stamped — it was judged against the cap in force on that date, and
+    re-deriving it would re-judge a past snapshot under today's cap
+    (db/schema.py)."""
     lines = ["", "🏆 Portfolio ranking (Sortino USD, rolling 36M):"]
     for row in ranking:
         star = " ★ (defender)" if row.get("defender") else ""
@@ -63,9 +80,14 @@ def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
             if isinstance(sortino, int | float) and isinstance(calmar, int | float)
             else f"   {row.get('rank')}. {row.get('portfolio_id')}{star}"
         )
-        dd = row.get("max_drawdown")
-        if isinstance(dd, int | float) and row.get("demoted"):
-            line += f" ⚠️ (demoted; drawdown {pct(dd)} breaches the rule)"
+        if isinstance(calmar, int | float) and is_demoted(calmar):
+            line += f" ⚠️ (demoted: Calmar {calmar:.1f} below 1.0)"
+        # NULL on rows written before the column existed reads as "not
+        # recorded" and prints nothing — distinct from 0, "measured, compliant".
+        if row.get("excluded_from_candidacy"):
+            dd = row.get("max_drawdown")
+            measured = f" (drawdown {pct(dd)})" if isinstance(dd, int | float) else ""
+            line += f" ⛔ excluded from defender role and proposal candidacy{measured}"
         lines.append(line)
     return lines
 
@@ -285,6 +307,16 @@ def _scoreboard_block(scoreboard: dict[str, Any]) -> list[str]:
     paper = scoreboard.get("paper_tests", [])
     if paper:
         lines.append(f"   Paper-tests in progress: {len(paper)}")
+        # "paper-tests in progress WITH PROPOSED-VS-INCUMBENT TO DATE"
+        # (docs/TASKS.md Task 6bis.1). The count alone answered "how many", never
+        # "are they working" — and the running excess is the only thing in the
+        # digest that says whether a live paper-test is ahead before its +12w
+        # verdict lands. 'n/a' where prices do not yet cover the window, never 0.
+        for test in paper:
+            lines.append(
+                f"      {test.get('proposal_id')}: "
+                f"{pct(test.get('excess'), signed=True)} vs incumbent since paper_started"
+            )
     if scoreboard.get("probations"):
         lines.append(f"   Strategies in probation: {len(scoreboard['probations'])}")
     if scoreboard.get("calibration_flags"):
@@ -295,11 +327,15 @@ def _scoreboard_block(scoreboard: dict[str, Any]) -> list[str]:
 def _defender_block(metrics: dict[str, Any] | None) -> list[str]:
     if not metrics:
         return []
+    # `_num`, not a bare interpolation: these come straight off the snapshot as
+    # REALs, and the defender's live Sharpe printed as 0.6479648177000503. Same
+    # 2-decimal presentation as `_stack_block`, so the two blocks the owner
+    # compares are formatted alike.
     lines = [
         "",
-        f"📈 Defender (USD, 36M): Sharpe {metrics.get('sharpe_rolling', 'n/a')} | "
-        f"Sortino {metrics.get('sortino_rolling', 'n/a')} | "
-        f"Calmar {metrics.get('calmar_rolling', 'n/a')}",
+        f"📈 Defender (USD, 36M): Sharpe {_num(metrics.get('sharpe_rolling'))} | "
+        f"Sortino {_num(metrics.get('sortino_rolling'))} | "
+        f"Calmar {_num(metrics.get('calmar_rolling'))}",
     ]
     returns = " | ".join(
         f"{label} {pct(metrics.get(key), signed=True)}"
@@ -358,6 +394,14 @@ async def build_scoreboard(db: InvestmentDB) -> dict[str, Any]:
     hit-rate (won / decided) and the paper-tests still in progress from the
     proposal ledger, plus the agent-discovery strategies still IN probation.
 
+    `paper_tests` comes from `outcomes.paper_test_progress` rather than from a
+    second query over the same ledger. Two reasons, and the first is that the
+    spec asks for the running proposed-vs-incumbent, which only that function
+    computes — it had no caller at all, so what it measured reached nobody. The
+    second is that the two selections are the same population (paper_started set,
+    verdict still pending) and duplicating it here is how a scoreboard starts
+    counting a different set of tests than the one it prices.
+
     "In probation" is `status='proposed'` with no probation OutcomeEvent yet —
     born of an innovation, not yet judged (docs/ARCHITECTURE.md "System
     Evolution": a strategy is proposed/disabled for the whole probation window,
@@ -366,12 +410,10 @@ async def build_scoreboard(db: InvestmentDB) -> dict[str, Any]:
     `calibration_flags` stays empty: scenario calibration is SUPERSEDED by
     ADR-007 (score_scenarios was removed), so there is no calibration to flag —
     the block omits it."""
-    rows = await db.query(
-        "SELECT json_extract(outcome, '$.verdict') AS verdict, paper_started FROM proposal"
-    )
+    rows = await db.query("SELECT json_extract(outcome, '$.verdict') AS verdict FROM proposal")
     won = sum(1 for r in rows if r["verdict"] == "won")
     lost = sum(1 for r in rows if r["verdict"] == "lost")
-    paper = [r for r in rows if r["paper_started"] and r["verdict"] in (None, "pending")]
+    paper = await paper_test_progress(db)
     probations = await db.query(
         "SELECT id FROM strategy WHERE source = 'agent-discovery' AND status = 'proposed' "
         "AND id NOT IN ("

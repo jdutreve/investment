@@ -1,12 +1,20 @@
 """M4 unit tests for the pure ranking rule (docs/DATA_MODELS.md 'Ranking
-rule'; docs/TASKS.md Phase 8 `test_portfolio_ranking`) — no DB, no I/O.
+rule'; docs/TASKS.md Phase 8 `test_portfolio_ranking`).
+
+Pure for everything the rule decides; the tail of the file adds the ONE thing
+that cannot be asserted without I/O — that `build_snapshot` PERSISTS the
+drawdown-exclusion verdict and its per-row reason (real throwaway SQLite, no
+mocks).
 """
 
 import itertools
+from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 
-from investment.mechanical.snapshots import ValuationRow, rank_portfolios
+from investment.db.sqlite import InvestmentDB
+from investment.mechanical.snapshots import ValuationRow, build_snapshot, rank_portfolios
 
 TIEBREAK_WINDOW = 0.02
 
@@ -18,6 +26,7 @@ def _row(
     sortino: float | None = 1.0,
     calmar: float | None = 2.0,
     max_drawdown: float | None = -0.1,
+    max_drawdown_rule: float | None = None,
 ) -> ValuationRow:
     return ValuationRow(
         portfolio_id=portfolio_id,
@@ -26,6 +35,8 @@ def _row(
         designed_regime_type_id=None,
         primary_strategy_id=None,
         allocation={"SPY": 100.0},
+        max_drawdown_rule=max_drawdown_rule,
+        max_single_asset_pct=None,
         sharpe_rolling=sortino,
         sortino_rolling=sortino,
         calmar_rolling=calmar,
@@ -155,3 +166,118 @@ def test_rank_portfolios_requires_a_defender() -> None:
 
 def test_rank_portfolios_empty_input() -> None:
     assert rank_portfolios([], TIEBREAK_WINDOW) == []
+
+
+# -- the user-drawdown exclusion flag (CLAUDE.md "Ranking rule") --------------
+
+USER_CAPS = {"max_drawdown_pct": -25.0, "max_single_asset_pct": 50.0}
+
+
+def test_a_drawdown_breach_excludes_without_moving_the_row() -> None:
+    """The rule is "keeps the row ranked but excludes it from defender role and
+    proposal candidacy" — so the flag must NOT reorder anything. The breaching
+    row here has the best Sortino and Calmar and stays rank 1."""
+    rows = [
+        _row("deep", sortino=2.0, calmar=3.0, max_drawdown=-0.40),
+        _row("shallow", defender=True, sortino=1.0, calmar=2.0, max_drawdown=-0.05),
+    ]
+    ranked = rank_portfolios(rows, TIEBREAK_WINDOW, USER_CAPS)
+    assert [rr.row.portfolio_id for rr in ranked] == ["deep", "shallow"]
+    assert [rr.excluded_from_candidacy for rr in ranked] == [True, False]
+
+
+def test_the_exclusion_binds_on_the_stricter_of_user_and_portfolio_rules() -> None:
+    """-18% clears the user's -25% but breaches a portfolio's own -15% rule.
+    This is not hypothetical: the bridge books carry -15 and barbell -10 under a
+    -25 user cap, so reading the user cap alone would under-report every one of
+    them (CLAUDE.md "Binding caps": per-portfolio rules may only be STRICTER)."""
+    rows = [
+        _row("own_stricter_rule", max_drawdown=-0.18, max_drawdown_rule=-15.0),
+        _row("user_rule_only", defender=True, max_drawdown=-0.18),
+    ]
+    ranked = {
+        rr.row.portfolio_id: rr.excluded_from_candidacy
+        for rr in rank_portfolios(rows, TIEBREAK_WINDOW, USER_CAPS)
+    }
+    assert ranked == {"own_stricter_rule": True, "user_rule_only": False}
+
+
+def test_the_same_row_flips_when_the_cap_moves() -> None:
+    """WHY THE FLAG IS STORED AND NOT DERIVED AT RENDER TIME (db/schema.py).
+    One unchanged portfolio, two caps: the binding cap already moved once
+    (-15 -> -25, ADR-007) and the live DB holds a -18.37% row written across
+    that change. A digest that re-derived the flag would re-judge July under
+    December's rule."""
+    row = [_row("d", defender=True, max_drawdown=-0.18)]
+    assert rank_portfolios(row, TIEBREAK_WINDOW, {**USER_CAPS, "max_drawdown_pct": -15.0})[
+        0
+    ].excluded_from_candidacy
+    assert not rank_portfolios(row, TIEBREAK_WINDOW, USER_CAPS)[0].excluded_from_candidacy
+
+
+def test_unmeasured_and_capless_rows_assert_nothing() -> None:
+    """ "Unmeasured is not bad" (gates.drawdown_ok), and a ranking run with no
+    user_profile in hand must not silently certify compliance either."""
+    unmeasured = _row("no_indicator", defender=True, max_drawdown=None)
+    assert not rank_portfolios([unmeasured], TIEBREAK_WINDOW, USER_CAPS)[0].excluded_from_candidacy
+    deep = _row("deep", defender=True, max_drawdown=-0.40)
+    assert not rank_portfolios([deep], TIEBREAK_WINDOW)[0].excluded_from_candidacy
+
+
+# -- persistence: the flag and its reason survive the write ------------------
+
+
+@pytest.fixture
+async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
+    conn = InvestmentDB(tmp_path / "s.db")
+    await conn.command(
+        "INSERT INTO framework (id, name, enabled, trace, created_at) "
+        "VALUES ('4s', 'F', 1, 't', '2026-01-01')"
+    )
+    await conn.command(
+        "INSERT INTO user_profile (user_id, currency, benchmark, phase, horizon_years, "
+        "max_drawdown_pct, max_single_asset_pct, created_at, updated_at) VALUES ('u', 'CHF', "
+        "'all-weather-USD', 'accumulation', 12, -25.0, 50.0, '2026-01-01', '2026-01-01')"
+    )
+    # A defender inside every rule, and a challenger at -18%: inside the user's
+    # -25% but breaching its OWN -15% rule — the live bridge's exact shape.
+    for pid, defender, rule, dd, calmar in (
+        ("keeper", 1, -15.0, -0.05, 2.0),
+        ("breacher", 0, -15.0, -0.18, 3.0),
+    ):
+        await conn.command(
+            "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, "
+            "benchmark, allocation, max_drawdown_rule, max_single_asset_pct, phase, "
+            "sortino_rolling, calmar_rolling, max_drawdown, trace, updated_at) VALUES "
+            "(:id, 'n', '4s', :d, 1, 'CHF', 'b', '{\"SPY\": 100}', :rule, 50.0, "
+            "'accumulation', 1.0, :calmar, :dd, 't', '2026-01-01')",
+            id=pid,
+            d=defender,
+            rule=rule,
+            dd=dd,
+            calmar=calmar,
+        )
+    yield conn
+    await conn.close()
+
+
+async def test_build_snapshot_persists_the_exclusion_and_its_reason(db: InvestmentDB) -> None:
+    """The whole point of the column: the verdict is recorded AT the snapshot's
+    date, against the cap in force then, so re-rendering that Monday later
+    cannot re-judge it under a cap that has since moved."""
+    await build_snapshot(db, TIEBREAK_WINDOW)
+    rows = {
+        str(r["portfolio_id"]): r
+        for r in await db.query(
+            "SELECT portfolio_id, rank, excluded_from_candidacy, trace "
+            "FROM portfolio_weekly_snapshot"
+        )
+    }
+    # flagged, and NOT moved: the breacher's better Calmar still wins rank 1
+    assert rows["breacher"]["excluded_from_candidacy"] == 1
+    assert rows["breacher"]["rank"] == 1
+    assert rows["keeper"]["excluded_from_candidacy"] == 0
+    # the per-row trace carries the reason, not one sentence copied batch-wide
+    assert "-18.0% breaches the binding -15% rule" in str(rows["breacher"]["trace"])
+    assert "excluded from defender role and proposal candidacy" in str(rows["breacher"]["trace"])
+    assert "breaches" not in str(rows["keeper"]["trace"])

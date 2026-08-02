@@ -21,7 +21,9 @@ def test_pct_formats_fractions_and_none() -> None:
 def _digest(**over: object) -> str:
     kwargs: dict[str, object] = {
         "regime": {"regime_name": "Stagflation", "regime_type_id": "stag", "confidence": 78.0},
-        "global_liquidity": {"level": 98.4, "speed": -0.80},
+        # Full-precision REALs, as they come off the DB — the live values that
+        # exposed the raw-repr rendering. A round 98.4 would have hidden it.
+        "global_liquidity": {"level": 95.83616874214097, "speed": -0.80},
         "ranking": [
             {
                 "rank": 1,
@@ -37,7 +39,14 @@ def _digest(**over: object) -> str:
                 "sortino_rolling": 0.31,
                 "calmar_rolling": 0.6,
                 "max_drawdown": -0.182,
-                "demoted": True,
+                # READ from the snapshot, not recomputed: it was decided against
+                # the cap in force on that date (db/schema.py).
+                "excluded_from_candidacy": 1,
+                # NO `demoted` key, and its absence is the assertion: the
+                # snapshot rows the ranking job writes have no such column, so
+                # the digest must derive the demotion from `calmar_rolling`
+                # (snapshots.is_demoted). Handing it a flag here is what kept
+                # the unreachable warning looking tested.
             },
         ],
         "invariants": [
@@ -57,12 +66,19 @@ def _digest(**over: object) -> str:
         },
         "scoreboard": {
             "hit_rate": (1, 1),
-            "paper_tests": [{}],
+            "paper_tests": [
+                {
+                    "proposal_id": "p-42",
+                    "proposed_return": 0.061,
+                    "incumbent_return": 0.038,
+                    "excess": 0.023,
+                },
+            ],
             "probations": [],
             "calibration_flags": [],
         },
         "defender_metrics": {
-            "sharpe_rolling": 0.71,
+            "sharpe_rolling": 0.6479648177000503,  # ditto — the live value
             "sortino_rolling": 1.18,
             "calmar_rolling": 1.9,
             "return_3m": 0.038,
@@ -79,7 +95,11 @@ def test_render_is_complete_and_readable() -> None:
     assert "Regime: Stagflation (78.0% — stag)" in text
     # ranking with defender star and a demoted warning
     assert "1. 4S Balanced: 1.18 ★ (defender)  Calmar 1.9" in text
-    assert "⚠️ (demoted; drawdown -18.2% breaches the rule)" in text
+    assert "⚠️ (demoted: Calmar 0.6 below 1.0)" in text
+    # ... and the eligible row above it carries no warning at all
+    assert "1.9 ⚠️" not in text
+    # the drawdown breach is a SEPARATE rule: it restricts, it does not demote
+    assert "⛔ excluded from defender role and proposal candidacy (drawdown -18.2%)" in text
     # invariant with weight (decimal, not percent) + confirmed counts
     assert "TIPS inflation persistence: 0.756 (8/9 confirmed) [dalio]" in text
     # reallocation old->new moves (sorted by ticker), unchanged sleeves omitted
@@ -87,6 +107,11 @@ def test_render_is_complete_and_readable() -> None:
     # scoreboard hit-rate + paper-tests
     assert "Proposals hit-rate: 1/1 (100.0%) at +12w" in text
     assert "Paper-tests in progress: 1" in text
+    # ... each with its running proposed-vs-incumbent (docs/TASKS.md Task 6bis.1)
+    assert "p-42: +2.3% vs incumbent since paper_started" in text
+    # every indicator formatted, never a raw float repr — this file's one job
+    assert "Global liquidity: level 95.84, speed -0.80" in text
+    assert "Defender (USD, 36M): Sharpe 0.65 | Sortino 1.18 | Calmar 1.90" in text
     # defender returns, signed percentages
     assert "3m +3.8%" in text and "1y +14.3%" in text
 
