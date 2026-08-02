@@ -13,6 +13,7 @@ import json
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
+from investment.decision_cycle import WORKER_READING_EVENT
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
@@ -87,7 +88,9 @@ def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _market_signal_block(decision: dict[str, Any] | None) -> list[str]:
+def _market_signal_block(
+    decision: dict[str, Any] | None, worker_reading: dict[str, Any] | None = None
+) -> list[str]:
     """ADR-007's live monthly decision, rendered from its JOURNAL entry
     (`MarketSignalDecisionEvent`, writeback `dispose_market_signal`), not from a
     Proposal row.
@@ -160,7 +163,39 @@ def _market_signal_block(decision: dict[str, Any] | None) -> list[str]:
         )
     if decision.get("reasoning"):
         lines.append(f"   Why: {decision['reasoning']}")
+    lines.extend(_worker_challenge_lines(worker_reading, decision.get("decision_date")))
     return lines
+
+
+def _worker_challenge_lines(reading: dict[str, Any] | None, decision_date: Any) -> list[str]:
+    """The Worker's reading of the mechanical decision (ADR-011's "journalled and
+    RENDERED" half), from the latest `WorkerReadingEvent`.
+
+    Rendered INSIDE the market-signal block, not as a section of its own: it is a
+    critique OF this decision, and separating the two would print an opinion with
+    its subject three blocks away. It follows the mechanical `Why:` deliberately
+    — the owner reads what the instrument did, then what the Worker makes of it.
+
+    STALENESS IS SHOWN, NEVER SILENTLY DROPPED. The decision is monthly and the
+    Worker runs weekly, so the normal case is several readings of the same
+    anchor; but if the cognitive cycle fails or is skipped, the latest reading
+    can belong to a PREVIOUS month's decision — an opinion on a book that is no
+    longer in force. Hiding it would recreate, one field over, exactly the
+    disappearance this feature exists to fix, so it is printed with its own
+    date attached.
+
+    Being inside the block also means no decision, no challenge: before the first
+    mechanical decision the block is absent entirely, and the reading it would
+    carry is the Worker saying it had none to read."""
+    if not reading:
+        return []
+    assessment = str(reading.get("market_signal_assessment") or "").strip()
+    if not assessment:
+        return []
+    read_date = reading.get("market_signal_decision_date")
+    stale = bool(decision_date) and bool(read_date) and read_date != decision_date
+    suffix = f" (reading of the {read_date} decision — NOT the one above)" if stale else ""
+    return [f"   🗣 Worker challenge{suffix}: {assessment}"]
 
 
 def _stack_block(stack: dict[str, Any] | None) -> list[str]:
@@ -294,6 +329,7 @@ def render_digest(
     alerts: list[Alert] | None = None,
     stack: dict[str, Any] | None = None,
     market_signal: dict[str, Any] | None = None,
+    worker_reading: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -308,7 +344,7 @@ def render_digest(
         _regime_header(regime, global_liquidity),
         _ranking_block(ranking),
         _invariant_block(invariants),
-        _market_signal_block(market_signal),
+        _market_signal_block(market_signal, worker_reading),
         _stack_block(stack),
         _proposal_block(proposal),
         _scoreboard_block(scoreboard),
@@ -435,7 +471,22 @@ async def build_digest(db: InvestmentDB) -> str:
         alerts=await collect_alerts(db),
         stack=await _stack_standing(db),
         market_signal=await _latest_market_signal_decision(db),
+        worker_reading=await _latest_worker_reading(db),
     )
+
+
+async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:
+    """The latest journalled Worker reading (`decision_cycle.WORKER_READING_EVENT`).
+
+    Read off the EventLog by descending ULID, like the decision itself: the id IS
+    the append order (CLAUDE.md "EventLog"). `None` before the first cognitive
+    cycle, which is the normal state of a DB whose mechanical path has run and
+    whose UC8 has not."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=WORKER_READING_EVENT,
+    )
+    return _json_map(rows[0]["payload"]) if rows else None
 
 
 async def _latest_market_signal_decision(db: InvestmentDB) -> dict[str, Any] | None:

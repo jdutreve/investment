@@ -20,7 +20,9 @@ Writeback and storage (docs/ARCHITECTURE.md WORKER) — `render_context_for_work
 is that boundary. Writeback runs ONLY on what the Worker proposed: no
 reallocation, no gate run, no vertex. The knowledge commit (confrontations,
 conviction nudges, scenario probabilities, innovations) runs on every cycle,
-proposal or not — a quiet week still learns.
+proposal or not — a quiet week still learns. So does `journal_worker_reading`,
+which records the Worker's prose (ADR-011) before the guardrail runs: without it
+a cycle that proposes and confronts nothing leaves no trace at all.
 """
 
 import dataclasses
@@ -38,11 +40,18 @@ from investment.planner.pre import PlannerPre
 from investment.worker.agent import run_worker
 from investment.worker.result import WorkerResult
 from investment.writeback.writeback import (
+    SOURCE_UC,
     KnowledgeCommit,
     commit_knowledge,
     dispose_reallocation,
     portfolio_caps,
 )
+
+# The cycle's own journal entry (see `journal_worker_reading`). Declared here,
+# beside the only thing that appends it, as `chain.ERROR_EVENT` and
+# `outcomes.OUTCOME_EVENT` are — writeback.py owns the event names for what
+# WRITEBACK persists, and this is not a disposition.
+WORKER_READING_EVENT = "WorkerReadingEvent"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -214,6 +223,54 @@ def _market_context(context: PlannerContext) -> dict[str, Any]:
     }
 
 
+async def journal_worker_reading(
+    db: InvestmentDB,
+    worker_result: WorkerResult,
+    context: PlannerContext,
+    *,
+    trigger: str,
+    run_id: str | None,
+    today: date | None = None,
+) -> None:
+    """Journal the Worker's PROSE — the only trace a cycle that proposes nothing
+    would otherwise leave.
+
+    ADR-011 says the Worker's qualitative reading of the mechanical decision is
+    "journalled and rendered"; this is the journalling half. It covers the whole
+    prose surface rather than that one field, because the hole was never specific
+    to it: `regime_assessment` and `ranking_commentary` had NO reader anywhere
+    outside the Planner-Post prompt they are serialised into, and UC8 appended no
+    cycle-level event at all — so a week that confronted nothing and proposed
+    nothing vanished completely, indistinguishable from a week that never ran.
+
+    Appended on EVERY cycle, before the knowledge commit, in its own transaction.
+    It records what the Worker SAID, which is a fact regardless of what the
+    guardrail later kept: a reading the Planner Post dropped is exactly the one
+    an audit wants to find.
+
+    `market_signal_decision_date` is the anchor of the decision the Worker was
+    actually shown, so the reading can be joined back to the month it judges —
+    without it, a critique read six months later cannot be told from a stale one.
+    None when the context carried no market-signal decision yet."""
+    market_signal = context.market_signal or {}
+    async with db.transaction():
+        await db.append_event(
+            type=WORKER_READING_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=run_id,
+            payload={
+                "trigger": trigger,
+                "run_id": run_id,
+                "market_signal_decision_date": market_signal.get("decision_date"),
+                "market_signal_assessment": worker_result.market_signal_assessment,
+                "regime_assessment": worker_result.regime_assessment,
+                "ranking_commentary": worker_result.ranking_commentary,
+                "reasoning": worker_result.reasoning,
+            },
+            event_date=today,
+        )
+
+
 async def run_decision_cycle(
     db: InvestmentDB,
     planner_pre: PlannerPre,
@@ -224,13 +281,22 @@ async def run_decision_cycle(
     user_profile: dict[str, Any],
     thresholds: dict[str, float],
     today: date | None = None,
+    run_id: str | None = None,
 ) -> UC8Result:
     """Run one UC8 cycle end to end. Writeback only runs if the Worker proposed
     a reallocation AND a defender exists to reallocate; otherwise the cycle is
     knowledge-only (gate_outcome / proposal_id stay None). Returns everything
-    the digest renders."""
+    the digest renders.
+
+    `run_id` is the scheduled run's id (CLAUDE.md "Dev standards": one per
+    scheduled run) and is stamped on the journalled reading. Optional because
+    nothing assembles the Monday chain yet (M9) — an ad-hoc UC9 re-run has no
+    run id to give."""
     context = await planner_pre.run(trigger)
     worker_result = await run_worker(worker_agent, render_context_for_worker(context))
+    await journal_worker_reading(
+        db, worker_result, context, trigger=trigger, run_id=run_id, today=today
+    )
     post_result = await planner_post.run(worker_result, context)
 
     regime_type = context.regime.get("regime_type_id")

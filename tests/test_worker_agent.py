@@ -25,10 +25,15 @@ from investment.worker.result import (
 
 
 def test_worker_result_empty_state_defaults() -> None:
-    """"Nothing to propose" is None / [], present on every run — the schema
+    """ "Nothing to propose" is None / [], present on every run — the schema
     makes the empty state a value, not a missing field (docs/ARCHITECTURE.md:
     "always complete, fields possibly empty")."""
-    r = WorkerResult(regime_assessment="calm", ranking_commentary="as ranked", reasoning="—")
+    r = WorkerResult(
+        regime_assessment="calm",
+        ranking_commentary="as ranked",
+        market_signal_assessment="the book fits the spread",
+        reasoning="—",
+    )
     assert r.reallocation_proposed is None
     assert r.innovations_proposed == []
     assert r.scenario_adjustments == []
@@ -46,6 +51,7 @@ def test_reallocation_and_innovation_round_trip() -> None:
     r = WorkerResult(
         regime_assessment="stagflation building",
         ranking_commentary="defender leads on Sortino",
+        market_signal_assessment="the steep-curve book is defensible; watch the haven crowding",
         reallocation_proposed=ReallocationProposal(
             proposed_allocation={"GLD": 50.0, "VCIT": 50.0},
             scenario_delta={"GLD": 10.0},
@@ -98,6 +104,17 @@ def test_persona_states_the_unawareness_the_tools_enforce() -> None:
     unaware of the Planner/Writeback/storage (docs/ARCHITECTURE.md)."""
     assert "unaware of the Planner, Writeback, and internal storage" in WORKER_SYSTEM_PROMPT
     assert "do not recalculate" in WORKER_SYSTEM_PROMPT
+
+
+def test_the_persona_names_the_field_its_contribution_must_land_in() -> None:
+    """ADR-011: the prompt asks for a reading of the mechanical decision ("that
+    reading is your contribution"). It must also say WHERE it goes, or the model
+    puts it in `reasoning` and the journal and digest never find it — which is
+    exactly how the promise went unkept before `market_signal_assessment`
+    existed."""
+    assert "that reading is your contribution" in WORKER_SYSTEM_PROMPT
+    assert "market_signal_assessment" in WORKER_SYSTEM_PROMPT
+    assert "market_signal_assessment" in WorkerResult.model_fields
 
 
 async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> None:

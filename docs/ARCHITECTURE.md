@@ -118,7 +118,11 @@ WORKER system prompt:
    the suffix is _rolling. Interpret them — do not recalculate.
    Rolling window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
    WorkerResult must include innovations_proposed (empty list if none)
-   and reallocation_proposed (null if none)."
+   and reallocation_proposed (null if none).
+   Your reading of the market-signal allocation goes in
+   market_signal_assessment — always, even when you agree and even when you
+   propose nothing else; it is recorded and shown to the owner. If your
+   context carries no market-signal allocation, say so there in one line."
 
 CURATOR: no persona system prompt by design. It runs on WORKER_MODEL but
   is a single-shot, tool-less transformation whose behavioral spec lives

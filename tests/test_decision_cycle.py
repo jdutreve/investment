@@ -6,6 +6,7 @@ driven by PydanticAI TestModel on a real throwaway SQLite. Covers M8's Definitio
 of Verified item: a reallocation the Worker proposes passes the gates and is
 persisted; and the knowledge-only path where nothing is proposed."""
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -14,7 +15,13 @@ import pytest
 from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import UC8Result, render_context_for_worker, run_decision_cycle
+from investment.decision_cycle import (
+    WORKER_READING_EVENT,
+    UC8Result,
+    render_context_for_worker,
+    run_decision_cycle,
+)
+from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import build_worker_agent
@@ -47,6 +54,8 @@ def _worker_output(reallocation: dict | None) -> dict:
     return {
         "regime_assessment": "stagflation deepening",
         "ranking_commentary": "defender leads on Sortino",
+        "market_signal_assessment": "the wide-spread book reads the stress correctly, "
+        "but the signal cannot see the fiscal impulse building",
         "scenario_adjustments": [],
         "evaluations": [],
         "reallocation_proposed": reallocation,
@@ -194,6 +203,52 @@ async def test_no_reallocation_is_a_knowledge_only_cycle(rig) -> None:  # type: 
     assert result.proposal_id is None
     assert result.post_result.regime_notes == "coherent"
     assert await db.query("SELECT id FROM proposal") == []  # nothing disposed
+
+    # ...but the cycle is NOT traceless (ADR-011). Before this event, a week that
+    # proposed and confronted nothing left no row anywhere, so it could not be
+    # told apart from a week the chain never ran — and the Worker's prose, the
+    # thing the system prompt calls "your contribution", was discarded whole.
+    ev = await db.query(
+        "SELECT source_uc, payload FROM event_log WHERE type = :t", t=WORKER_READING_EVENT
+    )
+    assert len(ev) == 1
+    assert ev[0]["source_uc"] == "UC8"
+    payload = json.loads(str(ev[0]["payload"]))
+    assert payload["market_signal_assessment"].startswith("the wide-spread book")
+    assert payload["regime_assessment"] == "stagflation deepening"
+    assert payload["trigger"] == "weekly"
+
+
+async def test_the_reading_is_journalled_even_when_the_allocation_is_refused(rig) -> None:  # type: ignore[no-untyped-def]
+    """ADR-011 end to end through the REAL cycle, not just the Writeback unit:
+    with the mechanically-allocated stack as defender, gate 0 refuses the
+    Worker's reallocation on jurisdiction — and its qualitative reading survives
+    anyway. That is the whole trade the ADR makes: the Worker cannot move the
+    allocation, and what it CAN contribute must not be thrown away with the
+    proposal that was refused.
+
+    The defender flip is the scheduled one (V1_STRATEGY Step 6, retiring the
+    bridge), which is precisely why the gate exists rather than the accident of
+    `ms-stack.defender` being seeded False."""
+    db, pre, worker, post = rig
+    await db.command(
+        "UPDATE portfolio_weekly_snapshot SET portfolio_id = :s WHERE portfolio_id = 'def-pf'",
+        s=STACK_PORTFOLIO_ID,
+    )
+    q, s, w, p = _overrides(pre, worker, post, _worker_output(_REALLOC))
+    with q, s, w, p:
+        result = await run_decision_cycle(
+            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
+        )
+    assert result.gate_outcome is not None
+    assert result.gate_outcome.failed_gate == "mechanical_allocation"
+    assert result.proposal_id is None
+    assert await db.query("SELECT id FROM proposal") == []
+    assert await db.query("SELECT id FROM event_log WHERE type = 'ProposalEvent'") == []
+
+    ev = await db.query("SELECT payload FROM event_log WHERE type = :t", t=WORKER_READING_EVENT)
+    assert len(ev) == 1
+    assert json.loads(str(ev[0]["payload"]))["market_signal_assessment"]
 
 
 def test_render_context_marks_the_defender_and_active_lighthouses() -> None:

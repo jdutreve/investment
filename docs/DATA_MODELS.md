@@ -604,7 +604,13 @@ EventLog {
                         --  ErrorEvent (failed job in the Monday chain) |
                         --  ReplayEvent (Phase 9 shadow replay run) |
                         --  OutcomeEvent (weekly outcomes.py — payload.kind:
-                        --    'proposal' | 'calibration' | 'probation')
+                        --    'proposal' | 'calibration' | 'probation') |
+                        --  ConfrontationEvent | EvaluationEvent |
+                        --  ScenarioEvent (the knowledge commit's three) |
+                        --  MarketSignalDecisionEvent (ADR-007 — one per
+                        --    monthly decision, moved or not) |
+                        --  WorkerReadingEvent (ADR-011 — the Worker's prose,
+                        --    one per UC8 cycle, proposal or not)
   source_uc  : STRING   -- 'UC0'..'UC9' | 'catch-up' | 'inbox-watcher' | 'system'
   source_id  : STRING   -- id of the entity or run that produced the event
   payload    : STRING   -- JSON (may reference older DOMAIN dates — that is

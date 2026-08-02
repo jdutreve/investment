@@ -160,7 +160,9 @@ def test_a_clean_result_is_left_untouched() -> None:
 
 async def test_run_extracts_then_guardrails() -> None:
     post = PlannerPost("planner/x", "sk-test")
-    worker = WorkerResult(regime_assessment="a", ranking_commentary="b", reasoning="c")
+    worker = WorkerResult(
+        regime_assessment="a", ranking_commentary="b", market_signal_assessment="d", reasoning="c"
+    )
     # TestModel returns an evaluation with an unknown strategy -> guardrail drops it
     forced = TestModel(
         custom_output_args={

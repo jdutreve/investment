@@ -213,3 +213,62 @@ async def test_build_digest_on_an_empty_db_says_no_proposal(db: InvestmentDB) ->
     text = await D.build_digest(db)
     assert "No bridge proposal this week — maintain." in text
     assert "Proposals hit-rate: 0/0" in text
+
+
+# -- the Worker's reading of the mechanical decision (ADR-011) ---------------
+
+
+_DECISION = {
+    "decision_date": "2026-08-03",
+    "held_book": "credit-spread-wide",
+    "signal_state": "credit-spread-wide",
+    "gate": "passed",
+    "held_allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
+    "target_allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
+    "signals": {},
+    "trend_overlay": {"below_trend": []},
+}
+
+
+def test_the_worker_challenge_renders_inside_the_market_signal_block() -> None:
+    """ADR-011 promises the Worker's reading is "journalled and RENDERED". It
+    belongs in the decision's own block: a critique printed three blocks away
+    from its subject is not a reading, it is a loose opinion."""
+    text = _digest(
+        market_signal=_DECISION,
+        worker_reading={
+            "market_signal_decision_date": "2026-08-03",
+            "market_signal_assessment": "right book for the spread, blind to the fiscal impulse",
+        },
+    )
+    assert "🗣 Worker challenge: right book for the spread" in text
+    block = text.split("🧭 Market-signal decision")[1].split("🧱")[0]
+    assert "Worker challenge" in block  # inside the decision's block, not after it
+
+
+def test_a_reading_of_a_previous_decision_is_shown_but_flagged() -> None:
+    """The decision is monthly and the Worker runs weekly, so a failed or skipped
+    cognitive cycle leaves the latest reading pointing at LAST month's book.
+    Dropping it silently would recreate the disappearance this feature exists to
+    fix, one field over — so it prints with its own date attached."""
+    text = _digest(
+        market_signal=_DECISION,
+        worker_reading={
+            "market_signal_decision_date": "2026-07-06",
+            "market_signal_assessment": "the steep-curve book is late",
+        },
+    )
+    assert "reading of the 2026-07-06 decision — NOT the one above" in text
+
+
+def test_no_reading_and_an_empty_reading_both_render_nothing() -> None:
+    """A Worker that said nothing must not print an empty bullet — and the
+    pre-UC8 state (mechanical path run, cognitive path never) is normal."""
+    assert "Worker challenge" not in _digest(market_signal=_DECISION)
+    assert "Worker challenge" not in _digest(
+        market_signal=_DECISION,
+        worker_reading={
+            "market_signal_decision_date": "2026-08-03",
+            "market_signal_assessment": "",
+        },
+    )

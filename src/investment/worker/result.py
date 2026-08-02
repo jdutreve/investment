@@ -100,6 +100,21 @@ class WorkerResult(BaseModel):
 
     regime_assessment: str
     ranking_commentary: str  # explains the mechanical ranking, never re-ranks it
+    # ADR-011's ENTIRE cognitive contribution to the adopted strategy: the Worker
+    # reads the mechanical decision and says where it looks wrong and what the
+    # signal cannot see. It gets its own required field rather than being left to
+    # dissolve into `regime_assessment` or `reasoning`, for two reasons. The
+    # system prompt already asks for this reading in those words ("that reading
+    # is your contribution"), so a schema with nowhere to put it asks for work it
+    # then discards. And ADR-011 promises the reading is "journalled and
+    # rendered" — `decision_cycle` can only journal a field it can name, and the
+    # digest can only render one it can find.
+    #
+    # REQUIRED, like every other prose field here: the Worker is asked for this
+    # every cycle, and the empty state is a sentence ("no mechanical decision in
+    # context"), not an absent key (Phase-1bis: a partial answer fails validation
+    # rather than passing silently).
+    market_signal_assessment: str
     scenario_adjustments: list[ScenarioAdjustment] = Field(default_factory=list)
     evaluations: list[EvaluationDraft] = Field(default_factory=list)
     reallocation_proposed: ReallocationProposal | None = None

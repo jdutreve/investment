@@ -673,6 +673,33 @@ ADR-009 rather than silently patched.
   reading emits no proposal and the opening order, the entire deliverable of a
   paper-mode V1, never reaches the digest.
 
+**ADR-011's other half, 2026-08-02.** The ADR's gate 0 shipped; its clause 3 —
+the Worker's qualitative reading is "journalled and rendered" — did not. The
+Worker was ASKED for that reading by the system prompt ("that reading is your
+contribution") with no field to receive it, so it landed in `regime_assessment`
+or `reasoning`, and neither had a reader anywhere in `src/` outside the
+Planner-Post prompt they are serialised into. On a cycle that proposed nothing,
+the Worker's entire output was discarded.
+- `WorkerResult.market_signal_assessment`, REQUIRED like the other prose fields
+  (Phase-1bis: a partial answer fails validation; the empty state is a sentence,
+  not an absent key). Both copies of the prompt updated, and a test pins that
+  the prompt names the field the schema declares.
+- `decision_cycle.journal_worker_reading` appends a `WorkerReadingEvent` on
+  EVERY cycle, before the guardrail — it records what the Worker SAID, which is
+  a fact regardless of what Planner Post later kept. Payload carries the whole
+  prose surface, the trigger, the `run_id`, and the market-signal
+  `decision_date` the reading judges. This also closes a hole it exposed: UC8
+  appended no cycle-level event, so a week that proposed and confronted nothing
+  was indistinguishable from a week the chain never ran.
+- Digest: "🗣 Worker challenge" INSIDE the market-signal block, after the
+  mechanical `Why:` — a critique three blocks from its subject is a loose
+  opinion. A reading of an OLDER decision (failed or skipped cognitive cycle) is
+  shown with its own date rather than dropped: hiding it would recreate, one
+  field over, the disappearance this fixes.
+- E2E test with `ms-stack` as defender through the real `run_decision_cycle`,
+  not just the Writeback unit: gate 0 refuses on jurisdiction AND the reading is
+  journalled anyway — which is the whole trade the ADR makes.
+
 ---
 
 ## M7 — Corpus + invariant factory (2 d — Phases 1bis, 3, curation) — STOP POINT

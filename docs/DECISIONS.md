@@ -813,6 +813,18 @@ the third was only accidentally right.
    contributes a qualitative reading — where it looks wrong, what the signal
    cannot see, which invariants argue against it. That reading is journalled
    and rendered. It is not an allocation.
+
+   *Implemented 2026-08-02, after the ADR shipped without it.* The reading has
+   its own required field, `WorkerResult.market_signal_assessment`: the prompt
+   asked for it ("that reading is your contribution") while the schema had
+   nowhere to put it, so it dissolved into `regime_assessment` or `reasoning` —
+   neither of which had a reader anywhere. `decision_cycle.journal_worker_reading`
+   appends a `WorkerReadingEvent` on EVERY cycle carrying the whole prose surface
+   plus the `decision_date` it judges (a reading that cannot be joined to its
+   month is not auditable), and the digest renders it as "Worker challenge"
+   INSIDE the market-signal block, flagged when it belongs to an older decision.
+   The same event closes a second hole it exposed: UC8 had no cycle-level event,
+   so a week that proposed and confronted nothing left no trace at all.
 4. **Disagreement has one audited channel: `innovations_proposed`
    (`ImprovementType.strategy_revision`).** A Worker that believes the
    INSTRUMENT is wrong — not this month's reading, but the rule — says so
