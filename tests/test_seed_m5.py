@@ -11,6 +11,7 @@ does a live network fetch by default).
 """
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -19,7 +20,24 @@ from test_seed_market import _make_stub, _settings
 from investment import seed
 from investment.db.seed_data import INVARIANTS, SCENARIOS
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical import backtests
+from investment.mechanical import backtests, outcomes
+from investment.planner.post import PostPlannerResult
+from investment.worker.result import ImprovementProposal, ImprovementType
+from investment.writeback import writeback
+
+# The 3 scenarios every new_strategy spec must carry (ARCHITECTURE "New
+# Strategy"); the BASE one is what becomes the candidate book.
+_SCENARIOS = [
+    {"name": "bull", "probability": 25, "target_allocation": {"SPY": 60, "GLD": 40}},
+    {"name": "base", "probability": 50, "target_allocation": {"SPY": 40, "GLD": 60}},
+    {"name": "bear", "probability": 25, "target_allocation": {"SPY": 20, "GLD": 80}},
+]
+
+
+def _innovations(proposals: list[ImprovementProposal]) -> PostPlannerResult:
+    """A guardrailed Call-2 result carrying only innovations — the shape
+    `commit_innovations` consumes."""
+    return PostPlannerResult(innovations=proposals)
 
 
 async def _seed_through_step_10(db: InvestmentDB, settings) -> None:  # type: ignore[no-untyped-def]
@@ -558,5 +576,135 @@ async def test_m5_scenario_probability_warm_start(tmp_path: Path) -> None:
             )
         for total in by_strategy.values():
             assert 99.0 <= total <= 101.0
+    finally:
+        await db.close()
+
+
+async def test_a_proposed_strategy_reaches_a_probation_verdict_on_its_own(tmp_path: Path) -> None:
+    """The full innovation->verdict path, with NO hand-inserted FAVORS row.
+
+    This is the loop that used to be closed at both ends: a strategy born of an
+    innovation is `proposed, enabled=0` with no Portfolio, the Backtest sweep
+    only saw `enabled = 1`, and `strategy_probation_check` judged the strategy on
+    FAVORS it could therefore never have — proposed forever, against ADR-006's
+    "nothing stays proposed forever". Every probation test until now inserted the
+    FAVORS row by hand, which is exactly what hid it.
+
+    So the assertion that matters is the absence: nothing here writes to `favors`
+    except `run_backtests_and_favors`."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_through_step_10(db, settings)
+        await seed._seed_portfolio_nav(db)
+        await seed._materialize_benchmark_valuation(db)
+        await seed._run_backtests_favors(db)  # the peers the candidate is judged against
+
+        born = date(2026, 1, 5)
+        proposal = ImprovementProposal(
+            type=ImprovementType.new_strategy,
+            title="Gold-heavy stagflation book",
+            rationale="r",
+            spec={
+                "id": "stagflation-candidate-v1",
+                "framework_id": "4seasons",
+                "scenarios": _SCENARIOS,
+            },
+            trace="tr",
+        )
+        assert await writeback.commit_innovations(db, _innovations([proposal]), born) == 1
+
+        # BORN MEASURABLE: a disabled candidate Portfolio with a real NAV series.
+        candidate = writeback.candidate_portfolio_id("stagflation-candidate-v1")
+        rows = await db.query(
+            "SELECT enabled, defender, allocation FROM portfolio WHERE id = :id", id=candidate
+        )
+        assert (rows[0]["enabled"], rows[0]["defender"]) == (0, 0)  # invisible to the ranking
+        assert json.loads(str(rows[0]["allocation"])) == {"SPY": 40.0, "GLD": 60.0}  # the BASE book
+        nav = await db.query(
+            "SELECT COUNT(*) AS n FROM portfolio_nav WHERE portfolio_id = :id", id=candidate
+        )
+        assert nav[0]["n"] > 0
+
+        # The sweep now reaches it, and FAVORS appear WITHOUT a fixture.
+        await seed._run_backtests_favors(db)
+        favors = await db.query(
+            "SELECT regime_type_id, sortino_rolling FROM favors WHERE strategy_id = :s",
+            s="stagflation-candidate-v1",
+        )
+        assert favors, "the candidate produced no FAVORS — probation cannot conclude"
+
+        # ...so probation reaches a real verdict at the window, either way.
+        verdict_day = born + timedelta(weeks=13)
+        results = await outcomes.strategy_probation_check(db, today=verdict_day)
+        mine = [r for r in results if r.strategy_id == "stagflation-candidate-v1"]
+        assert len(mine) == 1
+        assert mine[0].verdict in {"keep", "review"}, mine[0].skipped_reason
+        assert mine[0].sortino is not None and mine[0].median is not None
+        status = await db.query("SELECT status FROM strategy WHERE id = 'stagflation-candidate-v1'")
+        assert status[0]["status"] in {"active", "closed"}  # never still 'proposed'
+    finally:
+        await db.close()
+
+
+async def test_an_unmeasurable_candidate_is_closed_not_left_pending(tmp_path: Path) -> None:
+    """The backstop. A spec with no usable base allocation gets no candidate
+    Portfolio and therefore no FAVORS ever — waiting for it is waiting for
+    something that cannot arrive. Inside the window the verdict legitimately
+    waits; past `UNMEASURABLE_PROBATION_MULTIPLIER` windows it is closed, with an
+    OutcomeEvent, because ADR-006 does not allow a third state that lasts."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_through_step_10(db, settings)
+        await seed._seed_portfolio_nav(db)
+        await seed._materialize_benchmark_valuation(db)
+        await seed._run_backtests_favors(db)
+
+        born = date(2026, 1, 5)
+        proposal = ImprovementProposal(
+            type=ImprovementType.new_strategy,
+            title="A strategy with no book",
+            rationale="r",
+            spec={"id": "no-book-v1", "framework_id": "4seasons", "scenarios": []},
+            trace="tr",
+        )
+        assert await writeback.commit_innovations(db, _innovations([proposal]), born) == 1
+        assert (
+            await db.query(
+                "SELECT id FROM portfolio WHERE id = :id",
+                id=writeback.candidate_portfolio_id("no-book-v1"),
+            )
+            == []
+        )
+
+        # Window open: it waits, and says why — no verdict, no transition.
+        waiting = await outcomes.strategy_probation_check(db, today=born + timedelta(weeks=13))
+        mine = [r for r in waiting if r.strategy_id == "no-book-v1"]
+        assert mine and mine[0].verdict == ""
+        assert mine[0].skipped_reason == "no FAVORS in current regime"
+        rows = await db.query("SELECT status FROM strategy WHERE id = 'no-book-v1'")
+        assert rows[0]["status"] == "proposed"
+
+        # Past 2 windows: closed as unmeasurable, EventLog and vertex together.
+        late = born + timedelta(weeks=25)
+        closed = await outcomes.strategy_probation_check(db, today=late)
+        mine = [r for r in closed if r.strategy_id == "no-book-v1"]
+        assert mine and mine[0].verdict == "review"
+        rows = await db.query("SELECT status, enabled, trace FROM strategy WHERE id = 'no-book-v1'")
+        assert (rows[0]["status"], rows[0]["enabled"]) == ("closed", 0)
+        assert "unmeasurable" in str(rows[0]["trace"])  # the reason is on the vertex
+        events = await db.query(
+            "SELECT json_extract(payload, '$.unmeasurable') AS u FROM event_log "
+            "WHERE type = 'OutcomeEvent' AND source_id = 'no-book-v1'"
+        )
+        assert [e["u"] for e in events] == [1]
+
+        # ...and it is not re-judged afterwards.
+        assert [
+            r
+            for r in await outcomes.strategy_probation_check(db, today=late + timedelta(weeks=4))
+            if r.strategy_id == "no-book-v1"
+        ] == []
     finally:
         await db.close()

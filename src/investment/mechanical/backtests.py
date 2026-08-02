@@ -511,7 +511,19 @@ async def run_backtests_and_favors(db: InvestmentDB, window: int) -> BacktestsFa
         by_type.setdefault(str(r["regime_type_id"]), []).append(r)
     qualifying = {rt: inst for rt, inst in by_type.items() if len(inst) >= min_periods}
 
-    strategy_rows = await db.query("SELECT id FROM strategy WHERE enabled = 1 ORDER BY id")
+    # ENABLED **OR** PROPOSED, and the second half is what makes probation
+    # possible at all. An innovation-born strategy is `status='proposed',
+    # enabled=0` (writeback `_commit_strategy_innovation`), and
+    # `outcomes.strategy_probation_check` judges it on its FAVORS standing — so
+    # a sweep restricted to enabled strategies made the probation verdict
+    # unsatisfiable by construction: no Backtest, no FAVORS, no verdict, and the
+    # strategy sat proposed forever against ADR-006. It is measured through its
+    # CANDIDATE portfolio, which stays disabled, so nothing here reaches the
+    # ranking (UC6/UC7 read `portfolio.enabled = 1`) — only the evidence the
+    # verdict needs is produced.
+    strategy_rows = await db.query(
+        "SELECT id FROM strategy WHERE enabled = 1 OR status = 'proposed' ORDER BY id"
+    )
     strategy_ids = [str(r["id"]) for r in strategy_rows]
 
     rf = await ratios.load_rf_daily(db)

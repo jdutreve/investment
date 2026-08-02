@@ -337,6 +337,23 @@ The fingerprint now digests the verdict rule (horizon, margin, bars,
 confidence, null) too: change a rule, everything re-matures.
 - New strategies auto-enable after mechanical probation
   (`strategy_probation_weeks`); no human gate.
+
+  *Amendment 2026-08-02 — the probation was unreachable as built.* The verdict
+  reads the strategy's FAVORS standing; FAVORS come from Backtests, which need a
+  NAV, which needs a Portfolio — and an innovation-born strategy had none, while
+  the Backtest sweep only saw `enabled = 1`. Both ends were closed, so the
+  no-evidence branch wrote no OutcomeEvent and the strategy returned to the due
+  list every week, forever: the exact state this ADR forbids. The fix is to make
+  it MEASURABLE rather than to time it out — a CANDIDATE Portfolio is created at
+  birth from the spec's base scenario (disabled, so it measures without holding)
+  and the sweep now reads `enabled = 1 OR status = 'proposed'`. Timing out is the
+  BACKSTOP only, for a candidate that genuinely cannot be measured (no usable
+  base allocation, no prices): after 2 × `strategy_probation_weeks` with no
+  FAVORS at all it is closed as unmeasurable. A timeout alone would have
+  satisfied the letter of "nothing stays proposed forever" by killing every
+  innovation, which is not what the rule is for. Not amended: "no current
+  regime" still waits without bound — that is a system-wide outage one detection
+  run repairs, not a defect of the strategy.
 - The **weekly digest reports** what changed; it never asks. It is a passive
   report the owner reads, not a gate that blocks.
 

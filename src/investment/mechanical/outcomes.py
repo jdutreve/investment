@@ -13,8 +13,10 @@ Functions of the cycle:
 - `strategy_probation_check()` — INNOVATION-born strategies (`status='proposed'`)
   judged on their FAVORS standing in the current regime at
   +strategy_probation_weeks, and the verdict APPLIED: 'keep' activates the vertex
-  (status/enabled + its 3 Scenarios + BACKED_BY edges), 'review' closes it. No
-  human gate (ADR-006). The 4 seeded strategies never enter probation.
+  (status/enabled + its 3 Scenarios + BACKED_BY edges), 'review' closes it, and a
+  candidate that never produced FAVORS at all is closed as unmeasurable once it
+  has waited `UNMEASURABLE_PROBATION_MULTIPLIER` windows — nothing stays proposed
+  forever (ADR-006). No human gate. The 4 seeded strategies never enter probation.
 - `paper_test_progress()` — proposed-vs-incumbent to date for accepted
   paper-tests (read-only; feeds the digest scoreboard).
 
@@ -48,6 +50,13 @@ OUTCOME_EVENT = "OutcomeEvent"
 # The 3 scenario names a strategy carries (docs/DATA_MODELS.md scenario.name);
 # activation creates exactly these from the innovation spec.
 _SCENARIO_NAMES = frozenset({"bull", "base", "bear"})
+
+# How many probation windows a strategy may go WITHOUT any FAVORS before it is
+# closed as unmeasurable. The backstop that makes ADR-006's "nothing stays
+# proposed forever" true even for a candidate that can never be measured — see
+# `strategy_probation_check`. A multiplier rather than a threshold of its own:
+# the wait for evidence should track the measurement window, not drift from it.
+UNMEASURABLE_PROBATION_MULTIPLIER = 2
 # The proposals being closed originate in UC8; the measurement is its own job
 # but belongs to that use-case's loop (docs/USE_CASES.md UC8 / "Outcome
 # evaluation").
@@ -521,6 +530,14 @@ async def strategy_probation_check(
     gate", DECISIONS.md:338):
       'keep'   -> the activation transaction (`_activate_strategy`);
       'review' -> closed (`_close_strategy`).
+
+    THREE outcomes, not two: a strategy with no FAVORS at all is closed as
+    UNMEASURABLE once it has waited `UNMEASURABLE_PROBATION_MULTIPLIER` windows.
+    Without that, the no-evidence branch wrote no OutcomeEvent and the strategy
+    returned to `due` every week forever. It is measured through the candidate
+    Portfolio created at birth (writeback `_commit_candidate_portfolio`), so the
+    normal path is that FAVORS exist by the time the window closes; the backstop
+    catches the specs that carried no usable base allocation.
     ARCHITECTURE's other mention of 'review' ("Telegram: propose closure, user
     decides") predates ADR-006; the mechanical path is the one ADR-006 pins, and
     the digest still REPORTS both outcomes.
@@ -535,7 +552,8 @@ async def strategy_probation_check(
     thresholds = {
         r["key"]: r["value"] for r in await db.query("SELECT key, value FROM system_thresholds")
     }
-    cutoff = (today - timedelta(weeks=int(thresholds["strategy_probation_weeks"]))).isoformat()
+    probation_weeks = int(thresholds["strategy_probation_weeks"])
+    cutoff = (today - timedelta(weeks=probation_weeks)).isoformat()
     regime_type = await _current_regime_type(db)
 
     already = {
@@ -560,6 +578,13 @@ async def strategy_probation_check(
         # No regime, no FAVORS standing to judge against: the verdict WAITS. It
         # is not a failure — closing a strategy for want of a regime read would
         # punish the system's own blind spot.
+        #
+        # DELIBERATELY NOT subject to the unmeasurable backstop below, and the
+        # asymmetry is the point: "no current regime" is system-wide and
+        # REPAIRABLE — one detection run resolves every waiting strategy at once
+        # — whereas a candidate with no FAVORS has a defect of its own that no
+        # later run fixes. Bounding the first would close strategies for an
+        # outage; bounding the second is what ADR-006 requires.
         return [ProbationResult(sid, "", None, None, "no current regime") for sid in due]
 
     favors = await db.query(
@@ -570,11 +595,61 @@ async def strategy_probation_check(
     peers = sorted(v for v in sortino_by.values() if v is not None)
     median = float(np.median(peers)) if peers else None
 
+    unmeasurable_cutoff = (
+        today - timedelta(weeks=UNMEASURABLE_PROBATION_MULTIPLIER * probation_weeks)
+    ).isoformat()
+    opened = {
+        str(r["id"]): str(r["date_opened"])
+        for r in await db.query("SELECT id, date_opened FROM strategy WHERE status = 'proposed'")
+    }
+
     results: list[ProbationResult] = []
     for sid in due:
         sortino = sortino_by.get(sid)
         if sortino is None or median is None:
-            results.append(ProbationResult(sid, "", sortino, median, "no FAVORS in current regime"))
+            # NO EVIDENCE — and the question is how long that may last. A
+            # candidate whose spec carried no usable base allocation, or whose
+            # sleeves have no prices, never gets a NAV and therefore never gets
+            # FAVORS (writeback `_base_allocation`). Waiting for it is waiting
+            # for something that cannot arrive, and this branch writes no
+            # OutcomeEvent, so the strategy stayed in `due` every week forever —
+            # the exact "proposed forever" ADR-006 forbids.
+            #
+            # So the wait is BOUNDED, not removed: inside the window the verdict
+            # legitimately waits (a regime with no completed instances yet is
+            # the system's blind spot, not the strategy's fault); past it, the
+            # strategy is closed as unmeasurable. Deliberately a MULTIPLE of the
+            # probation window rather than a new threshold — the answer to "how
+            # long do we wait for evidence" should move with "how long do we
+            # measure", and one knob is one thing to calibrate.
+            if opened.get(sid, "") > unmeasurable_cutoff:
+                results.append(
+                    ProbationResult(sid, "", sortino, median, "no FAVORS in current regime")
+                )
+                continue
+            reason = (
+                f"no FAVORS in any regime after "
+                f"{UNMEASURABLE_PROBATION_MULTIPLIER * probation_weeks} weeks — unmeasurable"
+            )
+            async with db.transaction():
+                await db.append_event(
+                    type=OUTCOME_EVENT,
+                    source_uc=SOURCE_UC,
+                    source_id=sid,
+                    payload={
+                        "kind": "probation",
+                        "verdict": "review",
+                        "sortino": None,
+                        "median": median,
+                        "unmeasurable": True,
+                    },
+                    event_date=today,
+                )
+                await _close_strategy(db, sid, today, reason)
+            # `skipped_reason` stays None: this result was NOT skipped, it is a
+            # verdict. The "why" lives where it is auditable — the vertex trace
+            # and the OutcomeEvent payload's `unmeasurable` flag.
+            results.append(ProbationResult(sid, "review", sortino, median))
             continue
         verdict = "keep" if sortino >= median else "review"
         # EventLog append precedes the vertex writes, same transaction

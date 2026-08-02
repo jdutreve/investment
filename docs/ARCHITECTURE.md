@@ -897,19 +897,32 @@ spec = {
 Flow (fully mechanical — no user gate, ADR-006):
   → EventLog append (InnovationEvent) → Strategy vertex
     source:agent-discovery, status:proposed, enabled:false
+  → in the SAME transaction, a CANDIDATE Portfolio (enabled:false,
+    defender:false) on the BASE scenario's target_allocation, + a primary
+    HOLDS edge; its 35y NAV is backfilled right after
+  → Backtests over historical Regime instances (coverage permitting) →
+    FAVORS edges. THIS HAPPENS DURING PROBATION, NOT AFTER IT: the verdict
+    is the strategy's FAVORS standing, so evidence produced only on
+    activation would make the verdict unreachable and the strategy would
+    sit proposed forever, against ADR-006. The Backtest sweep therefore
+    reads `enabled = 1 OR status = 'proposed'`.
   → mechanical PROBATION (strategy_probation_weeks); the digest reports it
         ↓
   probation PASSES → in ONE Writeback transaction:
     status:active, enabled:true
     3 Scenario vertices + HAS_SCENARIO edges
     BACKED_BY edges to the cited invariants
-  → the next weekly cycle picks it up mechanically: Backtests over
-    historical Regime instances (coverage permitting) → FAVORS edges →
-    eligible as structural anchor for reallocation deltas
+  → eligible as structural anchor for reallocation deltas
   probation FAILS → status:closed, enabled stays false (reason as trace)
+  NO EVIDENCE after 2 × strategy_probation_weeks (a spec with no usable base
+    allocation, or sleeves with no prices) → closed as UNMEASURABLE. The
+    backstop that keeps "nothing stays proposed forever" true even for a
+    candidate that can never be measured.
 
-A new Strategy affects the ranking only when a Portfolio HOLDS it —
-creating or modifying Portfolios remains a user preference (UC9) in V1.
+A new Strategy affects the RANKING only when an ENABLED Portfolio HOLDS it —
+creating or modifying held Portfolios remains a user preference (UC9) in V1.
+The candidate above is disabled precisely so it measures without holding:
+UC6 valuation, UC7 ranking and the replay all read `portfolio.enabled = 1`.
 ```
 
 **Strategy revision (type=strategy_revision)** — the "better strategy" path:

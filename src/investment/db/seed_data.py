@@ -57,7 +57,11 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "proposal_invariant_weight_min": 0.10,  # realloc gate 6: min weight_effective to be citable
     "invariant_refuted_min_confrontations": 4.0,  # N floor for the REFUTED/INADEQUATE branches
     "invariant_refuted_score": 0.35,  # score below which an amply-confronted invariant is REFUTED
-    "strategy_probation_weeks": 12.0,  # weeks a new/revised Strategy runs before auto-keep/close (UNWIRED)
+    # Weeks a new/revised Strategy runs before auto-keep/close
+    # (outcomes.strategy_probation_check). Also the unit of the unmeasurable
+    # backstop: 2x this with no FAVORS at all closes the candidate. Read by the
+    # job, which nothing schedules yet — the Monday wiring is M9.
+    "strategy_probation_weeks": 12.0,
     "scenario_calibration_weeks": 4.0,  # horizon at which a dominant Scenario is scored vs reality (UNWIRED)
     # invariants
     "recency_half_life_days": 365.0,  # days for recency_factor to decay halfway from 1.0 to 0.5

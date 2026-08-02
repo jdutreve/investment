@@ -41,6 +41,7 @@ from ulid import ULID
 from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
 from investment.db.seed_data import TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical import ratios
 from investment.mechanical.gates import (
     ALLOCATION_SUM_TOLERANCE,
     Caps,
@@ -856,7 +857,14 @@ async def _commit_strategy_innovation(
     The InnovationEvent payload carries the FULL spec, because activation at
     +probation needs it: ARCHITECTURE's activation transaction creates the 3
     Scenario vertices and the BACKED_BY edges from this spec, and the strategy row
-    itself has nowhere to keep them while the vertex is still proposed."""
+    itself has nowhere to keep them while the vertex is still proposed.
+
+    A CANDIDATE PORTFOLIO is created with it (`_commit_candidate_portfolio`),
+    because otherwise probation can never reach a verdict: `strategy_probation_check`
+    judges the strategy on its FAVORS standing, FAVORS come from Backtests,
+    Backtests need a NAV, and a NAV needs a Portfolio. Born with none, the
+    strategy waited for evidence that could not exist — proposed forever, which
+    ADR-006 forbids."""
     spec = proposal.spec or {}
     strategy_id = str(spec.get("id") or f"strat-{ULID()}")
     now = datetime.now(UTC).isoformat()
@@ -896,7 +904,147 @@ async def _commit_strategy_innovation(
             trace=trace,
             now=now,
         )
+        await _commit_candidate_portfolio(db, strategy_id, spec, today, now)
+    # The 35y NAV backfill runs AFTER the transaction: it is derived data
+    # (`append_ts_batch` is INSERT OR REPLACE, so a re-run rebuilds it), and
+    # holding a write transaction open across a full-history synthesis would
+    # block the single writer for the whole cycle. Same split as the seed's.
+    await _backfill_candidate_nav(db, strategy_id)
     return strategy_id
+
+
+def candidate_portfolio_id(strategy_id: str) -> str:
+    """The candidate Portfolio's id. Derived from the strategy id rather than
+    stored, so probation, the backtests and the tests all name the same row
+    without a lookup."""
+    return f"{strategy_id}-candidate"
+
+
+def _base_allocation(spec: dict[str, Any]) -> dict[str, float] | None:
+    """The candidate book: the BASE scenario's `target_allocation`.
+
+    Base, not a probability-weighted blend of the three — owner decision
+    2026-08-02. It is the one allocation the strategy asserts as its central
+    case; a blend would measure a portfolio the strategy never claims to hold,
+    and would move as the probabilities are re-estimated, so the same strategy
+    would be judged on a different book each week.
+
+    `None` when the spec carries no usable base allocation (no scenarios, no
+    base, empty or non-numeric weights). That is a MALFORMED spec, not an error
+    to raise: the innovation is still recorded, the strategy is still born, and
+    probation's unmeasurable backstop closes it at the window rather than the
+    system refusing a proposal it was told to measure (ADR-006)."""
+    scenarios = spec.get("scenarios")
+    if not isinstance(scenarios, list):
+        return None
+    for scenario in scenarios:
+        if not isinstance(scenario, dict) or scenario.get("name") != "base":
+            continue
+        raw = scenario.get("target_allocation")
+        if not isinstance(raw, dict) or not raw:
+            return None
+        try:
+            allocation = {str(k): float(v) for k, v in raw.items()}
+        except (TypeError, ValueError):
+            return None
+        return allocation or None
+    return None
+
+
+async def _commit_candidate_portfolio(
+    db: InvestmentDB, strategy_id: str, spec: dict[str, Any], today: date, now: str
+) -> None:
+    """The candidate Portfolio a proposed strategy is measured through, created
+    inside the birth transaction with its primary HOLDS edge.
+
+    `enabled=0, defender=0` is what keeps ARCHITECTURE's rule intact — "a new
+    Strategy affects the ranking only when a Portfolio HOLDS it; creating or
+    modifying Portfolios remains a user preference (UC9)". The ranking, UC6
+    valuation and UC7 all read `enabled = 1`, so this row is invisible to them.
+    It exists for one purpose: to carry a NAV series so the strategy can be
+    BACKTESTED before it is activated, which is the strategy analogue of what
+    `mature_seed_invariants` does for an invariant born the same week. The 3
+    disabled `ms-*-book` rows are the existing precedent for a Portfolio that is
+    a measurement object rather than a holding.
+
+    Caps are the user's, not looser (CLAUDE.md "Binding caps": per-portfolio
+    rules may only be STRICTER). Currency, benchmark and phase come from the
+    user profile rather than being invented here. Skipped silently when the spec
+    has no usable base allocation — see `_base_allocation`."""
+    allocation = _base_allocation(spec)
+    if allocation is None:
+        logger.warning("strategy '%s': no base allocation in spec, no candidate NAV", strategy_id)
+        return
+    profile = await db.query(
+        "SELECT currency, benchmark, phase, max_drawdown_pct, max_single_asset_pct "
+        "FROM user_profile LIMIT 1"
+    )
+    if not profile:
+        logger.warning("strategy '%s': no user_profile, no candidate portfolio", strategy_id)
+        return
+    user = profile[0]
+    framework = await db.query("SELECT framework_id FROM strategy WHERE id = :id", id=strategy_id)
+    await db.command(
+        "INSERT OR IGNORE INTO portfolio (id, name, framework_id, defender, enabled, currency, "
+        "benchmark, allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, "
+        "updated_at) VALUES (:id, :name, :fw, 0, 0, :cur, :bench, :alloc, :dd, "
+        ":cap, :phase, :trace, :now)",
+        id=candidate_portfolio_id(strategy_id),
+        name=f"Candidate book — {strategy_id}",
+        fw=str(framework[0]["framework_id"]),
+        cur=str(user["currency"]),
+        bench=str(user["benchmark"]),
+        alloc=json.dumps(allocation),
+        dd=float(user["max_drawdown_pct"]),
+        cap=float(user["max_single_asset_pct"]),
+        phase=str(user["phase"]),
+        trace=(
+            f"Candidate book of the proposed strategy {strategy_id}, from its BASE scenario's "
+            "target_allocation. Disabled: it exists so the strategy can be backtested during "
+            "probation, not to be held (ADR-006 — nothing stays proposed forever)."
+        ),
+        now=now,
+    )
+    await db.create_edge(
+        "holds",
+        candidate_portfolio_id(strategy_id),
+        strategy_id,
+        {"is_primary": True, "since": today.isoformat()},
+    )
+
+
+async def _backfill_candidate_nav(db: InvestmentDB, strategy_id: str) -> None:
+    """The candidate's 35y NAV, on the same engine and the same cost rate as
+    every series it will be compared against (ADR-010). No rows when the
+    portfolio was skipped or a sleeve has no prices — `backfill_nav` returns an
+    empty result rather than raising, and probation's backstop is what resolves
+    a strategy that stays unmeasurable.
+
+    Built ONCE, at birth, and that is sufficient rather than a shortcut: FAVORS
+    aggregates Backtests over COMPLETED historical Regime instances, all of them
+    before this date, so a candidate NAV that stops here still covers every
+    window the probation verdict reads. It becomes stale only for uses this row
+    does not have — the candidate is disabled, so nothing values or ranks it."""
+    portfolio_id = candidate_portfolio_id(strategy_id)
+    rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=portfolio_id)
+    if not rows:
+        return
+    allocation = {str(k): float(v) for k, v in json.loads(str(rows[0]["allocation"])).items()}
+    # The pinned window, read from `system_thresholds` rather than re-declared:
+    # a candidate compared against its peers on a DIFFERENT lookback would be
+    # judged on indicators that are not the ones it is judged against.
+    window = await db.query(
+        "SELECT value FROM system_thresholds WHERE key = 'rolling_window_days'"
+    )
+    result = await ratios.backfill_nav(
+        db,
+        portfolio_id,
+        allocation,
+        int(window[0]["value"]) if window else 756,
+        ratios.TRADING_COST_BPS,
+    )
+    if result.rows_written == 0:
+        logger.warning("strategy '%s': candidate NAV is empty (no prices?)", strategy_id)
 
 
 async def _commit_invariant_innovation(
