@@ -117,9 +117,18 @@ def _market_signal_block(decision: dict[str, Any] | None) -> list[str]:
         for t in sorted(set(held) | set(target))
         if held.get(t, 0) != target.get(t, 0)
     ]
+    # `held_book` is the book the HYSTERESIS has committed to, which is what the
+    # stack holds on every reachable month — except a blocked one, where the
+    # move never happened and the stack is still in the previous book. Saying
+    # "book X" there would be the same error the Worker context carried until
+    # ADR-011's pass: naming a target as though it were a position. So the
+    # header calls it the TARGET whenever the gate refused.
+    gate = decision.get("gate")
+    blocked = bool(gate) and gate != "passed"
+    label = "target book" if blocked else "book"
     lines = [
         "",
-        f"🧭 Market-signal decision (paper-test) — book "
+        f"🧭 Market-signal decision (paper-test) — {label} "
         f"{decision.get('held_book', '?')}, decided {decision.get('decision_date', '?')}:",
         "   " + (" | ".join(moves) if moves else "no change — the stack holds its book"),
     ]
@@ -127,9 +136,11 @@ def _market_signal_block(decision: dict[str, Any] | None) -> list[str]:
     # guards, so this means a config or code change, never a market event). It
     # must be LOUD rather than absent — otherwise it renders identically to a
     # month that legitimately did not move.
-    gate = decision.get("gate")
-    if gate and gate != "passed":
-        lines.append(f"   🚨 BLOCKED by gate '{gate}' — nothing was proposed, the stack is frozen.")
+    if blocked:
+        lines.append(
+            f"   🚨 BLOCKED by gate '{gate}' — nothing was proposed. The stack is FROZEN in its "
+            "previous book, not in the one named above."
+        )
     for ticker, read in signals.items():
         median = read.get("trailing_median")
         lines.append(

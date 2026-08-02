@@ -221,3 +221,19 @@ def test_nav_conventions_golden() -> None:
     assert vol == pytest.approx(expected_vol)
     assert mdd == pytest.approx(expected_mdd)
     assert calmar == pytest.approx(expected_calmar)
+
+
+def test_the_one_trading_cost_rate_is_actually_one_rate() -> None:
+    """ADR-010 says `system_thresholds.replay_cost_bps` MUST equal
+    `ratios.TRADING_COST_BPS` — "a replay that validates a strategy and a
+    ranking that compares it have to charge the same rate".
+
+    That MUST was written in three prose locations and enforced in none: two
+    independent literals that a future edit can silently desynchronise. Which
+    is precisely the bug ADR-010 exists to fix — the system held 10 in the
+    thresholds and 20 in the stack, each documented, neither checked — so
+    leaving it on prose would have reintroduced the same failure one level
+    down. This is the guard."""
+    from investment.db.seed_data import SYSTEM_THRESHOLDS
+
+    assert SYSTEM_THRESHOLDS["replay_cost_bps"] == ratios.TRADING_COST_BPS

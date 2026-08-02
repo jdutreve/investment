@@ -534,7 +534,10 @@ async def test_a_blocked_decision_is_loud_in_the_digest(db: InvestmentDB) -> Non
     )
     text = await build_digest(db)
     assert "BLOCKED by gate 'max_single_asset_pct'" in text
-    assert "the stack is frozen" in text
+    assert "FROZEN in its previous book, not in the one named above" in text
+    # ...and the header must not present that book as a POSITION: the move
+    # never happened, so it is a target, not what is held.
+    assert f"target book {WIDE}" in text
 
 
 # -- the outcome end: scored against what was HELD ---------------------------

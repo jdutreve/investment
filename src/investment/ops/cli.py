@@ -189,8 +189,19 @@ def cmd_status(db_path: Path, as_json: bool) -> None:
         last_chain = con.execute(
             "SELECT last_chain_success FROM detector_state WHERE id = 'singleton'"
         ).fetchone()
-        pending = con.execute(
-            "SELECT COUNT(*) AS n FROM proposal WHERE user_response = 'pending'"
+        # Paper-tests IN PROGRESS — the same definition the digest scoreboard
+        # uses (`digest.build_scoreboard`): started, not yet decided at +12w.
+        #
+        # This used to count `user_response = 'pending'`, which ADR-006 emptied
+        # of meaning: there is no user accept/reject step any more, so nothing
+        # ever writes that column and its schema DEFAULT is 'pending'. The
+        # count was therefore every proposal ever written, growing forever,
+        # printed under a label that reads like a queue awaiting the owner.
+        # With the market-signal path now emitting monthly, it would have grown
+        # steadily while meaning nothing.
+        paper = con.execute(
+            "SELECT COUNT(*) AS n FROM proposal WHERE paper_started IS NOT NULL "
+            "AND json_extract(outcome, '$.verdict') IS NULL"
         ).fetchone()
         counts = {
             table: con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -205,7 +216,7 @@ def cmd_status(db_path: Path, as_json: bool) -> None:
                 {
                     "defender": dict(defender) if defender else None,
                     "last_chain_success": last_chain["last_chain_success"] if last_chain else None,
-                    "pending_proposals": pending["n"],
+                    "paper_tests_in_progress": paper["n"],
                     "seed_counts": counts,
                 },
                 indent=2,
@@ -216,11 +227,11 @@ def cmd_status(db_path: Path, as_json: bool) -> None:
 
     defender_text = f"{defender['name']} ({defender['id']})" if defender else "(none)"
     chain_text = last_chain["last_chain_success"] if last_chain else "(never)"
-    pending_color = _Ansi.YELLOW if pending["n"] else _Ansi.CYAN
+    paper_color = _Ansi.YELLOW if paper["n"] else _Ansi.CYAN
 
     print(f"{_label('defender:')} {_value(defender_text)}")
     print(f"{_label('last chain success:')} {_value(chain_text)}")
-    print(f"{_label('pending proposals:')} {_c(str(pending['n']), _Ansi.BOLD, pending_color)}")
+    print(f"{_label('paper-tests in progress:')} {_c(str(paper['n']), _Ansi.BOLD, paper_color)}")
     print(f"{_label('seed counts:')} {_value(str(counts))}")
 
 
