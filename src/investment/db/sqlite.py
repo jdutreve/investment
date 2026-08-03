@@ -11,6 +11,16 @@ while `transaction()` issues an explicit BEGIN/COMMIT/ROLLBACK to group
 several calls atomically on the same connection — this is what lets
 `append_event()` (EventLog) and the related vertex/edge commit land in one
 all-or-nothing unit, per the CLAUDE.md "EventLog" rule.
+
+Serializing single calls is NOT enough to make that unit atomic, and the
+difference is the reason for `_tx_lock` below. The executor serializes each
+`_call`; `transaction()` spans many of them with `await`s in between, so on a
+single connection any other coroutine that writes during that window writes
+INSIDE the open BEGIN — it commits when the transaction commits, and is rolled
+back when the transaction rolls back. A second concurrent `transaction()` is
+worse: its BEGIN raises "cannot start a transaction within a transaction", and
+its COMMIT ends the FIRST one's unit early. So writes are serialized at
+TRANSACTION granularity, not statement granularity.
 """
 
 import asyncio
@@ -77,6 +87,12 @@ class InvestmentDB:
             self._con.execute(f"PRAGMA {pragma}")
         self._con.executescript(SCHEMA_SQL)
         self._columns_cache: dict[str, set[str]] = {}
+        # Transaction-granularity serialization (see module docstring). The
+        # owner task is tracked alongside the lock because the transaction's OWN
+        # writes must pass straight through — they are what the BEGIN is for —
+        # while every other task's must wait for the COMMIT.
+        self._tx_lock = asyncio.Lock()
+        self._tx_owner: asyncio.Task[Any] | None = None
         # Monotonic floor for event ids, re-seeded from the DB so the
         # canonical append order survives restarts (and clock steps between
         # them) — see _next_event_id().
@@ -86,6 +102,26 @@ class InvestmentDB:
     async def _call(self, fn: Callable[[], _T]) -> _T:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, fn)
+
+    async def _write_call(self, fn: Callable[[], _T]) -> _T:
+        """Every WRITE goes through here: it runs immediately when no
+        transaction is open or when this task owns the open one, and otherwise
+        waits for that transaction to finish rather than landing inside it.
+
+        Reads deliberately do NOT take this path — a read during another task's
+        transaction sees that connection's uncommitted state, which is the same
+        thing it would see one statement earlier, and blocking readers behind
+        writers would serialize the whole agent for no correctness gain.
+
+        The check and the executor submission are not separated by an `await`,
+        so no other coroutine can open a transaction between them — the guard
+        cannot be raced from the event loop, and the single-worker executor
+        preserves the submission order from there."""
+        owner = self._tx_owner
+        if owner is not None and owner is not asyncio.current_task():
+            async with self._tx_lock:
+                return await self._call(fn)
+        return await self._call(fn)
 
     def _table_columns(self, table: str) -> set[str]:
         if table not in self._columns_cache:
@@ -130,7 +166,7 @@ class InvestmentDB:
         def _run() -> None:
             self._con.execute(stmt, params)
 
-        await self._call(_run)
+        await self._write_call(_run)
 
     async def create_vertex(self, type: str, props: dict[str, Any]) -> str:
         """INSERT a new vertex row; fails on a duplicate id (use
@@ -148,7 +184,7 @@ class InvestmentDB:
             self._con.execute(stmt, row)
             return vertex_id
 
-        return await self._call(_run)
+        return await self._write_call(_run)
 
     async def upsert_vertex(self, type: str, id: str, props: dict[str, Any]) -> str:
         """Idempotent by id — UC0 seed re-runs safely. Uses ON CONFLICT DO
@@ -177,7 +213,7 @@ class InvestmentDB:
             self._con.execute(stmt, row)
             return id
 
-        return await self._call(_run)
+        return await self._write_call(_run)
 
     def _stamp_and_jsonify(self, table: str, props: dict[str, Any]) -> dict[str, Any]:
         row = _jsonify(props)
@@ -207,7 +243,7 @@ class InvestmentDB:
             stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
             self._con.execute(stmt, row)
 
-        await self._call(_run)
+        await self._write_call(_run)
 
     def _next_event_id(self) -> str:
         """Strictly-increasing ULID for event_log.id — THE canonical append
@@ -255,7 +291,7 @@ class InvestmentDB:
             )
             return event_id
 
-        return await self._call(_run)
+        return await self._write_call(_run)
 
     async def append_ts(
         self, type: str, ts: datetime, tags: dict[str, Any], fields: dict[str, Any]
@@ -272,7 +308,7 @@ class InvestmentDB:
             stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
             self._con.execute(stmt, row)
 
-        await self._call(_run)
+        await self._write_call(_run)
 
     async def append_ts_batch(self, type: str, rows: list[dict[str, Any]]) -> None:
         """Batched idempotent append (INSERT OR REPLACE, executemany, one
@@ -303,7 +339,7 @@ class InvestmentDB:
             else:
                 self._con.commit()
 
-        await self._call(_run)
+        await self._write_call(_run)
 
     # -- transactions ------------------------------------------------------
 
@@ -311,15 +347,36 @@ class InvestmentDB:
     async def transaction(self) -> AsyncIterator["InvestmentDB"]:
         """Groups several write calls into one atomic unit on the same
         connection (BEGIN ... COMMIT/ROLLBACK) — required whenever an
-        EventLog append must land together with its vertex/edge commit."""
-        await self._call(lambda: self._con.execute("BEGIN"))
-        try:
-            yield self
-        except Exception:
-            await self._call(self._con.rollback)
-            raise
-        else:
-            await self._call(self._con.commit)
+        EventLog append must land together with its vertex/edge commit.
+
+        Holds `_tx_lock` for the WHOLE unit, not per statement: the atomicity
+        this exists for is only real if no other task can write into the open
+        BEGIN or issue its own (see module docstring). Concurrency is real here
+        — the inbox watcher's ingestion batch and the Monday chain are separate
+        tasks on one connection, and UC9 can trigger an ad-hoc UC8 re-run
+        alongside either.
+
+        NESTING is refused rather than silently joined. No caller nests today
+        (composite paths pass the `tx` handle down instead), and a same-task
+        re-entry is the one case the owner check waves through — so it would
+        reach sqlite's own "cannot start a transaction within a transaction"
+        several statements later, with the failure pinned on whatever ran next
+        rather than on the nested `async with`."""
+        if self._tx_owner is asyncio.current_task():
+            raise RuntimeError("nested transaction() — pass the open handle down instead")
+        async with self._tx_lock:
+            self._tx_owner = asyncio.current_task()
+            try:
+                await self._call(lambda: self._con.execute("BEGIN"))
+                try:
+                    yield self
+                except Exception:
+                    await self._call(self._con.rollback)
+                    raise
+                else:
+                    await self._call(self._con.commit)
+            finally:
+                self._tx_owner = None
 
     # -- lifecycle -----------------------------------------------------
 

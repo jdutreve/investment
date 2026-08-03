@@ -446,6 +446,10 @@ async def run_market_signal(
         # `seed._missing_stack_series` pre-checks the same two series to SKIP
         # rather than raise (the incremental-seed contract); the LIVE cycle has
         # no such pre-check, and this is what stops it deciding blind.
+        #
+        # Only ABSENT is caught here. A series that STOPPED updating ffills and
+        # still decides — same failure with a timestamp on it, deferred to I-50
+        # because refusing on staleness needs a max-age threshold.
         raise ValueError(f"market-signal stack missing signal series for {absent}")
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()

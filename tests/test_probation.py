@@ -191,3 +191,58 @@ async def test_paper_test_progress_lists_live_accepted_tests(db: InvestmentDB) -
     progress = await outcomes.paper_test_progress(db, today=TODAY)
     # only the live accepted paper-test is tracked (the decided one is excluded)
     assert [p["proposal_id"] for p in progress] == ["pt"]
+
+
+async def test_a_strategy_scored_in_ANOTHER_regime_is_not_closed_as_unmeasurable(
+    db: InvestmentDB,
+) -> None:
+    """The backstop's reason line was "no FAVORS in any regime", but the query
+    behind it only ever looked at the CURRENT one. A strategy scored in
+    stagflation and unscored in today's regime is MEASURABLE — the system simply
+    has not been in its regime — and closing it at 24 weeks made a claim its own
+    evidence contradicted."""
+    await db.command(
+        "INSERT INTO regime_type (id, name, aliases, framework_id, description, created_at) "
+        "VALUES ('disinf', 'Disinflation', '[]', '4s', 'd', '2026-01-01')"
+    )
+    await db.command(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
+        "('s-elsewhere', 't', 'd', '4s', 60, 0, 'c', 'agent-discovery', 'proposed', :o, 'tr', "
+        "'2026-01-01', '2026-01-01')",
+        # older than UNMEASURABLE_PROBATION_MULTIPLIER windows, so the backstop is live
+        o=(TODAY - timedelta(weeks=30)).isoformat(),
+    )
+    # scored in 'disinf', absent from 'stag' — the regime probation reads
+    await db.command(
+        "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, sharpe_rolling, "
+        "calmar_rolling, max_drawdown, n_periods, last_updated) VALUES ('disinf', 's-elsewhere', "
+        "1.1, 0.5, 1.0, -0.1, 40, '2026-01-01')"
+    )
+    results = await outcomes.strategy_probation_check(db, today=TODAY)
+    mine = [r for r in results if r.strategy_id == "s-elsewhere"]
+    assert len(mine) == 1
+    assert mine[0].verdict == ""  # waiting, not judged
+    assert mine[0].skipped_reason == "scored in another regime, waiting for this one"
+    status = await db.query("SELECT status FROM strategy WHERE id = 's-elsewhere'")
+    assert status[0]["status"] == "proposed"  # NOT closed
+
+
+async def test_a_strategy_scored_NOWHERE_is_still_closed_by_the_backstop(
+    db: InvestmentDB,
+) -> None:
+    """The other half: no FAVORS anywhere is the genuine unmeasurability
+    ADR-006 requires terminated — a defect of the strategy's own that no later
+    run repairs."""
+    await db.command(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
+        "('s-nowhere', 't', 'd', '4s', 60, 0, 'c', 'agent-discovery', 'proposed', :o, 'tr', "
+        "'2026-01-01', '2026-01-01')",
+        o=(TODAY - timedelta(weeks=30)).isoformat(),
+    )
+    results = await outcomes.strategy_probation_check(db, today=TODAY)
+    mine = [r for r in results if r.strategy_id == "s-nowhere"]
+    assert len(mine) == 1 and mine[0].verdict == "review"
+    status = await db.query("SELECT status FROM strategy WHERE id = 's-nowhere'")
+    assert status[0]["status"] == "closed"

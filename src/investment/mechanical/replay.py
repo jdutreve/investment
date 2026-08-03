@@ -439,6 +439,12 @@ def _favors_asof(inputs: ReplayInputs, regime_type_id: str, t: pd.Timestamp) -> 
     aggregate the whole 35y — reading them would leak the future into every
     decision).
 
+    `end_date` is the RETROACTIVE end, and a closure only becomes knowable once
+    `regime_confirm_prints` prints of the next regime confirm it — so for that
+    hysteresis window this reads an aggregate over a regime nobody yet knew had
+    closed. A small ADR-003 violation, deferred to I-49 (it needs a `closed_at`
+    column, and moving it re-dates the M6 numbers).
+
     Ranked on mean `sortino_rolling`, matching `backtests.aggregate_metrics`'
     equal-weight-per-instance aggregation and the ranking rule's primary key.
 
@@ -1094,7 +1100,12 @@ async def _load_panel(db: InvestmentDB, portfolio_id: str) -> pd.DataFrame:
 
 async def _load_regimes(db: InvestmentDB) -> list[RegimeInstance]:
     """Closed instances only — an ongoing regime is not a completed period, and
-    FAVORS aggregates over completed ones (`backtests._completed_regimes`)."""
+    FAVORS aggregates over completed ones (`backtests._completed_regimes`).
+
+    That filter suits `_favors_asof` and NOT `_regime_asof`, which reads the
+    same list: the regime the system is currently IN is open by definition, so
+    every decision date after the last closure is taken under a stale label
+    (I-49, with the `end_date`-as-knowability defect in `_favors_asof`)."""
     rows = await db.query(
         "SELECT id, regime_type_id, start_date, end_date, created_at FROM regime "
         "WHERE end_date IS NOT NULL ORDER BY start_date, id"

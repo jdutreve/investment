@@ -8,6 +8,7 @@ synthetic `fetch_raw` stub via `run_seed`'s injection point so a unit test
 never makes a live network call (see tests/test_market.py for step 9 itself).
 """
 
+import asyncio
 import itertools
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -228,5 +229,86 @@ async def test_seed_allocations_respect_binding_caps(tmp_path: Path) -> None:
         )
         for row in probability_sums:
             assert abs(row["p"] - 100) < 1e-9, row["strategy_id"]
+    finally:
+        await db.close()
+
+
+# -- transaction serialization (module docstring "TRANSACTION granularity") --
+
+
+async def test_a_concurrent_write_does_not_land_inside_an_open_transaction(
+    tmp_path: Path,
+) -> None:
+    """The atomicity `transaction()` exists for is only real if no other task
+    can write into the open BEGIN. Before the lock, the intruder's row was part
+    of the transaction and the ROLLBACK took it with it."""
+    db = InvestmentDB(tmp_path / "tx.db")
+    try:
+        started = asyncio.Event()
+
+        async def rolls_back() -> None:
+            with pytest.raises(RuntimeError, match="deliberate"):
+                async with db.transaction() as tx:
+                    await tx.append_event(
+                        type="T", source_uc="UC0", source_id=None, payload={"who": "owner"}
+                    )
+                    started.set()
+                    await asyncio.sleep(0.05)  # the window another task could write into
+                    raise RuntimeError("deliberate")
+
+        async def intruder() -> None:
+            await started.wait()
+            await db.append_event(
+                type="T", source_uc="UC0", source_id=None, payload={"who": "intruder"}
+            )
+
+        await asyncio.gather(rolls_back(), intruder())
+
+        rows = await db.query(
+            "SELECT json_extract(payload, '$.who') AS who FROM event_log ORDER BY id"
+        )
+        # the owner's append is gone with its rollback; the intruder's survives
+        assert [r["who"] for r in rows] == ["intruder"]
+    finally:
+        await db.close()
+
+
+async def test_two_concurrent_transactions_serialize_instead_of_colliding(
+    tmp_path: Path,
+) -> None:
+    """A second BEGIN on the same connection raises "cannot start a transaction
+    within a transaction", and its COMMIT would end the first one's unit early."""
+    db = InvestmentDB(tmp_path / "tx2.db")
+    try:
+
+        async def one(who: str) -> None:
+            async with db.transaction() as tx:
+                await tx.append_event(
+                    type="T", source_uc="UC0", source_id=None, payload={"who": who}
+                )
+                await asyncio.sleep(0.02)
+                await tx.append_event(
+                    type="T", source_uc="UC0", source_id=None, payload={"who": who}
+                )
+
+        await asyncio.gather(one("a"), one("b"))
+        rows = await db.query(
+            "SELECT json_extract(payload, '$.who') AS who FROM event_log ORDER BY id"
+        )
+        # each transaction's two appends are ADJACENT — neither interleaved
+        assert [r["who"] for r in rows] in (["a", "a", "b", "b"], ["b", "b", "a", "a"])
+    finally:
+        await db.close()
+
+
+async def test_nesting_a_transaction_is_refused_at_the_nested_with(tmp_path: Path) -> None:
+    """Same-task re-entry is waved through by the owner check, so without this
+    guard it would fail several statements later inside sqlite."""
+    db = InvestmentDB(tmp_path / "tx3.db")
+    try:
+        with pytest.raises(RuntimeError, match="nested transaction"):
+            async with db.transaction():
+                async with db.transaction():
+                    pass
     finally:
         await db.close()

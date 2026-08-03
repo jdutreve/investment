@@ -410,3 +410,81 @@ async def test_gate0_leaves_the_cognitive_bridge_defender_alone(db: InvestmentDB
         {"regime": "stag"},
     )
     assert outcome.passed is True and pid is not None
+
+
+# -- candidate book validation (_base_allocation) ----------------------------
+
+
+def _spec(base: object) -> dict[str, object]:
+    return {"scenarios": [{"name": "base", "target_allocation": base}]}
+
+
+def test_base_allocation_accepts_a_well_formed_book() -> None:
+    assert W._base_allocation(_spec({"SPY": 60, "GLD": 40})) == {"SPY": 60.0, "GLD": 40.0}
+
+
+@pytest.mark.parametrize(
+    ("label", "base"),
+    [
+        # every one of these reached a Portfolio row and a NAV before the shape
+        # checks: NaN slips past every later comparison, a negative leg is a
+        # short V1 cannot hold, and a book summing to 7 or 4000 prices the
+        # candidate on a leverage the strategy never claimed.
+        ("nan", {"SPY": 60, "GLD": float("nan")}),
+        ("inf", {"SPY": 60, "GLD": float("inf")}),
+        ("short leg", {"SPY": 130, "GLD": -30}),
+        ("sums to 7", {"SPY": 4, "GLD": 3}),
+        ("sums to 4000", {"SPY": 2000, "GLD": 2000}),
+        ("empty", {}),
+        ("non-numeric", {"SPY": "a lot"}),
+    ],
+)
+def test_base_allocation_refuses_a_malformed_book(label: str, base: object) -> None:
+    assert W._base_allocation(_spec(base)) is None, label
+
+
+async def _candidate_fixture(db: InvestmentDB, strategy_id: str) -> None:
+    """The two rows `_commit_candidate_portfolio` reads before it writes: the
+    user profile (the binding caps + currency/benchmark/phase) and the strategy
+    whose framework it inherits. Seeded here rather than in `_seed` so the
+    reallocation tests keep the DB they were written against."""
+    await db.command(
+        "INSERT OR IGNORE INTO user_profile (user_id, currency, benchmark, max_drawdown_pct, "
+        "max_single_asset_pct, phase, created_at, updated_at) VALUES ('u', 'USD', 'SPY', "
+        "-25.0, 50.0, 'accumulation', '2026-01-01', '2026-01-01')"
+    )
+    await db.command(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
+        "(:id, 't', 'd', '4s', 50, 0, '[]', 'agent-discovery', 'proposed', '2026-01-05', "
+        "'tr', '2026-01-05', '2026-01-05')",
+        id=strategy_id,
+    )
+
+
+async def _commit_candidate(db: InvestmentDB, strategy_id: str, base: object) -> list[dict]:
+    await _candidate_fixture(db, strategy_id)
+    await W._commit_candidate_portfolio(
+        db, strategy_id, _spec(base), date(2026, 1, 5), "2026-01-05T00:00:00Z"
+    )
+    return await db.query(
+        "SELECT id FROM portfolio WHERE id = :p", p=W.candidate_portfolio_id(strategy_id)
+    )
+
+
+async def test_a_compliant_candidate_does_get_its_portfolio(db: InvestmentDB) -> None:
+    """The positive control the two refusals below need: without it they would
+    pass just as well on an early return for a missing user_profile."""
+    assert await _commit_candidate(db, "s-ok", {"SPY": 50, "GLD": 50}) != []
+
+
+async def test_an_over_concentrated_candidate_gets_no_portfolio(db: InvestmentDB) -> None:
+    """A candidate is not held, but it IS measured, and its NAV feeds FAVORS —
+    which the reallocation blend leans on. The 50% cap binds it too."""
+    assert await _commit_candidate(db, "s-conc", {"SPY": 40, "GLD": 60}) == []
+
+
+async def test_a_candidate_holding_an_untradable_ticker_gets_no_portfolio(db: InvestmentDB) -> None:
+    """No price series means an empty NAV and a strategy unmeasurable forever —
+    better named at birth than diagnosed 24 weeks later by the backstop."""
+    assert await _commit_candidate(db, "s-tick", {"SPY": 50, "MOONCOIN": 50}) == []

@@ -557,6 +557,10 @@ async def run_backtests_and_favors(db: InvestmentDB, window: int) -> BacktestsFa
 
                 regime_days = max((end - start).days, 1)
                 covered_days = (sliced.index[-1] - sliced.index[0]).days
+                # RECORDED, not enforced: a NAV covering three days of a two-year
+                # regime still produces a Backtest, an aggregate and a FAVORS
+                # edge, on metrics computed over three days. The minimum this
+                # wants is I-51, with the candidate-NAV refresh it pairs with.
                 overlap_pct = min(100.0, covered_days / regime_days * 100.0)
 
                 await db.upsert_vertex(

@@ -31,6 +31,14 @@ _MATURATION_THRESHOLDS = {
     "confrontation_margin_return": 0.02,
 }
 
+# (author, floor_weight, initial_weight_min, initial_weight_max)
+INVARIANT_AUTHOR_BANDS = [
+    ("dalio", 0.40, 0.80, 0.90),
+    ("marks", 0.35, 0.75, 0.85),
+    ("other", 0.20, 0.40, 0.70),
+    ("system", 0.05, 0.15, 0.25),
+]
+
 _CONDITION = [{"signal": "real_yield", "feature": "level", "op": "<", "value": 0.0}]
 _EFFECT = {
     "handle": "asset-class:gold-commodities",
@@ -66,10 +74,27 @@ async def _seed_thresholds(db: InvestmentDB) -> None:
         )
 
 
+async def _seed_author_bands(db: InvestmentDB) -> None:
+    """The seeded tier bands (db/seed_data.py INVARIANT_AUTHOR_CONFIG) — the
+    'system' row is the one `_innovation` lands on (ImprovementProposal.author
+    defaults to 'system')."""
+    for author, floor, low, high in INVARIANT_AUTHOR_BANDS:
+        await db.command(
+            "INSERT INTO invariant_author_config "
+            "(author, floor_weight, initial_weight_min, initial_weight_max) "
+            "VALUES (:a, :f, :lo, :hi)",
+            a=author,
+            f=floor,
+            lo=low,
+            hi=high,
+        )
+
+
 @pytest.fixture
 async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     conn = InvestmentDB(tmp_path / "inv.db")
     await _seed_thresholds(conn)
+    await _seed_author_bands(conn)
     yield conn
     await conn.close()
 
@@ -107,3 +132,63 @@ async def test_a_structural_duplicate_is_merged_not_recreated(db: InvestmentDB) 
         "WHERE type='InnovationEvent'"
     )
     assert ev[0]["m"] == "inv-existing"
+
+
+async def test_the_author_tier_band_binds_the_worker_proposed_weights(db: InvestmentDB) -> None:
+    """CLAUDE.md "Invariant weight model": the floor is the TIER's, not the
+    LLM's. `_innovation` proposes 0.5/0.2 on the 'system' tier, whose band is
+    0.05 floor and 0.15-0.25 initial."""
+    result = PostPlannerResult(innovations=[_innovation("Gold beats on negative real yields")])
+    await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
+    row = (await db.query("SELECT weight_initial, floor_weight FROM invariant WHERE id='inv-new'"))[
+        0
+    ]
+    assert row["floor_weight"] == 0.05  # the tier's, not the proposed 0.2
+    assert row["weight_initial"] == 0.25  # 0.5 clamped down to the band's max
+
+
+async def test_a_zero_weight_proposal_is_lifted_to_the_band_not_born_inert(
+    db: InvestmentDB,
+) -> None:
+    """`ImprovementProposal` defaults both weights to 0.0 (worker/result.py), and
+    `weight_effective = max(0 x score x recency, 0)` is zero forever — an
+    invariant that could never influence anything however often confirmed."""
+    innovation = _innovation("Gold beats on negative real yields")
+    result = PostPlannerResult(
+        innovations=[innovation.model_copy(update={"weight_initial": 0.0, "floor_weight": 0.0})]
+    )
+    await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
+    row = (
+        await db.query(
+            "SELECT weight_initial, floor_weight, weight_effective "
+            "FROM invariant WHERE id='inv-new'"
+        )
+    )[0]
+    assert row["weight_initial"] == 0.15  # lifted to the band's min
+    assert row["floor_weight"] == 0.05
+    assert float(row["weight_effective"]) > 0.0
+
+
+async def test_two_near_identical_innovations_in_ONE_batch_dedup_against_each_other(
+    db: InvestmentDB,
+) -> None:
+    """The corpus is read once, before the loop: without growing it in flight,
+    the second member of a batch deduplicates against a snapshot that predates
+    the first and both are created."""
+    first = _innovation("Gold beats when real yields are negative")
+    second = _innovation("Negative real yields favour gold")
+    # distinct ids, so a failure creates TWO rows rather than colliding on the PK
+    result = PostPlannerResult(
+        innovations=[
+            first,
+            second.model_copy(update={"spec": {**second.spec, "id": "inv-new-2"}}),
+        ]
+    )
+    n = await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
+    assert n == 1  # the second merged into the first
+    assert len(await db.query("SELECT id FROM invariant")) == 1
+    merged = await db.query(
+        "SELECT json_extract(payload, '$.merged_into') AS m FROM event_log "
+        "WHERE type='InnovationEvent' AND json_extract(payload, '$.merged_into') IS NOT NULL"
+    )
+    assert [r["m"] for r in merged] == ["inv-new"]

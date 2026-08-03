@@ -4,6 +4,7 @@ confrontations move weights through the shared primitive, with the
 condition-active gate; evaluations nudge conviction. Against a real throwaway
 SQLite."""
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -115,6 +116,77 @@ async def test_evaluation_nudges_conviction(db: InvestmentDB) -> None:
     conviction = (await db.query("SELECT conviction FROM strategy WHERE id='s1'"))[0]["conviction"]
     assert conviction == pytest.approx(68.0)  # 60 + 8
     assert len(await db.query("SELECT type FROM event_log WHERE type='EvaluationEvent'")) == 1
+
+
+async def test_evaluation_is_persisted_as_a_vertex_not_just_a_conviction_nudge(
+    db: InvestmentDB,
+) -> None:
+    """docs/DATA_MODELS.md "Persistence Routing": `Evaluation -> EventLog ->
+    vertex (events[] filled) -> UPDATES`. Without the row the observed events,
+    the reasoning and the delta that moved conviction were all discarded on
+    application — `conviction` is one float the next evaluation overwrites."""
+    result = PostPlannerResult(
+        evaluations=[
+            EvaluationDraft(
+                strategy_id="s1",
+                verdict="weakens",
+                conviction_delta=-5.0,
+                events=["CPI level 3.1 (speed +0.30)"],
+                reasoning="the inflation leg of the thesis is not holding",
+            ),
+        ]
+    )
+    await commit_knowledge(db, result, "stag", THRESHOLDS)
+    row = (await db.query("SELECT * FROM evaluation"))[0]
+    assert row["strategy_id"] == "s1"  # UPDATES is the FK on the child
+    assert row["verdict"] == "weakens"
+    assert row["conviction_delta"] == pytest.approx(-5.0)
+    assert json.loads(str(row["events"])) == ["CPI level 3.1 (speed +0.30)"]
+    assert "inflation leg" in str(row["reasoning"])
+
+
+async def test_a_neutral_evaluation_is_recorded_though_it_moves_no_conviction(
+    db: InvestmentDB,
+) -> None:
+    """Evidence weighed and found not to move anything is still evidence — the
+    case where the reasoning IS the whole of the value. The returned count stays
+    the conviction updates, which is what the digest reports."""
+    result = PostPlannerResult(
+        evaluations=[
+            EvaluationDraft(
+                strategy_id="s1", verdict="neutral", conviction_delta=0.0, events=[], reasoning="r"
+            ),
+        ]
+    )
+    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    assert summary.conviction_updates == 0
+    assert len(await db.query("SELECT id FROM evaluation")) == 1
+
+
+async def test_an_evaluation_of_an_unknown_strategy_does_not_abort_the_commit(
+    db: InvestmentDB,
+) -> None:
+    """`evaluation.strategy_id` REFERENCES strategy(id) with foreign_keys=ON, so
+    one hallucinated id would take the confrontations, the scenarios and the
+    innovations down with it."""
+    result = PostPlannerResult(
+        evaluations=[
+            EvaluationDraft(
+                strategy_id="s-does-not-exist",
+                verdict="confirms",
+                conviction_delta=9.0,
+                events=[],
+                reasoning="r",
+            ),
+            EvaluationDraft(
+                strategy_id="s1", verdict="confirms", conviction_delta=4.0, events=[], reasoning="r"
+            ),
+        ]
+    )
+    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    assert summary.conviction_updates == 1  # only the real one
+    rows = await db.query("SELECT strategy_id FROM evaluation")
+    assert [r["strategy_id"] for r in rows] == ["s1"]
 
 
 def _scen(strategy: str, kind: str, prob: float) -> ScenarioAdjustment:

@@ -68,7 +68,9 @@ from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ReallocationProposal
 from investment.writeback.knowledge import (
     DEDUP_COSINE_THRESHOLD,
+    author_band,
     find_duplicate,
+    grow_corpus,
     load_invariant_corpus,
 )
 
@@ -724,31 +726,75 @@ async def _commit_confrontations(
 
 
 async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, today: date) -> int:
-    """Record the evaluations as an EvaluationEvent and apply each
-    conviction_delta to its strategy (clamped 0-100). The verdict itself
-    matures MECHANICALLY at +12w (outcomes.py) — this only nudges the Worker's
-    running conviction, it does not adopt/reject anything (ADR-006)."""
+    """Persist each evaluation on the routing docs/DATA_MODELS.md "Persistence
+    Routing" pins — `EventLog -> vertex (events[] filled) -> UPDATES` — and
+    apply its conviction_delta to the strategy (clamped 0-100). The verdict
+    itself matures MECHANICALLY at +12w (outcomes.py); this only nudges the
+    Worker's running conviction, it does not adopt/reject anything (ADR-006).
+
+    THE VERTEX IS THE POINT, not the conviction nudge. `conviction` is one
+    float that the next evaluation overwrites, so without the row the observed
+    events, the reasoning and the delta that moved it were all discarded the
+    moment they were applied — a strategy's conviction could drift 40 points
+    across a quarter with nothing on record saying why. Evaluation is one of
+    the 13 entities and UPDATES one of the 10 relations; both were dead.
+
+    The row is written for EVERY evaluation including `conviction_delta == 0`
+    (a 'neutral' verdict is evidence that was weighed and found not to move
+    anything — the case where the reasoning is the whole of the value). The
+    RETURN stays the count of conviction updates, which is what the digest
+    reports and what the KnowledgeCommit field is named for."""
     if not post_result.evaluations:
+        return 0
+    # An unknown strategy_id is DROPPED, not written. It was harmless while this
+    # only ran an UPDATE (zero rows matched, silently); `evaluation.strategy_id`
+    # is a REFERENCES with foreign_keys=ON, so one hallucinated id would now
+    # abort the whole knowledge commit — the confrontations, the scenarios and
+    # the innovations along with it.
+    known = {
+        str(r["id"])
+        for r in await db.query("SELECT id FROM strategy")
+        if str(r["id"]) in {e.strategy_id for e in post_result.evaluations}
+    }
+    evaluations = [e for e in post_result.evaluations if e.strategy_id in known]
+    for ev in post_result.evaluations:
+        if ev.strategy_id not in known:
+            logger.warning("evaluation names unknown strategy '%s', dropped", ev.strategy_id)
+    if not evaluations:
         return 0
     now = datetime.now(UTC).isoformat()
     committed = 0
-    async with db.transaction():
-        await db.append_event(
+    async with db.transaction() as tx:
+        await tx.append_event(
             type=EVALUATION_EVENT,
             source_uc=SOURCE_UC,
             source_id=None,
             payload={
                 "evaluations": [
-                    {"strategy_id": e.strategy_id, "verdict": e.verdict}
-                    for e in post_result.evaluations
+                    {"strategy_id": e.strategy_id, "verdict": e.verdict} for e in evaluations
                 ]
             },
             event_date=today,
         )
-        for ev in post_result.evaluations:
+        for ev in evaluations:
+            # UPDATES is the FK on the child (docs/DATA_MODELS.md "Evaluation
+            # -[UPDATES]-> Strategy -> evaluation.strategy_id"), so the vertex
+            # write IS the edge — there is no separate create_edge call.
+            await tx.create_vertex(
+                "evaluation",
+                {
+                    "strategy_id": ev.strategy_id,
+                    "date": today.isoformat(),
+                    "verdict": ev.verdict,
+                    "conviction_delta": ev.conviction_delta,
+                    "events": ev.events,
+                    "reasoning": ev.reasoning,
+                    "trace": f"UC8 Planner Post evaluation of {ev.strategy_id} on {today}",
+                },
+            )
             if ev.conviction_delta == 0.0:
                 continue
-            await db.command(
+            await tx.command(
                 "UPDATE strategy SET conviction = MAX(0, MIN(100, conviction + :d)), "
                 "updated_at = :now WHERE id = :id",
                 d=ev.conviction_delta,
@@ -938,11 +984,25 @@ def _base_allocation(spec: dict[str, Any]) -> dict[str, float] | None:
     and would move as the probabilities are re-estimated, so the same strategy
     would be judged on a different book each week.
 
-    `None` when the spec carries no usable base allocation (no scenarios, no
-    base, empty or non-numeric weights). That is a MALFORMED spec, not an error
-    to raise: the innovation is still recorded, the strategy is still born, and
-    probation's unmeasurable backstop closes it at the window rather than the
-    system refusing a proposal it was told to measure (ADR-006)."""
+    `None` when the spec carries no usable base allocation. That is a MALFORMED
+    spec, not an error to raise: the innovation is still recorded, the strategy
+    is still born, and probation's unmeasurable backstop closes it at the window
+    rather than the system refusing a proposal it was told to measure (ADR-006).
+
+    "Usable" is the SHAPE checks a reallocation's `proposed_allocation` gets
+    before it may be persisted, and for the identical reason — this is
+    LLM-authored numbers on their way into a Portfolio row. Casting to float and
+    stopping there let through everything `allocation_well_formed` was written
+    to catch (gates.py: NaN slips past every later comparison, a negative leg is
+    a short V1 cannot hold) plus a book whose weights sum to 7 or to 4000, which
+    prices a candidate NAV on a leverage the strategy never claimed and feeds
+    the resulting Sortino to FAVORS.
+
+    Refused here rather than corrected: a reallocation gets ONE mechanical
+    correction path (the 2.5-point blend re-normalization) and that operates on
+    a delta the gates already accepted. Silently re-scaling a book that sums to
+    7 would invent the strategy's central case rather than measure it, and
+    probation is entitled to say "this spec carried no allocation" instead."""
     scenarios = spec.get("scenarios")
     if not isinstance(scenarios, list):
         return None
@@ -956,7 +1016,11 @@ def _base_allocation(spec: dict[str, Any]) -> dict[str, float] | None:
             allocation = {str(k): float(v) for k, v in raw.items()}
         except (TypeError, ValueError):
             return None
-        return allocation or None
+        if not allocation_well_formed(allocation):
+            return None
+        if abs(sum(allocation.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
+            return None
+        return allocation
     return None
 
 
@@ -978,8 +1042,19 @@ async def _commit_candidate_portfolio(
 
     Caps are the user's, not looser (CLAUDE.md "Binding caps": per-portfolio
     rules may only be STRICTER). Currency, benchmark and phase come from the
-    user profile rather than being invented here. Skipped silently when the spec
-    has no usable base allocation — see `_base_allocation`."""
+    user profile rather than being invented here. Skipped when the spec's base
+    allocation is unusable — the SHAPE checks in `_base_allocation`, and the two
+    below that need the DB.
+
+    The candidate is not a held book, so it is tempting to skip its caps. It is
+    not held, but it IS measured, and everything downstream of the measurement
+    binds: its NAV feeds `backtests` and from there FAVORS, and FAVORS is what
+    the reallocation blend leans on. A candidate that is 100% one ticker
+    produces the concentrated Sortino the user's cap exists to keep out of the
+    system, then lends it to a proposal that never holds that book itself. Same
+    for an unknown ticker: it has no price series, so the NAV is empty and the
+    strategy is unmeasurable — better named at birth than diagnosed 24 weeks
+    later by probation's backstop."""
     allocation = _base_allocation(spec)
     if allocation is None:
         logger.warning("strategy '%s': no base allocation in spec, no candidate NAV", strategy_id)
@@ -992,6 +1067,27 @@ async def _commit_candidate_portfolio(
         logger.warning("strategy '%s': no user_profile, no candidate portfolio", strategy_id)
         return
     user = profile[0]
+    allowed = await _allowed_reallocation_tickers(db)
+    unknown = sorted(set(allocation) - allowed)
+    if unknown:
+        logger.warning(
+            "strategy '%s': base allocation holds untradable %s, no candidate portfolio",
+            strategy_id,
+            unknown,
+        )
+        return
+    caps = Caps(
+        max_single_asset_pct=float(user["max_single_asset_pct"]),
+        max_drawdown_pct=float(user["max_drawdown_pct"]),
+    )
+    if not concentration_ok(allocation, caps):
+        logger.warning(
+            "strategy '%s': base allocation breaches the %.0f%% concentration cap, "
+            "no candidate portfolio",
+            strategy_id,
+            caps.max_single_asset_pct,
+        )
+        return
     framework = await db.query("SELECT framework_id FROM strategy WHERE id = :id", id=strategy_id)
     await db.command(
         "INSERT OR IGNORE INTO portfolio (id, name, framework_id, defender, enabled, currency, "
@@ -1029,11 +1125,16 @@ async def _backfill_candidate_nav(db: InvestmentDB, strategy_id: str) -> None:
     empty result rather than raising, and probation's backstop is what resolves
     a strategy that stays unmeasurable.
 
-    Built ONCE, at birth, and that is sufficient rather than a shortcut: FAVORS
-    aggregates Backtests over COMPLETED historical Regime instances, all of them
-    before this date, so a candidate NAV that stops here still covers every
-    window the probation verdict reads. It becomes stale only for uses this row
-    does not have — the candidate is disabled, so nothing values or ranks it."""
+    Built ONCE, at birth. That covers the common case — FAVORS aggregates
+    Backtests over COMPLETED historical Regime instances, all of them before
+    this date, so a candidate NAV that stops here still covers every window the
+    probation verdict reads, and nothing values or ranks a disabled row.
+
+    It does NOT cover the 12 weeks that follow: a regime can close inside the
+    window, prices can arrive late, and the NAV never extends to meet either.
+    `backtests` then accepts any slice with two observations and applies no
+    minimum to the `overlap_pct` it records. Refreshing this before the weekly
+    sweep, and gating on coverage, is I-51."""
     portfolio_id = candidate_portfolio_id(strategy_id)
     rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=portfolio_id)
     if not rows:
@@ -1042,9 +1143,7 @@ async def _backfill_candidate_nav(db: InvestmentDB, strategy_id: str) -> None:
     # The pinned window, read from `system_thresholds` rather than re-declared:
     # a candidate compared against its peers on a DIFFERENT lookback would be
     # judged on indicators that are not the ones it is judged against.
-    window = await db.query(
-        "SELECT value FROM system_thresholds WHERE key = 'rolling_window_days'"
-    )
+    window = await db.query("SELECT value FROM system_thresholds WHERE key = 'rolling_window_days'")
     result = await ratios.backfill_nav(
         db,
         portfolio_id,
@@ -1063,14 +1162,23 @@ async def _commit_invariant_innovation(
     corpus: list[Any],
     matrix: Any,
     today: date,
-) -> str | None:
+) -> tuple[str | None, Any]:
     """Persist a new_invariant innovation through the SHARED dedup gate
     (writeback/knowledge.py `find_duplicate`) — the SAME gate the curator uses,
     so a Worker-proposed invariant and a curator-extracted one dedup against the
     corpus identically. On a duplicate the invariant is NOT re-created (an
     InnovationEvent records the merge target); otherwise it is born
-    status='proposed' and matured over 35y by the caller. Returns the new id, or
-    None when merged."""
+    status='proposed' and matured over 35y by the caller.
+
+    Returns `(new id or None when merged, the corpus matrix INCLUDING whatever
+    was just created)`. The matrix comes back — and `corpus` is appended to in
+    place — because the gate can only refuse what it can see: one Worker call
+    returns a LIST of innovations, and a corpus read once before the loop makes
+    every member of that batch invisible to the next. Two paraphrases of the
+    same claim in one `innovations_proposed` both matched nothing and both were
+    created, which is precisely the duplicate this gate exists to stop. The
+    curator grows its corpus inside its own batch loop for this reason
+    (knowledge.py `persist`); this is the same move on the UC8 path."""
     spec = proposal.spec or {}
     condition = spec.get("condition", [])
     effect = spec.get("effect")
@@ -1089,7 +1197,18 @@ async def _commit_invariant_innovation(
                 payload={"type": "new_invariant", "title": title, "merged_into": match},
                 event_date=today,
             )
-        return None
+        return None, matrix
+
+    # The tier's seeded band BINDS the weights, exactly as it does on the
+    # curator path (`knowledge.author_band`) — the model proposes a number, the
+    # band decides what it may be. Without this the Worker's own
+    # `weight_initial`/`floor_weight` were written raw, and `ImprovementProposal`
+    # defaults BOTH to 0.0 (worker/result.py) for the proposals that do not
+    # bother to invent them: `weight_effective = max(0 x score x recency, 0)` is
+    # zero forever, so the invariant was born already unable to influence
+    # anything, and no amount of confirmation could lift it off the floor.
+    floor, low, high = await author_band(db, proposal.author)
+    weight_initial = min(max(proposal.weight_initial, low), high)
 
     invariant_id = str(spec.get("id") or f"inv-{ULID()}")
     async with db.transaction() as tx:
@@ -1113,12 +1232,12 @@ async def _commit_invariant_innovation(
                 "embedding": to_blob(vector),
                 "condition": condition,
                 "effect": effect,
-                "weight_initial": proposal.weight_initial,
-                "floor_weight": proposal.floor_weight,
+                "weight_initial": weight_initial,
+                "floor_weight": floor,
                 "trace": proposal.trace or "UC8 agent-discovery innovation",
             },
         )
-    return invariant_id
+    return invariant_id, grow_corpus(corpus, matrix, invariant_id, condition, effect, vector)
 
 
 async def commit_innovations(
@@ -1147,7 +1266,7 @@ async def commit_innovations(
             if not corpus_loaded:
                 corpus, matrix = await load_invariant_corpus(db)
                 corpus_loaded = True
-            new_id = await _commit_invariant_innovation(
+            new_id, matrix = await _commit_invariant_innovation(
                 db, innovation, embedder, corpus, matrix, today
             )
             if new_id is not None:

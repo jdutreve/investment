@@ -93,6 +93,32 @@ def author_tier(document_author: str | None) -> str | None:
     return None
 
 
+async def author_band(db: InvestmentDB, author: str | None) -> tuple[float, float, float]:
+    """(floor, initial_min, initial_max) for the tier — the seeded bands
+    are authoritative, so a re-tune is a seed change, not a code change.
+
+    Module-level, and shared with UC8's innovation commit, for the same reason
+    `find_duplicate` is: an invariant's floor is set by WHO claims it
+    (CLAUDE.md "Invariant weight model": dalio 0.40 / marks 0.35 / other 0.20 /
+    system 0.05), and that is a property of the tier, not of the path the claim
+    arrived through. A curator-extracted and a Worker-proposed invariant with
+    the same author must be born with the same weights."""
+    tier = author or "other"
+    rows = await db.query(
+        "SELECT floor_weight, initial_weight_min, initial_weight_max "
+        "FROM invariant_author_config WHERE author = :a",
+        a=tier,
+    )
+    if not rows:
+        raise ValueError(f"no author band seeded for tier {tier!r}")
+    row = rows[0]
+    return (
+        float(row["floor_weight"]),
+        float(row["initial_weight_min"]),
+        float(row["initial_weight_max"]),
+    )
+
+
 @dataclass(frozen=True)
 class WritebackReport:
     """What one persisted batch actually changed — the numbers the digest and
@@ -255,17 +281,13 @@ class KnowledgeWriteback:
                     continue
                 invariant_id = await self._create_invariant(tx, item, author, band, vector)
                 await self._attach_evidence(tx, invariant_id, item, passage_ids)
-                corpus.append(
-                    _Existing(
-                        id=invariant_id,
-                        condition=[p.model_dump() for p in item.candidate.condition],
-                        effect=item.candidate.effect.model_dump(),
-                    )
-                )
-                corpus_matrix = (
-                    vector.reshape(1, -1)
-                    if corpus_matrix.size == 0
-                    else np.vstack([corpus_matrix, vector])
+                corpus_matrix = grow_corpus(
+                    corpus,
+                    corpus_matrix,
+                    invariant_id,
+                    [p.model_dump() for p in item.candidate.condition],
+                    item.candidate.effect.model_dump(),
+                    vector,
                 )
                 report += WritebackReport(created=1)
 
@@ -321,22 +343,7 @@ class KnowledgeWriteback:
         return str(rows[0]["author"]) if rows and rows[0]["author"] else None
 
     async def _author_band(self, author: str | None) -> tuple[float, float, float]:
-        """(floor, initial_min, initial_max) for the tier — the seeded bands
-        are authoritative, so a re-tune is a seed change, not a code change."""
-        tier = author or "other"
-        rows = await self._db.query(
-            "SELECT floor_weight, initial_weight_min, initial_weight_max "
-            "FROM invariant_author_config WHERE author = :a",
-            a=tier,
-        )
-        if not rows:
-            raise ValueError(f"no author band seeded for tier {tier!r}")
-        row = rows[0]
-        return (
-            float(row["floor_weight"]),
-            float(row["initial_weight_min"]),
-            float(row["initial_weight_max"]),
-        )
+        return await author_band(self._db, author)
 
     async def _create_invariant(
         self,
@@ -516,6 +523,27 @@ async def load_invariant_corpus(db: InvestmentDB) -> tuple[list["_Existing"], np
     ]
     matrix = np.vstack([from_blob(row["embedding"]) for row in rows])
     return corpus, matrix
+
+
+def grow_corpus(
+    corpus: list["_Existing"],
+    matrix: np.ndarray,
+    invariant_id: str,
+    condition: list[dict[str, Any]],
+    effect: dict[str, Any] | None,
+    vector: np.ndarray,
+) -> np.ndarray:
+    """Add a just-created invariant to the in-flight dedup corpus: appends to
+    `corpus` IN PLACE and returns the grown matrix (numpy arrays cannot grow in
+    place, hence the asymmetry).
+
+    Both batch writers need this and for the same reason: the corpus is read
+    once, before the loop, so without it every member of a batch deduplicates
+    against a snapshot that predates its siblings and near-identical claims in
+    ONE batch all pass. Shared rather than written twice so the two paths cannot
+    drift on what "already in the corpus" means."""
+    corpus.append(_Existing(id=invariant_id, condition=condition, effect=effect))
+    return vector.reshape(1, -1) if matrix.size == 0 else np.vstack([matrix, vector])
 
 
 def find_duplicate(

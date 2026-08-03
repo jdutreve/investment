@@ -595,6 +595,26 @@ async def strategy_probation_check(
     peers = sorted(v for v in sortino_by.values() if v is not None)
     median = float(np.median(peers)) if peers else None
 
+    # FAVORS in ANY regime, not just the current one — the two answer different
+    # questions and only the second one may close a strategy. A strategy scored
+    # in stagflation but not in today's disinflation is MEASURABLE; the system
+    # simply has not been in its regime. Judged on `sortino_by` alone the
+    # backstop closed it at 24 weeks as "no FAVORS in any regime", a claim the
+    # query it was based on could not support: waiting out a regime is not the
+    # unmeasurability ADR-006 wants terminated, it is the ordinary case of a
+    # strategy designed for conditions that have not come round yet.
+    #
+    # OPEN (I-52), flagged not silently decided: that wait is now UNBOUNDED, and
+    # a regime that never returns would keep such a strategy proposed forever —
+    # the thing ADR-006 forbids, reached from the other side. Bounding it needs
+    # an owner call on what the bound MEANS (close it? judge it on the regime it
+    # WAS scored in?), which is a rule change, not a defect fix.
+    scored_somewhere = {
+        str(r["strategy_id"])
+        for r in await db.query(
+            "SELECT DISTINCT strategy_id FROM favors WHERE sortino_rolling IS NOT NULL"
+        )
+    }
     unmeasurable_cutoff = (
         today - timedelta(weeks=UNMEASURABLE_PROBATION_MULTIPLIER * probation_weeks)
     ).isoformat()
@@ -622,10 +642,13 @@ async def strategy_probation_check(
             # probation window rather than a new threshold — the answer to "how
             # long do we wait for evidence" should move with "how long do we
             # measure", and one knob is one thing to calibrate.
-            if opened.get(sid, "") > unmeasurable_cutoff:
-                results.append(
-                    ProbationResult(sid, "", sortino, median, "no FAVORS in current regime")
+            if opened.get(sid, "") > unmeasurable_cutoff or sid in scored_somewhere:
+                waiting = (
+                    "scored in another regime, waiting for this one"
+                    if sid in scored_somewhere
+                    else "no FAVORS in current regime"
                 )
+                results.append(ProbationResult(sid, "", sortino, median, waiting))
                 continue
             reason = (
                 f"no FAVORS in any regime after "

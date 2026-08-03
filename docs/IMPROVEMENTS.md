@@ -1675,6 +1675,138 @@ not just warm-up.
 
 ---
 
+## I-49 — The replay's regime as-of is blind to the open regime, and reads closure before it was knowable
+
+**Why deferred:** both halves change what the replay decides on some Mondays,
+so closing them re-dates the M6 evidence and the pinned pair — the same reason
+I-47 waits, and the same re-validation pays for both.
+
+**What it is.** Two distinct point-in-time defects on the FAVORS leg of the
+blend, found together:
+
+1. `replay._load_regimes` loads `WHERE end_date IS NOT NULL` — closed instances
+   only. That is right for `backtests._completed_regimes` (FAVORS aggregates
+   over completed periods) but `_regime_asof` reads the same list, and the
+   regime the system is CURRENTLY in is open by definition. So every decision
+   date after the last closure is taken under a stale regime label, while the
+   live detector on that Monday would have been showing the open one. It is a
+   look-BEHIND, not a look-ahead — conservative, but a divergence from live.
+2. `_favors_asof` gates visibility on `created_at <= t AND end_date < t`.
+   `end_date` is the regime's RETROACTIVE end, and a regime's closure only
+   becomes knowable once `regime_confirm_prints` prints of the NEXT regime have
+   confirmed it (plus publication lag). So for that hysteresis window the
+   replay reads a FAVORS aggregate that included a regime nobody yet knew had
+   closed — a genuine, if small, ADR-003 vintage violation.
+
+**Spec:** record a `closed_at` on `regime` (the date the confirmation made the
+closure knowable, distinct from the retroactive `end_date`), gate `_favors_asof`
+on it, and give `_regime_asof` the open regime — a second query, or a
+`load_regimes(closed_only: bool)` split so the two callers stop sharing a list
+whose filter suits only one of them. Then re-run M6 and re-record the numbers.
+
+**Trigger to revisit:** with I-47, whenever the M6 replay is next re-run —
+paying the re-validation once for both. Sooner if the FAVORS leg's calibrated
+weight is ever used to justify a live decision rather than to benchmark one.
+
+---
+
+## I-50 — A STALE market-signal input still decides; only an ABSENT one refuses
+
+**Why deferred:** the fix is a new threshold (how old is too old, per series),
+and a wrong value fails in the direction that matters — a decision refused for
+staleness is a month the stack does not move, on the adopted live path.
+
+**What it is.** `market_signal.run_market_signal` refuses to run when the
+credit-spread or slope series is EMPTY, precisely because an all-NaN reindex
+reads as warm-up and silently holds `credit-spread-wide`, the 90%-equity book,
+on no signal at all. But a series that simply STOPPED updating — FRED ingestion
+broken, a renamed series, a provider outage — is not empty. It ffills, and the
+decision is taken on a print that may be months old. `build_market_context`
+records `knowable_at`, so the age is auditable AFTER the fact; nothing refuses
+on it.
+
+The asymmetry is the whole point: the absent case was judged worth raising
+because "the decision would be uninformed rather than early". A 90-day-old
+credit spread is the same failure with a timestamp on it.
+
+**Spec:** a per-series max age (in decision dates, not calendar days, so it
+moves with the cadence), checked against `_knowable_at` at decision time.
+Breach = no proposal AND a loud digest line, on the shape
+`dispose_market_signal` already uses for a blocked gate — never a silent hold,
+because a hold and a refusal look identical to the owner otherwise.
+
+**Trigger to revisit:** before Step 6 (forward paper-mode), where the stack's
+live record starts counting and a month decided on stale data would be scored
+as if it were informed. Immediately if any ingestion gap is observed in
+practice.
+
+---
+
+## I-51 — A candidate's NAV is built once, at birth, and never refreshed during probation
+
+**Why deferred:** it is a new job in the Monday chain plus a coverage threshold
+— two decisions, and the second one (how much of a regime must be covered)
+governs what may enter FAVORS.
+
+**What it is.** `writeback._backfill_candidate_nav` runs exactly once, inside
+the birth transaction. Over the following 12 weeks the world moves: missing
+prices arrive, a regime closes, the candidate's NAV may simply not extend to
+the end of the new regime. Nothing rebuilds it.
+
+`backtests` compounds this at the other end: a regime slice is accepted on
+`len(sliced) >= 2`, `overlap_pct` is computed and stored — and then never used
+as a filter. So a candidate whose NAV covers three days of a two-year regime
+produces a `backtest` row, an aggregate, and a FAVORS edge, on metrics computed
+over three days. That FAVORS is what probation judges it against, and what the
+reallocation blend leans on.
+
+**Spec:** refresh proposed strategies' candidate NAVs before the weekly
+backtest sweep (idempotent — `backfill_nav` is INSERT OR REPLACE), and give
+`aggregate_metrics` a minimum `overlap_pct`, or require the NAV to reach the
+regime's end. The threshold belongs in `system_thresholds` with the rest.
+
+**Trigger to revisit:** the first time a probation verdict turns on a FAVORS
+row whose `overlap_pct` is low — the column is already recorded, so this is
+checkable today against the live DB without building anything.
+
+---
+
+## I-52 — Probation's cross-regime wait is unbounded, so ADR-006 fails from the other side
+
+**Why deferred:** bounding it requires deciding what the bound MEANS, and both
+available answers change a maturation rule — an owner call under ADR-006, not a
+defect fix.
+
+**What it is.** `outcomes.strategy_probation_check` judges a candidate against
+the FAVORS peers of the CURRENT regime. Until now, a candidate with no FAVORS
+there was closed at `UNMEASURABLE_PROBATION_MULTIPLIER` windows as "no FAVORS in
+any regime" — a claim the query behind it could not support, since it only ever
+looked at one regime. That is fixed: a strategy scored in ANOTHER regime now
+waits instead of being closed, and only a strategy scored NOWHERE is closed.
+
+The residue is the wait. It is now unbounded: a strategy designed for a regime
+that does not come round stays `proposed` forever, which is exactly what
+ADR-006 forbids, reached from the opposite direction. Nothing currently
+surfaces it either — `ProbationResult.skipped_reason` is returned but rendered
+by no front.
+
+**Spec — the two answers, both rule changes:**
+- JUDGE it on the regime it WAS scored in, against that regime's peers. Honest
+  about the evidence that exists, but it means a verdict delivered on
+  conditions not currently in force.
+- CLOSE it at some multiple of the window with a distinct reason ("regime never
+  occurred"), keeping the spec so it can be re-proposed when the regime
+  returns. Cheaper, and it loses a candidate that may have been right.
+
+Either way `skipped_reason` needs a home in the digest, so a strategy waiting
+on a regime is visible rather than silently pending.
+
+**Trigger to revisit:** when a proposed strategy has been waiting on a regime
+for more than `UNMEASURABLE_PROBATION_MULTIPLIER` windows — checkable from
+`strategy.date_opened` against the FAVORS table without building anything.
+
+---
+
 ## What never goes here
 
 - Anything that lets the agent AUTO-EXECUTE a real allocation change in V1 —

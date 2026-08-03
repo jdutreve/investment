@@ -27,10 +27,15 @@ from investment.writeback import writeback
 
 # The 3 scenarios every new_strategy spec must carry (ARCHITECTURE "New
 # Strategy"); the BASE one is what becomes the candidate book.
+# Every sleeve <= the 50% concentration cap: a candidate Portfolio is measured,
+# and its NAV feeds FAVORS, so it is held to the same binding cap as anything
+# else that reaches the ranking (writeback `_commit_candidate_portfolio`). Only
+# the BASE book is built, but keeping all three compliant stops the fixture from
+# encoding a book the system would refuse.
 _SCENARIOS = [
-    {"name": "bull", "probability": 25, "target_allocation": {"SPY": 60, "GLD": 40}},
-    {"name": "base", "probability": 50, "target_allocation": {"SPY": 40, "GLD": 60}},
-    {"name": "bear", "probability": 25, "target_allocation": {"SPY": 20, "GLD": 80}},
+    {"name": "bull", "probability": 25, "target_allocation": {"SPY": 50, "GLD": 50}},
+    {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+    {"name": "bear", "probability": 25, "target_allocation": {"SPY": 30, "GLD": 50, "TLT": 20}},
 ]
 
 
@@ -620,7 +625,7 @@ async def test_a_proposed_strategy_reaches_a_probation_verdict_on_its_own(tmp_pa
             "SELECT enabled, defender, allocation FROM portfolio WHERE id = :id", id=candidate
         )
         assert (rows[0]["enabled"], rows[0]["defender"]) == (0, 0)  # invisible to the ranking
-        assert json.loads(str(rows[0]["allocation"])) == {"SPY": 40.0, "GLD": 60.0}  # the BASE book
+        assert json.loads(str(rows[0]["allocation"])) == {"SPY": 50.0, "GLD": 50.0}  # the BASE book
         nav = await db.query(
             "SELECT COUNT(*) AS n FROM portfolio_nav WHERE portfolio_id = :id", id=candidate
         )
