@@ -1620,6 +1620,61 @@ ever being re-run, this closes as moot along with `switch_gates` itself.
 
 ---
 
+## I-48 — The stack's pinned pair is not reproducible: a FIXED backtest anchor fed by a ROLLING data window
+
+**Why deferred:** the fix is a choice between two defensible policies, and both
+re-date the numbers ADR-007 was signed on. That is an owner arbitration, not a
+tidy-up.
+
+**What it is.** Two independent facts, measured on the 2026-08-03 re-seed:
+
+1. `market_signal_cycle.HISTORY_START` is **fixed** at `date(1991, 1, 1)` — "the
+   backtest's start", and the anchor the validated figures were produced from.
+   `seed._seed_market_data` computes `target_start = date.today() - 35y`, which
+   is **rolling**, and `_authoritative_write` DELETEs each ticker before
+   rewriting the fetched window. So every re-seed moves the stored history's
+   start forward by the elapsed time since the last one.
+
+   They are ALREADY apart, not one day in the future: `BAA10Y` and `T10Y2Y`
+   now start **1991-08-13** against an anchor of 1991-01-01. Seven months
+   short, sliding one day per day. The walk asks for 1991 and silently gets
+   whatever the last seed left. The span guard in `_authoritative_write` does
+   not catch it — it exists to stop a truncated vendor response wiping 35
+   years, and a two-week trim is far inside its tolerance, correctly.
+
+2. Yahoo restates adjusted closes retroactively. Same row counts across the
+   re-seed, different level sums: SPY moved ~15 on 31.4M (≈0.5 ppm), likewise
+   IWN/VCIT/IEF. The control is GLD — **bit-identical**, because its history is
+   spliced onto the LBMA fixing, a published series that does not move.
+
+**The consequence, measured:** CAGR **11.14% -> 11.10%**, drawdown unchanged at
+-23.8%. Small, and it changes no decision today. What it breaks is a CLAIM:
+`mechanical/market_signal.py` states "Any OTHER divergence from 11.14% is drift
+and must be explained, which is what this module exists to guarantee". That
+guarantee assumes immutable inputs over a fixed window, and neither holds. The
+divergence above is not drift in the logic — the walk produced 418 identical
+decisions — it is the ground moving under a fixed marker.
+
+Ruled out, so the attribution is not a guess: it is NOT the window END moving.
+Runs with `end=2026-07-17` and `end=today` both give 11.10% with 418 decisions.
+
+**The options, none free:**
+- freeze the backfill start (`target_start = max(today - 35y, 1991-01-01)`) —
+  keeps the anchor honest, but the window then grows without bound;
+- move `HISTORY_START` to follow the data — honest about what is measurable,
+  but the pinned pair must be re-based and ADR-007's numbers re-stated;
+- keep both and give the pin a declared TOLERANCE (e.g. +-0.1pp) plus a
+  recorded re-base at each seed — cheapest, and it makes the anti-drift check
+  say what it actually verifies.
+
+**Trigger to revisit:** before Step 6 (forward paper-mode), because from there
+the stack's live record is compared against the backtested pair and "11.14%"
+has to mean something exact. Sooner if the divergence exceeds 0.2pp at any
+re-seed — that would mean the sliding start has begun eating a real regime,
+not just warm-up.
+
+---
+
 ## What never goes here
 
 - Anything that lets the agent AUTO-EXECUTE a real allocation change in V1 —

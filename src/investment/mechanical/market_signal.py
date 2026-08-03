@@ -33,6 +33,16 @@ The pinned pair is therefore **11.14% / -23.8%**. The earlier figures are
 history, not targets. Any OTHER divergence from 11.14% is drift and must be
 explained, which is what this module exists to guarantee.
 
+ONE STANDING EXPLANATION IS ALREADY KNOWN, and naming it here is what keeps the
+sentence above honest (docs/IMPROVEMENTS.md I-48): the guarantee assumes
+immutable inputs over a fixed window, and neither holds. The seed's backfill
+start is `today - 35y` — ROLLING — while `market_signal_cycle.HISTORY_START` is
+fixed at 1991-01-01, and Yahoo restates adjusted closes retroactively. The
+2026-08-03 re-seed measured the effect: 11.14% -> 11.10%, drawdown unchanged,
+with 418 identical decisions — the ground moving under a fixed marker, not
+drift in the logic. Treat a divergence under ~0.1pp as that; anything larger
+still has to be explained.
+
 PURE decision logic (`classify_regime`, `apply_trend_overlay`,
 `advance_hysteresis`, `walk_decisions`) takes already-loaded series and holds no
 I/O — the same separation as `mechanical/gates.py`, so the classifier is
