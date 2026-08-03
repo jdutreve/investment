@@ -93,16 +93,36 @@ def author_tier(document_author: str | None) -> str | None:
     return None
 
 
-async def author_band(db: InvestmentDB, author: str | None) -> tuple[float, float, float]:
-    """(floor, initial_min, initial_max) for the tier — the seeded bands
-    are authoritative, so a re-tune is a seed change, not a code change.
+@dataclass(frozen=True)
+class AuthorBand:
+    """What an author TIER is allowed to be born with (CLAUDE.md "Invariant
+    weight model": dalio 0.40 / marks 0.35 / other 0.20 / system 0.05).
+
+    Carries `bind` rather than exposing three floats for the callers to compare,
+    because the clamp is the rule, not an implementation detail: an invariant's
+    weight is set by WHO claims it, and both birth paths must apply that
+    identically. It was the Worker path skipping this that let LLM-supplied
+    weights — defaulting to 0.0 — reach the vertex."""
+
+    floor: float
+    low: float
+    high: float
+
+    def bind(self, proposed: float) -> float:
+        """The model PROPOSES weight_initial; the tier band binds it. A proposal
+        outside the bounds is corrected, not rejected — the claim is the
+        contribution, the number is a guess."""
+        return min(max(proposed, self.low), self.high)
+
+
+async def author_band(db: InvestmentDB, author: str | None) -> AuthorBand:
+    """The tier's band — the seeded rows are authoritative, so a re-tune is a
+    seed change, not a code change.
 
     Module-level, and shared with UC8's innovation commit, for the same reason
-    `find_duplicate` is: an invariant's floor is set by WHO claims it
-    (CLAUDE.md "Invariant weight model": dalio 0.40 / marks 0.35 / other 0.20 /
-    system 0.05), and that is a property of the tier, not of the path the claim
-    arrived through. A curator-extracted and a Worker-proposed invariant with
-    the same author must be born with the same weights."""
+    `find_duplicate` is: the tier is a property of the claim's author, not of
+    the path the claim arrived through. A curator-extracted and a
+    Worker-proposed invariant with the same author must be born identically."""
     tier = author or "other"
     rows = await db.query(
         "SELECT floor_weight, initial_weight_min, initial_weight_max "
@@ -112,10 +132,10 @@ async def author_band(db: InvestmentDB, author: str | None) -> tuple[float, floa
     if not rows:
         raise ValueError(f"no author band seeded for tier {tier!r}")
     row = rows[0]
-    return (
-        float(row["floor_weight"]),
-        float(row["initial_weight_min"]),
-        float(row["initial_weight_max"]),
+    return AuthorBand(
+        floor=float(row["floor_weight"]),
+        low=float(row["initial_weight_min"]),
+        high=float(row["initial_weight_max"]),
     )
 
 
@@ -243,7 +263,7 @@ class KnowledgeWriteback:
         batch may have written lives here, inside the lock."""
         author = author_tier(await self._document_author(document_id))
         band = await self._author_band(author)
-        corpus, corpus_matrix = await self._existing_embeddings()
+        corpus = await self._existing_embeddings()
 
         report = WritebackReport()
         async with self._db.transaction() as tx:
@@ -269,7 +289,7 @@ class KnowledgeWriteback:
                 # of a paraphrase family is written first, so its weaker twins
                 # find it in the corpus and merge INTO it. No tie-break needed.
                 vector = self._encode(item.candidate.claim, item.candidate.description)
-                match = self._nearest(vector, item, corpus, corpus_matrix)
+                match = self._nearest(vector, item, corpus)
                 if match is not None:
                     # Never overwrite the incumbent, whatever it scores: a
                     # persisted invariant may already carry confrontation
@@ -281,9 +301,7 @@ class KnowledgeWriteback:
                     continue
                 invariant_id = await self._create_invariant(tx, item, author, band, vector)
                 await self._attach_evidence(tx, invariant_id, item, passage_ids)
-                corpus_matrix = grow_corpus(
-                    corpus,
-                    corpus_matrix,
+                corpus.add(
                     invariant_id,
                     [p.model_dump() for p in item.candidate.condition],
                     item.candidate.effect.model_dump(),
@@ -319,8 +337,7 @@ class KnowledgeWriteback:
         self,
         vector: np.ndarray,
         item: ScoredCandidate,
-        corpus: list["_Existing"],
-        matrix: np.ndarray,
+        corpus: "InvariantCorpus",
     ) -> str | None:
         """Delegates to the shared `find_duplicate` (below) — the same gate
         UC8's innovation commit uses, so a Worker-proposed invariant and a
@@ -330,19 +347,18 @@ class KnowledgeWriteback:
             [p.model_dump() for p in item.candidate.condition],
             item.candidate.effect.model_dump(),
             corpus,
-            matrix,
             self._dedup_threshold,
             label=(item.candidate.claim or "")[:60],
         )
 
-    async def _existing_embeddings(self) -> tuple[list["_Existing"], np.ndarray]:
+    async def _existing_embeddings(self) -> "InvariantCorpus":
         return await load_invariant_corpus(self._db)
 
     async def _document_author(self, document_id: str) -> str | None:
         rows = await self._db.query("SELECT author FROM document WHERE id = :d", d=document_id)
         return str(rows[0]["author"]) if rows and rows[0]["author"] else None
 
-    async def _author_band(self, author: str | None) -> tuple[float, float, float]:
+    async def _author_band(self, author: str | None) -> AuthorBand:
         return await author_band(self._db, author)
 
     async def _create_invariant(
@@ -350,15 +366,10 @@ class KnowledgeWriteback:
         tx: InvestmentDB,
         item: ScoredCandidate,
         author: str | None,
-        band: tuple[float, float, float],
+        band: AuthorBand,
         vector: np.ndarray,
     ) -> str:
-        floor, low, high = band
         candidate = item.candidate
-        # The model PROPOSES weight_initial; the tier band binds it. Same
-        # shape as UC8: a proposal outside the mechanical bounds is corrected,
-        # not rejected — the claim is the contribution, the number is a guess.
-        weight_initial = min(max(candidate.weight_initial, low), high)
         return await tx.create_vertex(
             "invariant",
             {
@@ -374,8 +385,8 @@ class KnowledgeWriteback:
                 "embedding": to_blob(vector),
                 "condition": [p.model_dump() for p in candidate.condition],
                 "effect": candidate.effect.model_dump(),
-                "weight_initial": weight_initial,
-                "floor_weight": floor,
+                "weight_initial": band.bind(candidate.weight_initial),
+                "floor_weight": band.floor,
                 "trace": f"UC4 curator (score {item.interest_score:.1f})",
             },
         )
@@ -402,7 +413,7 @@ class KnowledgeWriteback:
         ADR-006's "nothing stays proposed forever" has no mechanism here.
         'proposed' is the recoverable choice: wrong status is fixable, and
         these notes were LOST entirely in the 2026-07-21 run."""
-        floor, low, _ = await self._author_band(author)
+        band = await self._author_band(author)
         description = f"{note.description}\n\nNot reducible: {note.why_not_reducible}"
         note_id = await tx.create_vertex(
             "invariant",
@@ -421,8 +432,8 @@ class KnowledgeWriteback:
                 "embedding": to_blob(self._encode(note.claim, description)),
                 "condition": [],
                 "effect": None,
-                "weight_initial": low,
-                "floor_weight": floor,
+                "weight_initial": band.low,
+                "floor_weight": band.floor,
                 "trace": f"UC4 curator reference note from {document_id}",
             },
         )
@@ -502,56 +513,64 @@ def _same_invariant(
     return same_effect and conditions_can_overlap(condition, existing.condition)
 
 
-async def load_invariant_corpus(db: InvestmentDB) -> tuple[list["_Existing"], np.ndarray]:
-    """Every embedded invariant reduced to what the dedup gate needs — its id +
-    machine-readable structure — plus the stacked embedding matrix. Shared by
-    the curator's writeback and UC8's innovation commit, so both dedup against
-    the same corpus. Empty corpus -> a `(0, 0)` matrix (`find_duplicate`
-    short-circuits on `matrix.size == 0`, so the exact width is immaterial)."""
+@dataclass
+class InvariantCorpus:
+    """What the dedup gate compares against: every embedded invariant reduced to
+    its identity + machine-readable structure, alongside the stacked embedding
+    matrix. ONE object because the two are one concept — carried as a pair they
+    forced every producer and consumer to thread two variables, and `add` below
+    to mutate one while returning the other.
+
+    Empty corpus -> a `(0, 0)` matrix (`find_duplicate` short-circuits on
+    `matrix.size == 0`, so the exact width is immaterial)."""
+
+    entries: list["_Existing"]
+    matrix: np.ndarray
+
+    def add(
+        self,
+        invariant_id: str,
+        condition: list[dict[str, Any]],
+        effect: dict[str, Any] | None,
+        vector: np.ndarray,
+    ) -> None:
+        """Add a JUST-CREATED invariant, so the rest of the batch can dedup
+        against it. Both batch writers need this and for the same reason: the
+        corpus is read once, before the loop, so without it every member of a
+        batch compares against a snapshot that predates its siblings and
+        near-identical claims in ONE batch all pass."""
+        self.entries.append(_Existing(id=invariant_id, condition=condition, effect=effect))
+        self.matrix = (
+            vector.reshape(1, -1) if self.matrix.size == 0 else np.vstack([self.matrix, vector])
+        )
+
+
+async def load_invariant_corpus(db: InvestmentDB) -> InvariantCorpus:
+    """The corpus as of now. Shared by the curator's writeback and UC8's
+    innovation commit, so both dedup against the same claims."""
     rows = await db.query(
         "SELECT id, embedding, condition, effect FROM invariant WHERE embedding IS NOT NULL"
     )
     if not rows:
-        return [], np.empty((0, 0))
-    corpus = [
-        _Existing(
-            id=str(row["id"]),
-            condition=json.loads(row["condition"] or "[]"),
-            effect=json.loads(row["effect"]) if row["effect"] else None,
-        )
-        for row in rows
-    ]
-    matrix = np.vstack([from_blob(row["embedding"]) for row in rows])
-    return corpus, matrix
-
-
-def grow_corpus(
-    corpus: list["_Existing"],
-    matrix: np.ndarray,
-    invariant_id: str,
-    condition: list[dict[str, Any]],
-    effect: dict[str, Any] | None,
-    vector: np.ndarray,
-) -> np.ndarray:
-    """Add a just-created invariant to the in-flight dedup corpus: appends to
-    `corpus` IN PLACE and returns the grown matrix (numpy arrays cannot grow in
-    place, hence the asymmetry).
-
-    Both batch writers need this and for the same reason: the corpus is read
-    once, before the loop, so without it every member of a batch deduplicates
-    against a snapshot that predates its siblings and near-identical claims in
-    ONE batch all pass. Shared rather than written twice so the two paths cannot
-    drift on what "already in the corpus" means."""
-    corpus.append(_Existing(id=invariant_id, condition=condition, effect=effect))
-    return vector.reshape(1, -1) if matrix.size == 0 else np.vstack([matrix, vector])
+        return InvariantCorpus(entries=[], matrix=np.empty((0, 0)))
+    return InvariantCorpus(
+        entries=[
+            _Existing(
+                id=str(row["id"]),
+                condition=json.loads(row["condition"] or "[]"),
+                effect=json.loads(row["effect"]) if row["effect"] else None,
+            )
+            for row in rows
+        ],
+        matrix=np.vstack([from_blob(row["embedding"]) for row in rows]),
+    )
 
 
 def find_duplicate(
     vector: np.ndarray,
     condition: list[dict[str, Any]],
     effect: dict[str, Any] | None,
-    corpus: list["_Existing"],
-    matrix: np.ndarray,
+    corpus: InvariantCorpus,
     threshold: float,
     *,
     label: str = "",
@@ -564,15 +583,15 @@ def find_duplicate(
     `effect is None` (a reference note) is never a duplicate — it carries no
     structure to compare, and merging on wording alone is exactly what this
     gate distrusts."""
-    if not corpus or matrix.size == 0 or effect is None:
+    if not corpus.entries or corpus.matrix.size == 0 or effect is None:
         return None
-    similarities = cosine_matrix(vector.reshape(1, -1), matrix)[0]
+    similarities = cosine_matrix(vector.reshape(1, -1), corpus.matrix)[0]
 
     # FIRST: exact structural identity, with NO cosine gate. Same predicates +
     # same effect produce byte-identical 35y confrontations — they ARE one
     # invariant whatever the prose says (measured 2026-07-21: two phrasings of
     # `equity_trend.level < 0` sat at cosine 0.668 and were persisted twice).
-    for index, existing in enumerate(corpus):
+    for index, existing in enumerate(corpus.entries):
         if _identical_structure(condition, effect, existing):
             logger.info(
                 "dedup: merged into %s (identical structure, cosine %.3f)",
@@ -584,7 +603,7 @@ def find_duplicate(
         score = float(similarities[index])
         if score < threshold:
             return None
-        existing = corpus[int(index)]
+        existing = corpus.entries[int(index)]
         if not _same_invariant(condition, effect, existing):
             # The measured trap: "wide spreads -> equities underperform" and
             # "tight spreads -> equities outperform" sit at cosine 0.907.

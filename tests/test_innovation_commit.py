@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from investment.corpus.embedding import to_blob
+from investment.db.seed_data import INVARIANT_AUTHOR_CONFIG
 from investment.db.sqlite import InvestmentDB
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal
@@ -30,14 +31,6 @@ _MATURATION_THRESHOLDS = {
     "confrontation_margin": 0.1,
     "confrontation_margin_return": 0.02,
 }
-
-# (author, floor_weight, initial_weight_min, initial_weight_max)
-INVARIANT_AUTHOR_BANDS = [
-    ("dalio", 0.40, 0.80, 0.90),
-    ("marks", 0.35, 0.75, 0.85),
-    ("other", 0.20, 0.40, 0.70),
-    ("system", 0.05, 0.15, 0.25),
-]
 
 _CONDITION = [{"signal": "real_yield", "feature": "level", "op": "<", "value": 0.0}]
 _EFFECT = {
@@ -75,18 +68,16 @@ async def _seed_thresholds(db: InvestmentDB) -> None:
 
 
 async def _seed_author_bands(db: InvestmentDB) -> None:
-    """The seeded tier bands (db/seed_data.py INVARIANT_AUTHOR_CONFIG) — the
-    'system' row is the one `_innovation` lands on (ImprovementProposal.author
-    defaults to 'system')."""
-    for author, floor, low, high in INVARIANT_AUTHOR_BANDS:
+    """The SEEDED tier bands, imported rather than retyped: the assertions below
+    pin exact numbers (0.05 floor, 0.15-0.25 initial on the 'system' tier that
+    `ImprovementProposal.author` defaults to), so a local copy would keep
+    testing the old bands, greenly, after a re-tune of the real ones."""
+    for row in INVARIANT_AUTHOR_CONFIG:
         await db.command(
             "INSERT INTO invariant_author_config "
             "(author, floor_weight, initial_weight_min, initial_weight_max) "
-            "VALUES (:a, :f, :lo, :hi)",
-            a=author,
-            f=floor,
-            lo=low,
-            hi=high,
+            "VALUES (:author, :floor_weight, :initial_weight_min, :initial_weight_max)",
+            **row,
         )
 
 

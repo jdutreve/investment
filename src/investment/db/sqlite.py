@@ -356,25 +356,27 @@ class InvestmentDB:
         tasks on one connection, and UC9 can trigger an ad-hoc UC8 re-run
         alongside either.
 
-        NESTING is refused rather than silently joined. No caller nests today
-        (composite paths pass the `tx` handle down instead), and a same-task
-        re-entry is the one case the owner check waves through — so it would
-        reach sqlite's own "cannot start a transaction within a transaction"
-        several statements later, with the failure pinned on whatever ran next
-        rather than on the nested `async with`."""
+        NESTING is refused rather than silently joined, and the guard is load
+        bearing: `asyncio.Lock` is not reentrant, so a same-task re-entry would
+        WAIT on a lock its own task already holds and hang forever. This turns a
+        silent deadlock into an immediate error naming the nested `async with`.
+        No caller nests today — composite paths pass the `tx` handle down —
+        which is the convention the message points back at.
+
+        `rollback` on a failed BEGIN is a no-op on this autocommit connection
+        (`isolation_level=None`), so the error path needs no second guard."""
         if self._tx_owner is asyncio.current_task():
             raise RuntimeError("nested transaction() — pass the open handle down instead")
         async with self._tx_lock:
             self._tx_owner = asyncio.current_task()
             try:
                 await self._call(lambda: self._con.execute("BEGIN"))
-                try:
-                    yield self
-                except Exception:
-                    await self._call(self._con.rollback)
-                    raise
-                else:
-                    await self._call(self._con.commit)
+                yield self
+            except Exception:
+                await self._call(self._con.rollback)
+                raise
+            else:
+                await self._call(self._con.commit)
             finally:
                 self._tx_owner = None
 

@@ -68,9 +68,9 @@ from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ReallocationProposal
 from investment.writeback.knowledge import (
     DEDUP_COSINE_THRESHOLD,
+    InvariantCorpus,
     author_band,
     find_duplicate,
-    grow_corpus,
     load_invariant_corpus,
 )
 
@@ -751,14 +751,12 @@ async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, 
     # is a REFERENCES with foreign_keys=ON, so one hallucinated id would now
     # abort the whole knowledge commit — the confrontations, the scenarios and
     # the innovations along with it.
-    known = {
-        str(r["id"])
-        for r in await db.query("SELECT id FROM strategy")
-        if str(r["id"]) in {e.strategy_id for e in post_result.evaluations}
-    }
-    evaluations = [e for e in post_result.evaluations if e.strategy_id in known]
+    known = {str(r["id"]) for r in await db.query("SELECT id FROM strategy")}
+    evaluations = []
     for ev in post_result.evaluations:
-        if ev.strategy_id not in known:
+        if ev.strategy_id in known:
+            evaluations.append(ev)
+        else:
             logger.warning("evaluation names unknown strategy '%s', dropped", ev.strategy_id)
     if not evaluations:
         return 0
@@ -1076,10 +1074,12 @@ async def _commit_candidate_portfolio(
             unknown,
         )
         return
-    caps = Caps(
-        max_single_asset_pct=float(user["max_single_asset_pct"]),
-        max_drawdown_pct=float(user["max_drawdown_pct"]),
-    )
+    # Through `effective_caps`, not a hand-built `Caps`: it is this codebase's
+    # single owner of the cap algebra, so if a candidate book ever grows its own
+    # rule (the very columns the INSERT below writes) the stricter-of applies
+    # here without anyone remembering to come back. `None` today — the row does
+    # not exist yet at this point.
+    caps = effective_caps(user, None)
     if not concentration_ok(allocation, caps):
         logger.warning(
             "strategy '%s': base allocation breaches the %.0f%% concentration cap, "
@@ -1159,26 +1159,25 @@ async def _commit_invariant_innovation(
     db: InvestmentDB,
     proposal: ImprovementProposal,
     embedder: Embedder,
-    corpus: list[Any],
-    matrix: Any,
+    corpus: InvariantCorpus,
     today: date,
-) -> tuple[str | None, Any]:
+) -> str | None:
     """Persist a new_invariant innovation through the SHARED dedup gate
     (writeback/knowledge.py `find_duplicate`) — the SAME gate the curator uses,
     so a Worker-proposed invariant and a curator-extracted one dedup against the
     corpus identically. On a duplicate the invariant is NOT re-created (an
     InnovationEvent records the merge target); otherwise it is born
-    status='proposed' and matured over 35y by the caller.
+    status='proposed' and matured over 35y by the caller. Returns the new id, or
+    None when merged.
 
-    Returns `(new id or None when merged, the corpus matrix INCLUDING whatever
-    was just created)`. The matrix comes back — and `corpus` is appended to in
-    place — because the gate can only refuse what it can see: one Worker call
-    returns a LIST of innovations, and a corpus read once before the loop makes
-    every member of that batch invisible to the next. Two paraphrases of the
-    same claim in one `innovations_proposed` both matched nothing and both were
-    created, which is precisely the duplicate this gate exists to stop. The
-    curator grows its corpus inside its own batch loop for this reason
-    (knowledge.py `persist`); this is the same move on the UC8 path."""
+    `corpus` is GROWN in place with whatever this call created, because the gate
+    can only refuse what it can see: one Worker call returns a LIST of
+    innovations, and a corpus read once before the loop makes every member of
+    that batch invisible to the next. Two paraphrases of the same claim in one
+    `innovations_proposed` both matched nothing and both were created, which is
+    precisely the duplicate this gate exists to stop. The curator grows its
+    corpus inside its own batch loop for this reason (knowledge.py `persist`);
+    this is the same move on the UC8 path."""
     spec = proposal.spec or {}
     condition = spec.get("condition", [])
     effect = spec.get("effect")
@@ -1186,7 +1185,7 @@ async def _commit_invariant_innovation(
     vector = embedder.encode([invariant_embedding_input(title, description)])[0]
 
     match = find_duplicate(
-        vector, condition, effect, corpus, matrix, DEDUP_COSINE_THRESHOLD, label=title[:60]
+        vector, condition, effect, corpus, DEDUP_COSINE_THRESHOLD, label=title[:60]
     )
     if match is not None:
         async with db.transaction():
@@ -1197,7 +1196,7 @@ async def _commit_invariant_innovation(
                 payload={"type": "new_invariant", "title": title, "merged_into": match},
                 event_date=today,
             )
-        return None, matrix
+        return None
 
     # The tier's seeded band BINDS the weights, exactly as it does on the
     # curator path (`knowledge.author_band`) — the model proposes a number, the
@@ -1207,8 +1206,7 @@ async def _commit_invariant_innovation(
     # bother to invent them: `weight_effective = max(0 x score x recency, 0)` is
     # zero forever, so the invariant was born already unable to influence
     # anything, and no amount of confirmation could lift it off the floor.
-    floor, low, high = await author_band(db, proposal.author)
-    weight_initial = min(max(proposal.weight_initial, low), high)
+    band = await author_band(db, proposal.author)
 
     invariant_id = str(spec.get("id") or f"inv-{ULID()}")
     async with db.transaction() as tx:
@@ -1232,12 +1230,13 @@ async def _commit_invariant_innovation(
                 "embedding": to_blob(vector),
                 "condition": condition,
                 "effect": effect,
-                "weight_initial": weight_initial,
-                "floor_weight": floor,
+                "weight_initial": band.bind(proposal.weight_initial),
+                "floor_weight": band.floor,
                 "trace": proposal.trace or "UC8 agent-discovery innovation",
             },
         )
-    return invariant_id, grow_corpus(corpus, matrix, invariant_id, condition, effect, vector)
+    corpus.add(invariant_id, condition, effect, vector)
+    return invariant_id
 
 
 async def commit_innovations(
@@ -1253,9 +1252,10 @@ async def commit_innovations(
     without it new_invariants are recorded as pending InnovationEvents).
     process / data -> InnovationEvent only (no V1 vertex type — I-27)."""
     committed = 0
-    corpus: list[Any] = []
-    matrix: Any = None
-    corpus_loaded = False
+    # Loaded lazily and ONCE, then grown in flight by each creation: `None` is
+    # "not read yet", which an empty corpus (a legitimate state on a fresh DB)
+    # could not express while this was a pair of variables.
+    corpus: InvariantCorpus | None = None
     created_invariant = False
 
     for innovation in post_result.innovations:
@@ -1263,12 +1263,9 @@ async def commit_innovations(
             if await _commit_strategy_innovation(db, innovation, today) is not None:
                 committed += 1
         elif innovation.type == "new_invariant" and embedder is not None:
-            if not corpus_loaded:
-                corpus, matrix = await load_invariant_corpus(db)
-                corpus_loaded = True
-            new_id, matrix = await _commit_invariant_innovation(
-                db, innovation, embedder, corpus, matrix, today
-            )
+            if corpus is None:
+                corpus = await load_invariant_corpus(db)
+            new_id = await _commit_invariant_innovation(db, innovation, embedder, corpus, today)
             if new_id is not None:
                 committed += 1
                 created_invariant = True
