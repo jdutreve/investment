@@ -111,8 +111,7 @@ class ReallocationProposal(BaseModel):
         bad = {t: w for t, w in value.items() if not math.isfinite(w) or w < 0.0}
         if bad:
             raise ValueError(
-                f"proposed_allocation weights must be finite and >= 0 (V1 is long-only); "
-                f"got {bad}"
+                f"proposed_allocation weights must be finite and >= 0 (V1 is long-only); got {bad}"
             )
         return value
 
