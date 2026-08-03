@@ -96,8 +96,23 @@ PASSED = GateOutcome(passed=True)
 # -- shared cap checks (bind BOTH proposal kinds — CLAUDE.md "Binding caps") --
 
 
+def weights_well_formed(allocation: Mapping[str, float]) -> bool:
+    """Every weight is a FINITE, NON-NEGATIVE number. An EMPTY map is
+    well-formed — it means nothing is held, which is the opening state of the
+    market-signal stack, not a malformed book.
+
+    Split out of `allocation_well_formed` for the INCUMBENT side of the
+    two-argument gates. Found by the property test, not by review: guarding only
+    the target left `max_allocation_change_pts` and `turnover_pct` reading a NaN
+    out of `current`, and both are comparisons, so both went blind exactly as
+    they did for the target. A malformed incumbent is a different defect from a
+    malformed target — DB or held state rather than a bad LLM answer — so the
+    two get their own gate names."""
+    return all(math.isfinite(w) and w >= 0.0 for w in allocation.values())
+
+
 def allocation_well_formed(allocation: Mapping[str, float]) -> bool:
-    """Every weight is a FINITE, NON-NEGATIVE number, and there is at least one.
+    """A TARGET book: well-formed weights AND at least one sleeve.
 
     A PRECONDITION, not a merit gate, and it has to run before all of them
     because of how the others are written: every numeric gate in this module is
@@ -118,9 +133,7 @@ def allocation_well_formed(allocation: Mapping[str, float]) -> bool:
     `+inf` alone WAS caught (by the sum gate), but only incidentally, and an
     accidental refusal is not a control: it reports the wrong gate name and
     stops working the moment the arithmetic changes."""
-    if not allocation:
-        return False
-    return all(math.isfinite(w) and w >= 0.0 for w in allocation.values())
+    return bool(allocation) and weights_well_formed(allocation)
 
 
 def concentration_ok(
@@ -374,11 +387,16 @@ def reallocation_gates(
     Gate 3 is a FLOOR on the largest move, not a ceiling: a reallocation too
     small to matter is noise that only pays costs.
 
-    Gate 0 is the well-formedness precondition (`allocation_well_formed`),
-    unnumbered in the spec because the spec assumes it: gates 1-5 are all
-    comparisons, and a NaN or a short leg is invisible to every one of them."""
+    Gate 0 is the well-formedness precondition, unnumbered in the spec because
+    the spec assumes it: gates 1-5 are all comparisons, and a NaN or a short leg
+    is invisible to every one of them. It guards BOTH arguments — gates 3 and 4
+    measure the target AGAINST the incumbent, so a NaN in `current` blinds them
+    just as thoroughly, and the two carry separate gate names because they are
+    separate defects (held state vs proposed answer)."""
     if not allocation_well_formed(proposed):
         return GateOutcome.refused("allocation_well_formed")
+    if not weights_well_formed(current):
+        return GateOutcome.refused("current_allocation_well_formed")
     if abs(sum(proposed.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return GateOutcome.refused("allocation_sums_to_100")
     if not concentration_ok(proposed, caps):

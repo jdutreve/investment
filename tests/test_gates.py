@@ -2,9 +2,14 @@
 switch / UC8-B reallocation) — pure functions in `mechanical/gates.py`, no DB.
 """
 
+import math
+
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from investment.mechanical.gates import (
+    ALLOCATION_SUM_TOLERANCE,
     Caps,
     ProposalThresholds,
     allocation_well_formed,
@@ -15,6 +20,7 @@ from investment.mechanical.gates import (
     reallocation_gates,
     switch_gates,
     turnover_pct,
+    weights_well_formed,
 )
 from investment.mechanical.snapshots import RankedRow, ValuationRow
 
@@ -304,3 +310,101 @@ def test_a_nan_weight_is_refused_rather_than_slipping_through_every_comparison()
         reallocation_gates(current, reordered, CAPS, THRESHOLDS, ALLOWED).failed_gate
         == "allocation_well_formed"
     )
+
+
+def test_a_nan_in_the_INCUMBENT_blinds_the_two_comparison_gates() -> None:
+    """Found by the property test below, not by review — and it is the same
+    defect one argument over. Gates 3 and 4 measure the target AGAINST the
+    incumbent, so a NaN in `current` makes `max_allocation_change_pts` and
+    `turnover_pct` return NaN, and both gates are `<` / `>` comparisons that
+    NaN answers False. A perfectly legal proposal was accepted after being
+    measured against a book that is not a book."""
+    current = {"DJP": NAN, "GLD": 50.0}
+    proposed = {"DJP": 33.34, "GLD": 33.33, "IEF": 33.33}
+    assert allocation_well_formed(proposed)  # the target is beyond reproach
+    assert math.isnan(turnover_pct(current, proposed))  # the measurement is not
+    outcome = reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED)
+    assert outcome.failed_gate == "current_allocation_well_formed"
+
+
+def test_an_empty_incumbent_is_well_formed_not_malformed() -> None:
+    """Holding nothing is the market-signal stack's opening state
+    (`market_signal_cycle.held_allocation`), so the incumbent predicate must
+    accept `{}` where the TARGET predicate rejects it."""
+    assert weights_well_formed({})
+    assert not allocation_well_formed({})
+
+
+# -- property tests: the gate chain as a LAW, not as six examples ------------
+#
+# CLAUDE.md "Tests": "hypothesis for numeric invariants that must hold at the
+# edges". The edges are exactly where the example tests above came from — and
+# they came from a REVIEW, not from the suite, because a NaN slipping through
+# four comparisons is an interaction nobody writes down as an example. A
+# generator that is allowed to produce nan/inf/negative weights finds it.
+
+_TRADABLE = sorted(ALLOWED)
+_POISON = [NAN, INF, -INF, -0.0001, -50.0]
+
+
+@st.composite
+def _allocations(draw: st.DrawFn) -> dict[str, float]:
+    """Mostly-legal books with a pathological sleeve injected part of the time.
+
+    Deliberately NOT `st.dictionaries(..., st.floats())`: unconstrained floats
+    essentially never sum to 100, so every example would be refused on gate 1
+    and the law below would hold vacuously. Normalising first puts the generator
+    in the region where the gates actually have to decide something, and the
+    poison step is what walks it back off the edge."""
+    tickers = draw(st.lists(st.sampled_from(_TRADABLE), min_size=2, max_size=5, unique=True))
+    raw = draw(
+        st.lists(
+            st.floats(min_value=0.1, max_value=100.0),
+            min_size=len(tickers),
+            max_size=len(tickers),
+        )
+    )
+    total = sum(raw)
+    allocation = {t: w / total * 100.0 for t, w in zip(tickers, raw, strict=True)}
+    poison = draw(st.one_of(st.none(), st.sampled_from(_POISON)))
+    if poison is not None:
+        allocation[draw(st.sampled_from(tickers))] = poison
+    return allocation
+
+
+@settings(max_examples=400)
+@given(current=_allocations(), proposed=_allocations())
+def test_reallocation_gates_pass_exactly_when_every_postcondition_holds(
+    current: dict[str, float], proposed: dict[str, float]
+) -> None:
+    """`passed` is the conjunction of the six postconditions — asserted as an
+    IFF, and both directions earn their keep.
+
+    (->) SOUNDNESS: nothing malformed is ever accepted. This is the direction
+    the short-leg and NaN defects broke.
+    (<-) COMPLETENESS: every book satisfying all six IS accepted, which is what
+    stops this property from being vacuously true — a generator that only ever
+    produced refusals would still pass a one-directional test."""
+    expected = (
+        allocation_well_formed(proposed)
+        and weights_well_formed(current)
+        and abs(sum(proposed.values()) - 100.0) <= ALLOCATION_SUM_TOLERANCE
+        and concentration_ok(proposed, CAPS)
+        and max_allocation_change_pts(current, proposed) >= THRESHOLDS.min_allocation_change_pts
+        and turnover_pct(current, proposed) <= THRESHOLDS.max_turnover_pct
+        and not (set(proposed) - ALLOWED)
+    )
+    assert reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED).passed is expected
+
+
+@settings(max_examples=400)
+@given(proposed=_allocations())
+def test_no_accepted_allocation_is_ever_unholdable(proposed: dict[str, float]) -> None:
+    """The single guarantee the owner cares about, stated without reference to
+    any gate: a book that reaches the writeback can be BOUGHT — every weight a
+    finite, non-negative number. V1 is long-only and nothing downstream re-checks
+    it."""
+    if reallocation_gates({"SPY": 100.0}, proposed, CAPS, THRESHOLDS, ALLOWED).passed:
+        assert proposed
+        for weight in proposed.values():
+            assert math.isfinite(weight) and weight >= 0.0

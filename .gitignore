@@ -4,6 +4,10 @@
 .venv
 .ruff_cache
 __pycache__
+# Hypothesis replays its past counter-examples from here on every run. Local
+# and machine-specific: a shrunk failure is worth turning into a named regression
+# test, not into a committed binary.
+.hypothesis
 *.egg-info
 
 docs/Countercyclical+Investing_vF.1/
