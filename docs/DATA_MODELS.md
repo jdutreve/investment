@@ -956,7 +956,26 @@ CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 -- recommendation STRING,  -- 'maintain'/'monitor' written by UC7 (mechanical);
 --                         --   upgraded to 'paper-test' by Writeback after the
 --                         --   UC8 cycle when a proposal gate is met
--- trace STRING
+-- trace STRING,           -- PER ROW, not one sentence copied across the batch:
+--                         --   it names what the rules did to THIS portfolio
+--                         --   (Calmar demotion, drawdown breach) — EXAMPLE.md
+--                         --   Step 8B shows the shape
+-- excluded_from_candidacy BOOLEAN
+--   The user-drawdown breach of the "Ranking rule" below: the row KEEPS its
+--   rank and is excluded from the defender role and from proposal candidacy.
+--   Evaluated against the STRICTER of user_profile.max_drawdown_pct and the
+--   portfolio's own max_drawdown_rule (gates.effective_caps + gates.drawdown_ok
+--   — the same predicate switch_gates refuses a challenger with, so the flag
+--   shown and the gate that would block cannot disagree).
+--   STORED, not derived at render time, because it is the only ranking verdict
+--   that depends on a mutable EXTERNAL knob: the binding cap already moved once
+--   (-15 -> -25, ADR-007) and DECISIONS.md keeps -30 on the table, while
+--   `digest.build_digest` re-renders any past Monday. A derived flag would
+--   re-judge a July row under December's cap. The Calmar DEMOTION has no column
+--   for the mirror reason: its only input, calmar_rolling, is on the row
+--   already (snapshots.is_demoted).
+--   NULL = not recorded (rows written before the column existed, 2026-08-02),
+--   which is distinct from 0 = measured and within the rule.
 
 CREATE TABLE IF NOT EXISTS scenario_calibration (...);
 -- id STRING (PK, ULID), strategy_id STRING, date DATE,
@@ -1030,9 +1049,23 @@ with `ORDER BY portfolio.id`, so rows tied on the whole key resolve stably too.
 
 Snapshots with `calmar_rolling < 1.0` are demoted to the bottom regardless of
 Sortino (Invariant#calmar-accumulation gate); the demoted rows are ranked among
-themselves by the same rule. A `max_drawdown` breaching the
-**user** rule (-15%) keeps the row in the ranking but excludes the portfolio
-from the defender role and from proposal candidacy.
+themselves by the same rule (`snapshots.is_demoted` — one predicate, used by
+the ranker that demotes and by the digest that reports it).
+
+A `max_drawdown` breaching the binding drawdown rule keeps the row in the
+ranking but excludes the portfolio from the defender role and from proposal
+candidacy. Two things about that rule, both of which have bitten:
+- the cap is **-25%** since ADR-007, not the -15% this paragraph carried until
+  2026-08-03. The figure is not a constant: DECISIONS.md records -30% as
+  offered and declined, so it may move again;
+- it binds on the **stricter** of `user_profile.max_drawdown_pct` and the
+  portfolio's own `max_drawdown_rule`, which is not academic — the retained
+  bridge's books carry -15% and `barbell-defensive` -10% under the -25% user
+  cap, so reading the user cap alone under-reports every one of them.
+
+Because the cap moves and `digest.build_digest` re-renders any past Monday, the
+verdict is PERSISTED per row (`excluded_from_candidacy`) rather than re-derived
+at render time — see that column above.
 
 The `Strategy` vertex is the single source of truth for strategies — no
 separate library document.

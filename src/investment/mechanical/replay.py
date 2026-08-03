@@ -119,14 +119,13 @@ class PortfolioMeta:
     primary_strategy_id: str | None
     allocation: dict[str, float]
     # The portfolio's own cap rules, carried so `_valuation_rows_asof` can build
-    # a complete `ValuationRow`. NOT yet consulted by this harness: the replay
-    # builds its `Caps` from `user_profile` alone (`load_inputs`), so its
-    # `switch_gates` currently applies the USER cap to portfolios whose own rule
-    # is stricter (-15 on the 4s books, -10 on barbell) — looser than the live
-    # `writeback.dispose_reallocation`, which takes the stricter of the two.
-    # Tightening it would move numbers ADR-007 was signed on, so it is a
-    # separate, arbitrated change; carrying the fields is what makes that change
-    # a one-liner instead of a re-plumbing.
+    # a complete `ValuationRow`. NOT yet consulted by this harness — that gap is
+    # docs/IMPROVEMENTS.md I-47, with its trigger: the replay builds its `Caps`
+    # from `user_profile` alone (`load_inputs`), so its `switch_gates` applies
+    # the USER cap to portfolios whose own rule is stricter (-15 on the 4s
+    # books, -10 on barbell), which is LOOSER than the live
+    # `writeback.dispose_reallocation`. Tightening it moves numbers ADR-007 was
+    # signed on; carrying the fields is what makes that change a one-liner.
     max_drawdown_rule: float | None = None
     max_single_asset_pct: float | None = None
 

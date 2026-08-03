@@ -24,6 +24,7 @@ from investment.chain import run_chain
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import market_signal as MS
 from investment.mechanical import outcomes
+from investment.mechanical.gates import Caps
 from investment.telegram.digest import build_digest
 from investment.writeback import writeback as W
 
@@ -237,19 +238,20 @@ def test_market_signal_gates_exempt_the_trend_haven_but_bind_every_other_sleeve(
     caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
     allowed = frozenset(MS.STACK_TICKERS)
     # Risk-off: both sleeves redirected, IEF at 90 — passes, by ADR-007 (a).
-    assert W.market_signal_gates({"IEF": 90.0, "IWN": 10.0}, caps, allowed).passed
+    assert W.market_signal_gates({"IEF": 90.0, "IWN": 10.0}, {}, caps, allowed).passed
     # The same 90 on a NON-haven sleeve is refused.
     assert (
-        W.market_signal_gates({"SPY": 90.0, "IWN": 10.0}, caps, allowed).failed_gate
+        W.market_signal_gates({"SPY": 90.0, "IWN": 10.0}, {}, caps, allowed).failed_gate
         == "max_single_asset_pct"
     )
     # An unknown sleeve, and a book that does not sum to 100.
     assert (
-        W.market_signal_gates({"IEF": 50.0, "TSLA": 50.0}, caps, allowed).failed_gate
+        W.market_signal_gates({"IEF": 50.0, "TSLA": 50.0}, {}, caps, allowed).failed_gate
         == "allowed_tickers"
     )
     assert (
-        W.market_signal_gates({"IEF": 40.0}, caps, allowed).failed_gate == "allocation_sums_to_100"
+        W.market_signal_gates({"IEF": 40.0}, {}, caps, allowed).failed_gate
+        == "allocation_sums_to_100"
     )
 
 
@@ -274,11 +276,11 @@ def test_no_reachable_book_state_can_be_refused() -> None:
     assert len(states) == 12
     for book, below in states:
         target = MS.apply_trend_overlay(MS.BOOKS[book], below)
-        assert W.market_signal_gates(target, caps, allowed).passed, (book, below)
+        assert W.market_signal_gates(target, {}, caps, allowed).passed, (book, below)
 
     # ...but a DEACTIVATED ticker does trip them, which is what they are for.
     assert not W.market_signal_gates(
-        dict(MS.BOOKS["credit-spread-wide"]), caps, allowed - {"IWN"}
+        dict(MS.BOOKS["credit-spread-wide"]), {}, caps, allowed - {"IWN"}
     ).passed
 
 
@@ -290,7 +292,7 @@ def test_turnover_and_min_change_do_not_bind_a_book_switch() -> None:
     from investment.mechanical.gates import turnover_pct
 
     assert turnover_pct(wide, steep) > 30.0  # would fail the realloc gate
-    assert W.market_signal_gates(dict(steep), caps, frozenset(MS.STACK_TICKERS)).passed
+    assert W.market_signal_gates(dict(steep), {}, caps, frozenset(MS.STACK_TICKERS)).passed
 
 
 @pytest.mark.parametrize("absent", [MS.CREDIT_SPREAD, MS.YIELD_SLOPE])
@@ -684,3 +686,27 @@ async def test_evaluated_market_signal_proposal_reaches_a_verdict(db: Investment
     assert results[0].verdict in {"won", "lost"}
     row = (await db.query("SELECT outcome FROM proposal WHERE id = 'p1'"))[0]
     assert json.loads(str(row["outcome"]))["verdict"] == results[0].verdict
+
+
+def test_a_malformed_held_book_is_refused_loudly_not_read_as_no_change() -> None:
+    """`dispose_market_signal` decides whether to emit on
+    `max_allocation_change_pts(held, target) > 0`, so a NaN in the HELD book
+    makes that comparison False and a real rotation would emit nothing while the
+    journal recorded `moves: False` — the month's entire output lost in silence.
+    Whether it bites depends on set-iteration order (3 of 10 ticker spellings
+    trip it), which is exactly why it must be refused rather than measured.
+
+    Refused, not treated as "nothing held": a refusal is LOUD in the digest
+    (ADR-009 renders a blocked decision with a 🚨), where a guessed incumbent
+    would quietly misprice the +12w verdict."""
+    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    allowed = frozenset(MS.STACK_TICKERS)
+    target = dict(MS.BOOKS["credit-spread-tight-yield-curve-steep"])
+
+    assert W.market_signal_gates(target, {"SPY": 50.0, "IWN": 50.0}, caps, allowed).passed
+    assert (
+        W.market_signal_gates(target, {"SPY": 50.0, "IWN": float("nan")}, caps, allowed).failed_gate
+        == "held_allocation_well_formed"
+    )
+    # the OPENING entry holds nothing, and that is not malformed
+    assert W.market_signal_gates(target, {}, caps, allowed).passed

@@ -387,12 +387,15 @@ def reallocation_gates(
     Gate 3 is a FLOOR on the largest move, not a ceiling: a reallocation too
     small to matter is noise that only pays costs.
 
-    Gate 0 is the well-formedness precondition, unnumbered in the spec because
-    the spec assumes it: gates 1-5 are all comparisons, and a NaN or a short leg
-    is invisible to every one of them. It guards BOTH arguments — gates 3 and 4
-    measure the target AGAINST the incumbent, so a NaN in `current` blinds them
-    just as thoroughly, and the two carry separate gate names because they are
-    separate defects (held state vs proposed answer)."""
+    Before any of them runs, a WELL-FORMEDNESS PRECONDITION — deliberately not
+    called "gate 0", a name ADR-011 already owns across five documents for the
+    mechanical-sovereignty check in `writeback.dispose_reallocation`. This is
+    not a numbered gate and not a merit test: it asserts the two arguments are
+    books at all, because gates 1-5 are comparisons and a NaN or a short leg is
+    invisible to every one of them. It guards BOTH sides — gates 3 and 4 measure
+    the target AGAINST the incumbent, so a NaN in `current` blinds them just as
+    thoroughly — under separate names, because they are separate defects (held
+    state vs proposed answer)."""
     if not allocation_well_formed(proposed):
         return GateOutcome.refused("allocation_well_formed")
     if not weights_well_formed(current):

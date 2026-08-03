@@ -53,6 +53,7 @@ from investment.mechanical.gates import (
     effective_caps,
     max_allocation_change_pts,
     reallocation_gates,
+    weights_well_formed,
 )
 from investment.mechanical.invariants import compute_weight_update, mature_seed_invariants
 from investment.mechanical.market_signal import (
@@ -376,7 +377,10 @@ async def dispose_reallocation(
 
 
 def market_signal_gates(
-    target: dict[str, float], caps: Caps, allowed_tickers: frozenset[str]
+    target: dict[str, float],
+    held: dict[str, float],
+    caps: Caps,
+    allowed_tickers: frozenset[str],
 ) -> GateOutcome:
     """REGRESSION GUARDS on ADR-007's live allocation decision — and the name is
     the honest one, because these cannot refuse a decision the MARKET produced.
@@ -423,6 +427,20 @@ def market_signal_gates(
     # the comparisons below would silently pass.
     if not allocation_well_formed(target):
         return GateOutcome.refused("allocation_well_formed")
+    # HELD is checked too, and it matters more here than the symmetry suggests.
+    # `dispose_market_signal` decides whether to emit on
+    # `max_allocation_change_pts(held, target) > 0`, so a NaN in the held book
+    # makes that max NaN and the comparison False — a REAL book rotation would
+    # emit no proposal and journal `moves: False`, i.e. the strategy's whole
+    # output for that month lost, silently. Measured: 3 of 10 ticker spellings
+    # trip it, because `max()` keeps or discards NaN by set-iteration order. An
+    # empty held book is legal and NOT malformed — it is the opening entry
+    # (`market_signal_cycle.held_allocation`), hence `weights_well_formed`.
+    # Refusing is the right answer rather than treating it as "nothing held":
+    # a refusal is LOUD in the digest (ADR-009), where a guessed incumbent would
+    # quietly misprice the +12w verdict.
+    if not weights_well_formed(held):
+        return GateOutcome.refused("held_allocation_well_formed")
     if abs(sum(target.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return GateOutcome.refused("allocation_sums_to_100")
     if not concentration_ok(target, caps, exempt=frozenset({TREND_HAVEN})):
@@ -473,7 +491,7 @@ async def dispose_market_signal(
     # the result of one round feeds straight into the next.
     caps = effective_caps(dataclasses.asdict(stack_caps), await portfolio_caps(db, book_id))
     allowed = await _allowed_reallocation_tickers(db)
-    outcome = market_signal_gates(decision.target, caps, allowed)
+    outcome = market_signal_gates(decision.target, held_allocation, caps, allowed)
 
     # A decision that lands on what is already held is not a refusal — it is the
     # strategy working (2.8 book changes a year; most months hold). It is

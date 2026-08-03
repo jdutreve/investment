@@ -1582,6 +1582,44 @@ If/when adding from this list, prioritize by dependency and impact:
 
 ---
 
+## I-47 — The replay's caps ignore per-portfolio rules, so it is LOOSER than live Writeback
+
+**Why deferred:** closing it moves numbers ADR-007 was signed on. The replay is
+what validated the adopted strategy and what calibrates the thresholds, so a
+gate change there re-dates the evidence — that is an owner call, not a tidy-up.
+
+**What it is.** CLAUDE.md pins that the binding caps are "the stricter of"
+`user_profile` and the portfolio's own rule, and `writeback.dispose_reallocation`
+honours it (`gates.effective_caps`). The replay does not: `replay.load_inputs`
+builds one `Caps` from `user_profile` alone, and hands it to every
+`gates.switch_gates` call. So inside the replay a challenger is judged against
+-25% while its own `max_drawdown_rule` says -15% (the four 4s books,
+`permanent-balanced`, `momentum-macro-rotation`) or -10% (`barbell-defensive`).
+
+The replay is therefore MORE PERMISSIVE than the live path on exactly the
+portfolios the retained bridge switches between — it can accept a switch that
+live Writeback would refuse. `mechanical/gates.py`'s own module docstring
+forbids this shape: "TWO callers must run the IDENTICAL rules ... so replay
+logic cannot DRIFT from live logic — the classic replay bug".
+
+Scope, stated so it is not over-read: no LIVE cycle emits a switch (ADR-007
+superseded the ranked duel), so nothing reaching the owner is affected today.
+What is affected is the evidence — the hit-rate and the calibrated thresholds
+M6 produced were computed under the looser cap.
+
+**Already prepared:** `replay.PortfolioMeta` carries `max_drawdown_rule` and
+`max_single_asset_pct` (unused), and `_valuation_rows_asof` populates the
+matching `ValuationRow` fields. Closing this is switching `switch_gates` onto
+`effective_caps(user_profile, meta)` — one line — plus re-running the M6
+validation and re-recording the numbers.
+
+**Trigger to revisit:** whenever the M6 replay numbers are next re-run for
+another reason (so the re-validation is paid once), or before the bridge is
+retired — whichever comes first. If the bridge is retired without the replay
+ever being re-run, this closes as moot along with `switch_gates` itself.
+
+---
+
 ## What never goes here
 
 - Anything that lets the agent AUTO-EXECUTE a real allocation change in V1 —

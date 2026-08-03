@@ -505,6 +505,25 @@ Writeback validates mechanically:
    Disagreement with the RULE (not with the month) goes through
    `innovations_proposed` / `strategy_revision`, where ADR-006's maturation
    measures it. The retained bridge's defender stays cognitive by design.
+
+   Then a **well-formedness PRECONDITION** (`gates.allocation_well_formed` on
+   the target, `gates.weights_well_formed` on the incumbent) — unnumbered on
+   purpose: "gate 0" is ADR-011's above, and this is not a merit test but an
+   assertion that both arguments are books at all. Every weight must be FINITE
+   and ≥ 0, and the target non-empty (an empty INCUMBENT is legal — it is the
+   market-signal stack's opening entry). It exists because gates 1-5 are all
+   comparisons and every comparison against NaN is False, so a NaN weight
+   passed all five and a short leg was arithmetically invisible to them
+   (`{SPY:40, TLT:40, IEF:30, GLD:-10}` sums to 100 and breaches no cap, yet
+   V1 is long-only). Guarding only the target was not enough: gates 3 and 4
+   measure the target AGAINST the incumbent, so a NaN in the held book blinded
+   them identically — found by the `hypothesis` property test, not by review.
+   Separate names (`allocation_well_formed` / `current_allocation_well_formed`)
+   because they are separate defects: a bad LLM answer vs bad held state. The
+   same precondition guards the market-signal disposition, where a malformed
+   held book would otherwise make a real rotation emit no proposal at all.
+   `worker/result.py` re-checks it as a pydantic validator so the Worker is
+   RETRIED with the reason rather than losing the cycle to a silent refusal.
 1. `proposed_allocation` sums to 100 (±0.1);
 2. binding concentration caps pass on the proposed allocation;
 3. max per-asset change ≥ `proposal_min_allocation_change_pts` (5.0);

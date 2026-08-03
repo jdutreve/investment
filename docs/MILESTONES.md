@@ -815,6 +815,37 @@ they need a distinct status (`reference`) rather than sitting in the weighted
 pool and skewing every corpus count. Not a gate-6 problem; queued as its own
 decision.
 
+**✅ Coherence pass 2026-08-02/03 — four verdicts the system computed and then
+dropped, plus the gates that were not gates.**
+
+- `outcomes.paper_test_progress` resolved the incumbent off the defender's
+  snapshot, but a market-signal proposal's `defender_id` is a BOOK, and the
+  books are `enabled = 0` (ADR-009) so they have no snapshot: every live
+  paper-test reported `excess: None` forever. It also had NO caller — the
+  scoreboard printed a count where Task 6bis.1 asks for proposed-vs-incumbent
+  to date. Both closed; the +12w verdict and the weekly tracking now share one
+  resolver.
+- The digest's demotion warning read a `demoted` key no writer ever produced,
+  so it was unreachable in production and only ever fired on a hand-built test
+  dict. Derived now from `snapshots.is_demoted`; on the live DB it immediately
+  printed two rows it had always been silent about.
+- The user-drawdown exclusion flag (Phase 5bis spec, EXAMPLE.md Step 8B) did
+  not exist. Now a STORED column — the cap already moved once (-15 -> -25) and
+  the digest re-renders past Mondays, so deriving it would re-judge July under
+  December's rule. Applied to the live DB by ALTER TABLE (31 rows, all NULL).
+- A short leg and a NaN weight both passed all five reallocation gates: every
+  gate is a comparison and every comparison against NaN is False, while a short
+  leg is arithmetically ordinary. `hypothesis` was added on the owner's
+  go-ahead and found, on its first run, that guarding the target was half the
+  fix — gates 3 and 4 measure AGAINST the incumbent, so a NaN in `current`
+  blinded them identically. Same hole on the market-signal path, where it would
+  have made a real book rotation emit no proposal at all.
+
+Left open with a trigger: **I-47** (the replay's caps ignore per-portfolio
+rules, so it is looser than live Writeback) and the live DB being behind the
+seed (the 3 `ms-*-book` rows are still `enabled = 1`; a re-seed fixes it and
+changes the ranking).
+
 **⚔️ Challenge:** Worker reasoning quality; are the 12-15 selected
 invariants the right ones?
 
