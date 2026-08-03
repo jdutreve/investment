@@ -25,6 +25,7 @@ PURE module: no I/O, no DB. Every threshold arrives as an argument.
 """
 
 import dataclasses
+import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -93,6 +94,33 @@ PASSED = GateOutcome(passed=True)
 
 
 # -- shared cap checks (bind BOTH proposal kinds — CLAUDE.md "Binding caps") --
+
+
+def allocation_well_formed(allocation: Mapping[str, float]) -> bool:
+    """Every weight is a FINITE, NON-NEGATIVE number, and there is at least one.
+
+    A PRECONDITION, not a merit gate, and it has to run before all of them
+    because of how the others are written: every numeric gate in this module is
+    a comparison, and every comparison against NaN is False. So a NaN weight
+    walks straight through `abs(sum - 100) > tolerance`, through `max(...) >
+    cap`, through `change < min` and through `turnover > max` — measured, not
+    reasoned: a `{SPY: 50, TLT: 50, GLD: nan}` reallocation passed all five
+    gates and would have been persisted. `max()` makes it worse than uniform:
+    it discards NaN or returns it depending on where the key sits in the dict,
+    so the SAME allocation could be refused by different gates, or by none.
+
+    NON-NEGATIVE is a separate rule with a separate reason: V1 is long-only
+    (docs/DATA_MODELS.md allocation: percent weights summing to 100). A short
+    leg is arithmetically invisible to the other gates — `{SPY: 50, TLT: 50,
+    GLD: 30, IEF: -30}` sums to 100 and no sleeve exceeds the cap — so nothing
+    downstream would have caught a book the owner cannot hold.
+
+    `+inf` alone WAS caught (by the sum gate), but only incidentally, and an
+    accidental refusal is not a control: it reports the wrong gate name and
+    stops working the moment the arithmetic changes."""
+    if not allocation:
+        return False
+    return all(math.isfinite(w) and w >= 0.0 for w in allocation.values())
 
 
 def concentration_ok(
@@ -344,7 +372,13 @@ def reallocation_gates(
     mechanical replay cites nothing, so it has no input before M8.
 
     Gate 3 is a FLOOR on the largest move, not a ceiling: a reallocation too
-    small to matter is noise that only pays costs."""
+    small to matter is noise that only pays costs.
+
+    Gate 0 is the well-formedness precondition (`allocation_well_formed`),
+    unnumbered in the spec because the spec assumes it: gates 1-5 are all
+    comparisons, and a NaN or a short leg is invisible to every one of them."""
+    if not allocation_well_formed(proposed):
+        return GateOutcome.refused("allocation_well_formed")
     if abs(sum(proposed.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return GateOutcome.refused("allocation_sums_to_100")
     if not concentration_ok(proposed, caps):

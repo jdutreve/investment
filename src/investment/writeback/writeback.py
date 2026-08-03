@@ -47,6 +47,7 @@ from investment.mechanical.gates import (
     Caps,
     GateOutcome,
     ProposalThresholds,
+    allocation_well_formed,
     cited_invariant_eligible,
     concentration_ok,
     effective_caps,
@@ -415,6 +416,13 @@ def market_signal_gates(
     book is chosen by a market-priced signal validated over 35 years, not argued
     from a lighthouse, so there is no citation to check; the cooldown would
     suppress the overlay's re-entry, which IS the drawdown control."""
+    # Same well-formedness precondition as the reallocation path, for a
+    # different threat: here the target is machine-built (BOOKS x overlay), so a
+    # NaN or a negative weight means a code or config defect rather than a bad
+    # LLM answer — which is exactly what this function exists to catch, and what
+    # the comparisons below would silently pass.
+    if not allocation_well_formed(target):
+        return GateOutcome.refused("allocation_well_formed")
     if abs(sum(target.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return GateOutcome.refused("allocation_sums_to_100")
     if not concentration_ok(target, caps, exempt=frozenset({TREND_HAVEN})):

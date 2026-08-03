@@ -14,10 +14,11 @@ empty"). Optionality carries the meaning; a missing field would be a schema
 violation the Phase-1bis retry policy rejects, not a silent no-op.
 """
 
+import math
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ImprovementType(StrEnum):
@@ -90,6 +91,41 @@ class ReallocationProposal(BaseModel):
     blend_note: str
     supporting_invariants: list[str]
     reasoning: str
+
+    @field_validator("proposed_allocation")
+    @classmethod
+    def _weights_are_finite_and_long_only(cls, value: dict[str, float]) -> dict[str, float]:
+        """Reject a book the owner could not hold, AT THE BOUNDARY.
+
+        `mechanical/gates.py` re-checks this (`allocation_well_formed`) and that
+        duplication is deliberate — but this copy is the one that does the
+        useful thing. A gate refusal is silent to the model: the cycle ends with
+        a ⛔ in the digest and the week's reasoning is lost. A validation error
+        here is fed back by PydanticAI as a retry (`agent.OUTPUT_RETRIES`), so
+        the Worker is TOLD what is wrong and gets to answer again — which is the
+        difference between losing a cycle and correcting one.
+
+        Non-negative because V1 is long-only; finite because JSON's `NaN` and
+        `Infinity` tokens parse, and a NaN weight is invisible to every
+        comparison-based gate downstream."""
+        bad = {t: w for t, w in value.items() if not math.isfinite(w) or w < 0.0}
+        if bad:
+            raise ValueError(
+                f"proposed_allocation weights must be finite and >= 0 (V1 is long-only); "
+                f"got {bad}"
+            )
+        return value
+
+    @field_validator("scenario_delta", "favors_delta")
+    @classmethod
+    def _deltas_are_finite(cls, value: dict[str, float]) -> dict[str, float]:
+        """Deltas are CHANGES, so a negative one is correct and expected — only
+        non-finite is rejected. They are recorded on the proposal rather than
+        gated, so a NaN here would be persisted unexamined."""
+        bad = {t: w for t, w in value.items() if not math.isfinite(w)}
+        if bad:
+            raise ValueError(f"delta weights must be finite; got {bad}")
+        return value
 
 
 class WorkerResult(BaseModel):

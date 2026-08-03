@@ -130,3 +130,44 @@ async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> Non
     # empty state is reachable through the real output path, not just the model.
     assert result.innovations_proposed == []
     assert result.reallocation_proposed is None
+
+
+# -- the allocation contract at the LLM boundary -----------------------------
+
+
+def _realloc(**over: object) -> ReallocationProposal:
+    fields: dict[str, object] = {
+        "proposed_allocation": {"GLD": 50.0, "VCIT": 50.0},
+        "scenario_delta": {"GLD": 10.0},
+        "favors_delta": {"GLD": -5.0},  # a NEGATIVE delta is legal: it is a change
+        "blend_note": "b",
+        "supporting_invariants": [],
+        "reasoning": "r",
+    }
+    fields.update(over)
+    return ReallocationProposal(**fields)  # type: ignore[arg-type]
+
+
+def test_a_negative_weight_is_rejected_at_the_boundary() -> None:
+    """V1 is long-only. Rejected HERE and not only by the gate, because a
+    validation error is fed back to the model as a retry — the Worker is told
+    what is wrong and answers again, instead of losing the cycle to a silent ⛔."""
+    with pytest.raises(ValidationError, match="long-only"):
+        _realloc(proposed_allocation={"GLD": 130.0, "VCIT": -30.0})
+
+
+def test_non_finite_weights_are_rejected_everywhere_they_can_appear() -> None:
+    """JSON's `NaN`/`Infinity` tokens parse, and a NaN weight is invisible to
+    every comparison-based gate downstream (mechanical/gates.py gate 0)."""
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValidationError):
+            _realloc(proposed_allocation={"GLD": 50.0, "VCIT": bad})
+        # deltas are recorded rather than gated, so a NaN there is persisted raw
+        with pytest.raises(ValidationError, match="finite"):
+            _realloc(scenario_delta={"GLD": bad})
+
+
+def test_negative_deltas_stay_legal() -> None:
+    """The long-only rule binds the ALLOCATION, never the deltas: a delta is a
+    change, and a negative one is how a sleeve is cut."""
+    assert _realloc(favors_delta={"GLD": -12.5}).favors_delta == {"GLD": -12.5}

@@ -7,6 +7,7 @@ import pytest
 from investment.mechanical.gates import (
     Caps,
     ProposalThresholds,
+    allocation_well_formed,
     blend_allocation,
     concentration_ok,
     drawdown_ok,
@@ -253,3 +254,53 @@ def test_gate_3_refuses_a_reallocation_too_small_to_matter() -> None:
     proposed = {"SPY": 32.0, "TLT": 28.0, "IEF": 20.0, "GLD": 20.0}
     outcome = reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED)
     assert outcome.failed_gate == "min_allocation_change_pts"
+
+
+# -- gate 0: well-formedness (the precondition gates 1-5 assume) --------------
+
+NAN, INF = float("nan"), float("inf")
+
+
+def test_allocation_well_formed_rejects_non_finite_and_negative() -> None:
+    assert allocation_well_formed({"SPY": 60.0, "TLT": 40.0})
+    assert allocation_well_formed({"SPY": 100.0, "cash": 0.0})  # a zero sleeve is legal
+    assert not allocation_well_formed({})
+    assert not allocation_well_formed({"SPY": 100.0, "TLT": NAN})
+    assert not allocation_well_formed({"SPY": 100.0, "TLT": INF})
+    assert not allocation_well_formed({"SPY": 100.0, "TLT": -INF})
+    assert not allocation_well_formed({"SPY": 130.0, "TLT": -30.0})
+
+
+def test_a_short_leg_is_refused_though_every_other_gate_passes() -> None:
+    """V1 is long-only. This book sums to 100 and no sleeve exceeds the cap, so
+    gates 1-5 see nothing wrong with it — the short leg is arithmetically
+    invisible to all of them, which is why gate 0 exists."""
+    current = {"SPY": 50.0, "TLT": 50.0}
+    proposed = {"SPY": 40.0, "TLT": 40.0, "IEF": 30.0, "GLD": -10.0}
+    assert abs(sum(proposed.values()) - 100.0) < 0.1  # gate 1 would pass
+    assert concentration_ok(proposed, CAPS)  # gate 2 would pass
+    assert max_allocation_change_pts(current, proposed) >= THRESHOLDS.min_allocation_change_pts
+    assert turnover_pct(current, proposed) <= THRESHOLDS.max_turnover_pct  # gate 4 too
+    outcome = reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED)
+    assert outcome.failed_gate == "allocation_well_formed"
+
+
+def test_a_nan_weight_is_refused_rather_than_slipping_through_every_comparison() -> None:
+    """Every numeric gate is a comparison and every comparison against NaN is
+    False, so a NaN sleeve passed the sum, concentration, min-change and
+    turnover gates and reached the writeback. It is also order-dependent —
+    `max()` keeps or discards NaN depending on the key's position — so the same
+    book could be refused by different gates, or by none."""
+    current = {"SPY": 30.0, "TLT": 70.0}
+    proposed = {"SPY": 50.0, "TLT": 50.0, "GLD": NAN}
+    assert not (abs(sum(proposed.values()) - 100.0) > 0.1)  # gate 1 was blind
+    assert not (turnover_pct(current, proposed) > THRESHOLDS.max_turnover_pct)  # gate 4 too
+    outcome = reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED)
+    assert outcome.failed_gate == "allocation_well_formed"
+
+    # ... and the NaN-first ordering, which used to fail on a different gate
+    reordered = {"GLD": NAN, "SPY": 50.0, "TLT": 50.0}
+    assert (
+        reallocation_gates(current, reordered, CAPS, THRESHOLDS, ALLOWED).failed_gate
+        == "allocation_well_formed"
+    )
