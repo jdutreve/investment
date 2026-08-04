@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from investment.db.sqlite import InvestmentDB
 from investment.planner.post import Confrontation, PostPlannerResult
@@ -337,3 +338,27 @@ async def test_empty_result_is_a_clean_no_op(db: InvestmentDB) -> None:
     assert summary.confrontations == 0
     assert summary.conviction_updates == 0
     assert await db.query("SELECT id FROM event_log") == []
+
+
+def test_the_evaluation_contract_rejects_what_it_used_to_absorb() -> None:
+    """docs/TASKS.md Phase 5 VERDICT CONTRACT: four verdicts, delta in
+    [-10, +10]. Free-form was harmless while this only nudged conviction; the
+    row is persisted now, and every later reader takes it at face value."""
+    for bad in ("invented", "strong-confirms", ""):
+        with pytest.raises(ValidationError):
+            EvaluationDraft(
+                strategy_id="s1", verdict=bad, conviction_delta=1.0, events=[], reasoning="r"
+            )
+    for delta in (999.0, -999.0, float("nan"), float("inf")):
+        with pytest.raises(ValidationError):
+            EvaluationDraft(
+                strategy_id="s1",
+                verdict="confirms",
+                conviction_delta=delta,
+                events=[],
+                reasoning="r",
+            )
+    # the contract's own bounds remain reachable
+    assert EvaluationDraft(
+        strategy_id="s1", verdict="neutral", conviction_delta=-10.0, events=[], reasoning="r"
+    )

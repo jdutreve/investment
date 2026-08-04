@@ -19,8 +19,13 @@ single connection any other coroutine that writes during that window writes
 INSIDE the open BEGIN — it commits when the transaction commits, and is rolled
 back when the transaction rolls back. A second concurrent `transaction()` is
 worse: its BEGIN raises "cannot start a transaction within a transaction", and
-its COMMIT ends the FIRST one's unit early. So writes are serialized at
+its COMMIT ends the FIRST one's unit early. So every call is serialized at
 TRANSACTION granularity, not statement granularity.
+
+Reads are serialized too, and for a reason distinct from atomicity: with ONE
+connection a concurrent reader sits INSIDE the open transaction, so it reads
+uncommitted rows — and if that transaction rolls back it decided on state that
+never existed. `_serialized` says why at length.
 """
 
 import asyncio
@@ -103,15 +108,22 @@ class InvestmentDB:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, fn)
 
-    async def _write_call(self, fn: Callable[[], _T]) -> _T:
-        """Every WRITE goes through here: it runs immediately when no
+    async def _serialized(self, fn: Callable[[], _T]) -> _T:
+        """Every read AND write goes through here: it runs immediately when no
         transaction is open or when this task owns the open one, and otherwise
-        waits for that transaction to finish rather than landing inside it.
+        waits for that transaction to finish rather than observing it midway.
 
-        Reads deliberately do NOT take this path — a read during another task's
-        transaction sees that connection's uncommitted state, which is the same
-        thing it would see one statement earlier, and blocking readers behind
-        writers would serialize the whole agent for no correctness gain.
+        READS TAKE THIS PATH TOO, and an earlier version of this guard exempted
+        them on the reasoning that a read inside another task's transaction
+        "sees the same thing it would see one statement earlier". That is wrong
+        in the case that matters. There is ONE connection (ADR-004), so a reader
+        is inside the writer's transaction, not outside it: it sees uncommitted
+        rows, and if that transaction ROLLS BACK it has read state that never
+        existed and will never exist. Every write in this codebase is
+        EventLog-first inside a transaction, so the rows most exposed are
+        exactly the ones decisions are made from. Serializing readers behind
+        writers costs a wait; not serializing them costs a decision taken on a
+        phantom.
 
         The check and the executor submission are not separated by an `await`,
         so no other coroutine can open a transaction between them — the guard
@@ -142,7 +154,7 @@ class InvestmentDB:
             cur = self._con.execute(stmt, params)
             return [dict(row) for row in cur.fetchall()]
 
-        return await self._call(_run)
+        return await self._serialized(_run)
 
     async def query_ts(self, type: str, where: str, limit: int) -> list[dict[str, Any]]:
         """Trusted-caller-only: `where` is interpolated raw (no LLM-facing
@@ -155,7 +167,7 @@ class InvestmentDB:
             cur = self._con.execute(f"SELECT * FROM {type} WHERE {where} LIMIT ?", (limit,))
             return [dict(row) for row in cur.fetchall()]
 
-        return await self._call(_run)
+        return await self._serialized(_run)
 
     # -- write -----------------------------------------------------------
 
@@ -166,7 +178,7 @@ class InvestmentDB:
         def _run() -> None:
             self._con.execute(stmt, params)
 
-        await self._write_call(_run)
+        await self._serialized(_run)
 
     async def create_vertex(self, type: str, props: dict[str, Any]) -> str:
         """INSERT a new vertex row; fails on a duplicate id (use
@@ -184,7 +196,7 @@ class InvestmentDB:
             self._con.execute(stmt, row)
             return vertex_id
 
-        return await self._write_call(_run)
+        return await self._serialized(_run)
 
     async def upsert_vertex(self, type: str, id: str, props: dict[str, Any]) -> str:
         """Idempotent by id — UC0 seed re-runs safely. Uses ON CONFLICT DO
@@ -213,7 +225,7 @@ class InvestmentDB:
             self._con.execute(stmt, row)
             return id
 
-        return await self._write_call(_run)
+        return await self._serialized(_run)
 
     def _stamp_and_jsonify(self, table: str, props: dict[str, Any]) -> dict[str, Any]:
         row = _jsonify(props)
@@ -243,7 +255,7 @@ class InvestmentDB:
             stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
             self._con.execute(stmt, row)
 
-        await self._write_call(_run)
+        await self._serialized(_run)
 
     def _next_event_id(self) -> str:
         """Strictly-increasing ULID for event_log.id — THE canonical append
@@ -291,7 +303,7 @@ class InvestmentDB:
             )
             return event_id
 
-        return await self._write_call(_run)
+        return await self._serialized(_run)
 
     async def append_ts(
         self, type: str, ts: datetime, tags: dict[str, Any], fields: dict[str, Any]
@@ -308,7 +320,7 @@ class InvestmentDB:
             stmt = f"INSERT OR REPLACE INTO {type} ({', '.join(cols)}) VALUES ({placeholders})"
             self._con.execute(stmt, row)
 
-        await self._write_call(_run)
+        await self._serialized(_run)
 
     async def append_ts_batch(self, type: str, rows: list[dict[str, Any]]) -> None:
         """Batched idempotent append (INSERT OR REPLACE, executemany, one
@@ -339,7 +351,7 @@ class InvestmentDB:
             else:
                 self._con.commit()
 
-        await self._write_call(_run)
+        await self._serialized(_run)
 
     # -- transactions ------------------------------------------------------
 

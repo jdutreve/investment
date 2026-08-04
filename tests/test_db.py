@@ -312,3 +312,35 @@ async def test_nesting_a_transaction_is_refused_at_the_nested_with(tmp_path: Pat
                     pass
     finally:
         await db.close()
+
+
+async def test_a_concurrent_read_does_not_see_a_transaction_that_rolls_back(
+    tmp_path: Path,
+) -> None:
+    """With ONE connection (ADR-004) a reader sits INSIDE an open transaction,
+    so it reads uncommitted rows — and on a rollback it has read state that
+    never existed. Reads are serialized behind the transaction for this."""
+    db = InvestmentDB(tmp_path / "tx4.db")
+    try:
+        started = asyncio.Event()
+        seen: list[int] = []
+
+        async def rolls_back() -> None:
+            with pytest.raises(RuntimeError, match="deliberate"):
+                async with db.transaction() as tx:
+                    await tx.append_event(
+                        type="T", source_uc="UC0", source_id=None, payload={"phantom": True}
+                    )
+                    started.set()
+                    await asyncio.sleep(0.05)
+                    raise RuntimeError("deliberate")
+
+        async def reader() -> None:
+            await started.wait()
+            rows = await db.query("SELECT COUNT(*) AS n FROM event_log")
+            seen.append(int(rows[0]["n"]))
+
+        await asyncio.gather(rolls_back(), reader())
+        assert seen == [0]  # the phantom row was never observable
+    finally:
+        await db.close()

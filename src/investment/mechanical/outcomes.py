@@ -32,6 +32,7 @@ the market-signal stack (V1_STRATEGY roadmap Step 0-7), not this function.
 
 import dataclasses
 import json
+import math
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -42,6 +43,12 @@ from ulid import ULID
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
+from investment.mechanical.gates import (
+    ALLOCATION_SUM_TOLERANCE,
+    allocation_well_formed,
+    concentration_ok,
+    effective_caps,
+)
 from investment.mechanical.invariants import compute_weight_update
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 
@@ -50,6 +57,10 @@ OUTCOME_EVENT = "OutcomeEvent"
 # The 3 scenario names a strategy carries (docs/DATA_MODELS.md scenario.name);
 # activation creates exactly these from the innovation spec.
 _SCENARIO_NAMES = frozenset({"bull", "base", "bear"})
+# The three probabilities are one distribution and must sum to 100
+# (docs/ARCHITECTURE.md innovation spec). Same tolerance the knowledge commit
+# applies to a Worker scenario update (writeback `_SCENARIO_SUM_TOLERANCE`).
+_SCENARIO_SUM_TOLERANCE = 0.1
 
 # How many probation windows a strategy may go WITHOUT any FAVORS before it is
 # closed as unmeasurable. The backstop that makes ADR-006's "nothing stays
@@ -440,6 +451,75 @@ async def _innovation_spec(db: InvestmentDB, strategy_id: str) -> dict[str, Any]
     return spec if isinstance(spec, dict) else {}
 
 
+async def _scenario_spec_defect(db: InvestmentDB, spec: dict[str, Any]) -> str | None:
+    """Why this innovation's scenarios may NOT be activated, or `None`.
+
+    docs/ARCHITECTURE.md pins the contract the spec must already satisfy — "the
+    3 bull/base/bear definitions ... target_allocation (sums to 100, complies
+    with the binding user caps), initial probabilities (sum to 100)" — and
+    nothing enforced it. Activation wrote whatever the LLM produced straight
+    into `scenario`, so three probabilities of 90, a short leg or a NaN weight
+    all persisted; `scenarios.py` and the reallocation blend then read them as
+    fact. This is the same shape as `writeback._base_allocation`, which already
+    guards the ONE scenario the candidate Portfolio is built from — the other
+    two reached the graph unchecked.
+
+    Deliberately a whole-spec verdict rather than a per-scenario skip: the three
+    probabilities are one distribution, and dropping the malformed member of it
+    would activate a strategy whose remaining scenarios sum to 60."""
+    scenarios = spec.get("scenarios")
+    if not isinstance(scenarios, list):
+        return "spec carries no scenarios list"
+    by_name: dict[str, dict[str, Any]] = {
+        str(s.get("name")): s for s in scenarios if isinstance(s, dict)
+    }
+    if set(by_name) != _SCENARIO_NAMES:
+        return f"scenarios are {sorted(by_name)}, expected {sorted(_SCENARIO_NAMES)}"
+
+    probabilities = [_as_float(s.get("probability"), float("nan")) for s in by_name.values()]
+    if any(not math.isfinite(p) or p < 0.0 for p in probabilities):
+        return "a scenario probability is negative or not a number"
+    if abs(sum(probabilities) - 100.0) > _SCENARIO_SUM_TOLERANCE:
+        return f"scenario probabilities sum to {sum(probabilities):.1f}, not 100"
+
+    caps = effective_caps(await _user_profile(db), None)
+    allowed = await _allowed_tickers(db)
+    for name, scenario in sorted(by_name.items()):
+        raw = scenario.get("target_allocation")
+        if not isinstance(raw, dict):
+            return f"'{name}' has no target_allocation map"
+        try:
+            allocation = {str(k): float(v) for k, v in raw.items()}
+        except (TypeError, ValueError):
+            return f"'{name}' has a non-numeric weight"
+        if not allocation_well_formed(allocation):
+            return f"'{name}' is empty, or holds a negative/non-finite weight"
+        if abs(sum(allocation.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
+            return f"'{name}' sums to {sum(allocation.values()):.1f}, not 100"
+        if not concentration_ok(allocation, caps):
+            return f"'{name}' breaches the {caps.max_single_asset_pct:.0f}% concentration cap"
+        unknown = sorted(set(allocation) - allowed)
+        if unknown:
+            return f"'{name}' holds untradable {unknown}"
+    return None
+
+
+async def _user_profile(db: InvestmentDB) -> dict[str, Any]:
+    rows = await db.query("SELECT max_single_asset_pct, max_drawdown_pct FROM user_profile LIMIT 1")
+    if not rows:
+        raise ValueError("no user_profile row: the binding caps are unknowable")
+    return dict(rows[0])
+
+
+async def _allowed_tickers(db: InvestmentDB) -> frozenset[str]:
+    """Same set the reallocation gates use (writeback `_allowed_reallocation_
+    tickers`): active tradable tickers plus the synthetic 'cash' sleeve."""
+    rows = await db.query(
+        "SELECT ticker FROM allowed_tickers WHERE active = 1 AND asset_class != 'MACRO'"
+    )
+    return frozenset({str(r["ticker"]) for r in rows} | {"cash"})
+
+
 async def _activate_strategy(db: InvestmentDB, strategy_id: str, today: date) -> None:
     """The activation transaction (docs/ARCHITECTURE.md "System Evolution",
     probation PASSES): in ONE transaction the vertex becomes `status='active',
@@ -477,7 +557,13 @@ async def _activate_strategy(db: InvestmentDB, strategy_id: str, today: date) ->
             trace=f"probation PASS {today.isoformat()}: activated with its parent strategy",
             now=now,
         )
-    for invariant_id in spec.get("cites") or []:
+    # `backed_by` is the DOCUMENTED spec key (docs/ARCHITECTURE.md "the proposal
+    # spec must be complete": `backed_by : invariant ids (existing,
+    # integrated)`). This read `cites`, a name that appears in no spec and no
+    # prompt, so a doc-conforming innovation lost every BACKED_BY edge silently
+    # — the strategy activated with no invariant behind it, and the
+    # confrontation machinery had nothing to credit or blame.
+    for invariant_id in spec.get("backed_by") or []:
         # FK-safe: an invariant the spec named but that does not exist is skipped
         # rather than aborting the activation (writeback `_resolve_fk` rationale).
         known = await db.query("SELECT 1 FROM invariant WHERE id = :id", id=str(invariant_id))
@@ -674,7 +760,27 @@ async def strategy_probation_check(
             # and the OutcomeEvent payload's `unmeasurable` flag.
             results.append(ProbationResult(sid, "review", sortino, median))
             continue
-        verdict = "keep" if sortino >= median else "review"
+        # A 'keep' whose spec cannot be activated becomes a CLOSE, not a
+        # half-activation: activation writes the scenarios into the graph that
+        # `scenarios.py` and the reallocation blend read as fact, and a book
+        # that is short a leg or sums to 60 is not a thing to hold. Closing
+        # rather than leaving it proposed keeps ADR-006's "nothing stays
+        # proposed forever"; the reason names the defect so a corrected version
+        # can be re-proposed.
+        #
+        # Resolved BEFORE the append, not inside the branch below, because the
+        # EventLog entry must carry the verdict that was ACTED ON — deciding
+        # after the journal was written is how a log comes to say 'keep' over a
+        # closed strategy.
+        defect = None
+        if sortino >= median:
+            defect = await _scenario_spec_defect(db, await _innovation_spec(db, sid))
+        verdict = "keep" if sortino >= median and defect is None else "review"
+        reason = (
+            f"malformed scenario spec — {defect}"
+            if defect is not None
+            else f"Sortino {sortino:.3f} below the peer median {median:.3f}"
+        )
         # EventLog append precedes the vertex writes, same transaction
         # (CLAUDE.md "EventLog"): the verdict and what it DID are one fact.
         async with db.transaction():
@@ -687,15 +793,17 @@ async def strategy_probation_check(
                     "verdict": verdict,
                     "sortino": sortino,
                     "median": median,
+                    # Distinguishes "measured worse than its peers" from "measured
+                    # well but unbuildable" — the same 'review' verdict, two
+                    # entirely different follow-ups for the owner.
+                    "spec_defect": defect,
                 },
                 event_date=today,
             )
             if verdict == "keep":
                 await _activate_strategy(db, sid, today)
             else:
-                await _close_strategy(
-                    db, sid, today, f"Sortino {sortino:.3f} below the peer median {median:.3f}"
-                )
+                await _close_strategy(db, sid, today, reason)
         results.append(ProbationResult(sid, verdict, sortino, median))
     return results
 

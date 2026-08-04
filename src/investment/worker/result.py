@@ -16,7 +16,7 @@ violation the Phase-1bis retry policy rejects, not a silent no-op.
 
 import math
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -47,11 +47,29 @@ class ScenarioAdjustment(BaseModel):
 class EvaluationDraft(BaseModel):
     """The Worker's read on whether new evidence confirms/weakens/invalidates a
     strategy's thesis (docs/ARCHITECTURE.md). A DRAFT: the verdict matures
-    mechanically at +12w (outcomes.py, M8), never on the Worker's say-so."""
+    mechanically at +12w (outcomes.py, M8), never on the Worker's say-so.
+
+    Both fields are constrained to what docs/TASKS.md Phase 5's VERDICT CONTRACT
+    already pins, because this row is now persisted rather than reduced to a
+    conviction nudge: an out-of-contract draft used to be absorbed silently (an
+    unknown verdict string moved conviction by whatever it asked, then vanished),
+    and it now lands in the `evaluation` vertex where every later reader takes
+    it at face value.
+
+    `Literal` rather than a free string: `verdict` is the value confrontations
+    branch on, so an invented one ('invented', 'strong-confirms') is not a
+    variant spelling, it is a verdict nothing knows how to act on.
+
+    `[-10, +10]` is the contract's own bound, not a number invented here — and
+    `allow_inf_nan=False` is the half a range check cannot express: NaN passes
+    `ge`/`le` (every comparison against it is False), reaches sqlite as NULL and
+    trips `conviction_delta`'s NOT NULL, aborting the whole knowledge commit —
+    the confrontations and innovations with it. Rejected at the boundary is a
+    dropped draft; accepted here is a lost cycle."""
 
     strategy_id: str
-    verdict: str  # 'confirms' | 'weakens' | 'invalidates' | 'neutral'
-    conviction_delta: float
+    verdict: Literal["confirms", "weakens", "invalidates", "neutral"]
+    conviction_delta: float = Field(ge=-10.0, le=10.0, allow_inf_nan=False)
     events: list[str]
     reasoning: str
 
@@ -69,10 +87,19 @@ class ImprovementProposal(BaseModel):
     rationale: str
     spec: dict[str, Any]
     source: str = "agent-discovery"
-    author: str = "system"
+    # The tier whose seeded band binds the weights below (writeback/knowledge.py
+    # `author_band`). CLOSED, because an unlisted tier is not a permissive
+    # default: `author_band` raises on it, and the raise lands mid-innovation
+    # rather than at the boundary that could have dropped one proposal.
+    author: Literal["dalio", "marks", "other", "system"] = "system"
     status: str = "proposed"
-    weight_initial: float = 0.0
-    floor_weight: float = 0.0
+    # 0-1 fractions (CLAUDE.md "Invariant weight model": weight-like fields are
+    # 0-1 everywhere). `allow_inf_nan=False` is the load-bearing half: the tier
+    # band CLAMPS these, and `min(max(nan, low), high)` is nan — every
+    # comparison against NaN is False, so the clamp that exists to bound a bad
+    # number passes it straight through to a NOT NULL violation on insert.
+    weight_initial: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
+    floor_weight: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     trace: str
 
 

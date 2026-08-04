@@ -28,6 +28,7 @@ Three properties, in the order they matter:
 import asyncio
 import json
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -111,7 +112,17 @@ class AuthorBand:
     def bind(self, proposed: float) -> float:
         """The model PROPOSES weight_initial; the tier band binds it. A proposal
         outside the bounds is corrected, not rejected — the claim is the
-        contribution, the number is a guess."""
+        contribution, the number is a guess.
+
+        NaN is sent to `low` rather than clamped, because clamping cannot touch
+        it: every comparison against NaN is False, so `min(max(nan, low), high)`
+        returns nan and the "bound" number reaches sqlite as NULL, tripping
+        `weight_initial`'s NOT NULL. The I/O boundary rejects it first
+        (`ImprovementProposal`, `allow_inf_nan=False`); this is the second line,
+        here because it is the clamp's own blind spot and a caller that builds
+        an `AuthorBand` without going through that model would inherit it."""
+        if not math.isfinite(proposed):
+            return self.low
         return min(max(proposed, self.low), self.high)
 
 

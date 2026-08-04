@@ -22,13 +22,19 @@ OLD = (TODAY - timedelta(weeks=13)).isoformat()  # past the 12w probation window
 
 # What writeback._commit_strategy_innovation puts in the InnovationEvent payload:
 # activation reads the spec back from here to build the Scenarios + BACKED_BY.
+# A spec that SATISFIES the activation contract (docs/ARCHITECTURE.md: the 3
+# bull/base/bear definitions, probabilities summing to 100, each
+# target_allocation summing to 100 and complying with the binding user caps).
+# `backed_by` is the documented key for the cited invariants — `cites` appears
+# in no spec and no prompt, and reading it is what silently dropped every
+# BACKED_BY edge.
 SPEC = {
     "scenarios": [
-        {"name": "bull", "probability": 25, "target_allocation": {"SPY": 60, "GLD": 40}},
+        {"name": "bull", "probability": 25, "target_allocation": {"SPY": 50, "GLD": 50}},
         {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
-        {"name": "bear", "probability": 25, "target_allocation": {"SPY": 30, "GLD": 70}},
+        {"name": "bear", "probability": 25, "target_allocation": {"SPY": 30, "GLD": 50, "IEF": 20}},
     ],
-    "cites": ["inv-gold", "inv-ghost"],  # the ghost must be skipped, not raise
+    "backed_by": ["inv-gold", "inv-ghost"],  # the ghost must be skipped, not raise
 }
 
 
@@ -40,6 +46,20 @@ async def _seed(db: InvestmentDB) -> None:
         "INSERT INTO system_thresholds (key, value, updated_at) "
         "VALUES ('strategy_probation_weeks', 12.0, '2026-01-01')"
     )
+    # Activation now checks each scenario book against the BINDING caps and the
+    # tradable universe, so probation needs both to reach a verdict at all.
+    await cmd(
+        "INSERT INTO user_profile (user_id, currency, benchmark, max_drawdown_pct, "
+        "max_single_asset_pct, phase, created_at, updated_at) VALUES ('u', 'USD', 'SPY', "
+        "-25.0, 50.0, 'accumulation', '2026-01-01', '2026-01-01')"
+    )
+    for ticker, asset_class in (("SPY", "equities"), ("GLD", "gold-commodities"), ("IEF", "bonds")):
+        await cmd(
+            "INSERT INTO allowed_tickers (ticker, asset_class, currency, source, transform, "
+            "active) VALUES (:t, :c, 'USD', 'yahoo', 'none', 1)",
+            t=ticker,
+            c=asset_class,
+        )
     await cmd(
         "INSERT INTO framework (id, name, enabled, trace, created_at) "
         "VALUES ('4s', 'F', 1, 't', '2026-01-01')"
@@ -130,7 +150,7 @@ async def test_probation_pass_activates_with_scenarios_and_edges(db: InvestmentD
         "WHERE strategy_id = 's-good' ORDER BY name"
     )
     assert [s["name"] for s in scenarios] == ["base", "bear", "bull"]
-    assert json.loads(str(scenarios[2]["target_allocation"])) == {"SPY": 60, "GLD": 40}
+    assert json.loads(str(scenarios[2]["target_allocation"])) == {"SPY": 50, "GLD": 50}
 
     # BACKED_BY only for the invariant that EXISTS — the ghost is skipped, not an
     # IntegrityError that would abort the activation.
@@ -246,3 +266,146 @@ async def test_a_strategy_scored_NOWHERE_is_still_closed_by_the_backstop(
     assert len(mine) == 1 and mine[0].verdict == "review"
     status = await db.query("SELECT status FROM strategy WHERE id = 's-nowhere'")
     assert status[0]["status"] == "closed"
+
+
+# -- the activation contract (docs/ARCHITECTURE.md innovation spec) ----------
+
+
+async def _propose(db: InvestmentDB, sid: str, spec: dict[str, object]) -> None:
+    await db.command(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
+        "(:id, 't', 'd', '4s', 60, 0, 'c', 'agent-discovery', 'proposed', :o, 'tr', "
+        "'2026-01-01', '2026-01-01')",
+        id=sid,
+        o=OLD,
+    )
+    await db.append_event(
+        type="InnovationEvent",
+        source_uc="UC8",
+        source_id=sid,
+        payload={"type": "new_strategy", "title": "t", "spec": spec},
+        event_date=date.fromisoformat(OLD),
+    )
+    # FAVORS above the peer median, so probation says 'keep' on the merits and
+    # only the spec contract can stop the activation.
+    await db.command(
+        "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, sharpe_rolling, "
+        "calmar_rolling, max_drawdown, n_periods, last_updated) VALUES ('stag', :id, 9.9, 0.5, "
+        "1.0, -0.1, 40, '2026-01-01')",
+        id=sid,
+    )
+
+
+def _spec_with(scenarios: list[dict[str, object]]) -> dict[str, object]:
+    return {"scenarios": scenarios, "backed_by": []}
+
+
+@pytest.mark.parametrize(
+    ("label", "scenarios"),
+    [
+        (
+            "probabilities sum to 270",
+            [
+                {"name": n, "probability": 90, "target_allocation": {"SPY": 50, "GLD": 50}}
+                for n in ("bull", "base", "bear")
+            ],
+        ),
+        (
+            "a short leg",
+            [
+                {"name": "bull", "probability": 25, "target_allocation": {"SPY": 130, "GLD": -30}},
+                {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+                {"name": "bear", "probability": 25, "target_allocation": {"SPY": 50, "GLD": 50}},
+            ],
+        ),
+        (
+            "a NaN weight",
+            [
+                {
+                    "name": "bull",
+                    "probability": 25,
+                    "target_allocation": {"SPY": 50, "GLD": float("nan")},
+                },
+                {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+                {"name": "bear", "probability": 25, "target_allocation": {"SPY": 50, "GLD": 50}},
+            ],
+        ),
+        (
+            "over the concentration cap",
+            [
+                {"name": "bull", "probability": 25, "target_allocation": {"SPY": 40, "GLD": 60}},
+                {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+                {"name": "bear", "probability": 25, "target_allocation": {"SPY": 50, "GLD": 50}},
+            ],
+        ),
+        (
+            "an untradable ticker",
+            [
+                {
+                    "name": "bull",
+                    "probability": 25,
+                    "target_allocation": {"SPY": 50, "MOONCOIN": 50},
+                },
+                {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+                {"name": "bear", "probability": 25, "target_allocation": {"SPY": 50, "GLD": 50}},
+            ],
+        ),
+        (
+            "only two scenarios",
+            [
+                {"name": "bull", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+                {"name": "base", "probability": 50, "target_allocation": {"SPY": 50, "GLD": 50}},
+            ],
+        ),
+    ],
+)
+async def test_a_malformed_spec_is_closed_not_activated(
+    db: InvestmentDB, label: str, scenarios: list[dict[str, object]]
+) -> None:
+    """Every one of these persisted straight into `scenario` before the contract
+    was enforced, and `scenarios.py` plus the reallocation blend then read them
+    as fact."""
+    await _propose(db, "s-bad-spec", _spec_with(scenarios))
+    results = await outcomes.strategy_probation_check(db, today=TODAY)
+    mine = next(r for r in results if r.strategy_id == "s-bad-spec")
+    assert mine.verdict == "review", label
+    row = (await db.query("SELECT status, trace FROM strategy WHERE id = 's-bad-spec'"))[0]
+    assert row["status"] == "closed", label
+    assert "malformed scenario spec" in str(row["trace"]), label
+    # nothing half-written: no scenario row survived the refusal
+    assert await db.query("SELECT id FROM scenario WHERE strategy_id = 's-bad-spec'") == []
+
+
+async def test_the_journal_records_the_verdict_that_was_acted_on(db: InvestmentDB) -> None:
+    """The OutcomeEvent is appended BEFORE the vertex writes, so the spec check
+    has to run first — deciding after the journal is written is how a log comes
+    to say 'keep' over a closed strategy."""
+    await _propose(
+        db,
+        "s-bad-spec",
+        _spec_with(
+            [
+                {"name": n, "probability": 90, "target_allocation": {"SPY": 50, "GLD": 50}}
+                for n in ("bull", "base", "bear")
+            ]
+        ),
+    )
+    await outcomes.strategy_probation_check(db, today=TODAY)
+    events = await db.query(
+        "SELECT json_extract(payload, '$.verdict') AS v, "
+        "json_extract(payload, '$.spec_defect') AS d FROM event_log "
+        "WHERE type = 'OutcomeEvent' AND source_id = 's-bad-spec'"
+    )
+    assert events[0]["v"] == "review"  # not 'keep'
+    assert "sum to 270" in str(events[0]["d"])  # and WHY, distinctly from a merits loss
+
+
+async def test_backed_by_edges_are_read_from_the_documented_spec_key(db: InvestmentDB) -> None:
+    """`cites` appears in no spec and no prompt: a doc-conforming innovation
+    used to activate with no invariant behind it, leaving the confrontation
+    machinery nothing to credit or blame."""
+    results = await outcomes.strategy_probation_check(db, today=TODAY)
+    assert next(r for r in results if r.strategy_id == "s-good").verdict == "keep"
+    edges = await db.query("SELECT invariant_id FROM backed_by WHERE strategy_id = 's-good'")
+    assert [e["invariant_id"] for e in edges] == ["inv-gold"]  # the ghost skipped, not raised
