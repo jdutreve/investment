@@ -1394,7 +1394,29 @@ PydanticAI agent, model `WORKER_MODEL`, system prompt from ARCHITECTURE,
 skills (markdown files) concatenated into the system context, output type
 `WorkerResult` (schema in ARCHITECTURE). 1-8 tool calls budget.
 
-Skill files (each: purpose, inputs, method, output contract):
+Skill files (each: purpose, inputs, method, output contract).
+
+> **SUPERSEDED SHAPE (ADR-007) — the shipped set is FOUR, not five, and leads
+> with a skill this list does not contain.** The five below are one-per-capability
+> of the PRE-PIVOT Worker, when the ranked defender/challenger duel WAS the
+> allocation decision. It therefore has a skill for comparing challengers and
+> NONE for reading the mechanical market-signal decision — which is now the
+> Worker's only contribution to the live allocation (ADR-011). Implementing this
+> list literally weights the prompt toward the path that no longer decides.
+>
+> Shipped in `worker/skills/`, ordered by `agent.SKILL_ORDER`:
+> 1. `skill-read-market-signal.md` — NEW, the live path: read the mechanical
+>    decision, say what the instrument cannot see, route a disagreement with the
+>    RULE (not the month) into `innovations_proposed` as a `strategy_revision`.
+>    Never re-pick the book or its weights.
+> 2. `skill-evaluate-strategy.md` — unchanged below; the knowledge factory is
+>    framework-agnostic and survives the pivot intact.
+> 3. `skill-interpret-invariants.md` — unchanged below.
+> 4. `skill-the-retained-bridge.md` — the other THREE merged: they are one job
+>    (keeping the fallback honest) and decide nothing, so they get one file's
+>    worth of the Worker's attention rather than three.
+
+Original list, kept for the contracts it pins:
 - `skill-evaluate-strategy.md` — verdict per enabled strategy from regime,
   FAVORS, scenario shifts, invariants → EvaluationDrafts. **Verdict
   contract** (verdicts feed confrontations, i.e. move invariant weights —

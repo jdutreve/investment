@@ -450,7 +450,9 @@ def main() -> None:
     )
     invariants_parser.add_argument("--regime", help="filter by regime tag, e.g. stagflation")
     invariants_parser.add_argument("--tag", help="filter by an exact tag, e.g. asset:GLD")
-    invariants_parser.add_argument("--status", help="'proposed' | 'integrated' | 'rejected'")
+    invariants_parser.add_argument(
+        "--status", help="'proposed' | 'integrated' | 'rejected' | 'reference'"
+    )
     invariants_parser.add_argument("--top", type=int, help="limit to the top N")
     invariants_parser.add_argument("--json", action="store_true", help="output as JSON")
 

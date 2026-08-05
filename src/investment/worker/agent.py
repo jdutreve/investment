@@ -131,9 +131,34 @@ allocation, say so there in one line."""
 # incomparable).
 SKILLS_DIR = Path(__file__).parent / "skills"
 
+# EXPLICIT, because alphabetical order is not the order that matters. The
+# Worker's only contribution to the ADOPTED allocation is its reading of the
+# mechanical decision (ADR-011), so that skill leads; the knowledge factory —
+# the part that survives the pivot unchanged and actually moves invariant
+# weights — comes next; the retained bridge, which decides nothing, comes last.
+# Sorted by filename this order was 3rd, 1st, 2nd, 4th.
+#
+# docs/TASKS.md Phase 5 named FIVE skills, one per capability. That list predates
+# ADR-007: it has a skill for comparing challengers and none for reading the
+# mechanical decision, because when it was written the ranked duel WAS the
+# decision. Following it literally shipped guidance weighted toward the
+# superseded path. The three bridge skills are merged into one file for the same
+# reason — they are one job, keeping the fallback honest, and three files gave
+# them three files' worth of the Worker's attention.
+SKILL_ORDER = (
+    "skill-read-market-signal.md",
+    "skill-evaluate-strategy.md",
+    "skill-interpret-invariants.md",
+    "skill-the-retained-bridge.md",
+)
+
 
 def load_skills(directory: Path = SKILLS_DIR) -> str:
-    """The skill files, concatenated in a stable order.
+    """The skill files, concatenated in `SKILL_ORDER`.
+
+    A file present but NOT listed is appended rather than dropped: a new skill
+    that silently never reached the prompt would be the hardest kind of bug to
+    see — everything runs, the guidance is simply absent.
 
     Missing directory or no files -> empty string, and the agent still runs on
     the persona alone. Deliberate: a missing skill file degrades the Worker's
@@ -143,7 +168,12 @@ def load_skills(directory: Path = SKILLS_DIR) -> str:
     if not directory.is_dir():
         logger.warning("worker skills directory missing: %s", directory)
         return ""
-    parts = [path.read_text(encoding="utf-8").strip() for path in sorted(directory.glob("*.md"))]
+    found = {path.name: path for path in directory.glob("*.md")}
+    ordered = [found.pop(name) for name in SKILL_ORDER if name in found]
+    for name in sorted(found):
+        logger.warning("worker skill %s is not in SKILL_ORDER, appended last", name)
+        ordered.append(found[name])
+    parts = [path.read_text(encoding="utf-8").strip() for path in ordered]
     return "\n\n---\n\n".join(part for part in parts if part)
 
 

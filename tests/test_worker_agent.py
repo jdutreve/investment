@@ -16,6 +16,7 @@ from pydantic_ai.usage import UsageLimits
 from investment.db.sqlite import InvestmentDB
 from investment.worker.agent import (
     OUTPUT_RETRIES,
+    SKILL_ORDER,
     SKILLS_DIR,
     WORKER_REQUEST_LIMIT,
     WORKER_SYSTEM_PROMPT,
@@ -269,17 +270,28 @@ async def run_worker_with_limits(
 # -- the skill files (docs/TASKS.md Phase 5) ---------------------------------
 
 
-def test_the_five_specified_skill_files_exist() -> None:
-    """TASKS Phase 5 names five, and the persona says "Use the Skills provided"
-    — which asserted a capability decomposition that shipped as an empty
-    directory."""
-    assert {p.name for p in SKILLS_DIR.glob("*.md")} == {
-        "skill-evaluate-strategy.md",
-        "skill-rank-portfolios.md",
-        "skill-compare-vs-defender.md",
-        "skill-propose-reallocation.md",
-        "skill-interpret-invariants.md",
-    }
+def test_every_skill_file_is_ordered_explicitly() -> None:
+    """`SKILL_ORDER` is the contract; a file on disk but missing from it would
+    still load (appended last) but in the wrong place, which is invisible."""
+    assert {p.name for p in SKILLS_DIR.glob("*.md")} == set(SKILL_ORDER)
+
+
+def test_the_live_path_leads_the_prompt() -> None:
+    """The Worker's ONLY contribution to the adopted allocation is its reading of
+    the mechanical decision. Alphabetically that skill was third; TASKS' pre-pivot
+    list did not have it at all."""
+    assert SKILL_ORDER[0] == "skill-read-market-signal.md"
+    skills = load_skills()
+    assert skills.index("read the market-signal decision") < skills.index("retained bridge")
+
+
+def test_an_unlisted_skill_is_appended_not_dropped(tmp_path: Path) -> None:
+    """Silently never reaching the prompt is the hardest kind of bug to see:
+    everything runs, the guidance is simply absent."""
+    (tmp_path / "skill-brand-new.md").write_text("BRAND NEW GUIDANCE")
+    (tmp_path / "skill-read-market-signal.md").write_text("LIVE PATH")
+    loaded = load_skills(tmp_path)
+    assert loaded.index("LIVE PATH") < loaded.index("BRAND NEW GUIDANCE")
 
 
 def test_the_skills_carry_the_contracts_the_gates_enforce() -> None:
@@ -293,14 +305,23 @@ def test_the_skills_carry_the_contracts_the_gates_enforce() -> None:
     assert "bright" in skills and "active" in skills  # gate 6's exact pair
 
 
-def test_the_bridge_skills_say_they_are_the_bridge() -> None:
-    """The docs cleanup's whole point, applied where a model will actually read
-    it: the two superseded-path skills must not read as live instructions."""
-    for name in ("skill-compare-vs-defender.md", "skill-propose-reallocation.md"):
-        text = (SKILLS_DIR / name).read_text()
-        assert "RETAINED BRIDGE" in text, name
-    realloc = (SKILLS_DIR / "skill-propose-reallocation.md").read_text()
-    assert "sovereign" in realloc  # ADR-011, stated where it binds
+def test_the_bridge_skill_says_it_is_the_bridge() -> None:
+    """The docs cleanup's point, applied where a model actually reads it: the
+    superseded path must not read as live instruction."""
+    text = (SKILLS_DIR / "skill-the-retained-bridge.md").read_text()
+    assert "NONE OF THIS IS THE LIVE ALLOCATION" in text
+    assert "ADR-011" in text  # stated where the reallocation is described
+
+
+def test_the_live_skill_separates_an_assessment_from_a_rule_challenge() -> None:
+    """The distinction the whole ADR-011 channel rests on: a reading goes in
+    `market_signal_assessment`, a disagreement with the RULE goes in
+    `innovations_proposed` as a strategy_revision. Collapsing the two either
+    loses the objection or wastes a probation slot."""
+    text = (SKILLS_DIR / "skill-read-market-signal.md").read_text()
+    assert "market_signal_assessment" in text
+    assert "strategy_revision" in text
+    assert "Do not re-pick the book" in text
 
 
 def test_the_prompt_carries_the_skills() -> None:
