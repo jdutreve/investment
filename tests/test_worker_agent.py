@@ -24,20 +24,52 @@ from investment.worker.result import (
 # -- the result contract: the empty state is EXPLICIT, not forgotten ---------
 
 
-def test_worker_result_empty_state_defaults() -> None:
-    """ "Nothing to propose" is None / [], present on every run — the schema
-    makes the empty state a value, not a missing field (docs/ARCHITECTURE.md:
-    "always complete, fields possibly empty")."""
+def test_worker_result_empty_state_is_a_value_not_an_omission() -> None:
+    """ "Nothing to propose" is None / [] SAID EXPLICITLY (docs/ARCHITECTURE.md:
+    "always complete, fields possibly empty"). The empty state stays
+    constructible; what is no longer allowed is reaching it by leaving the key
+    out, which made "nothing to propose" and "forgot the field"
+    indistinguishable."""
     r = WorkerResult(
         regime_assessment="calm",
         ranking_commentary="as ranked",
         market_signal_assessment="the book fits the spread",
         reasoning="—",
+        scenario_adjustments=[],
+        evaluations=[],
+        reallocation_proposed=None,
+        innovations_proposed=[],
     )
     assert r.reallocation_proposed is None
     assert r.innovations_proposed == []
     assert r.scenario_adjustments == []
     assert r.evaluations == []
+
+
+def test_an_omitted_field_fails_validation_rather_than_defaulting() -> None:
+    """The Phase-1bis policy the docstring claims: a partial answer FAILS
+    validation instead of passing silently. PydanticAI feeds the error back as a
+    retry, so the Worker is told what is missing."""
+    with pytest.raises(ValidationError):
+        WorkerResult(
+            regime_assessment="calm",
+            ranking_commentary="as ranked",
+            market_signal_assessment="the book fits the spread",
+            reasoning="—",
+        )
+
+
+def test_an_unknown_field_is_refused_not_dropped() -> None:
+    """pydantic's default is to DISCARD unknown keys: a plausible-looking
+    misspelling validated clean and the Worker's real answer vanished."""
+    with pytest.raises(ValidationError):
+        ScenarioAdjustment(
+            strategy_id="s",
+            scenario="bull",
+            probability=40.0,
+            rationale="x",
+            confidence_pct=90.0,  # type: ignore[call-arg]
+        )
 
 
 def test_scenario_probability_is_bounded() -> None:
@@ -72,6 +104,8 @@ def test_reallocation_and_innovation_round_trip() -> None:
             )
         ],
         reasoning="—",
+        scenario_adjustments=[],
+        evaluations=[],
     )
     assert r.reallocation_proposed is not None
     assert r.reallocation_proposed.supporting_invariants == ["inv-gold-ratio-trend-tilt"]
@@ -125,11 +159,11 @@ async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> Non
     agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
     with agent.override(model=TestModel(call_tools=[])):
         result = await run_worker(agent, "the prepared context")
+    # A schema-valid WorkerResult came back through the real output path. The
+    # empty state is no longer asserted here: with the fields required, TestModel
+    # POPULATES them with samples rather than defaulting them, so this test can
+    # only speak to validity — the empty state is covered directly above.
     assert isinstance(result, WorkerResult)
-    # TestModel fills required strings and defaults the optionals — i.e. the
-    # empty state is reachable through the real output path, not just the model.
-    assert result.innovations_proposed == []
-    assert result.reallocation_proposed is None
 
 
 # -- the allocation contract at the LLM boundary -----------------------------

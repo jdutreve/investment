@@ -1710,38 +1710,6 @@ weight is ever used to justify a live decision rather than to benchmark one.
 
 ---
 
-## I-50 — A STALE market-signal input still decides; only an ABSENT one refuses
-
-**Why deferred:** the fix is a new threshold (how old is too old, per series),
-and a wrong value fails in the direction that matters — a decision refused for
-staleness is a month the stack does not move, on the adopted live path.
-
-**What it is.** `market_signal.run_market_signal` refuses to run when the
-credit-spread or slope series is EMPTY, precisely because an all-NaN reindex
-reads as warm-up and silently holds `credit-spread-wide`, the 90%-equity book,
-on no signal at all. But a series that simply STOPPED updating — FRED ingestion
-broken, a renamed series, a provider outage — is not empty. It ffills, and the
-decision is taken on a print that may be months old. `build_market_context`
-records `knowable_at`, so the age is auditable AFTER the fact; nothing refuses
-on it.
-
-The asymmetry is the whole point: the absent case was judged worth raising
-because "the decision would be uninformed rather than early". A 90-day-old
-credit spread is the same failure with a timestamp on it.
-
-**Spec:** a per-series max age (in decision dates, not calendar days, so it
-moves with the cadence), checked against `_knowable_at` at decision time.
-Breach = no proposal AND a loud digest line, on the shape
-`dispose_market_signal` already uses for a blocked gate — never a silent hold,
-because a hold and a refusal look identical to the owner otherwise.
-
-**Trigger to revisit:** before Step 6 (forward paper-mode), where the stack's
-live record starts counting and a month decided on stale data would be scored
-as if it were informed. Immediately if any ingestion gap is observed in
-practice.
-
----
-
 ## I-51 — A candidate's NAV is built once, at birth, and never refreshed during probation
 
 **Why deferred:** it is a new job in the Monday chain plus a coverage threshold

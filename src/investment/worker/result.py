@@ -18,7 +18,7 @@ import math
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ImprovementType(StrEnum):
@@ -32,7 +32,28 @@ class ImprovementType(StrEnum):
     data = "data"
 
 
-class ScenarioAdjustment(BaseModel):
+class StrictModel(BaseModel):
+    """Base for every model on the Worker's output boundary.
+
+    `extra="forbid"` because this is an LLM writing JSON, and pydantic's default
+    is to DROP unknown keys silently. A `conviction_delta_pct`, a
+    `proposed_allocations`, a field invented under a plausible-looking name: all
+    of them validated clean and arrived as an empty or defaulted value, so the
+    Worker's actual answer was discarded and the cycle continued as if it had
+    said nothing. Forbidding turns each into a `ValidationError`, which
+    PydanticAI feeds back as a retry (`agent.OUTPUT_RETRIES`) — the model is TOLD
+    the key is wrong and gets to answer again. It also emits
+    `additionalProperties: false` into the JSON schema the provider sees, so the
+    typo is likelier not to happen at all.
+
+    The same reasoning `ReallocationProposal._weights_are_finite_and_long_only`
+    spells out: a boundary rejection is recoverable, a silent acceptance is a
+    lost week."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ScenarioAdjustment(StrictModel):
     """A QUALITATIVE-trigger reweighting of one strategy's bull/base/bear
     scenario probabilities (docs/ARCHITECTURE.md). The Worker supplies the
     trigger interpretation; the three probabilities for a strategy must sum to
@@ -44,7 +65,7 @@ class ScenarioAdjustment(BaseModel):
     rationale: str
 
 
-class EvaluationDraft(BaseModel):
+class EvaluationDraft(StrictModel):
     """The Worker's read on whether new evidence confirms/weakens/invalidates a
     strategy's thesis (docs/ARCHITECTURE.md). A DRAFT: the verdict matures
     mechanically at +12w (outcomes.py, M8), never on the Worker's say-so.
@@ -74,7 +95,7 @@ class EvaluationDraft(BaseModel):
     reasoning: str
 
 
-class ImprovementProposal(BaseModel):
+class ImprovementProposal(StrictModel):
     """An innovation the Worker proposes (docs/DATA_MODELS.md). `spec` is
     type-dependent (new_invariant: InvariantCandidate fields; new_strategy: a
     full strategy spec incl. its 3 scenarios). `author` drives the floor tier
@@ -103,7 +124,7 @@ class ImprovementProposal(BaseModel):
     trace: str
 
 
-class ReallocationProposal(BaseModel):
+class ReallocationProposal(StrictModel):
     """A paper-mode adjustment of the DEFENDER's allocation (docs/DATA_MODELS.md;
     UC8). `proposed_allocation` is percent weights that must sum to 100.
     `scenario_delta` (tactical) and `favors_delta` (structural) are the two
@@ -154,7 +175,7 @@ class ReallocationProposal(BaseModel):
         return value
 
 
-class WorkerResult(BaseModel):
+class WorkerResult(StrictModel):
     """The Worker's complete output for one UC8 cycle (docs/ARCHITECTURE.md
     "WORKER"). Always complete; empty fields mean "nothing to propose", not
     "forgot to fill" — the schema makes the empty state explicit so a partial
@@ -177,8 +198,18 @@ class WorkerResult(BaseModel):
     # context"), not an absent key (Phase-1bis: a partial answer fails validation
     # rather than passing silently).
     market_signal_assessment: str
-    scenario_adjustments: list[ScenarioAdjustment] = Field(default_factory=list)
-    evaluations: list[EvaluationDraft] = Field(default_factory=list)
-    reallocation_proposed: ReallocationProposal | None = None
-    innovations_proposed: list[ImprovementProposal] = Field(default_factory=list)
+    # REQUIRED KEYS carrying EMPTY VALUES, which is the distinction this
+    # docstring's "always complete" claims and defaults quietly gave up:
+    # `default_factory=list` means an omitted `innovations_proposed` validates
+    # clean as [], so "the Worker had nothing to propose" and "the Worker forgot
+    # the field" became the same result — exactly the silent partial answer the
+    # Phase-1bis policy rejects. The empty state stays expressible ([] and null,
+    # per CLAUDE.md's `innovations_proposed: list` / `reallocation_proposed:
+    # Optional`); it just has to be SAID. The system prompt already asks for it
+    # in those words (agent.py: "must include innovations_proposed (empty list
+    # if none) and reallocation_proposed (null if none)").
+    scenario_adjustments: list[ScenarioAdjustment]
+    evaluations: list[EvaluationDraft]
+    reallocation_proposed: ReallocationProposal | None
+    innovations_proposed: list[ImprovementProposal]
     reasoning: str  # also the Proposal vertex's reasoning (switch commentary folded in)

@@ -10,6 +10,7 @@ reads as weights, not percentages — matching the EXAMPLE template).
 """
 
 import json
+from datetime import date, timedelta
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
@@ -23,6 +24,10 @@ from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
 # corpus (docs/EXAMPLE.md Step 8A shows a handful).
 DIGEST_INVARIANTS = 5
+# How far back the digest's BRIDGE proposal slot looks. One week, because the
+# digest is weekly and the slot means "what was decided for this digest" — a
+# UC9 ad-hoc re-run's mid-week proposal is inside it, a past Monday's is not.
+DIGEST_PROPOSAL_WINDOW_DAYS = 7
 
 
 def pct(fraction: float | None, *, signed: bool = False) -> str:
@@ -276,13 +281,15 @@ def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
         ]
         lines = [
             "",
-            "🔧 Reallocation proposal (paper-test) — defender stays, allocation tilts:",
+            f"🔧 Reallocation proposal (paper-test), decided {proposal.get('date', '?')} "
+            "— defender stays, allocation tilts:",
             "   " + " | ".join(moves),
         ]
     else:
         lines = [
             "",
-            f"🔀 Switch proposal ({proposal.get('recommendation', 'monitor')}): "
+            f"🔀 Switch proposal ({proposal.get('recommendation', 'monitor')}), "
+            f"decided {proposal.get('date', '?')}: "
             f"{proposal.get('challenger_id')} over {proposal.get('defender_id')}",
         ]
     lines.append(f"   Why: {proposal.get('reasoning', '')}")
@@ -444,13 +451,28 @@ def _json_map(raw: Any) -> dict[str, Any]:
 
 
 async def _latest_proposal(
-    db: InvestmentDB, ranking: list[dict[str, Any]]
+    db: InvestmentDB, ranking: list[dict[str, Any]], today: date
 ) -> dict[str, Any] | None:
-    """The BRIDGE proposal the digest renders: the most recent switch or
-    reallocation, resolved into what `_proposal_block` reads. A reallocation
-    needs `current_allocation` — the allocation it moves AWAY from, which lives
-    on the defender's snapshot row, not on the Proposal (the vertex stores the
-    target and the diff). `None` when the ledger is empty.
+    """The BRIDGE proposal for THIS WEEK: the most recent switch or reallocation
+    inside `DIGEST_PROPOSAL_WINDOW_DAYS` of `today`, resolved into what
+    `_proposal_block` reads. A reallocation needs `current_allocation` — the
+    allocation it moves AWAY from, which lives on the defender's snapshot row,
+    not on the Proposal (the vertex stores the target and the diff).
+
+    WINDOWED, and it was not. The query took the latest bridge proposal in the
+    whole ledger, so once ANY had ever been emitted the digest reprinted it every
+    Monday, undated, under "🔧 Reallocation proposal (paper-test)" — a months-old
+    tilt rendered indistinguishably from one decided that morning, on the page
+    the owner places orders from. "No bridge proposal this week" could then only
+    appear on a DB that had never proposed anything, which is not what that line
+    says. Under ADR-007 the bridge proposes rarely, so the stale case was the
+    common one, and the digest's own reader is the person placing the orders.
+
+    The window is a DATE window rather than "at or after the current ranking",
+    which was the first attempt: that ties the proposal slot to whether an
+    unrelated job wrote a snapshot, and its failure mode is dropping a proposal
+    the owner should see — the same class of defect, entering from the other
+    side. The date answers the question directly and depends on nothing else.
 
     MARKET-SIGNAL ROWS ARE EXCLUDED. They are rendered from their journal by
     `_market_signal_block`; leaving them in this ORDER BY meant the two paths
@@ -458,8 +480,9 @@ async def _latest_proposal(
     `created_at` beat the 08:55 decision — hiding the only order the owner
     actually had to place."""
     rows = await db.query(
-        "SELECT * FROM proposal WHERE proposal_type != 'market-signal' "
-        "ORDER BY date DESC, created_at DESC LIMIT 1"
+        "SELECT * FROM proposal WHERE proposal_type != 'market-signal' AND date >= :d "
+        "ORDER BY date DESC, created_at DESC LIMIT 1",
+        d=(today - timedelta(days=DIGEST_PROPOSAL_WINDOW_DAYS)).isoformat(),
     )
     if not rows:
         return None
@@ -473,7 +496,7 @@ async def _latest_proposal(
     return proposal
 
 
-async def build_digest(db: InvestmentDB) -> str:
+async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
     """The weekly digest rendered from the DB alone (docs/MILESTONES.md M8:
     "digest rendered in terminal"). Mechanical and read-only — every input is a
     committed row, so the digest can be re-rendered for any past Monday's state
@@ -482,6 +505,7 @@ async def build_digest(db: InvestmentDB) -> str:
 
     The invariants shown are the heaviest INTEGRATED ones (what the ranking is
     allowed to lean on), which is also the set gate 6 admits."""
+    today = today or date.today()
     regime_rows = await db.query(
         "SELECT r.regime_type_id, r.confidence, rt.name AS regime_name "
         "FROM regime r JOIN regime_type rt ON rt.id = r.regime_type_id "
@@ -507,10 +531,10 @@ async def build_digest(db: InvestmentDB) -> str:
         global_liquidity=dict(liquidity_rows[0]) if liquidity_rows else {},
         ranking=[dict(r) for r in ranking],
         invariants=[dict(r) for r in invariants],
-        proposal=await _latest_proposal(db, [dict(r) for r in ranking]),
+        proposal=await _latest_proposal(db, [dict(r) for r in ranking], today),
         scoreboard=await build_scoreboard(db),
         defender_metrics=dict(defender) if defender else None,
-        alerts=await collect_alerts(db),
+        alerts=await collect_alerts(db, today),
         stack=await _stack_standing(db),
         market_signal=await _latest_market_signal_decision(db),
         worker_reading=await _latest_worker_reading(db),

@@ -3,6 +3,7 @@ src/investment/telegram/digest.py). Pure rendering asserted line by line, plus
 scoreboard assembly from a seeded proposal ledger."""
 
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -223,7 +224,10 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
         "'2026-07-20', 't', '2026-07-20T09:00:00+00:00')"
     )
 
-    text = await D.build_digest(db)
+    # Pinned to the proposal's own Monday: the bridge slot is windowed on the
+    # digest's date, so an undated `build_digest()` here would (correctly) drop a
+    # proposal from 2026-07-20 rather than reprint it as this week's.
+    text = await D.build_digest(db, today=date(2026, 7, 20))
     assert "Regime: Stagflation (78.0% — stag)" in text
     assert "def-pf: 1.18 ★ (defender)" in text
     assert "GLD stagflation hedge: 0.756 (8/9 confirmed) [dalio]" in text
@@ -296,4 +300,54 @@ def test_no_reading_and_an_empty_reading_both_render_nothing() -> None:
             "market_signal_decision_date": "2026-08-03",
             "market_signal_assessment": "",
         },
+    )
+
+
+async def test_a_proposal_from_a_past_week_is_not_reprinted_as_this_weeks(
+    db: InvestmentDB,
+) -> None:
+    """The slot took the latest bridge proposal in the WHOLE ledger, undated, so
+    once any had ever been emitted the digest reprinted it every Monday under
+    "🔧 Reallocation proposal (paper-test)" — indistinguishable from one decided
+    that morning, on the page the owner places orders from. Under ADR-007 the
+    bridge proposes rarely, so this was the common case, not the corner one."""
+    await _snapshot(db)
+    await db.command(
+        "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
+        "recommendation, market_context, reasoning, paper_started, trace, created_at) VALUES "
+        "('old-1', '2026-01-05', 'reallocation', 'def-pf', '{\"SPY\": 100}', 'paper-test', "
+        "'{}', 'a tilt from six months ago', '2026-01-05', 't', '2026-01-05T09:00:00+00:00')"
+    )
+    text = await D.build_digest(db, today=date(2026, 7, 20))
+    assert "a tilt from six months ago" not in text
+    assert "No bridge proposal this week — maintain." in text
+
+
+async def test_a_proposal_inside_the_window_is_shown_with_its_date(db: InvestmentDB) -> None:
+    """The positive control, and the date the render now carries — a UC9 ad-hoc
+    re-run's mid-week proposal is inside the window and must still appear."""
+    await _snapshot(db)
+    await db.command(
+        "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
+        "recommendation, market_context, reasoning, paper_started, trace, created_at) VALUES "
+        "('mid-1', '2026-07-22', 'reallocation', 'def-pf', '{\"SPY\": 100}', 'paper-test', "
+        "'{}', 'an ad-hoc tilt', '2026-07-22', 't', '2026-07-22T14:00:00+00:00')"
+    )
+    text = await D.build_digest(db, today=date(2026, 7, 24))
+    assert "an ad-hoc tilt" in text
+    assert "decided 2026-07-22" in text
+
+
+async def _snapshot(db: InvestmentDB) -> None:
+    """The defender's ranking row — `_latest_proposal` resolves
+    `current_allocation` off it, so the reallocation block needs one to render."""
+    await db.command(
+        "INSERT INTO framework (id, name, enabled, trace, created_at) "
+        "VALUES ('4s', 'F', 1, 't', '2026-01-01')"
+    )
+    await db.command(
+        "INSERT INTO portfolio_weekly_snapshot (date, portfolio_id, defender, framework_id, "
+        "allocation, rank, sortino_rolling, calmar_rolling, market_context, recommendation, "
+        "trace) VALUES ('2026-07-20', 'def-pf', 1, '4s', '{\"SPY\": 50, \"GLD\": 50}', 1, "
+        "1.18, 1.9, '{}', 'maintain', 't')"
     )

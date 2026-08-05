@@ -447,9 +447,12 @@ async def run_market_signal(
         # rather than raise (the incremental-seed contract); the LIVE cycle has
         # no such pre-check, and this is what stops it deciding blind.
         #
-        # Only ABSENT is caught here. A series that STOPPED updating ffills and
-        # still decides — same failure with a timestamp on it, deferred to I-50
-        # because refusing on staleness needs a max-age threshold.
+        # Only ABSENT is caught here, and deliberately: a series that STOPPED
+        # updating ffills and still decides, which `alerts.signal_freshness_alert`
+        # reports rather than blocks. An alert and never a block is the owner's
+        # recorded decision (docs/MILESTONES.md, second coherence pass
+        # 2026-08-02) — ADR-003 says a stale print IS what was knowable, and
+        # ADR-009 scopes the live path to telling rather than refusing.
         raise ValueError(f"market-signal stack missing signal series for {absent}")
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()

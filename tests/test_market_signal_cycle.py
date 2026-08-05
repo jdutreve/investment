@@ -558,7 +558,10 @@ async def test_a_bridge_reallocation_the_same_monday_cannot_hide_the_decision(
         "'{}', 'bridge tilt', '2025-11-03', 't', '2999-01-01T09:00:00+00:00')"
     )
 
-    text = await build_digest(db)
+    # Rendered AS OF that Monday: the bridge slot is windowed on the digest's
+    # own date (`DIGEST_PROPOSAL_WINDOW_DAYS`), so a digest built today would
+    # correctly drop a 2025 proposal rather than reprint it as this week's.
+    text = await build_digest(db, today=date(2025, 11, 3))
     assert "🧭 Market-signal decision (paper-test)" in text
     assert f"{MS.TREND_HAVEN} 0→50" in text
     assert "🔧 Reallocation proposal" in text and "bridge tilt" in text
