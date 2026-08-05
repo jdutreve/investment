@@ -28,6 +28,7 @@ from openai import AsyncOpenAI
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
 from investment.worker.result import WorkerResult
@@ -40,6 +41,27 @@ logger = logging.getLogger(__name__)
 OUTPUT_RETRIES = 2  # PydanticAI schema-validation retries (Phase 1bis policy)
 TRANSPORT_RETRIES = 2  # HTTP client retries with backoff (CLAUDE.md async standard)
 WORKER_TIMEOUT_SECONDS = 300.0
+
+# The agentic-loop budget. `OUTPUT_RETRIES`/`TRANSPORT_RETRIES` bound schema and
+# transport faults; NEITHER bounds the tool loop, so before this a Worker that
+# kept calling `db_query` ran until the 300s timeout, billing every turn — the
+# one unbounded cost in a system whose whole point is that the mechanical half
+# is free.
+#
+# The three bridged tools are already ROW-capped (worker/tools.py: 20/30 rows)
+# but were not CALL-capped, and the two bound different things: rows bound what
+# one answer may contain, calls bound how many questions may be asked. The
+# Planner's margin has had `MAX_ZOOMS = 3` since M8 for exactly this reason
+# (planner/retrieval.py); this is the Worker's equivalent.
+#
+# 8 is the SPEC's number, not one invented here: docs/TASKS.md Phase 5 pins the
+# Worker at a "1-8 tool calls budget". It is a RUNAWAY guard rather than a
+# frugality knob — the Worker legitimately checks several portfolios and tickers
+# before proposing, and a budget that bit in normal use would cost a cycle to
+# save pennies. `request_limit` sits above it because each tool call costs one
+# request and the final structured answer costs one more, plus the retries.
+WORKER_TOOL_CALLS_LIMIT = 8
+WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
 
 # The UC8 allocation decision is the highest-stakes single call in the system;
 # 'high' is the reasoning depth for it. sonnet-5 accepts the OpenRouter effort
@@ -149,6 +171,19 @@ async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerRe
     lands, callers pass the rendered baseline directly. On schema-validation
     exhaustion PydanticAI raises (the Phase-1bis "never a silent pass" rule);
     the Monday-chain abort + ErrorEvent wrapping is the chain assembler's job,
-    not this function's."""
-    result = await agent.run(context)
+    not this function's.
+
+    Bounded by `UsageLimits`: exceeding the budget raises `UsageLimitExceeded`,
+    which surfaces exactly like a schema exhaustion — the chain aborts and alerts
+    (CLAUDE.md: "unhandled errors surface"). Deliberately NOT caught into a
+    degraded result: a Worker that burned 12 tool calls without answering has
+    not produced a weaker opinion, it has failed, and a half-cycle silently
+    written to the graph is worse than a Monday with no cognitive read."""
+    result = await agent.run(
+        context,
+        usage_limits=UsageLimits(
+            request_limit=WORKER_REQUEST_LIMIT,
+            tool_calls_limit=WORKER_TOOL_CALLS_LIMIT,
+        ),
+    )
     return result.output

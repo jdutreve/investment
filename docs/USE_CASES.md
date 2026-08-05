@@ -51,9 +51,26 @@ alert. Times in ../CLAUDE.md are indicative.)
   —    Outcome evaluation   → OutcomeEvent (kind: proposal | calibration |
                               probation — mechanical/outcomes.py; see
                               ARCHITECTURE "Unified improvement cycle")
+  —    MARKET-SIGNAL DECISION → MarketSignalDecisionEvent, and a
+                              Proposal(proposal_type='market-signal') on the
+                              ~3 months a year the book moves (08:55,
+                              market_signal_cycle.py). ADR-007's LIVE
+                              allocation path. Runs every Monday and refreshes
+                              the stack NAV each time, but the DECISION is
+                              MONTHLY — a no-op unless the month's anchor date
+                              is new. Journalled whether or not money moves.
   UC8  Proposal Detection   → ProposalEvent + Proposal vertex
-                              (switch or reallocation), or nothing
-  —    Weekly digest        → Telegram (09:30 — renders UC7/UC8 output; always sent)
+                              (switch or reallocation), or nothing.
+                              RETAINED BRIDGE (ADR-007). The Worker READS the
+                              08:55 decision and nuances it in
+                              `market_signal_assessment`; it may NOT re-pick
+                              the book (ADR-011 — gate 0 of
+                              dispose_reallocation refuses any reallocation
+                              targeting a TIME_VARYING_PORTFOLIOS row, before
+                              any merit gate).
+  —    Weekly digest        → Telegram (09:30 — renders the market-signal
+                              decision from its journal, plus UC7/UC8 output;
+                              always sent)
 
 On demand
   UC9  Chatbot              → UserDecisionEvent → may re-trigger UC8
@@ -421,6 +438,14 @@ contextualized via FAVORS edges (updated weekly), not directly valued.
 ---
 
 ## UC7 — Portfolio Ranking
+
+> **RETAINED BRIDGE (ADR-007) — this is a MONITORING view, not the decision.**
+> The ranking no longer selects what is held; the market-signal monthly decision
+> does (08:55, `market_signal_cycle.py`). UC7 still runs weekly, still ranks
+> every enabled portfolio including the stack, and is what the benchmark and the
+> digest read. The ranking RULE and the binding caps below are unchanged and
+> still bind.
+
 **Trigger:** Weekly cron (Monday, after UC6).
 **What it does:** Ranks all `Portfolio(enabled=true)`, including the live
 defender. The current regime does not filter the ranking universe — it is
@@ -454,6 +479,17 @@ context. Every ranked portfolio includes its concrete allocation.
 ---
 
 ## UC8 — Proposal Detection
+
+> **RETAINED BRIDGE (ADR-007) + BOUNDED BY ADR-011.** The switch gates (A) and
+> the scenario-driven reallocation blend (B) below are the BRIDGE's decision
+> path. No live cycle emits a switch. A reallocation may never target a
+> `TIME_VARYING_PORTFOLIOS` row: mechanical allocation is sovereign, and gate 0
+> of `dispose_reallocation` refuses it before any merit gate runs. The Worker's
+> contribution to the ADOPTED path is a READING (`market_signal_assessment`,
+> journalled and rendered) plus a rule challenge routed through
+> `innovations_proposed` — never an allocation. The gate mechanics, the caps and
+> the cooldown described below are otherwise unchanged.
+
 **Trigger:** Weekly Worker cycle (Monday 09:00).
 **Principle: the Worker proposes, Writeback disposes.** All gates are
 deterministic and run mechanically in Writeback; the Worker contributes

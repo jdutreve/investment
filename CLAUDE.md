@@ -59,11 +59,12 @@ its code.
 
 Three cognitive roles, strictly separated (full spec: docs/ARCHITECTURE.md):
 
-- **PLANNER** (Qwen3-8B via OpenRouter, thinking mode) — assembles Worker
+- **PLANNER** (deepseek-v4-flash via OpenRouter, thinking mode) — assembles Worker
   context: mechanical baseline queries + LLM-chosen margin (corpus searches,
   ≤3 whitelisted zooms — never raw SQL). Post-Worker Call 2 = guardrail +
   knowledge extraction. Direct DB access in Python, no tool_call.
-- **WORKER** (claude-sonnet-5 via Anthropic) — investment expert; interprets,
+- **WORKER** (claude-sonnet-5 via OpenRouter — owner decision 2026-07-21; the
+  model is unchanged, only the transport) — investment expert; interprets,
   never calculates (indicators are already in the DB). DB access via 3
   bridged tools ONLY: `db_query` (FORBIDDEN_SQL whitelist, ≤20 rows),
   `market_fetch` (ALLOWED_TICKERS, ≤30 rows), `portfolio_check`. Unaware of

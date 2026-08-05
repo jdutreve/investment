@@ -50,7 +50,16 @@ Filesystem
 
 ## Planner / Worker Asymmetry
 
-| | Planner (Qwen3-8B, OpenRouter) | Worker (Sonnet 5, Anthropic) |
+> **BOTH ROLES ROUTE THROUGH OPENROUTER** (owner decision 2026-07-21,
+> `config.py`). The Worker MODEL is unchanged — `anthropic/claude-sonnet-5` is
+> OpenRouter's id for it — only the transport is. One provider means one key,
+> one client construction and one place to compare models, which is what makes a
+> cheap-vs-expensive A/B a config change rather than a code change.
+> `anthropic_api_key` is retained but optional: nothing reads it while both roles
+> go through OpenRouter, and reverting the Worker to the direct transport should
+> not need a schema change.
+
+| | Planner (deepseek-v4-flash, OpenRouter) | Worker (Sonnet 5, OpenRouter) |
 |--|--------------------------------|------------------------------|
 | DB access | Direct Python asyncio | tool_call via bridged functions |
 | `_db` | direct, in-process | never — closure only |
@@ -721,6 +730,12 @@ here — not asserted.
 
 ## Strategy Library + Comparison
 
+> **RETAINED BRIDGE (ADR-007).** These four seeded strategies and the ranked
+> comparison between them are the bridge/benchmark, not the live allocation.
+> The adopted path allocates across the 3 market-signal books
+> (`docs/V1_STRATEGY.md`). Kept, measured, and never deleted until forward
+> paper-mode earns the switch.
+
 ```
 Seeded strategies (all enabled=true):
   four-seasons-rp    Dalio risk parity
@@ -741,6 +756,15 @@ Worker (weekly):
 ---
 
 ## 3 Scenarios per Strategy
+
+> **RETAINED BRIDGE (ADR-007).** `docs/V1_STRATEGY.md` demotes the scenario
+> read: "Scenarios (bull/base/bear per strategy) + scenario probabilities. Out
+> of the decision; the credit-spread/slope regime replaces the scenario read."
+> They still exist, are still validated at activation (probabilities summing to
+> 100, each `target_allocation` within the binding caps — enforced in
+> `outcomes._scenario_spec_defect`), and still feed the bridge's reallocation
+> blend. They do NOT drive the live allocation. `score_scenarios()` was
+> deliberately never built for this reason (see `mechanical/outcomes.py`).
 
 Probabilities of bull/base/bear must always sum to 100.
 
@@ -826,7 +850,7 @@ Event-driven (no nightly cron — the Mac sleeps, ADR-002)
     → curator (LLM — only when the batch created new Documents)
   backup after every Monday chain and every ingestion batch
   (market fetch, regime detection, NAV, scenario probabilities: all in
-   the Monday chain — decision cadence is weekly)
+   the Monday chain)
 
 Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
   (UC2 absorbed — catch-up + snapshot.market_context)
@@ -838,10 +862,21 @@ Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
   08:45  UC6 portfolio valuations → Portfolio vertices
   08:50  UC7 ranking → portfolio_weekly_snapshot
   08:52  Outcome evaluation (outcomes.py) → OutcomeEvent
-  08:55  V2 only: learn_from_adaptations
+  08:55  ADR-007 LIVE: market-signal decision (market_signal_cycle.py)
+         — runs every Monday, refreshes the stack NAV every time, but the
+           DECISION itself is MONTHLY (a no-op unless the month's anchor
+           date is new). This is the allocation path.
   09:00  UC8: Planner Pre → Worker → Planner Post → Writeback
+         — the Worker READS the 08:55 decision and nuances it; it may not
+           re-pick the book (ADR-011, enforced as gate 0). The reallocation
+           it may still emit is the BRIDGE's.
   09:30  Weekly digest → Telegram
 ```
+
+> **The ALLOCATION CADENCE IS MONTHLY (ADR-007).** The chain runs weekly and
+> every job above keeps its per-Monday frequency; only the allocation DECISION
+> is monthly. An earlier version of this block said "decision cadence is
+> weekly" — true of the superseded bridge, false of the adopted path.
 
 ---
 
@@ -893,6 +928,15 @@ spec = {
                    target_allocation (sums to 100, complies with the binding
                    user caps), initial probabilities (sum to 100)
 }
+
+THE KEY NAMES ABOVE ARE THE CONTRACT, not illustrative prose. They are read
+verbatim by `outcomes._activate_strategy` (`backed_by`, `scenarios`,
+`supersedes`) and validated by `outcomes._scenario_spec_defect`. This is not a
+hypothetical: the activation read `cites` instead of `backed_by` for months, a
+name appearing in no spec and no prompt, so a doc-conforming innovation
+activated with NO invariant behind it and the confrontation machinery had
+nothing to credit or blame. Nothing failed loudly — the edges were simply never
+written. Renaming a key here means renaming it in both places, in one commit.
 
 Flow (fully mechanical — no user gate, ADR-006):
   → EventLog append (InnovationEvent) → Strategy vertex
@@ -957,7 +1001,7 @@ asyncio.gather (5 fixed queries — no judgment involved, so no LLM):
 ### CALL 1a — Query Strategist (LLM → the VARIABLE margin only)
 ```
 Input  : raw trigger + baseline SUMMARY
-LLM    : Qwen3-8B via OpenRouter, thinking=512 tokens
+LLM    : deepseek-v4-flash via OpenRouter, thinking=512 tokens
 
 tool_use output — QueryStrategies (bounded; never raw SQL):
   corpus_queries : list[str] (≤3) — what to search in the corpus THIS
@@ -1091,7 +1135,7 @@ stale data). Timezone Europe/Zurich.
 ## LLM Runtime — PydanticAI, no homemade abstraction
 
 PydanticAI IS the model-agnostic layer (TASKS Phase 1bis): two Agent
-instances (Planner via OpenRouter provider, Worker via Anthropic), models
+instances (both via the OpenRouter provider — owner decision 2026-07-21), models
 in `.env`, structured outputs Pydantic-validated with the one-retry policy.
 Swap model: change `.env` only. No `BaseLLMClient`, no factory, no wrapper.
 

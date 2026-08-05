@@ -9,10 +9,19 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
-from investment.worker.agent import WORKER_SYSTEM_PROMPT, build_worker_agent, run_worker
+from investment.worker.agent import (
+    OUTPUT_RETRIES,
+    WORKER_REQUEST_LIMIT,
+    WORKER_SYSTEM_PROMPT,
+    WORKER_TOOL_CALLS_LIMIT,
+    build_worker_agent,
+    run_worker,
+)
 from investment.worker.result import (
     ImprovementProposal,
     ImprovementType,
@@ -205,3 +214,50 @@ def test_negative_deltas_stay_legal() -> None:
     """The long-only rule binds the ALLOCATION, never the deltas: a delta is a
     change, and a negative one is how a sleeve is cut."""
     assert _realloc(favors_delta={"GLD": -12.5}).favors_delta == {"GLD": -12.5}
+
+
+# -- the agentic-loop budget -------------------------------------------------
+
+
+async def test_a_runaway_tool_loop_is_stopped_by_the_budget(db: InvestmentDB) -> None:
+    """The one unbounded cost in the system: the tools are ROW-capped but were
+    not CALL-capped, so a Worker that kept calling `db_query` ran until the 300s
+    timeout, billing every turn. It must FAIL, not degrade — a half-cycle
+    silently written to the graph is worse than a Monday with no cognitive read.
+    """
+    agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
+    # TestModel(call_tools='all') calls every registered tool, then answers; the
+    # budget is squeezed below that to force the runaway path deterministically.
+    with agent.override(model=TestModel()), pytest.raises(UsageLimitExceeded):
+        await run_worker_with_limits(agent, "ctx", tool_calls_limit=1, request_limit=2)
+
+
+async def test_the_shipped_budget_does_not_bite_a_normal_cycle(db: InvestmentDB) -> None:
+    """The guard is a RUNAWAY bound, not a frugality knob. `call_tools=[]` keeps
+    this to the structured-output path — TestModel's synthetic tool ARGS are
+    rejected by the real tool validators long before any budget, so a
+    tools-and-all happy path cannot be simulated here; the runaway case above is
+    what the budget exists for, and this pins that it stays out of the way."""
+    agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
+    with agent.override(model=TestModel(call_tools=[])):
+        result = await run_worker(agent, "ctx")
+    assert isinstance(result, WorkerResult)
+
+
+def test_the_shipped_budget_leaves_room_for_the_answer_and_its_retries() -> None:
+    """`request_limit` must sit ABOVE `tool_calls_limit`: each tool call costs a
+    request and the final structured answer costs one more, plus the schema
+    retries. Equal limits would fail the cycle on its last, correct turn."""
+    assert WORKER_REQUEST_LIMIT > WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES
+
+
+async def run_worker_with_limits(
+    agent: object, context: str, *, tool_calls_limit: int, request_limit: int
+) -> WorkerResult:
+    """`run_worker` with a squeezed budget — the shipped one is deliberately
+    generous, so the runaway path needs a tighter bound to be provoked."""
+    result = await agent.run(  # type: ignore[attr-defined]
+        context,
+        usage_limits=UsageLimits(request_limit=request_limit, tool_calls_limit=tool_calls_limit),
+    )
+    return result.output  # type: ignore[no-any-return]

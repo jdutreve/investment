@@ -2,6 +2,29 @@
 
 See REVISION_NOTES.md for V1 scope and core concepts.
 
+> **ADR-007 pivot (accepted 2026-07-20) — read `docs/V1_STRATEGY.md` FIRST.**
+> This file was written BEFORE the pivot and specifies the Dalio 4-quadrant
+> ranking path in full detail: the defender/challenger duel, the 5 switch gates,
+> the scenario-driven weekly reallocation and its 0.4/0.6 blend.
+>
+> **That is the RETAINED BRIDGE, not the live allocation path.** V1's adopted
+> strategy is the market-signal monthly countercyclical stack (market-priced
+> credit-spread/slope regime → 3 concentrated books → 200d trend overlay →
+> binding caps), deciding MONTHLY. The bridge is kept as fallback, benchmark and
+> knowledge factory, and is not deleted until forward paper-mode earns the
+> switch.
+>
+> Everything specified here remains ACCURATE for what it describes. What it no
+> longer states correctly is which path is LIVE. Sections governing the
+> superseded live path carry an inline `> **RETAINED BRIDGE**` marker; sections
+> governing the caps, the indicators, the schema, the ops layer and the
+> knowledge factory bind unchanged. **Where this file and `V1_STRATEGY.md`
+> disagree about what runs, `V1_STRATEGY.md` wins.**
+>
+> Before implementing any task below, check whether it carries that marker. A
+> task that does is bridge work — legitimate, but it must not be wired into the
+> live allocation decision.
+
 > **Execution order: see MILESTONES.md** — this file specifies WHAT to
 > build (phases/tasks); MILESTONES.md sequences it into owner-verifiable
 > increments with Definition-of-Verified checklists and STOP points
@@ -40,8 +63,8 @@ See IMPROVEMENTS.md for deferred V2 features.
 |                 | + 5 FK columns (composition rule)                             |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
-| Planner         | Qwen3-8B via OpenRouter, thinking=512/1024                    |
-| Worker          | Sonnet 5 via Anthropic                                        |
+| Planner         | deepseek-v4-flash via OpenRouter, thinking=512/1024           |
+| Worker          | Sonnet 5 via OpenRouter (owner decision 2026-07-21)           |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
 | Veille          | UC3 Event Watch (pinned Fed/ECB/SNB press) + user deposits    |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
@@ -682,7 +705,7 @@ configured from `.env`:
 - **Planner agent** — `PLANNER_MODEL` via OpenRouter (OpenAI-compatible
   provider), thinking budgets per call; structured outputs
   (`QueryStrategies`, `PlannerContext`, `PostPlannerResult`).
-- **Worker agent** — `WORKER_MODEL` via Anthropic; output_type=`WorkerResult`;
+- **Worker agent** — `WORKER_MODEL` via OpenRouter; output_type=`WorkerResult`;
   the 3 bridged tools registered as PydanticAI tools with deps injection
   (`_db` lives in deps, never exposed — same least-privilege guarantees).
 
@@ -1228,7 +1251,7 @@ class PlannerPre:
         #      weight_effective — weight alone would surface the same Dalio
         #      heavyweights forever, regime-blind
         #   ⑤ Last 3 Proposals (any status, incl. outcomes/rejections)
-        # CALL 1a — Qwen3-8B sees baseline SUMMARY, forced tool_use
+        # CALL 1a — the Planner model sees baseline SUMMARY, forced tool_use
         #   "QueryStrategies" — the VARIABLE margin only:
         #   corpus_queries: list[str] (≤3)  — what to search in the corpus
         #     THIS week (regime shift? refuted invariant? rejected proposal?)
@@ -1386,11 +1409,20 @@ Skill files (each: purpose, inputs, method, output contract):
   flag calmar demotions and drawdown-rule exclusions.
 - `skill-compare-vs-defender.md` — challenger gaps, downside-profile flags,
   switch commentary folded into `reasoning` (used as Proposal reasoning).
+  > **RETAINED BRIDGE (ADR-007).** No live cycle emits a switch: the ranked
+  > defender/challenger duel was superseded. Bridge/benchmark only.
 - `skill-propose-reallocation.md` — WHEN active-scenario probability shifted
   > scenario_shift_trigger OR allocation drift vs blend target > 5pts:
   build proposed_allocation = current + 0.4×scenario_delta + 0.6×favors_delta,
   rounded to 2.5, renormalized to 100; cite ≥1 supporting invariant; explain
   the blend in reasoning. Otherwise return null.
+  > **RETAINED BRIDGE (ADR-007), and BOUNDED by ADR-011.** The scenario-driven
+  > reallocation is the bridge's decision, not the live one. It may never target
+  > a `TIME_VARYING_PORTFOLIOS` row — mechanical allocation is sovereign, and
+  > gate 0 of `dispose_reallocation` refuses it before any merit gate. The
+  > Worker's contribution to the ADOPTED path is `market_signal_assessment`
+  > (a reading) plus `innovations_proposed` (a rule challenge), never an
+  > allocation.
 - `skill-interpret-invariants.md` — LEADS with the mental model: invariants
   are **lighthouses, not orders** — they ORIENT the Worker's reasoning, they
   do not dictate the decision (the Worker steers, Writeback verifies). Then
@@ -1587,6 +1619,9 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
             max(user.max_drawdown_pct, p.max_drawdown_rule))  # both negative
 
 # A — switch gate (from snapshot rows, after Worker cycle):
+#   RETAINED BRIDGE (ADR-007): no LIVE cycle emits a switch. `switch_gates`
+#   survives because the bridge replay still runs it; `dispose_switch` was
+#   deliberately never built. Do NOT wire this into the live path.
 #   PRE-GATE: challenger not user-rejected within proposal_cooldown_weeks
 #     (unless regime type changed since the rejection)
 #   challenger rank < defender rank
