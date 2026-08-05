@@ -23,13 +23,14 @@ ExpandedPath = Annotated[Path, BeforeValidator(_expand_path)]
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", frozen=True)
 
-    # LLMs — BOTH roles now route through OpenRouter (owner decision,
-    # 2026-07-21). CLAUDE.md still describes the Worker as "claude-sonnet-5 via
-    # Anthropic"; the model is unchanged, only the transport is (OpenRouter's
-    # id for it is `anthropic/claude-sonnet-5`). One provider means one key,
-    # one client construction, and one place to compare models — which is what
-    # makes the curator's cheap-vs-expensive A/B a config change rather than a
-    # code change. Needs recording in the docs (see MILESTONES M7).
+    # LLMs — BOTH roles route through OpenRouter (owner decision, 2026-07-21).
+    # The Worker's MODEL is unchanged, only the transport (OpenRouter's id for
+    # it is `anthropic/claude-sonnet-5`). One provider means one key, one client
+    # construction, and one place to compare models — which is what makes the
+    # curator's cheap-vs-expensive A/B a config change rather than a code
+    # change. CLAUDE.md carries this on both role lines; this comment used to
+    # say it did not, and that staleness cost a wasted check on 2026-08-05.
+    # Still NOT a numbered ADR — DECISIONS.md stops at ADR-011.
     #
     # `anthropic_api_key` is consequently OPTIONAL: nothing reads it while both
     # roles go through OpenRouter. Kept rather than deleted because ADR-007's
