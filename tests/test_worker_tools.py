@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+from pydantic_ai.exceptions import ModelRetry
 
 from investment.db.sqlite import InvestmentDB
 from investment.worker.tools import (
@@ -172,6 +173,24 @@ async def test_an_unknown_period_lists_the_valid_ones(tools: WorkerTools) -> Non
 async def test_no_tickers_is_refused(tools: WorkerTools) -> None:
     with pytest.raises(ToolInputError, match="no tickers"):
         await tools.market_fetch([], "1m")
+
+
+async def test_a_refusal_is_handed_back_to_the_model_not_raised_at_the_chain(
+    tools: WorkerTools,
+) -> None:
+    """The refusal messages name what is allowed so the Worker can correct
+    itself — but PydanticAI only hands back `ModelRetry`; anything else aborts
+    the run. Measured 2026-08-05: a Worker asking for period '6mo' (one
+    character from the valid '6m') killed the whole UC8 cycle.
+
+    Also asserts the message SURVIVES onto the exception, since that text is
+    the entire mechanism by which the model learns what to fix."""
+    with pytest.raises(ModelRetry) as caught:
+        await tools.market_fetch(["SPY"], "6mo")
+    assert "6m" in str(caught.value)
+    # Still an ordinary ValueError outside an agent loop (validate_sql and
+    # friends are used directly in tests and would otherwise pass silently).
+    assert isinstance(caught.value, ValueError)
 
 
 # -- portfolio_check --------------------------------------------------------

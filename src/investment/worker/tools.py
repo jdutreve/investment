@@ -28,6 +28,8 @@ import logging
 import re
 from typing import Any
 
+from pydantic_ai.exceptions import ModelRetry
+
 from investment.db.sqlite import InvestmentDB
 
 logger = logging.getLogger(__name__)
@@ -103,10 +105,30 @@ MARKET_PERIODS: dict[str, int] = {
 _WORD_RE = re.compile(r"[A-Za-z_]+")
 
 
-class ToolInputError(ValueError):
+class ToolInputError(ModelRetry, ValueError):
     """A tool refused its input. Carries a message meant for the MODEL: it is
     returned to the Worker so it can correct itself, so it must say what was
-    wrong and what is allowed, never merely 'invalid'."""
+    wrong and what is allowed, never merely 'invalid'.
+
+    `ModelRetry` is what makes that docstring TRUE. PydanticAI hands the model
+    back only `ModelRetry`; every other exception escapes the agent loop and
+    aborts the run. Until 2026-08-05 this was a plain `ValueError`, so a tool
+    call the Worker got slightly wrong killed the whole UC8 cycle instead of
+    being corrected — measured with `market_fetch(period='6mo')`, a Yahoo-style
+    literal one character from the allowed `6m`. The failure was invisible under
+    a model that happened never to guess wrong; it is a property of the code,
+    not of the model.
+
+    `ValueError` is kept in the bases so the refusal is still an ordinary
+    programming error to any caller that uses these validators OUTSIDE an agent
+    (`validate_sql` is deliberately testable without a DB or a model).
+
+    This does not weaken the boundary: a retry re-enters `WorkerTools`, so the
+    SQL blacklist, the ticker allow-list and the row caps all run again, and
+    the retry itself is bounded by the agent's `tool_calls_limit` (worker/
+    agent.py `WORKER_TOOL_CALLS_LIMIT`). A Worker that cannot get its own tool
+    call right still fails the cycle — it just no longer fails on the first
+    typo."""
 
 
 def _contains_keyword(stmt: str) -> str | None:
