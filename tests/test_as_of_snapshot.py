@@ -15,7 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from investment.db.as_of_snapshot import build_as_of_snapshot, snapshot_path
+from investment.db.as_of_snapshot import (
+    advance_as_of_snapshot,
+    build_as_of_snapshot,
+    snapshot_path,
+)
 from investment.db.sqlite import InvestmentDB
 
 AS_OF = date(2008, 10, 1)
@@ -263,3 +267,80 @@ async def test_derived_aggregates_with_no_date_are_cleared(live: Path, tmp_path:
         assert await db.query("SELECT strategy_id FROM favors") == []
     finally:
         await db.close()
+
+
+# -- advancing the clock -----------------------------------------------------
+
+LATER = date(2009, 7, 1)
+
+
+async def _advanced(live: Path, tmp_path: Path) -> InvestmentDB:
+    """One snapshot built at AS_OF, then advanced to LATER — the shape a replay
+    sequence uses, as opposed to two independent builds."""
+    dest = snapshot_path(tmp_path, AS_OF)
+    build_as_of_snapshot(live, dest, AS_OF)
+    advance_as_of_snapshot(dest, live, AS_OF, LATER)
+    return InvestmentDB(dest)
+
+
+async def test_advancing_tops_up_the_world(live: Path, tmp_path: Path) -> None:
+    db = await _advanced(live, tmp_path)
+    try:
+        prices = await db.query("SELECT ts FROM market_data ORDER BY ts")
+        assert [r["ts"] for r in prices] == ["2008-09-30", "2008-10-02"]
+
+        regimes = await db.query("SELECT id FROM regime ORDER BY id")
+        assert [r["id"] for r in regimes] == ["r-future", "r-old", "r-open"]
+        # and the backtest that hangs off the newly visible regime comes with it
+        rows = await db.query("SELECT id FROM backtest ORDER BY id")
+        assert [r["id"] for r in rows] == ["bt-future", "bt-visible"]
+    finally:
+        await db.close()
+
+
+async def test_advancing_re_dates_the_regime_as_of_the_new_t(live: Path, tmp_path: Path) -> None:
+    """`end_date` was blanked at build time. A closure that became knowable
+    inside the interval must come BACK — reading the snapshot's own NULL cannot
+    tell 'still open' from 'closed, and we hid it'."""
+    db = await _advanced(live, tmp_path)
+    try:
+        rows = await db.query("SELECT id, end_date, is_current FROM regime ORDER BY id")
+        by_id = {str(r["id"]): r for r in rows}
+        assert by_id["r-open"]["end_date"] == "2009-06-30"  # knowable by LATER
+        assert by_id["r-future"]["end_date"] is None  # genuinely open
+        assert by_id["r-future"]["is_current"] == 1  # confirmed inside the interval
+        assert by_id["r-open"]["is_current"] == 0
+    finally:
+        await db.close()
+
+
+async def test_advancing_leaves_the_agents_own_history_alone(live: Path, tmp_path: Path) -> None:
+    """The whole point of advancing rather than rebuilding. A proposal the
+    replay emitted at the earlier date must still be there afterwards, or every
+    month replays as an opening entry."""
+    dest = snapshot_path(tmp_path, AS_OF)
+    build_as_of_snapshot(live, dest, AS_OF)
+
+    db = InvestmentDB(dest)
+    await db.command(
+        "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
+        "recommendation, market_context, reasoning, trace, created_at) VALUES "
+        "('p1', '2008-10-01', 'market-signal', 'pf', '{\"IEF\": 60}', 'paper-test', '{}', 'r', "
+        "'tr', '2008-10-01')"
+    )
+    await db.close()
+
+    advance_as_of_snapshot(dest, live, AS_OF, LATER)
+    db = InvestmentDB(dest)
+    try:
+        held = await db.query("SELECT proposed_allocation FROM proposal WHERE id = 'p1'")
+        assert held and str(held[0]["proposed_allocation"]) == '{"IEF": 60}'
+    finally:
+        await db.close()
+
+
+async def test_the_clock_only_moves_forward(live: Path, tmp_path: Path) -> None:
+    dest = snapshot_path(tmp_path, AS_OF)
+    build_as_of_snapshot(live, dest, AS_OF)
+    with pytest.raises(ValueError, match="forward only"):
+        advance_as_of_snapshot(dest, live, LATER, AS_OF)

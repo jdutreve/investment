@@ -13,6 +13,11 @@ row deleted. Every read — the 21, the Worker's own SQL, `market_fetch` — is 
 PIT for free, no live signature changes, and replay logic cannot DRIFT from live
 logic, which is Task 9.4's own stated reason for reusing the one harness.
 
+One snapshot is BUILT at the first decision date and then ADVANCED to each
+following one (`advance_as_of_snapshot`) rather than rebuilt: only the world is
+topped up, so everything the replay itself wrote survives and the run is a
+sequence of months rather than twenty independent first months.
+
 WHAT IS PRUNED — the WORLD: prices, NAVs, regimes, rankings, valuations,
 scenario readings, past decisions, the event log.
 
@@ -35,6 +40,22 @@ in the report's NOTES, alongside the mechanical mode's own approximations.
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
+
+# The WORLD OBSERVATIONS, and the expression giving the date each row became
+# knowable. These are the only tables `advance_as_of_snapshot` tops up, and the
+# split is the whole reason the replay can be a SEQUENCE (see that function).
+# `backtest` is absent on purpose: it hangs off its regime, so its top-up
+# predicate is not a column expression and is written out longhand there.
+_WORLD_OBSERVATIONS: tuple[tuple[str, str], ...] = (
+    ("market_data", "date(ts)"),  # ADR-003: ts = the date it became KNOWABLE
+    ("portfolio_nav", "date(ts)"),
+    ("benchmark_valuation", 'date("date")'),
+    # Regimes key on `created_at` — the CONFIRMING PRINT's date — and NOT on
+    # `start_date`, which is back-dated to the data. A regime begun before t but
+    # not yet confirmed at t must stay invisible, else a few weeks of look-ahead
+    # leak (replay.py module docstring, "Regimes").
+    ("regime", "date(created_at)"),
+)
 
 # Rows to DELETE, in FK-dependency order — CHILDREN BEFORE PARENTS, because the
 # copy is pruned with `foreign_keys=ON` so a missed dependent aborts loudly here
@@ -65,16 +86,8 @@ _PRUNE: tuple[tuple[str, str], ...] = (
     # impossible: `run_backtests_and_favors` SKIPS a (regime type, strategy) pair
     # with no visible instance at t, which would have left the 2026 edge in place.
     ("favors", "1 = 1"),
-    # Regimes key on `created_at` — the CONFIRMING PRINT's date — and NOT on
-    # `start_date`, which is back-dated to the data. A regime begun before t but
-    # not yet confirmed at t must stay invisible, else a few weeks of look-ahead
-    # leak (replay.py module docstring, "Regimes").
-    ("regime", "date(created_at) > :t"),
-    # Leaves: pure observation series.
-    ("market_data", "date(ts) > :t"),  # ADR-003: ts = the date it became KNOWABLE
-    ("portfolio_nav", "date(ts) > :t"),
+    *((table, f"{expr} > :t") for table, expr in _WORLD_OBSERVATIONS),
     ("portfolio_weekly_snapshot", 'date("date") > :t'),
-    ("benchmark_valuation", 'date("date") > :t'),
     ("scenario_probability", "date(ts) > :t"),
     ("scenario_calibration", 'date("date") > :t'),
     # The agent's own history, pruned on `event_date` (the DOMAIN date) and not
@@ -84,6 +97,27 @@ _PRUNE: tuple[tuple[str, str], ...] = (
     # at every historical date and hide from the Worker the regime history that
     # WAS knowable at t. `event_date` keeps exactly that and drops the rest.
     ("event_log", "event_date > :t"),
+)
+
+# The two regime columns that answer "as of WHEN?" rather than "what happened?".
+# Shared, because `advance_as_of_snapshot` has to re-apply them at the new t: a
+# regime that looked open at the old t may have closed inside the interval, and a
+# newly confirmed regime takes over `is_current`.
+_REGIME_ASOF_REPAIRS: tuple[tuple[str, str], ...] = (
+    # A regime open at t must LOOK open at t. `end_date` is the retroactive
+    # close, so a regime confirmed before t but closed after it would otherwise
+    # hand the Worker the date its own regime ends (the `end_date`-knowability
+    # half of I-49, closed here for the agentic path).
+    ("regime", "UPDATE regime SET end_date = NULL WHERE date(end_date) > :t"),
+    # `is_current` marks 2026's current regime. As-of t it is the latest VISIBLE
+    # one — the same `max(created_at, id)` rule replay.py resolves the as-of
+    # regime with, so the two paths cannot disagree.
+    ("regime", "UPDATE regime SET is_current = 0"),
+    (
+        "regime",
+        "UPDATE regime SET is_current = 1 WHERE id = "
+        "(SELECT id FROM regime ORDER BY created_at DESC, id DESC LIMIT 1)",
+    ),
 )
 
 # Deleting rows is not enough: some columns on SURVIVING rows are written by the
@@ -103,20 +137,7 @@ _REPAIRS: tuple[tuple[str, str], ...] = (
         "calmar_rolling = NULL, max_drawdown = NULL, volatility = NULL, return_3m = NULL, "
         "return_6m = NULL, return_1y = NULL, return_3y = NULL, return_5y = NULL",
     ),
-    # A regime open at t must LOOK open at t. `end_date` is the retroactive
-    # close, so a regime confirmed before t but closed after it would otherwise
-    # hand the Worker the date its own regime ends (the `end_date`-knowability
-    # half of I-49, closed here for the agentic path).
-    ("regime", "UPDATE regime SET end_date = NULL WHERE date(end_date) > :t"),
-    # `is_current` marks 2026's current regime. As-of t it is the latest VISIBLE
-    # one — the same `max(created_at, id)` rule replay.py resolves the as-of
-    # regime with, so the two paths cannot disagree.
-    ("regime", "UPDATE regime SET is_current = 0"),
-    (
-        "regime",
-        "UPDATE regime SET is_current = 1 WHERE id = "
-        "(SELECT id FROM regime ORDER BY created_at DESC, id DESC LIMIT 1)",
-    ),
+    *_REGIME_ASOF_REPAIRS,
     # A verdict is written at +12w (`proposal_outcome_weeks`). A proposal made
     # inside that window before t has NO outcome yet, and `user_response` /
     # `paper_started` follow the same clock.
@@ -199,6 +220,85 @@ def build_as_of_snapshot(source: Path, dest: Path, as_of: date) -> Path:
     finally:
         con.close()
     return dest
+
+
+def advance_as_of_snapshot(snapshot: Path, source: Path, from_t: date, to_t: date) -> None:
+    """Move an existing snapshot's clock from `from_t` to `to_t` in place, by
+    topping up the WORLD from `source` and leaving everything else alone.
+
+    THIS IS WHAT MAKES THE REPLAY A SEQUENCE. Rebuilding a fresh snapshot per
+    decision date reruns each month in isolation: `held_allocation` reads the
+    last EMITTED market-signal proposal, finds none in a fresh copy, and every
+    month replays as an opening entry. Measured on the live database, October,
+    November and December 2008 each emitted a proposal for the SAME book, where
+    the live chain emits one and holds twice — three times the proposals and
+    three times the trading costs, on a decision that never changed.
+
+    The obvious fix is to carry the agent's artefacts forward from the previous
+    snapshot. This is the opposite, and it is the reason it is safer: nothing
+    about the AGENT is enumerated here. Advancing the clock touches only the four
+    observation tables and leaves proposals, citations, the event log, the
+    corpus, the confrontations and every conviction nudge exactly where the
+    replay put them. A carry-forward list would be correct today and silently
+    wrong the moment the Worker starts writing knowledge — and the failure would
+    look like an agent that learns nothing, not like a bug.
+
+    NOT topped up, each for its own reason:
+      - `event_log` — mixed: the replay's own appends plus history already
+        loaded at build time. Re-inserting live rows would also fight the
+        monotonic-ULID guarantee, since live ids come from a different clock.
+        The cost is a few historical RegimeEvents inside the interval; the
+        `regime` table itself IS topped up, and that is what the baseline reads.
+      - Derived artefacts (`portfolio_weekly_snapshot`, `scenario_probability`,
+        `favors`) — hydration rewrites them at each date.
+      - `proposal`, `proposal_cites`, `evaluation` — the agent's history, which
+        is precisely what must survive.
+    """
+    if to_t <= from_t:
+        raise ValueError(f"as-of snapshot advances forward only: {from_t} -> {to_t}")
+
+    con = sqlite3.connect(snapshot, isolation_level=None)
+    try:
+        con.execute("PRAGMA foreign_keys=ON")
+        con.execute("ATTACH DATABASE ? AS live", (f"file:{source}?mode=ro",))
+        params = {"from_t": from_t.isoformat(), "to_t": to_t.isoformat()}
+
+        con.execute("BEGIN")
+        try:
+            # Parents before children here — the mirror image of the prune's
+            # order, for the same foreign keys.
+            for table, expr in _WORLD_OBSERVATIONS:
+                con.execute(
+                    f"INSERT OR IGNORE INTO {table} SELECT * FROM live.{table} "
+                    f"WHERE {expr} > :from_t AND {expr} <= :to_t",
+                    params,
+                )
+            con.execute(
+                "INSERT OR IGNORE INTO backtest SELECT * FROM live.backtest WHERE regime_id IN "
+                "(SELECT id FROM live.regime WHERE date(created_at) > :from_t "
+                " AND date(created_at) <= :to_t)",
+                params,
+            )
+            # `end_date` was NULLed at build time for regimes still open then.
+            # Some of those closures became knowable inside the interval, so the
+            # column is restored wholesale from `live` and re-hidden at the new t
+            # — reading the snapshot's own value could not tell "open" from
+            # "closed, and we blanked it".
+            con.execute(
+                "UPDATE regime SET end_date = "
+                "(SELECT r.end_date FROM live.regime r WHERE r.id = regime.id)"
+            )
+            for _table, stmt in _REGIME_ASOF_REPAIRS:
+                con.execute(stmt, {"t": to_t.isoformat()})
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        con.execute("COMMIT")
+        con.execute("DETACH DATABASE live")
+    finally:
+        # close() alone: DETACH here would raise over the real error whenever the
+        # ATTACH itself was what failed.
+        con.close()
 
 
 def snapshot_path(scratch: Path, as_of: date) -> Path:
