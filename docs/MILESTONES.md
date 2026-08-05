@@ -889,28 +889,25 @@ idempotency/async-jobs hardening.
 - [ ] deposit → candidates on Telegram within ~5 min
 - [ ] lid closed Monday → wake → due-on-start chain runs once
 - [ ] a Fed press item → triaged event document (or discarded as routine)
-- [ ] **re-seed first** (see the carried-over item below) — the live
-      `market-signal-stack` prose must be current before the Worker reads it
+- [x] **re-seed first** — done, see the closed item below
 
-**⚠️ Carried over — the live DB's strategy prose is STALE (deferred
-2026-08-01, owner decision).** `seed_data.py` is correct; the live
-`strategy` row is not. Three Worker-visible fields on `market-signal-stack`
-still hold superseded text:
+**✅ CLOSED 2026-08-03 — the live DB's strategy prose is current.** The
+carried-over item (deferred 2026-08-01) warned that three Worker-visible fields
+on `market-signal-stack` held superseded text: `description` naming the books
+`growth/inflation/slowdown`, and `conditions`/`trace` predating the fourth
+addendum. The re-seed that closed I-48 fixed all three in passing — SeedEvent
+dated 2026-08-03, backup `investment.db.bak-pre-reseed-20260803`.
 
-- `description` names the books `growth/inflation/slowdown` — the OLD names.
-  ADR-007's third addendum renamed them *because* a book name asserting a macro
-  reading it does not carry is a reasoning hazard for an LLM; that addendum
-  updated the code and the three portfolios' name/trace, and missed this field.
-- `conditions` and `trace` predate the fourth addendum (no confirmation rule;
-  `trace` still advertises the un-damped 9.85%).
+Verified on the live DB 2026-08-05, before M8b: `description` names
+`credit-spread-wide` / `credit-spread-tight-yield-curve-flat` /
+`credit-spread-tight-yield-curve-steep`; `conditions` carries the confirmation
+rule ("switch confirmed over 3 monthly decisions"); `trace` reads
+11.26%/yr, Sortino 1.11, maxDD -23.8% and labels 9.85% as the un-damped pair.
+The three book Portfolios carry the new names too.
 
-Harmless until now — the live decision path is not wired and the Worker has
-never read these rows. It stops being harmless the moment paper-mode starts,
-which is exactly M9. Fix = re-run `python -m investment.seed` (idempotent
-upserts; it also re-does the 35y backfill, which is why it was deferred rather
-than run mid-session). `_seed_strategies` no longer clobbers a matured
-`conviction` on re-run, so the re-seed is safe to do after the chain has been
-running — that guard was added the same day.
+Left here rather than deleted, because the warning outlived its cause by two
+days and nearly bought a second 35y backfill for nothing: **check the row before
+re-seeding on the strength of a note.**
 
 ---
 
