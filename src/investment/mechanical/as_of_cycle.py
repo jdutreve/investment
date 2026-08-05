@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from investment.db.sqlite import InvestmentDB
+from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.backtests import run_backtests_and_favors
 from investment.mechanical.ratios import value_portfolios
 from investment.mechanical.scenarios import warm_start_scenario_probabilities
@@ -54,6 +55,8 @@ class AsOfCycle:
     strategies_scored: int
     portfolios_valued: int
     portfolios_ranked: int
+    market_signal_decision: str | None
+    market_signal_proposal_id: str | None
 
 
 async def run_as_of_cycle(db: InvestmentDB, as_of: date) -> AsOfCycle:
@@ -74,12 +77,28 @@ async def run_as_of_cycle(db: InvestmentDB, as_of: date) -> AsOfCycle:
     valuations = await value_portfolios(db, window)
     ranked = await build_snapshot(db, thresholds["ranking_tiebreak_window"], as_of)
 
+    # ADR-007's LIVE allocation, last because the live chain runs it last (08:55,
+    # after the ranking and before UC8) and because the Worker READS its decision
+    # as context. Without this step the replayed Worker deliberates on a
+    # `market_signal: {}` baseline and the screen validates only the retained
+    # bridge — the path the pivot superseded. With it, the mechanical decision is
+    # journalled BEFORE the Worker speaks, which is the order ADR-011 requires:
+    # the Worker may nuance the month, it may not re-pick the book.
+    profile = await db.query(
+        "SELECT max_drawdown_pct, max_single_asset_pct FROM user_profile LIMIT 1"
+    )
+    signal = await run_market_signal_cycle(db, dict(profile[0]), today=as_of) if profile else None
+
     cycle = AsOfCycle(
         as_of=as_of,
         favors_edges=favors.favors_edges,
         strategies_scored=len(scenarios),
         portfolios_valued=len(valuations),
         portfolios_ranked=len(ranked),
+        market_signal_decision=(
+            str(signal.decision.date.date()) if signal and signal.decision else None
+        ),
+        market_signal_proposal_id=signal.proposal_id if signal else None,
     )
     logger.info("as-of cycle %s: %s", as_of, cycle)
     return cycle
