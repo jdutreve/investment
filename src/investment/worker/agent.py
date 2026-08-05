@@ -23,6 +23,7 @@ kept, not overridden.
 """
 
 import logging
+from pathlib import Path
 
 from openai import AsyncOpenAI
 from pydantic_ai import Agent
@@ -119,6 +120,41 @@ Your reading of the market-signal allocation goes in market_signal_assessment \
 recorded and shown to the owner. If your context carries no market-signal \
 allocation, say so there in one line."""
 
+# docs/TASKS.md Phase 5 names five skill files and specifies each one's
+# contract; the persona above says "Use the Skills provided" and, until now,
+# none existed — the prompt asserted a capability decomposition it did not ship.
+# They live as MARKDOWN, not as Python string constants, for the reason they are
+# separate files at all: a skill is a prompt fragment the owner edits and
+# diffs, and burying the verdict contract inside a .py makes changing it a code
+# change. Loaded once at import, sorted for a stable prompt (a prompt that
+# reorders between runs invalidates provider-side caching and makes two runs
+# incomparable).
+SKILLS_DIR = Path(__file__).parent / "skills"
+
+
+def load_skills(directory: Path = SKILLS_DIR) -> str:
+    """The skill files, concatenated in a stable order.
+
+    Missing directory or no files -> empty string, and the agent still runs on
+    the persona alone. Deliberate: a missing skill file degrades the Worker's
+    guidance, it does not make the cycle unsafe — every contract these describe
+    is ALSO enforced mechanically (the verdict Literal, the allocation
+    validators, gate 0, gate 6). The prompt teaches; the gates decide."""
+    if not directory.is_dir():
+        logger.warning("worker skills directory missing: %s", directory)
+        return ""
+    parts = [path.read_text(encoding="utf-8").strip() for path in sorted(directory.glob("*.md"))]
+    return "\n\n---\n\n".join(part for part in parts if part)
+
+
+def build_system_prompt(skills: str | None = None) -> str:
+    """Persona + skills. Split so a caller can override the skills (tests, and
+    the Phase 9 prompt A/B) without rebuilding the persona."""
+    body = load_skills() if skills is None else skills
+    if not body:
+        return WORKER_SYSTEM_PROMPT
+    return f"{WORKER_SYSTEM_PROMPT}\n\n# SKILLS\n\n{body}"
+
 
 def build_worker_agent(
     db: InvestmentDB,
@@ -127,6 +163,7 @@ def build_worker_agent(
     *,
     reasoning_effort: str = WORKER_REASONING_EFFORT,
     base_url: str = "https://openrouter.ai/api/v1",
+    skills: str | None = None,
 ) -> Agent[None, WorkerResult]:
     """The Worker agent, built once over the process-singleton DB connection
     (ADR-004: one connection injected everywhere). `WorkerTools(db)` closes the
@@ -136,7 +173,10 @@ def build_worker_agent(
 
     Deps type is `None`: the tools carry their own state (the closed-over db),
     so nothing flows through PydanticAI's dependency channel — which is exactly
-    what keeps the Worker unaware of storage."""
+    what keeps the Worker unaware of storage.
+
+    `skills` overrides the loaded skill files (tests, prompt A/B); `None` loads
+    `skills/`."""
     provider = OpenRouterProvider(
         openai_client=AsyncOpenAI(
             api_key=api_key,
@@ -150,7 +190,7 @@ def build_worker_agent(
     return Agent(
         model,
         output_type=WorkerResult,
-        instructions=WORKER_SYSTEM_PROMPT,
+        instructions=build_system_prompt(skills),
         # The three bridged tools as BOUND methods (worker/tools.py) — the
         # connection is captured in the closure, never passed as a deps object
         # the Worker could read.

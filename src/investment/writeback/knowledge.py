@@ -42,7 +42,7 @@ from investment.corpus.embedding import (
     to_blob,
 )
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.invariants import conditions_can_overlap
+from investment.mechanical.invariants import REFERENCE_STATUS, conditions_can_overlap
 from investment.worker.curator import ReferenceNote, ScoredCandidate
 
 logger = logging.getLogger(__name__)
@@ -418,12 +418,12 @@ class KnowledgeWriteback:
         weight = authority x recency. It informs Worker reasoning without
         backing a strategy.
 
-        OPEN QUESTION for the owner (flagged, not silently decided): status.
-        These enter 'proposed' like everything else, but they can never reach
-        'integrated' by measurement — there is no condition to confront — so
-        ADR-006's "nothing stays proposed forever" has no mechanism here.
-        'proposed' is the recoverable choice: wrong status is fixable, and
-        these notes were LOST entirely in the 2026-07-21 run."""
+        STATUS RESOLVED: `REFERENCE_STATUS`, not 'proposed'. They can never
+        reach 'integrated' by measurement — there is no condition to confront —
+        so ADR-006's "nothing stays proposed forever" has no mechanism here and
+        filing them as 'proposed' made that promise false for 209 of the live
+        corpus's 238 proposed rows. A terminal status says what is true: this
+        is knowledge that informs, not a claim awaiting a verdict."""
         band = await self._author_band(author)
         description = f"{note.description}\n\nNot reducible: {note.why_not_reducible}"
         note_id = await tx.create_vertex(
@@ -433,7 +433,7 @@ class KnowledgeWriteback:
                 "description": description,
                 "source": "curator",
                 "author": author,
-                "status": "proposed",
+                "status": REFERENCE_STATUS,
                 "tags": ["reference-knowledge"],
                 # Embedded like any other invariant, and for the reason the
                 # spec gives it a home at all: reference knowledge "informs

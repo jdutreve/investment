@@ -213,14 +213,14 @@ async def test_paper_test_progress_lists_live_accepted_tests(db: InvestmentDB) -
     assert [p["proposal_id"] for p in progress] == ["pt"]
 
 
-async def test_a_strategy_scored_in_ANOTHER_regime_is_not_closed_as_unmeasurable(
+async def test_a_strategy_scored_in_ANOTHER_regime_is_judged_there(
     db: InvestmentDB,
 ) -> None:
-    """The backstop's reason line was "no FAVORS in any regime", but the query
-    behind it only ever looked at the CURRENT one. A strategy scored in
-    stagflation and unscored in today's regime is MEASURABLE — the system simply
-    has not been in its regime — and closing it at 24 weeks made a claim its own
-    evidence contradicted."""
+    """I-52. The backstop once closed it as "no FAVORS in any regime" on a query
+    that only looked at the current one; then it WAITED, unbounded, which
+    ADR-006 forbids from the other side. It is now JUDGED, against the peers of
+    the regime its evidence lives in — the history exists, it is simply filed
+    under another regime, and ADR-006 says history is what counts."""
     await db.command(
         "INSERT INTO regime_type (id, name, aliases, framework_id, description, created_at) "
         "VALUES ('disinf', 'Disinflation', '[]', '4s', 'd', '2026-01-01')"
@@ -233,19 +233,86 @@ async def test_a_strategy_scored_in_ANOTHER_regime_is_not_closed_as_unmeasurable
         # older than UNMEASURABLE_PROBATION_MULTIPLIER windows, so the backstop is live
         o=(TODAY - timedelta(weeks=30)).isoformat(),
     )
+    await db.append_event(
+        type="InnovationEvent",
+        source_uc="UC8",
+        source_id="s-elsewhere",
+        payload={"type": "new_strategy", "title": "t", "spec": SPEC},
+        event_date=date.fromisoformat(OLD),
+    )
     # scored in 'disinf', absent from 'stag' — the regime probation reads
     await db.command(
         "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, sharpe_rolling, "
         "calmar_rolling, max_drawdown, n_periods, last_updated) VALUES ('disinf', 's-elsewhere', "
         "1.1, 0.5, 1.0, -0.1, 40, '2026-01-01')"
     )
+    # a peer in 'disinf' BELOW it, so the median it is judged against is real
+    await db.command(
+        "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, sharpe_rolling, "
+        "calmar_rolling, max_drawdown, n_periods, last_updated) VALUES ('disinf', 's-seed', "
+        "0.4, 0.5, 1.0, -0.1, 40, '2026-01-01')"
+    )
     results = await outcomes.strategy_probation_check(db, today=TODAY)
-    mine = [r for r in results if r.strategy_id == "s-elsewhere"]
-    assert len(mine) == 1
-    assert mine[0].verdict == ""  # waiting, not judged
-    assert mine[0].skipped_reason == "scored in another regime, waiting for this one"
+    mine = next(r for r in results if r.strategy_id == "s-elsewhere")
+    assert mine.verdict == "keep"  # 1.1 beats the disinf median, so it activates
     status = await db.query("SELECT status FROM strategy WHERE id = 's-elsewhere'")
-    assert status[0]["status"] == "proposed"  # NOT closed
+    assert status[0]["status"] == "active"
+    # and the journal says WHICH regime produced the verdict
+    events = await db.query(
+        "SELECT json_extract(payload, '$.judged_in_regime') AS r FROM event_log "
+        "WHERE type = 'OutcomeEvent' AND source_id = 's-elsewhere'"
+    )
+    assert events[0]["r"] == "disinf"  # not 'stag', the current one
+
+
+async def test_the_fallback_regime_is_the_most_measured_not_the_most_flattering(
+    db: InvestmentDB,
+) -> None:
+    """Chosen on `n_periods`, so a strategy cannot elect the flattering half of
+    its own history — the question is where we know the most about it."""
+    for rt in ("disinf", "boom"):
+        await db.command(
+            "INSERT INTO regime_type (id, name, aliases, framework_id, description, created_at) "
+            "VALUES (:id, :id, '[]', '4s', 'd', '2026-01-01')",
+            id=rt,
+        )
+    await db.command(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
+        "('s-two', 't', 'd', '4s', 60, 0, 'c', 'agent-discovery', 'proposed', :o, 'tr', "
+        "'2026-01-01', '2026-01-01')",
+        o=OLD,
+    )
+    await db.append_event(
+        type="InnovationEvent",
+        source_uc="UC8",
+        source_id="s-two",
+        payload={"type": "new_strategy", "title": "t", "spec": SPEC},
+        event_date=date.fromisoformat(OLD),
+    )
+    # flattering but thin in 'boom' (2 periods), solid but weak in 'disinf' (99)
+    for rt, sortino, n in (("boom", 9.9, 2), ("disinf", 0.1, 99)):
+        await db.command(
+            "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, sharpe_rolling, "
+            "calmar_rolling, max_drawdown, n_periods, last_updated) VALUES (:rt, 's-two', :s, "
+            "0.5, 1.0, -0.1, :n, '2026-01-01')",
+            rt=rt,
+            s=sortino,
+            n=n,
+        )
+    await db.command(
+        "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, sharpe_rolling, "
+        "calmar_rolling, max_drawdown, n_periods, last_updated) VALUES ('disinf', 's-seed', "
+        "0.8, 0.5, 1.0, -0.1, 40, '2026-01-01')"
+    )
+    results = await outcomes.strategy_probation_check(db, today=TODAY)
+    mine = next(r for r in results if r.strategy_id == "s-two")
+    assert mine.verdict == "review"  # judged in 'disinf' (0.1 < 0.8), not 'boom'
+    events = await db.query(
+        "SELECT json_extract(payload, '$.judged_in_regime') AS r FROM event_log "
+        "WHERE type = 'OutcomeEvent' AND source_id = 's-two'"
+    )
+    assert events[0]["r"] == "disinf"
 
 
 async def test_a_strategy_scored_NOWHERE_is_still_closed_by_the_backstop(

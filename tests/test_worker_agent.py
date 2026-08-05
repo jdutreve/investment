@@ -16,10 +16,13 @@ from pydantic_ai.usage import UsageLimits
 from investment.db.sqlite import InvestmentDB
 from investment.worker.agent import (
     OUTPUT_RETRIES,
+    SKILLS_DIR,
     WORKER_REQUEST_LIMIT,
     WORKER_SYSTEM_PROMPT,
     WORKER_TOOL_CALLS_LIMIT,
+    build_system_prompt,
     build_worker_agent,
+    load_skills,
     run_worker,
 )
 from investment.worker.result import (
@@ -261,3 +264,55 @@ async def run_worker_with_limits(
         usage_limits=UsageLimits(request_limit=request_limit, tool_calls_limit=tool_calls_limit),
     )
     return result.output  # type: ignore[no-any-return]
+
+
+# -- the skill files (docs/TASKS.md Phase 5) ---------------------------------
+
+
+def test_the_five_specified_skill_files_exist() -> None:
+    """TASKS Phase 5 names five, and the persona says "Use the Skills provided"
+    — which asserted a capability decomposition that shipped as an empty
+    directory."""
+    assert {p.name for p in SKILLS_DIR.glob("*.md")} == {
+        "skill-evaluate-strategy.md",
+        "skill-rank-portfolios.md",
+        "skill-compare-vs-defender.md",
+        "skill-propose-reallocation.md",
+        "skill-interpret-invariants.md",
+    }
+
+
+def test_the_skills_carry_the_contracts_the_gates_enforce() -> None:
+    """A skill that taught something the gates refuse would spend cycles on
+    retries. These four are each ALSO enforced mechanically, so the prompt and
+    the gate must agree."""
+    skills = load_skills()
+    assert "[-10, +10]" in skills  # EvaluationDraft's Field bounds
+    assert "neutral" in skills  # the fourth Literal verdict
+    assert "0.4 x scenario_delta + 0.6 x favors_delta" in skills  # the blend
+    assert "bright" in skills and "active" in skills  # gate 6's exact pair
+
+
+def test_the_bridge_skills_say_they_are_the_bridge() -> None:
+    """The docs cleanup's whole point, applied where a model will actually read
+    it: the two superseded-path skills must not read as live instructions."""
+    for name in ("skill-compare-vs-defender.md", "skill-propose-reallocation.md"):
+        text = (SKILLS_DIR / name).read_text()
+        assert "RETAINED BRIDGE" in text, name
+    realloc = (SKILLS_DIR / "skill-propose-reallocation.md").read_text()
+    assert "sovereign" in realloc  # ADR-011, stated where it binds
+
+
+def test_the_prompt_carries_the_skills() -> None:
+    prompt = build_system_prompt()
+    assert prompt.startswith(WORKER_SYSTEM_PROMPT)
+    assert "# SKILLS" in prompt
+    assert "lighthouses, not orders" in prompt
+
+
+def test_a_missing_skills_directory_degrades_rather_than_breaks(tmp_path: Path) -> None:
+    """The prompt teaches; the GATES decide. Every contract the skills describe
+    is enforced mechanically too, so a missing file must not make the cycle
+    unsafe — or unrunnable."""
+    assert load_skills(tmp_path / "nope") == ""
+    assert build_system_prompt(skills="") == WORKER_SYSTEM_PROMPT

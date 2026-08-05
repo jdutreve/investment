@@ -520,6 +520,38 @@ async def _allowed_tickers(db: InvestmentDB) -> frozenset[str]:
     return frozenset({str(r["ticker"]) for r in rows} | {"cash"})
 
 
+def _fallback_regime(
+    all_favors: list[dict[str, Any]], strategy_id: str
+) -> tuple[float, float, str] | None:
+    """`(sortino, peer median, regime_type_id)` for the regime where this
+    strategy's evidence actually lives, or `None` when it has none anywhere.
+
+    THE REGIME IS CHOSEN BY EVIDENCE, not by recency or by score: the row with
+    the most `n_periods`, ties broken on `regime_type_id` for reproducibility
+    (the same content-independent tie-break `snapshots._valuation_rows` pins).
+    Picking the BEST-scoring regime would let a strategy elect the flattering
+    half of its own history; picking the most-measured one asks "where do we
+    know the most about it".
+
+    The median is that regime's OWN peer median. A Sortino earned in
+    stagflation compared against a disinflation peer group would be a category
+    error dressed as a verdict — the whole point of FAVORS being per-regime is
+    that the comparison only means something inside one."""
+    mine = [f for f in all_favors if str(f["strategy_id"]) == strategy_id]
+    if not mine:
+        return None
+    best = max(mine, key=lambda f: (int(f["n_periods"] or 0), str(f["regime_type_id"])))
+    regime = str(best["regime_type_id"])
+    peers = sorted(
+        float(f["sortino_rolling"])
+        for f in all_favors
+        if str(f["regime_type_id"]) == regime and f["sortino_rolling"] is not None
+    )
+    if not peers:
+        return None
+    return float(best["sortino_rolling"]), float(np.median(peers)), regime
+
+
 async def _activate_strategy(db: InvestmentDB, strategy_id: str, today: date) -> None:
     """The activation transaction (docs/ARCHITECTURE.md "System Evolution",
     probation PASSES): in ONE transaction the vertex becomes `status='active',
@@ -673,34 +705,33 @@ async def strategy_probation_check(
         # outage; bounding the second is what ADR-006 requires.
         return [ProbationResult(sid, "", None, None, "no current regime") for sid in due]
 
-    favors = await db.query(
-        "SELECT strategy_id, sortino_rolling FROM favors WHERE regime_type_id = :rt",
-        rt=regime_type,
+    # Every FAVORS row, not just the current regime's: a strategy is judged in
+    # the current regime when it has been scored there, and OTHERWISE in the
+    # regime where its evidence actually lives (`_fallback_regime`).
+    #
+    # I-52 CLOSED (entry removed from IMPROVEMENTS), and this is the rule change
+    # it needed. The previous state had
+    # a strategy scored elsewhere WAITING, unbounded — a regime that never
+    # returns kept it proposed forever, which is what ADR-006 forbids, reached
+    # from the other side. The alternative was to close it; that destroys real
+    # evidence for a calendar accident. ADR-006 says "belief does not grant
+    # integration, history does", and the history exists — it is simply filed
+    # under another regime. So it is USED, against that regime's own peer median
+    # (the only comparison that means anything: a Sortino earned in stagflation
+    # is not comparable to a disinflation peer group), and the OutcomeEvent
+    # records WHICH regime produced the verdict so no reader mistakes it for a
+    # current-regime judgement.
+    all_favors = await db.query(
+        "SELECT regime_type_id, strategy_id, sortino_rolling, n_periods FROM favors "
+        "WHERE sortino_rolling IS NOT NULL"
     )
-    sortino_by = {str(f["strategy_id"]): f["sortino_rolling"] for f in favors}
+    sortino_by = {
+        str(f["strategy_id"]): f["sortino_rolling"]
+        for f in all_favors
+        if str(f["regime_type_id"]) == regime_type
+    }
     peers = sorted(v for v in sortino_by.values() if v is not None)
     median = float(np.median(peers)) if peers else None
-
-    # FAVORS in ANY regime, not just the current one — the two answer different
-    # questions and only the second one may close a strategy. A strategy scored
-    # in stagflation but not in today's disinflation is MEASURABLE; the system
-    # simply has not been in its regime. Judged on `sortino_by` alone the
-    # backstop closed it at 24 weeks as "no FAVORS in any regime", a claim the
-    # query it was based on could not support: waiting out a regime is not the
-    # unmeasurability ADR-006 wants terminated, it is the ordinary case of a
-    # strategy designed for conditions that have not come round yet.
-    #
-    # OPEN (I-52), flagged not silently decided: that wait is now UNBOUNDED, and
-    # a regime that never returns would keep such a strategy proposed forever —
-    # the thing ADR-006 forbids, reached from the other side. Bounding it needs
-    # an owner call on what the bound MEANS (close it? judge it on the regime it
-    # WAS scored in?), which is a rule change, not a defect fix.
-    scored_somewhere = {
-        str(r["strategy_id"])
-        for r in await db.query(
-            "SELECT DISTINCT strategy_id FROM favors WHERE sortino_rolling IS NOT NULL"
-        )
-    }
     unmeasurable_cutoff = (
         today - timedelta(weeks=UNMEASURABLE_PROBATION_MULTIPLIER * probation_weeks)
     ).isoformat()
@@ -712,54 +743,63 @@ async def strategy_probation_check(
     results: list[ProbationResult] = []
     for sid in due:
         sortino = sortino_by.get(sid)
+        judged_in = regime_type
         if sortino is None or median is None:
-            # NO EVIDENCE — and the question is how long that may last. A
-            # candidate whose spec carried no usable base allocation, or whose
-            # sleeves have no prices, never gets a NAV and therefore never gets
-            # FAVORS (writeback `_base_allocation`). Waiting for it is waiting
-            # for something that cannot arrive, and this branch writes no
-            # OutcomeEvent, so the strategy stayed in `due` every week forever —
-            # the exact "proposed forever" ADR-006 forbids.
+            # Nothing to judge against IN THE CURRENT REGIME. Three outcomes,
+            # and keeping them apart is the whole of I-52:
             #
-            # So the wait is BOUNDED, not removed: inside the window the verdict
-            # legitimately waits (a regime with no completed instances yet is
-            # the system's blind spot, not the strategy's fault); past it, the
-            # strategy is closed as unmeasurable. Deliberately a MULTIPLE of the
-            # probation window rather than a new threshold — the answer to "how
-            # long do we wait for evidence" should move with "how long do we
-            # measure", and one knob is one thing to calibrate.
-            if opened.get(sid, "") > unmeasurable_cutoff or sid in scored_somewhere:
-                waiting = (
-                    "scored in another regime, waiting for this one"
-                    if sid in scored_somewhere
-                    else "no FAVORS in current regime"
+            # 1. The strategy is scored in ANOTHER regime -> judge it there,
+            #    against that regime's own peers (`_fallback_regime`). Its
+            #    history exists; refusing to read it because the calendar has
+            #    moved on would throw away the only evidence there is.
+            # 2. No FAVORS anywhere, still inside the wait -> WAIT. A regime
+            #    with no completed instances yet is the system's blind spot,
+            #    not the strategy's fault.
+            # 3. No FAVORS anywhere, past the wait -> CLOSE as unmeasurable. A
+            #    candidate whose spec carried no usable base allocation, or
+            #    whose sleeves have no prices, never gets a NAV and therefore
+            #    never gets FAVORS (writeback `_base_allocation`). Waiting for
+            #    it is waiting for something that cannot arrive, and this branch
+            #    writes no OutcomeEvent — so before the backstop the strategy
+            #    stayed in `due` every week forever, the exact "proposed
+            #    forever" ADR-006 forbids.
+            #
+            # The bound on (2) is a MULTIPLE of the probation window rather than
+            # a threshold of its own: how long we wait for evidence should move
+            # with how long we measure, and one knob is one thing to calibrate.
+            fallback = _fallback_regime(all_favors, sid)
+            if fallback is not None:
+                sortino, median, judged_in = fallback
+            elif opened.get(sid, "") > unmeasurable_cutoff:
+                results.append(
+                    ProbationResult(sid, "", sortino, median, "no FAVORS in current regime")
                 )
-                results.append(ProbationResult(sid, "", sortino, median, waiting))
                 continue
-            reason = (
-                f"no FAVORS in any regime after "
-                f"{UNMEASURABLE_PROBATION_MULTIPLIER * probation_weeks} weeks — unmeasurable"
-            )
-            async with db.transaction():
-                await db.append_event(
-                    type=OUTCOME_EVENT,
-                    source_uc=SOURCE_UC,
-                    source_id=sid,
-                    payload={
-                        "kind": "probation",
-                        "verdict": "review",
-                        "sortino": None,
-                        "median": median,
-                        "unmeasurable": True,
-                    },
-                    event_date=today,
+            else:
+                reason = (
+                    f"no FAVORS in any regime after "
+                    f"{UNMEASURABLE_PROBATION_MULTIPLIER * probation_weeks} weeks — unmeasurable"
                 )
-                await _close_strategy(db, sid, today, reason)
-            # `skipped_reason` stays None: this result was NOT skipped, it is a
-            # verdict. The "why" lives where it is auditable — the vertex trace
-            # and the OutcomeEvent payload's `unmeasurable` flag.
-            results.append(ProbationResult(sid, "review", sortino, median))
-            continue
+                async with db.transaction():
+                    await db.append_event(
+                        type=OUTCOME_EVENT,
+                        source_uc=SOURCE_UC,
+                        source_id=sid,
+                        payload={
+                            "kind": "probation",
+                            "verdict": "review",
+                            "sortino": None,
+                            "median": median,
+                            "unmeasurable": True,
+                        },
+                        event_date=today,
+                    )
+                    await _close_strategy(db, sid, today, reason)
+                # `skipped_reason` stays None: this result was NOT skipped, it is
+                # a verdict. The "why" lives where it is auditable — the vertex
+                # trace and the OutcomeEvent payload's `unmeasurable` flag.
+                results.append(ProbationResult(sid, "review", sortino, median))
+                continue
         # A 'keep' whose spec cannot be activated becomes a CLOSE, not a
         # half-activation: activation writes the scenarios into the graph that
         # `scenarios.py` and the reallocation blend read as fact, and a book
@@ -776,10 +816,11 @@ async def strategy_probation_check(
         if sortino >= median:
             defect = await _scenario_spec_defect(db, await _innovation_spec(db, sid))
         verdict = "keep" if sortino >= median and defect is None else "review"
+        elsewhere = "" if judged_in == regime_type else f" (judged in regime '{judged_in}')"
         reason = (
             f"malformed scenario spec — {defect}"
             if defect is not None
-            else f"Sortino {sortino:.3f} below the peer median {median:.3f}"
+            else f"Sortino {sortino:.3f} below the peer median {median:.3f}{elsewhere}"
         )
         # EventLog append precedes the vertex writes, same transaction
         # (CLAUDE.md "EventLog"): the verdict and what it DID are one fact.
@@ -797,6 +838,11 @@ async def strategy_probation_check(
                     # well but unbuildable" — the same 'review' verdict, two
                     # entirely different follow-ups for the owner.
                     "spec_defect": defect,
+                    # WHICH regime produced this verdict. Equal to the current
+                    # one in the normal case; different when the strategy was
+                    # judged on the regime its evidence lives in (I-52), and a
+                    # reader must never mistake the second for the first.
+                    "judged_in_regime": judged_in,
                 },
                 event_date=today,
             )

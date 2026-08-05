@@ -14,6 +14,7 @@ import pytest
 from investment.corpus.embedding import to_blob
 from investment.db.seed_data import INVARIANT_AUTHOR_CONFIG
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import REFERENCE_STATUS, mature_seed_invariants
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal
 from investment.writeback.writeback import commit_innovations
@@ -183,3 +184,37 @@ async def test_two_near_identical_innovations_in_ONE_batch_dedup_against_each_ot
         "WHERE type='InnovationEvent' AND json_extract(payload, '$.merged_into') IS NOT NULL"
     )
     assert [r["m"] for r in merged] == ["inv-new"]
+
+
+async def test_reference_knowledge_gets_its_own_terminal_status(db: InvestmentDB) -> None:
+    """209 of the live corpus's 238 'proposed' invariants were reference notes —
+    no condition, no effect, so no confrontation can ever move them. Filing them
+    as 'proposed' made ADR-006's "nothing stays proposed forever" an open promise
+    the system could not keep for 88% of the rows carrying that status."""
+    await db.command(
+        "INSERT INTO invariant (id, title, description, source, status, condition, effect, "
+        "weight_initial, floor_weight, weight_effective, trace, created_at, updated_at) "
+        "VALUES ('inv-ref', 'a fact', 'd', 'curator', 'proposed', '[]', NULL, 0.4, 0.2, "
+        "0.4, 'tr', '2026-01-01', '2026-01-01')"
+    )
+    await mature_seed_invariants(db)
+    row = (await db.query("SELECT status FROM invariant WHERE id = 'inv-ref'"))[0]
+    assert row["status"] == REFERENCE_STATUS
+
+
+async def test_the_backfill_is_the_maturation_sweep_itself(db: InvestmentDB) -> None:
+    """No migration script: the reference branch runs BEFORE the
+    already-matured fingerprint check, so every existing note is re-stamped on
+    the next sweep. The 209 live rows convert themselves."""
+    for n in range(3):
+        await db.command(
+            "INSERT INTO invariant (id, title, description, source, status, condition, effect, "
+            "weight_initial, floor_weight, weight_effective, trace, created_at, updated_at) "
+            "VALUES (:id, 'a fact', 'd', 'curator', 'proposed', '[]', NULL, 0.4, 0.2, 0.4, "
+            "'tr', '2026-01-01', '2026-01-01')",
+            id=f"inv-old-{n}",
+        )
+    await mature_seed_invariants(db)
+    await mature_seed_invariants(db)  # idempotent
+    rows = await db.query("SELECT status FROM invariant WHERE id LIKE 'inv-old-%'")
+    assert [r["status"] for r in rows] == [REFERENCE_STATUS] * 3

@@ -21,6 +21,7 @@ from investment import seed
 from investment.db.seed_data import INVARIANTS, SCENARIOS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import backtests, outcomes
+from investment.mechanical.invariants import REFERENCE_STATUS
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ImprovementType
 from investment.writeback import writeback
@@ -551,7 +552,13 @@ async def test_m5_author_claimed_status_never_survives_unmeasured(tmp_path: Path
         )
         assert len(rows) == 2
         for row in rows:
-            assert row["status"] == "proposed", f"{row['id']} kept its claimed status"
+            # Both land on the TERMINAL reference status rather than 'proposed':
+            # (a) has no effect and (b) was demoted to reference by the
+            # validation gate, so neither can ever be confronted and neither is
+            # awaiting evidence. What this test pins is unchanged — the CLAIMED
+            # 'integrated' does not survive an unmeasured invariant.
+            assert row["status"] != "integrated", f"{row['id']} kept its claimed status"
+            assert row["status"] == REFERENCE_STATUS, f"{row['id']} is not awaiting evidence"
             assert row["validated_at"] is None, f"{row['id']} kept a bogus certification date"
     finally:
         await db.close()

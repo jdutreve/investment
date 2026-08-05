@@ -10,6 +10,7 @@ never makes a live network call (see tests/test_market.py for step 9 itself).
 
 import asyncio
 import itertools
+import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -342,5 +343,25 @@ async def test_a_concurrent_read_does_not_see_a_transaction_that_rolls_back(
 
         await asyncio.gather(rolls_back(), reader())
         assert seen == [0]  # the phantom row was never observable
+    finally:
+        await db.close()
+
+
+async def test_the_event_log_is_append_only_in_the_database_not_by_convention(
+    tmp_path: Path,
+) -> None:
+    """CLAUDE.md's "append-only" was an application habit — nothing stopped an
+    UPDATE or a DELETE on the audit spine every verdict is reconstructed from,
+    which is precisely the table where a silent edit leaves no trace of itself.
+    """
+    db = InvestmentDB(tmp_path / "append.db")
+    try:
+        await db.append_event(type="T", source_uc="UC0", source_id=None, payload={"n": 1})
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            await db.command("UPDATE event_log SET payload = '{\"n\": 2}'")
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            await db.command("DELETE FROM event_log")
+        rows = await db.query("SELECT payload FROM event_log")
+        assert [r["payload"] for r in rows] == ['{"n": 1}']  # untouched
     finally:
         await db.close()

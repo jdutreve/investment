@@ -70,6 +70,21 @@ _REGIME_FEATURES = {"type"}
 _VALID_METHODS = {"cross_class", "cross_strategy", "absolute"}
 _VALID_DIRECTIONS = {"outperform", "underperform"}
 
+# The FOURTH invariant status (docs/DATA_MODELS.md reference knowledge: "an
+# invariant with empty condition/no effect IS reference knowledge: never
+# confronted, market_score stays 1.0"). It is a TERMINAL state, not a stage:
+# there is no condition to confront, so no measurement can ever move it, and
+# ADR-006's "nothing stays proposed forever" simply does not apply to it. That
+# is exactly why it needed a name of its own — filed as 'proposed' it was an
+# open promise the system could never keep.
+#
+# A STATUS rather than a separate entity, deliberately: DATA_MODELS is explicit
+# that "a ponctual fact is NOT a new entity", and reference knowledge still
+# informs Worker reasoning through the same corpus, the same embedding and the
+# same semantic search as any other invariant. Only its verdict lifecycle
+# differs.
+REFERENCE_STATUS = "reference"
+
 # -- pure core: weight formula (CLAUDE.md "Invariant weight model") --------
 
 
@@ -780,7 +795,9 @@ async def _already_matured(db: InvestmentDB, invariant_id: str, fingerprint: str
     return bool(rows)
 
 
-async def _force_uncertified(db: InvestmentDB, invariant_id: str, reason: str) -> None:
+async def _force_uncertified(
+    db: InvestmentDB, invariant_id: str, reason: str, status: str = "proposed"
+) -> None:
     """Whatever the AUTHOR claimed, an invariant the engine did not MEASURE
     is not time-validated (ADR-006: belief does not grant integration,
     history does).
@@ -793,7 +810,18 @@ async def _force_uncertified(db: InvestmentDB, invariant_id: str, reason: str) -
     hand-authored `market_score: 0.78` — and that is exactly the claim this
     engine exists to withhold. `validated_at` is cleared with it: a
     certification timestamp for a certification that never happened is worse
-    than none."""
+    than none.
+
+    `status` is 'proposed' — awaiting evidence — EXCEPT for reference knowledge,
+    which takes `REFERENCE_STATUS`. The two are different states wearing one
+    label until now: 'proposed' means "not yet measured", and ADR-006 promises
+    nothing stays there forever, whereas reference knowledge has NO condition
+    and NO effect and can therefore never be confronted at all. Filing 209 of
+    them (the live corpus, 2026-08) as 'proposed' made that promise false for
+    88% of the rows carrying it and made every "how many are awaiting evidence"
+    count meaningless. A no-benchmark invariant keeps 'proposed': it HAS an
+    effect, the system simply cannot measure it yet — that one is genuinely
+    waiting."""
     now = datetime.now(UTC).isoformat()
     await db.command(
         # The MEASURED fields go back to their pre-confrontation defaults too,
@@ -805,10 +833,11 @@ async def _force_uncertified(db: InvestmentDB, invariant_id: str, reason: str) -
         # market_score 1.0 = `market_score(0, 0)`, and matches the pinned
         # reference-knowledge rule ("never confronted, market_score stays
         # 1.0" — docs/DATA_MODELS.md).
-        "UPDATE invariant SET status = 'proposed', validated_at = NULL, "
+        "UPDATE invariant SET status = :status, validated_at = NULL, "
         "market_score = 1.0, confirmation_count = 0, infirmation_count = 0, "
         "weight_effective = MAX(weight_initial * recency_factor, floor_weight), "
         "trace = trace || :suffix, updated_at = :now WHERE id = :id",
+        status=status,
         suffix=f" [NOT CERTIFIED: {reason}]",
         now=now,
         id=invariant_id,
@@ -941,8 +970,10 @@ async def _mature_one(
     )
 
     if effect is None:
-        await _force_uncertified(db, invariant_id, "reference knowledge: no effect to measure")
-        return MaturationResult(invariant_id, 0, 0, 0, 1.0, "proposed", "reference_knowledge")
+        await _force_uncertified(
+            db, invariant_id, "reference knowledge: no effect to measure", REFERENCE_STATUS
+        )
+        return MaturationResult(invariant_id, 0, 0, 0, 1.0, REFERENCE_STATUS, "reference_knowledge")
 
     if await _already_matured(db, invariant_id, fingerprint):
         return MaturationResult(
@@ -958,8 +989,8 @@ async def _mature_one(
     reason = validate_invariant(condition, effect, registries)
     if reason is not None:
         await _demote_to_reference(db, invariant_id, reason)
-        await _force_uncertified(db, invariant_id, reason)
-        return MaturationResult(invariant_id, 0, 0, 0, 1.0, "proposed", "demoted")
+        await _force_uncertified(db, invariant_id, reason, REFERENCE_STATUS)
+        return MaturationResult(invariant_id, 0, 0, 0, 1.0, REFERENCE_STATUS, "demoted")
 
     method = effect["method"]
     handle = effect["handle"]

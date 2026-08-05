@@ -58,7 +58,11 @@ CREATE TABLE IF NOT EXISTS invariant (
   example            TEXT,
   source             TEXT NOT NULL,
   author             TEXT,                   -- 'dalio'|'marks'|'system'|NULL ('other')
-  status             TEXT NOT NULL,          -- 'proposed'|'integrated'|'rejected'
+  -- 'proposed'|'integrated'|'rejected'|'reference'. 'reference' is TERMINAL,
+  -- not a stage: reference knowledge has no condition and no effect, so no
+  -- confrontation can ever move it and ADR-006's "nothing stays proposed
+  -- forever" does not apply (mechanical/invariants.py REFERENCE_STATUS).
+  status             TEXT NOT NULL,
   tags               TEXT NOT NULL DEFAULT '[]',  -- JSON array
   embedding          BLOB,                   -- float32 x 384
   condition          TEXT NOT NULL DEFAULT '[]',  -- JSON: Predicate[]
@@ -239,6 +243,33 @@ CREATE TABLE IF NOT EXISTS event_log (
   source_id  TEXT,
   payload    TEXT NOT NULL                   -- JSON
 );
+
+-- APPEND-ONLY, ENFORCED BY THE DATABASE, not by convention (CLAUDE.md
+-- "EventLog": "append-only; monotonic ULID id = THE canonical append order").
+-- Until these triggers the rule was an application habit: nothing stopped an
+-- UPDATE or a DELETE, and the audit spine that every verdict, weight move and
+-- proposal is reconstructed from is exactly the table where a silent edit would
+-- be undetectable — it IS the record that would have shown the edit.
+--
+-- No code path issues either statement today (`InvestmentDB` exposes append
+-- only), so these cost nothing and forbid what was already never done. That is
+-- the point: the guarantee should survive the next person who adds a "small
+-- correction" migration.
+--
+-- `CREATE TRIGGER IF NOT EXISTS` is ADDITIVE and idempotent, so this stays
+-- inside V1's `CREATE TABLE IF NOT EXISTS` discipline and does NOT open
+-- CLAUDE.md's numbered-migration convention (which the first ALTER would).
+CREATE TRIGGER IF NOT EXISTS event_log_is_append_only_update
+BEFORE UPDATE ON event_log
+BEGIN
+  SELECT RAISE(ABORT, 'event_log is append-only: UPDATE is forbidden');
+END;
+
+CREATE TRIGGER IF NOT EXISTS event_log_is_append_only_delete
+BEFORE DELETE ON event_log
+BEGIN
+  SELECT RAISE(ABORT, 'event_log is append-only: DELETE is forbidden');
+END;
 
 -- ============================================================
 -- M:N RELATION TABLES (5)

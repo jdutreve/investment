@@ -1739,42 +1739,6 @@ checkable today against the live DB without building anything.
 
 ---
 
-## I-52 — Probation's cross-regime wait is unbounded, so ADR-006 fails from the other side
-
-**Why deferred:** bounding it requires deciding what the bound MEANS, and both
-available answers change a maturation rule — an owner call under ADR-006, not a
-defect fix.
-
-**What it is.** `outcomes.strategy_probation_check` judges a candidate against
-the FAVORS peers of the CURRENT regime. Until now, a candidate with no FAVORS
-there was closed at `UNMEASURABLE_PROBATION_MULTIPLIER` windows as "no FAVORS in
-any regime" — a claim the query behind it could not support, since it only ever
-looked at one regime. That is fixed: a strategy scored in ANOTHER regime now
-waits instead of being closed, and only a strategy scored NOWHERE is closed.
-
-The residue is the wait. It is now unbounded: a strategy designed for a regime
-that does not come round stays `proposed` forever, which is exactly what
-ADR-006 forbids, reached from the opposite direction. Nothing currently
-surfaces it either — `ProbationResult.skipped_reason` is returned but rendered
-by no front.
-
-**Spec — the two answers, both rule changes:**
-- JUDGE it on the regime it WAS scored in, against that regime's peers. Honest
-  about the evidence that exists, but it means a verdict delivered on
-  conditions not currently in force.
-- CLOSE it at some multiple of the window with a distinct reason ("regime never
-  occurred"), keeping the spec so it can be re-proposed when the regime
-  returns. Cheaper, and it loses a candidate that may have been right.
-
-Either way `skipped_reason` needs a home in the digest, so a strategy waiting
-on a regime is visible rather than silently pending.
-
-**Trigger to revisit:** when a proposed strategy has been waiting on a regime
-for more than `UNMEASURABLE_PROBATION_MULTIPLIER` windows — checkable from
-`strategy.date_opened` against the FAVORS table without building anything.
-
----
-
 ## What never goes here
 
 - Anything that lets the agent AUTO-EXECUTE a real allocation change in V1 —
