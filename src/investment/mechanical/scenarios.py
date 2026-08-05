@@ -182,14 +182,22 @@ async def _signal_level(db: InvestmentDB, ticker: str) -> pd.Series:
     return pd.Series([r["level"] for r in rows], index=idx, dtype=float)
 
 
-async def warm_start_scenario_probabilities(db: InvestmentDB) -> dict[str, dict[str, float]]:
+async def warm_start_scenario_probabilities(
+    db: InvestmentDB, today: date | None = None
+) -> dict[str, dict[str, float]]:
     """UC0 step 11c (docs/USE_CASES.md) — for each Strategy's 3 scenarios,
     the historical weekly hit-rate of its (parseable) numeric trigger(s) over
     the full 35y backfill, normalized to sum 100, written as the seed
     `scenario_probability` row keyed by `scenario` = the Scenario id (not the
     bare 'bull'/'base'/'bear' name, which collides across strategies).
     Idempotent: `scenario_probability` has a real composite PK, `INSERT OR
-    REPLACE` overwrites a same-day rerun."""
+    REPLACE` overwrites a same-day rerun.
+
+    `today` dates the rows. It defaults to the wall clock, which is right for
+    the live chain and WRONG for the agentic replay (M8b), where the reading is
+    made at a historical decision date and `ts` is what every later reader sorts
+    on — a 2026 stamp on a 2008 reading is a leak of today into the past."""
+    today = today or date.today()
     scenarios = await db.query(
         "SELECT id, strategy_id, name, probability, triggers FROM scenario ORDER BY strategy_id, id"
     )
@@ -271,7 +279,7 @@ async def warm_start_scenario_probabilities(db: InvestmentDB) -> dict[str, dict[
                 "(strategy_id, scenario, ts, probability) VALUES (:sid, :scenario, :ts, :prob)",
                 sid=strategy_id,
                 scenario=sc["id"],
-                ts=date.today().isoformat(),
+                ts=today.isoformat(),
                 prob=probabilities[str(sc["name"])],
             )
     return result

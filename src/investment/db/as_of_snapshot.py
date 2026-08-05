@@ -56,6 +56,15 @@ _PRUNE: tuple[tuple[str, str], ...] = (
     ("backtest", "regime_id IN (SELECT id FROM regime WHERE date(created_at) > :t)"),
     ("proposal", "date(created_at) > :t"),
     ("evaluation", "date(created_at) > :t"),
+    # FAVORS edges carry NO date and aggregate the WHOLE 35y — replay.py refuses
+    # to read them for exactly that reason ("reading them would leak the future
+    # into every decision") and re-aggregates as-of t instead. They are a DERIVED
+    # artefact the live chain rebuilds every Monday from `backtest`, so the
+    # snapshot drops them wholesale and hydration recomputes them from the rows
+    # that survived. Deleting rather than recomputing here is what makes the leak
+    # impossible: `run_backtests_and_favors` SKIPS a (regime type, strategy) pair
+    # with no visible instance at t, which would have left the 2026 edge in place.
+    ("favors", "1 = 1"),
     # Regimes key on `created_at` — the CONFIRMING PRINT's date — and NOT on
     # `start_date`, which is back-dated to the data. A regime begun before t but
     # not yet confirmed at t must stay invisible, else a few weeks of look-ahead
@@ -77,9 +86,23 @@ _PRUNE: tuple[tuple[str, str], ...] = (
     ("event_log", "event_date > :t"),
 )
 
-# Deleting rows is not enough: three columns on SURVIVING rows are written by
-# the future and would leak it.
+# Deleting rows is not enough: some columns on SURVIVING rows are written by the
+# future and would leak it.
 _REPAIRS: tuple[tuple[str, str], ...] = (
+    # The Portfolio vertex's indicators are the LATEST aggregate, recomputed by
+    # UC6 on every cycle — every one of them is a 2026 number sitting on a row
+    # with no date of its own. Blanking them is not data loss: hydrating the
+    # snapshot re-runs UC6, which refills them as-of t. What survives blank are
+    # the DISABLED books (the three market-signal ones, `enabled = 0`), which
+    # `value_portfolios` skips — and NULL is the honest reading there: not
+    # valued at t. Leaving them would hand `db_query` the 2026 Sortino of a book
+    # the replayed agent has no valuation for.
+    (
+        "portfolio",
+        "UPDATE portfolio SET sharpe_rolling = NULL, sortino_rolling = NULL, "
+        "calmar_rolling = NULL, max_drawdown = NULL, volatility = NULL, return_3m = NULL, "
+        "return_6m = NULL, return_1y = NULL, return_3y = NULL, return_5y = NULL",
+    ),
     # A regime open at t must LOOK open at t. `end_date` is the retroactive
     # close, so a regime confirmed before t but closed after it would otherwise
     # hand the Worker the date its own regime ends (the `end_date`-knowability

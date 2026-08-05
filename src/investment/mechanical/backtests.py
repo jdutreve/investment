@@ -492,7 +492,9 @@ class BacktestsFavorsResult:
     favors_edges: int
 
 
-async def run_backtests_and_favors(db: InvestmentDB, window: int) -> BacktestsFavorsResult:
+async def run_backtests_and_favors(
+    db: InvestmentDB, window: int, today: date | None = None
+) -> BacktestsFavorsResult:
     """UC0 step 11 (docs/USE_CASES.md) — one Backtest row per (Strategy,
     completed historical Regime instance) for every RegimeType with
     `>= min_backtest_periods` qualifying instances (system_thresholds), then
@@ -601,7 +603,7 @@ async def run_backtests_and_favors(db: InvestmentDB, window: int) -> BacktestsFa
                     "calmar_rolling": agg.calmar_rolling,
                     "max_drawdown": agg.max_drawdown,
                     "n_periods": len(per_instance),
-                    "last_updated": date.today().isoformat(),
+                    "last_updated": (today or date.today()).isoformat(),
                 },
             )
             favors_written += 1

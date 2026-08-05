@@ -64,6 +64,15 @@ async def _seed(db: InvestmentDB) -> None:
             ca=created,
         )
 
+    # A portfolio carrying 2026 indicators, and a FAVORS edge aggregating 35y —
+    # neither row has a date of its own, so only a repair can reach them.
+    await cmd(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, "
+        "benchmark, allocation, max_drawdown_rule, max_single_asset_pct, phase, "
+        "sortino_rolling, return_1y, trace, updated_at) VALUES ('pf', 'P', 'fw', 1, 1, 'USD', "
+        "'SPY', '{}', -15, 40, 'accumulation', 1.849, 0.31, 'tr', '2026-07-15')"
+    )
+
     # A strategy + backtests hanging off the visible and the invisible regime.
     await cmd(
         "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
@@ -81,6 +90,11 @@ async def _seed(db: InvestmentDB) -> None:
             id=bid,
             r=rid,
         )
+
+    await cmd(
+        "INSERT INTO favors (regime_type_id, strategy_id, sortino_rolling, n_periods, "
+        "last_updated) VALUES ('stag', 'st', 1.42, 9, '2026-07-15')"
+    )
 
     # The corpus: an invariant born long after t. It must SURVIVE (module
     # docstring — pruning it empties gate 6 and the screen measures nothing).
@@ -233,5 +247,19 @@ async def test_a_failed_prune_leaves_no_half_built_snapshot(
         assert len(await db.query("SELECT ts FROM market_data")) == 2  # nothing deleted
         with pytest.raises(Exception, match="append-only"):
             await db.command("DELETE FROM event_log WHERE id = '01J-regime'")
+    finally:
+        await db.close()
+
+
+async def test_derived_aggregates_with_no_date_are_cleared(live: Path, tmp_path: Path) -> None:
+    """The two future-written artefacts that carry no timestamp of their own:
+    the Portfolio vertex's indicators and the FAVORS edges. Both are rebuilt by
+    hydrating the snapshot; leaving them would hand a 2008 Worker 2026 numbers
+    through nothing more exotic than `SELECT * FROM portfolio`."""
+    db = await _snap(live, tmp_path)
+    try:
+        rows = await db.query("SELECT sortino_rolling, return_1y FROM portfolio")
+        assert rows and all(r["sortino_rolling"] is None and r["return_1y"] is None for r in rows)
+        assert await db.query("SELECT strategy_id FROM favors") == []
     finally:
         await db.close()
