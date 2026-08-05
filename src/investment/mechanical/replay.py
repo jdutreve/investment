@@ -410,6 +410,31 @@ class ReplayResult:
     context: ReplayContext | None = None
 
 
+# The three stress windows M8b names (docs/MILESTONES.md M8b Definition of
+# Verified: "at 2008 / 2020 / stagflation"), sampled MONTHLY — 21 decision dates
+# in total, which is the "≈20 LLM runs" the milestone budgets for.
+#
+# WHY THESE AND NOT A UNIFORM SAMPLE. An agentic run costs real money per date,
+# so the dates have to earn their place: a screen that asks "would this agent
+# have coped?" learns most where coping was hard and least in a calm quarter. The
+# three windows are the regime transitions the corpus was written about — a
+# credit crisis, a liquidity shock, an inflation shock — and each opens BEFORE
+# the break so the run includes the decision not to act yet.
+#
+# WHY NOTHING BEFORE 2008. Measured on the live corpus over 139 quarterly dates:
+# 20% of quarters have ZERO invariant citable under UC8-B gate 6, and they are
+# massed on 1992-2002 (disinflation, a positive curve, and `gold_10y_dev` has no
+# data before 1998-06). At those dates every Worker reallocation dies on gate 6
+# for want of an ACTIVE invariant, so A' == A tells us nothing about the Worker
+# and the run would have paid for an uninterpretable answer. All three windows
+# below carry 2 citable invariants.
+EPISODES: tuple[tuple[str, date, date], ...] = (
+    ("global-financial-crisis", date(2008, 7, 1), date(2009, 1, 31)),
+    ("covid-crash", date(2020, 1, 1), date(2020, 7, 31)),
+    ("inflation-shock", date(2022, 1, 1), date(2022, 7, 31)),
+)
+
+
 def decision_dates(
     calendar: pd.DatetimeIndex, start: date, end: date, cadence: str
 ) -> list[pd.Timestamp]:
@@ -423,10 +448,24 @@ def decision_dates(
     the Swiss Circular-36 6-month safe harbour wants longer holdings). Faber's
     rebalancing evidence — monthly vs never differs by <0.50%/yr — says slowing
     a STATIC rebalance is nearly free; it says nothing about slowing a SIGNAL,
-    which is why this is measured rather than assumed."""
+    which is why this is measured rather than assumed.
+
+    `episodes` is M8b's cost-bounded cadence: the monthly dates inside the three
+    stress windows above, intersected with [start, end] so the caller still owns
+    the outer bounds. It is the one cadence that is not a fixed step — an agentic
+    date costs an LLM call, so they are spent where the answer is informative
+    (see `EPISODES`)."""
     window = calendar[(calendar >= pd.Timestamp(start)) & (calendar <= pd.Timestamp(end))]
     if window.empty:
         return []
+    if cadence == "episodes":
+        dates: list[pd.Timestamp] = []
+        for _name, opens, closes in EPISODES:
+            span = window[(window >= pd.Timestamp(opens)) & (window <= pd.Timestamp(closes))]
+            if not span.empty:
+                frame = pd.Series(span, index=span)
+                dates += [pd.Timestamp(d) for d in frame.resample("ME").first().dropna()]
+        return sorted(dates)
     frame = pd.Series(window, index=window)
     freq = {"weekly": "W", "monthly": "ME", "quarterly": "QE"}[cadence]
     return [pd.Timestamp(d) for d in frame.resample(freq).first().dropna()]

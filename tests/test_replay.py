@@ -134,6 +134,32 @@ def test_decision_dates_step_weekly_within_the_window() -> None:
     assert all(d in calendar for d in dates)
 
 
+def test_decision_dates_episodes_spends_the_llm_budget_on_the_stress_windows() -> None:
+    """M8b's cost-bounded cadence. Unlike the fixed steps, `episodes` is a
+    CHOICE of dates — an agentic date costs an LLM call — so what it must
+    guarantee is that every date falls inside a named window and that the total
+    stays inside the milestone's ~20-run budget."""
+    calendar = pd.DatetimeIndex(pd.bdate_range("2007-01-01", periods=5200))  # through 2026
+    dates = replay.decision_dates(calendar, date(2007, 1, 1), date(2026, 8, 1), "episodes")
+
+    assert 18 <= len(dates) <= 22  # docs/MILESTONES.md M8b: "≈20 LLM runs"
+    assert dates == sorted(dates)
+    windows = [(opens, closes) for _name, opens, closes in replay.EPISODES]
+    assert all(any(o <= d.date() <= c for o, c in windows) for d in dates)
+    # monthly INSIDE each window — one decision per month, no denser
+    for opens, closes in windows:
+        inside = [d for d in dates if opens <= d.date() <= closes]
+        assert inside and len(inside) == len({(d.year, d.month) for d in inside})
+
+
+def test_decision_dates_episodes_are_bounded_by_the_callers_window() -> None:
+    """The caller still owns start/end: an episode outside them contributes
+    nothing rather than smuggling its dates back in."""
+    calendar = pd.DatetimeIndex(pd.bdate_range("2007-01-01", periods=5200))
+    dates = replay.decision_dates(calendar, date(2020, 1, 1), date(2020, 12, 31), "episodes")
+    assert dates and all(d.year == 2020 for d in dates)
+
+
 def test_decision_dates_step_quarterly_and_monthly_are_coarser_than_weekly() -> None:
     """The cadences OPEN #2 compares (docs/IMPROVEMENTS.md I-40) must actually
     step at their stated frequency — a silently-wrong clock would make a
