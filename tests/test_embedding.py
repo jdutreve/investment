@@ -22,11 +22,6 @@ from investment.corpus.embedding import (
 )
 
 
-@pytest.fixture(scope="module")
-def embedder() -> InProcessEmbedder:
-    return InProcessEmbedder("all-MiniLM-L6-v2")
-
-
 def test_encode_shape_and_dims(embedder: InProcessEmbedder) -> None:
     out = embedder.encode(["inflation erodes bonds", "gold hedges real rates"])
     assert out.shape == (2, DEFAULT_EMBEDDING_DIMS)

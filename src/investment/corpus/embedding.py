@@ -35,6 +35,7 @@ class Embedder(Protocol):
 
     def encode(self, texts: list[str]) -> np.ndarray: ...
 
+
 # The dimension `all-MiniLM-L6-v2` produces. NOT authoritative on its own: the
 # real value is `InProcessEmbedder.dims`, read from the loaded model. The
 # seeded `embedding_dims` threshold is the stored-vector side of the same

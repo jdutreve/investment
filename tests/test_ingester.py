@@ -25,12 +25,6 @@ from investment.corpus.ingester import (
 from investment.db.schema import SCHEMA_SQL  # noqa: F401  (ensures schema import is valid)
 from investment.db.sqlite import InvestmentDB
 
-
-@pytest.fixture(scope="module")
-def embedder() -> InProcessEmbedder:
-    return InProcessEmbedder("all-MiniLM-L6-v2")
-
-
 # -- pure text handling ----------------------------------------------------
 
 

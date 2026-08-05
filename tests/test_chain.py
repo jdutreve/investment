@@ -71,9 +71,7 @@ async def test_failure_aborts_the_rest_and_logs_an_error_event(db: InvestmentDB)
     async def never() -> None:
         ran.append("never")
 
-    result = await chain.run_chain(
-        db, [("ok", ok), ("boom", boom), ("never", never)], "run-2"
-    )
+    result = await chain.run_chain(db, [("ok", ok), ("boom", boom), ("never", never)], "run-2")
     assert result.ok is False
     assert result.failed_step == "boom"
     assert result.completed == ["ok"]  # only the step before the failure
@@ -81,9 +79,7 @@ async def test_failure_aborts_the_rest_and_logs_an_error_event(db: InvestmentDB)
     assert "regime step exploded" in (result.error or "")
 
     # the abort is recorded in the EventLog (the audit trail even on failure)
-    events = await db.query(
-        "SELECT source_id, payload FROM event_log WHERE type = 'ErrorEvent'"
-    )
+    events = await db.query("SELECT source_id, payload FROM event_log WHERE type = 'ErrorEvent'")
     assert len(events) == 1
     assert events[0]["source_id"] == "run-2"
     assert "boom" in events[0]["payload"] and "RuntimeError" in events[0]["payload"]

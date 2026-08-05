@@ -46,11 +46,6 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await database.close()
 
 
-@pytest.fixture(scope="module")
-def embedder() -> InProcessEmbedder:
-    return InProcessEmbedder("all-MiniLM-L6-v2")
-
-
 async def _document(db: InvestmentDB, author: str | None = None, passages: int = 4) -> list[str]:
     await db.create_vertex(
         "document",

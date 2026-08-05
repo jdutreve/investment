@@ -184,9 +184,7 @@ async def test_zoom_strategy_history(zoomdb: InvestmentDB) -> None:
 
 
 async def test_zoom_invariant_confrontations(zoomdb: InvestmentDB) -> None:
-    out = await R.execute_zoom(
-        zoomdb, R.Zoom(kind=R.ZoomKind.invariant_confrontations, arg="inv1")
-    )
+    out = await R.execute_zoom(zoomdb, R.Zoom(kind=R.ZoomKind.invariant_confrontations, arg="inv1"))
     assert out["rows"][0]["verdict"] == "confirmed"
 
 

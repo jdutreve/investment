@@ -54,8 +54,7 @@ async def _seed_common(db: InvestmentDB) -> None:
         ("recency_half_life_days", 365.0),
     ):
         await cmd(
-            "INSERT INTO system_thresholds (key, value, updated_at) "
-            "VALUES (:k, :v, '2026-01-01')",
+            "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",
             k=key,
             v=value,
         )
@@ -128,9 +127,7 @@ async def test_a_due_switch_beats_a_flat_incumbent(db: InvestmentDB) -> None:
     row = (await db.query("SELECT outcome, evaluated_at FROM proposal WHERE id='p-win'"))[0]
     assert json.loads(row["outcome"])["verdict"] == "won"
     assert row["evaluated_at"] == TODAY.isoformat()
-    events = await db.query(
-        "SELECT source_id, payload FROM event_log WHERE type = 'OutcomeEvent'"
-    )
+    events = await db.query("SELECT source_id, payload FROM event_log WHERE type = 'OutcomeEvent'")
     assert len(events) == 1
     assert events[0]["source_id"] == "p-win"
     assert json.loads(events[0]["payload"])["kind"] == "proposal"

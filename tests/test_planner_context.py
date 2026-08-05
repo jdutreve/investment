@@ -16,13 +16,26 @@ from investment.planner.retrieval import RetrievalPool
 
 def _baseline(**over: object) -> Baseline:
     base: dict[str, object] = {
-        "regime": {"regime_name": "Stagflation", "regime_type_id": "stag", "confidence": 0.7,
-                   "events": ["CPI up"]},
+        "regime": {
+            "regime_name": "Stagflation",
+            "regime_type_id": "stag",
+            "confidence": 0.7,
+            "events": ["CPI up"],
+        },
         "global_liquidity": {"level": 95.0, "speed": -0.1},
-        "ranking": [{"rank": 1, "portfolio_id": "pf1", "sortino_rolling": 1.2,
-                     "calmar_rolling": 1.1, "recommendation": "maintain"}],
-        "scenarios": [{"strategy_id": "s1", "scenario": "bull", "probability": 60.0, "shift": 8.0},
-                      {"strategy_id": "s1", "scenario": "base", "probability": 30.0, "shift": 0.0}],
+        "ranking": [
+            {
+                "rank": 1,
+                "portfolio_id": "pf1",
+                "sortino_rolling": 1.2,
+                "calmar_rolling": 1.1,
+                "recommendation": "maintain",
+            }
+        ],
+        "scenarios": [
+            {"strategy_id": "s1", "scenario": "bull", "probability": 60.0, "shift": 8.0},
+            {"strategy_id": "s1", "scenario": "base", "probability": 30.0, "shift": 0.0},
+        ],
         "top_invariants": [{"id": "i-base", "title": "from baseline", "weight_effective": 0.9}],
         "recent_proposals": [],
         # No live market-signal decision journalled yet — the state these tests
@@ -86,18 +99,27 @@ def test_empty_condition_is_always_active() -> None:
 
 def test_signal_predicate_uses_latest_reading() -> None:
     latest = {"inflation": {"level": 3.0, "speed": 0.1, "acceleration": None}}
-    assert C.condition_active_now(
-        [{"signal": "inflation", "feature": "level", "op": ">", "value": 2.5}], latest, None
-    ) is True
-    assert C.condition_active_now(
-        [{"signal": "inflation", "feature": "level", "op": ">", "value": 5.0}], latest, None
-    ) is False
+    assert (
+        C.condition_active_now(
+            [{"signal": "inflation", "feature": "level", "op": ">", "value": 2.5}], latest, None
+        )
+        is True
+    )
+    assert (
+        C.condition_active_now(
+            [{"signal": "inflation", "feature": "level", "op": ">", "value": 5.0}], latest, None
+        )
+        is False
+    )
 
 
 def test_missing_signal_reads_as_inactive_not_active() -> None:
-    assert C.condition_active_now(
-        [{"signal": "inflation", "feature": "level", "op": ">", "value": 2.5}], {}, "stag"
-    ) is False
+    assert (
+        C.condition_active_now(
+            [{"signal": "inflation", "feature": "level", "op": ">", "value": 2.5}], {}, "stag"
+        )
+        is False
+    )
 
 
 def test_regime_predicate_matches_current_type() -> None:

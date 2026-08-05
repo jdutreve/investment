@@ -23,11 +23,6 @@ from investment.corpus.watcher import (
 from investment.db.sqlite import InvestmentDB
 
 
-@pytest.fixture(scope="module")
-def embedder() -> InProcessEmbedder:
-    return InProcessEmbedder("all-MiniLM-L6-v2")
-
-
 @pytest.fixture
 async def env(tmp_path: Path, embedder: InProcessEmbedder) -> tuple[InvestmentDB, InboxWatcher]:
     db = InvestmentDB(tmp_path / "t.db")
