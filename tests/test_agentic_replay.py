@@ -43,6 +43,11 @@ THRESHOLDS: dict[str, float] = {
     "rolling_window_days": 756.0,
     "ranking_tiebreak_window": 0.02,
     "min_backtest_periods": 3.0,
+    "recency_half_life_days": 365.0,
+    "invariant_min_confrontations": 3.0,
+    "invariant_time_validation_score": 0.6,
+    "invariant_verdict_confidence": 0.95,
+    "invariant_null_score": 0.5,
     "replay_cost_bps": 23.0,
     "replay_confirmation_weeks": 2.0,
     "proposal_sortino_gap_min": 0.02,
@@ -119,6 +124,19 @@ async def _seed(db: InvestmentDB) -> None:
         "updated_at) VALUES ('inv-gold', 'Gold in stress', 'd', 's', 'integrated', '[]', 0.8, "
         "0.8, 0.4, 1.0, 'tr', '2000-01-01', '2000-01-01')"
     )
+    # ...with a track record dated BEFORE the episode. Without it the as-of
+    # re-maturation rightly demotes it to 'proposed' (no evidence at t is not
+    # evidence of an effect) and gate 6 refuses every citation — which is the
+    # correct behaviour, and exactly what this fixture must not accidentally test.
+    for i in range(9):
+        await cmd(
+            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, date, "
+            "verdict, severity, source) VALUES (:id, 'inv-gold', '{}', :d, :v, 1.0, 'backtest')",
+            id=f"conf-{i}",
+            d=(date(2006, 1, 1) + timedelta(days=90 * i)).isoformat(),
+            v="refuted" if i == 8 else "confirmed",
+        )
+
     for ticker in (*STACK_TICKERS, *DEFENDER_ALLOCATION):
         await cmd(
             "INSERT OR IGNORE INTO allowed_tickers (ticker, asset_class, currency, source, "
@@ -322,3 +340,66 @@ async def test_the_three_curves_cover_the_same_window(live: Path, tmp_path: Path
     for nav in (episode.nav_agentic, episode.nav_mechanical, episode.nav_hold):
         assert nav.index[0] >= pd.Timestamp(OPENS)
         assert nav.index[-1] <= pd.Timestamp(CLOSES)
+
+
+async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
+    """M8b's Definition of Verified, third box: invariant weights read AS-OF-T,
+    and a confrontation dated after t changes no weight before t.
+
+    The fixture's invariant carries 9 confrontations before the episode and one
+    crushing run of refutations after it. If the replay read the corpus as it
+    stands today, that later evidence would drag the score to 0.31 and the
+    verdict to 'rejected'; as-of t it must read 8/9 and stay integrated."""
+    db = InvestmentDB(live)
+    for i in range(40):
+        await db.command(
+            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, date, "
+            "verdict, severity, source) VALUES (:id, 'inv-gold', '{}', :d, 'refuted', 1.0, "
+            "'backtest')",
+            id=f"after-{i}",
+            d=(date(2009, 1, 1) + timedelta(days=7 * i)).isoformat(),
+        )
+    live_view = await db.query(
+        "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id = 'inv-gold'"
+    )
+    assert live_view[0]["n"] == 49
+    await db.close()
+
+    episode, bound = await _run(live, tmp_path, reallocation=None)
+    assert episode.outcomes
+
+    snapshot = bound[0]._db_path
+    seen = InvestmentDB(Path(snapshot))
+    try:
+        rows = await seen.query(
+            "SELECT confirmation_count, infirmation_count, market_score, status "
+            "FROM invariant WHERE id = 'inv-gold'"
+        )
+        # 8 confirmed / 1 refuted, all dated before the episode opened.
+        assert (rows[0]["confirmation_count"], rows[0]["infirmation_count"]) == (8, 1)
+        assert rows[0]["market_score"] == pytest.approx(8 / 9)
+        assert rows[0]["status"] == "integrated"
+        # and not one of the 40 later refutations reached the snapshot
+        later = await seen.query(
+            "SELECT COUNT(*) AS n FROM invariant_confrontations "
+            "WHERE invariant_id = 'inv-gold' AND \"date\" > :t",
+            t=CLOSES.isoformat(),
+        )
+        assert later[0]["n"] == 0
+    finally:
+        await seen.close()
+
+
+async def test_the_report_shows_both_channels(live: Path, tmp_path: Path) -> None:
+    """A NAV table alone answers half the STOP POINT. The readings are printed
+    in full, not counted, because "does the Worker reason sensibly?" cannot be
+    read off a number."""
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    report = AR.render_report([episode])
+
+    assert "semi-PIT" in report and "NOT go-live performance" in report
+    assert "A' agentic" in report and "all-weather" in report
+    assert "behavioural log" in report
+    for out in episode.outcomes:
+        assert str(out.as_of) in report
+        assert out.reading in report  # in full

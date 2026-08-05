@@ -21,20 +21,26 @@ sequence of months rather than twenty independent first months.
 WHAT IS PRUNED — the WORLD: prices, NAVs, regimes, rankings, valuations,
 scenario readings, past decisions, the event log.
 
-WHAT IS NOT — the CORPUS: invariants with their confrontations and weights,
-passages, strategies, frameworks, the seeded edges, the user profile and
-thresholds.
+WHAT IS NOT — the CORPUS ITSELF: invariants, passages, strategies, frameworks,
+the seeded edges, the user profile and thresholds.
 
-THAT ASYMMETRY IS DELIBERATE, and it is the honest reading of what M8b measures
-— docs/MILESTONES.md calls it "the best-case pre-go-live screen". The question
-the agentic replay asks is "what would this agent, with the knowledge it holds
-TODAY, have decided in 2008 seeing only 2008's market?". The other question —
-"what would a 2008 agent have known?" — is not answerable here and would empty
-the screen: the four `integrated` invariants were born in July 2026, so pruning
-the corpus on `created_at` leaves UC8-B gate 6 with no citable invariant at any
-historical date, hence no reallocation, hence nothing to measure. Best-case is
-the screen's design; this knowledge look-ahead is its price and belongs stated
-in the report's NOTES, alongside the mechanical mode's own approximations.
+THE CUT RUNS BETWEEN AN IDEA AND ITS TRACK RECORD, and that is the whole design.
+Pruning the invariants on `created_at` would empty the screen — all four
+`integrated` ones were born in July 2026, so gate 6 would have nothing citable at
+any historical date, hence no reallocation, hence nothing to measure. So the
+ideas survive: M8b is "the best-case pre-go-live screen" (docs/MILESTONES.md) and
+best-case means the agent gets today's book of ideas.
+
+Their EVIDENCE does not. `invariant_confrontations` IS pruned, because the 35y
+birth maturation dated its confrontations at the historical moments it tested
+(1980-2026) rather than at the seed's wall clock — so bounding them at t and
+re-deriving the weights (`mechanical/as_of_cycle.reweigh_invariants_asof`) gives
+a genuine as-of-t standing. What the replayed agent knows at t is every idea in
+the corpus, and exactly how well each had proven out BY THEN.
+
+That leaves one honest look-ahead: an idea nobody had yet in 2008 is available to
+be cited in 2008, if its own historical record supported it. It belongs stated in
+the report's NOTES, alongside the mechanical mode's own approximations.
 """
 
 import sqlite3
@@ -48,6 +54,14 @@ from pathlib import Path
 # predicate is not a column expression and is written out longhand there.
 _WORLD_OBSERVATIONS: tuple[tuple[str, str], ...] = (
     ("market_data", "date(ts)"),  # ADR-003: ts = the date it became KNOWABLE
+    # The corpus's EVIDENCE, and the one part of it that is dated. The 35y birth
+    # maturation wrote these at the historical moments it tested (1980-2026), so
+    # bounding them at t yields a genuine as-of-t weight and verdict — which is
+    # exactly what M8b's Definition of Verified asks for ("invariant weights read
+    # as-of-t; a confrontation dated after t changes no weight before t"). The
+    # invariants themselves still survive whole: what is knowable at t is how
+    # well an idea had PROVEN OUT by then, not whether anyone had had it.
+    ("invariant_confrontations", 'date("date")'),
     ("portfolio_nav", "date(ts)"),
     ("benchmark_valuation", 'date("date")'),
     # Regimes key on `created_at` — the CONFIRMING PRINT's date — and NOT on

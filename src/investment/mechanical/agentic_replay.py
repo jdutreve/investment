@@ -284,3 +284,132 @@ def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcom
         accepted=result.proposal_id is not None,
         innovations=len(result.worker_result.innovations_proposed),
     )
+
+
+def render_report(episodes: list[EpisodeResult]) -> str:
+    """The two channels M8b's STOP POINT is judged on, side by side. The NAV
+    table alone would answer half the question — "does it beat All Weather?" —
+    and MILESTONES weights "does the Worker reason sensibly?" equally, so the
+    readings are printed in full rather than counted."""
+    lines = ["M8b — AGENTIC REPLAY (semi-PIT, best-case; NOT go-live performance)", ""]
+    for ep in episodes:
+        lines += [
+            f"## {ep.name}  {ep.opens} .. {ep.closes}   ({len(ep.outcomes)} decision dates)",
+            f"  A' agentic    cagr={_pct(ep.metrics_agentic.cagr)}  "
+            f"sortino={_num(ep.metrics_agentic.sortino)}  "
+            f"maxDD={_pct(ep.metrics_agentic.max_drawdown)}",
+            f"  A  mechanical cagr={_pct(ep.metrics_mechanical.cagr)}  "
+            f"sortino={_num(ep.metrics_mechanical.sortino)}  "
+            f"maxDD={_pct(ep.metrics_mechanical.max_drawdown)}",
+            f"  B  all-weather cagr={_pct(ep.metrics_hold.cagr)}  "
+            f"sortino={_num(ep.metrics_hold.sortino)}  "
+            f"maxDD={_pct(ep.metrics_hold.max_drawdown)}",
+            f"  A' - A = {_pct(ep.cagr_delta_vs_mechanical)}   "
+            f"beats all-weather: {ep.beats_all_weather}   "
+            f"accepted reallocations: {ep.accepted_reallocations}",
+            "",
+            "  behavioural log:",
+        ]
+        for out in ep.outcomes:
+            verdict = "accepted" if out.accepted else (out.gate or "no proposal")
+            lines += [
+                f"    {out.as_of}  [{verdict}]  innovations={out.innovations}",
+                f"      {out.reading}",
+            ]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value * 100:+.2f}%"
+
+
+def _num(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
+
+
+async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
+    """Every episode, against the live database and the real models.
+
+    The report is rewritten after EACH episode rather than once at the end. Two
+    thirds of a paid run is worth keeping when the last third dies, and the sink
+    has to exist before the expensive part starts, not after it."""
+    from investment.config import Settings
+    from investment.corpus.embedding import InProcessEmbedder
+    from investment.mechanical.replay import EPISODES, load_inputs, load_thresholds
+    from investment.worker.agent import build_worker_agent
+
+    settings = Settings()  # type: ignore[call-arg]  # pydantic-settings fills from .env
+    live = Path(settings.db_path)
+
+    db = InvestmentDB(live)
+    inputs = await load_inputs(db)
+    thresholds = await load_thresholds(db)
+    rows = await db.query("SELECT key, value FROM system_thresholds")
+    system_thresholds = {str(r["key"]): float(r["value"]) for r in rows}
+    profile = await db.query(
+        "SELECT max_drawdown_pct, max_single_asset_pct FROM user_profile LIMIT 1"
+    )
+    user_profile = dict(profile[0])
+    await db.close()
+
+    embedder = InProcessEmbedder(settings.embedding_model)
+
+    def make_agents(snapshot_db: InvestmentDB) -> CognitiveAgents:
+        return CognitiveAgents(
+            planner_pre=PlannerPre(
+                snapshot_db, embedder, settings.planner_model, settings.openrouter_api_key
+            ),
+            worker=build_worker_agent(
+                snapshot_db, settings.worker_model, settings.openrouter_api_key
+            ),
+            planner_post=PlannerPost(settings.planner_model, settings.openrouter_api_key),
+        )
+
+    results: list[EpisodeResult] = []
+    for name, opens, closes in EPISODES:
+        results.append(
+            await run_agentic_episode(
+                live,
+                scratch,
+                name=name,
+                opens=opens,
+                closes=closes,
+                inputs=inputs,
+                thresholds=thresholds,
+                make_agents=make_agents,
+                user_profile=user_profile,
+                system_thresholds=system_thresholds,
+                cost_bps=system_thresholds["replay_cost_bps"],
+                confirmation_weeks=system_thresholds["replay_confirmation_weeks"],
+            )
+        )
+        if out is not None:
+            out.write_text(render_report(results))
+            logger.info("report written after %s: %s", name, out)
+    return results
+
+
+def _main() -> None:
+    """`python -m investment.mechanical.agentic_replay --scratch DIR [--out FILE]`
+
+    Spends real money: ~21 LLM decision cycles against the live database. With
+    `--out` the report is rewritten after every episode, so an episode that dies
+    on its last date does not take the two that already ran down with it."""
+    import argparse
+    import asyncio
+
+    parser = argparse.ArgumentParser(description="M8b agentic replay — the pre-go-live screen")
+    parser.add_argument("--scratch", type=Path, required=True, help="where snapshots are built")
+    parser.add_argument("--out", type=Path, help="write the report here as well as to stdout")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    args.scratch.mkdir(parents=True, exist_ok=True)
+
+    episodes = asyncio.run(_run_all(args.scratch, args.out))
+    print(render_report(episodes))
+
+
+if __name__ == "__main__":
+    _main()
