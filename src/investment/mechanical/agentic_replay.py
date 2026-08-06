@@ -105,9 +105,16 @@ SCRATCH_DIR_NAME = "agentic-replay"
 # minutes gets the three that remain, which is correct: it has given ample
 # evidence that it is not the healthy case.
 #
-# The number is provisional and should be re-derived from the FIRST full run's
-# distribution of healthy-date durations, not from the single measurement it
-# rests on today.
+# PROVISIONAL, and possibly calibrated BACKWARDS — see docs/IMPROVEMENTS.md
+# I-52. It was set from one healthy date at 5m09s; the observed spread of
+# healthy dates is 3m46 to 13m49, and the date that has exhausted it twice is
+# 2008-10-01 — the peak of the crisis, the richest context, the longest
+# reading. A bound set from the median discards the tail, and the tail is what
+# this screen exists to read.
+#
+# So treat 900 as a runaway guard, not as a verdict on how long thinking may
+# take. Re-derive it from the FIRST completed run's per-date durations, and
+# from the SUCCESSFUL ones' tail rather than their median.
 DATE_TIMEOUT_SECONDS = 900.0
 
 # The other half of the same policy. See `_cycle_with_retry` for why one retry

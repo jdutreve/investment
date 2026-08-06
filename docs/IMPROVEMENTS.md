@@ -1739,6 +1739,52 @@ checkable today against the live DB without building anything.
 
 ---
 
+## I-52 — The agentic replay's per-date budget may be cutting the dates worth reading
+
+**Why deferred:** the number should come from a full run's distribution, and
+the first full run is what produces it. Changing it on a hypothesis would
+replace one unmeasured constant with another.
+
+**What it is.** `agentic_replay.DATE_TIMEOUT_SECONDS` (900s) bounds one
+decision date, every attempt inside it. It was set from a single measurement —
+a healthy date at 5m09s — on the assumption that anything far past that is a
+stall.
+
+The observed distribution says otherwise: healthy dates have run 3m46, 8m21,
+9m and 13m49. And on 2026-08-06 the date that exhausted the budget was
+2008-10-01, which also failed in the previous run for an unrelated reason
+(16 tool calls against a cap of 12). That is the peak of the crisis — the
+richest context, the most active invariants, the longest reading. **The
+owner's reading, and it is the right one: 10 minutes may not be a fault but a
+business threshold. A hard month is one the Worker should be allowed to think
+about for longer.**
+
+If that holds, the bound is calibrated backwards: set from the median, it
+systematically discards the tail — and the tail is exactly what M8b exists to
+read. Losing October 2008 to a timeout is losing the most informative date in
+the episode.
+
+Distinguish the two failure modes before raising it, because only one is worth
+paying for:
+- an IDLE connection reaped by the NAT (fixed by `keepalive_expiry`,
+  `openrouter_client.py`) — a dead wait, worth nothing;
+- an IN-FLIGHT hold: the response is streamed, so every chunk rearms httpx's
+  read timer and nothing bounds the total. Measured 10m21s ending in a
+  malformed `ChatCompletion`. That one may be the provider struggling, or the
+  model genuinely working.
+
+**Spec:** re-derive the bound from the completed run's per-date durations —
+take the tail of the SUCCESSFUL dates, not their median — and if the hard dates
+cluster past 900s, raise it and re-run only those. Note that a failed date is
+journalled precisely so a resume does not retry it, so redoing one means
+dropping its line from `<scratch>/<episode>.dates.jsonl` (or growing the CLI a
+`--retry-failed` flag).
+
+**Trigger to revisit:** the first completed full run — its journal already
+carries every date's outcome, and the log carries the timings.
+
+---
+
 ## What never goes here
 
 - Anything that lets the agent AUTO-EXECUTE a real allocation change in V1 —
