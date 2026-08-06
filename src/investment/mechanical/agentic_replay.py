@@ -627,12 +627,21 @@ def _num(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
 
 
-async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
+async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list[EpisodeResult]:
     """Every episode, against the live database and the real models.
 
     The report is rewritten after EACH episode rather than once at the end. Two
     thirds of a paid run is worth keeping when the last third dies, and the sink
-    has to exist before the expensive part starts, not after it."""
+    has to exist before the expensive part starts, not after it.
+
+    BOTH PATHS DEFAULT TO SOMEWHERE DURABLE, and that is a correction. `scratch`
+    started as "where the throwaway snapshots go", so the first runs pointed it
+    at a session temp directory — correct for a 72MB snapshot, wrong the moment
+    the resume journal moved in beside it. The journal is not scratch: it is the
+    record of what a three-hour paid run has already bought, and it now lives
+    next to the database it replays. `out` defaults for the same reason —
+    a report written only when someone remembers the flag is a report that is
+    missing on the run that mattered."""
     from investment.config import Settings
     from investment.corpus.embedding import InProcessEmbedder
     from investment.mechanical.replay import load_inputs, load_thresholds
@@ -640,6 +649,9 @@ async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
 
     settings = Settings()  # type: ignore[call-arg]  # pydantic-settings fills from .env
     live = Path(settings.db_path)
+    scratch = scratch or live.parent / "m8b"
+    scratch.mkdir(parents=True, exist_ok=True)
+    out = out or scratch / "report.txt"
 
     db = InvestmentDB(live)
     inputs = await load_inputs(db)
@@ -701,11 +713,14 @@ async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
 
 
 def _main() -> int:
-    """`python -m investment.mechanical.agentic_replay --scratch DIR [--out FILE]`
+    """`python -m investment.mechanical.agentic_replay [--scratch DIR] [--out FILE]`
 
-    Spends real money: ~21 LLM decision cycles against the live database. With
-    `--out` the report is rewritten after every episode, so an episode that dies
-    on its last date does not take the two that already ran down with it.
+    Spends real money: ~21 LLM decision cycles against the live database, three
+    hours at the observed pace. BOTH FLAGS ARE OPTIONAL AND DEFAULT TO DURABLE
+    PATHS under the database's directory — a run that persists nothing because
+    a flag was forgotten is the failure this whole module has been rebuilt
+    around today. The report is rewritten after every episode, and re-running
+    the same command RESUMES from the journal rather than paying again.
 
     Exit code is 1 if ANY episode or decision date failed. The report is still
     written and still readable — the code exists so a partial run cannot be
@@ -713,12 +728,17 @@ def _main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="M8b agentic replay — the pre-go-live screen")
-    parser.add_argument("--scratch", type=Path, required=True, help="where snapshots are built")
-    parser.add_argument("--out", type=Path, help="write the report here as well as to stdout")
+    parser.add_argument(
+        "--scratch",
+        type=Path,
+        help="snapshots AND the resume journal (default: <db dir>/m8b — durable on purpose)",
+    )
+    parser.add_argument(
+        "--out", type=Path, help="report path (default: <scratch>/report.txt); always written"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    args.scratch.mkdir(parents=True, exist_ok=True)
 
     episodes = asyncio.run(_run_all(args.scratch, args.out))
     print(render_report(episodes))
