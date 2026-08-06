@@ -82,7 +82,15 @@ from investment.worker.result import ImprovementProposal, WorkerResult
 
 logger = logging.getLogger(__name__)
 
-TRIGGER = "M8b agentic replay — the scheduled decision cycle at a historical date"
+TRIGGER = "agentic replay — the scheduled decision cycle at a historical date"
+
+# The run's artefacts on disk. NAMED FOR THE BEHAVIOUR, not for the milestone
+# that first needed it: `m8b` is a line in MILESTONES.md that stops meaning
+# anything the week it ships, while `agentic-replay` still says what is in the
+# directory in a year. Same rule the modules follow (CLAUDE.md: reference the
+# spec from the DOCSTRING, name the thing for what it does) — it just had not
+# been applied to paths, log prefixes and run ids.
+SCRATCH_DIR_NAME = "agentic-replay"
 
 # TOTAL wall clock for one decision date — every attempt INSIDE it, not each.
 #
@@ -245,7 +253,10 @@ async def run_agentic_episode(
     outcomes = _read_journal(journal, dates[0].date()) if snapshot.exists() else []
     if outcomes:
         logger.info(
-            "m8b %s: resuming after %s (%d dates kept)", name, outcomes[-1].as_of, len(outcomes)
+            "agentic-replay %s: resuming after %s (%d dates kept)",
+            name,
+            outcomes[-1].as_of,
+            len(outcomes),
         )
         for out in outcomes:
             if out.accepted and out.proposed_allocation:
@@ -324,7 +335,7 @@ async def run_agentic_episode(
             if outcome.accepted and outcome.proposed_allocation:
                 targets[stamp] = dict(outcome.proposed_allocation)
             logger.info(
-                "m8b %s %s: gate=%s accepted=%s innovations=%d",
+                "agentic-replay %s %s: gate=%s accepted=%s innovations=%d",
                 name,
                 as_of,
                 outcome.gate or "n/a",
@@ -443,7 +454,7 @@ def _read_journal(path: Path, opens: date) -> list[DateOutcome]:
                 )
             )
         except (ValueError, KeyError, TypeError):
-            logger.warning("m8b: dropping an unreadable journal line in %s", path)
+            logger.warning("agentic-replay: dropping an unreadable journal line in %s", path)
     return outcomes
 
 
@@ -497,12 +508,12 @@ async def _cycle_with_retry(
                     # The attempt is IN the run id: a retry writes its own
                     # journalled reading, and two rows from one date that
                     # cannot be told apart is a worse trace than none.
-                    run_id=f"m8b-{name}-{as_of}-a{attempt}",
+                    run_id=f"agentic-replay-{name}-{as_of}-a{attempt}",
                 )
         except Exception as exc:
             last = exc
             logger.warning(
-                "m8b %s %s: attempt %d/%d failed (%s: %s)",
+                "agentic-replay %s %s: attempt %d/%d failed (%s: %s)",
                 name,
                 as_of,
                 attempt,
@@ -514,9 +525,11 @@ async def _cycle_with_retry(
                 # The budget is the date's, so a retry that cannot start is not
                 # attempted — pretending otherwise would log an attempt that
                 # was cut before its first request.
-                logger.error("m8b %s %s: date budget spent, no retry left", name, as_of)
+                logger.error("agentic-replay %s %s: date budget spent, no retry left", name, as_of)
                 return last
-    logger.error("m8b %s %s: all %d attempts failed, continuing", name, as_of, DATE_ATTEMPTS)
+    logger.error(
+        "agentic-replay %s %s: all %d attempts failed, continuing", name, as_of, DATE_ATTEMPTS
+    )
     return last
 
 
@@ -649,7 +662,7 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
 
     settings = Settings()  # type: ignore[call-arg]  # pydantic-settings fills from .env
     live = Path(settings.db_path)
-    scratch = scratch or live.parent / "m8b"
+    scratch = scratch or live.parent / SCRATCH_DIR_NAME
     scratch.mkdir(parents=True, exist_ok=True)
     out = out or scratch / "report.txt"
 
@@ -701,7 +714,7 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
                 )
             )
         except Exception:
-            logger.exception("m8b episode %s failed, continuing to the next", name)
+            logger.exception("agentic-replay episode %s failed, continuing to the next", name)
             continue
         if out is not None:
             out.write_text(render_report(results))
@@ -731,7 +744,7 @@ def _main() -> int:
     parser.add_argument(
         "--scratch",
         type=Path,
-        help="snapshots AND the resume journal (default: <db dir>/m8b — durable on purpose)",
+        help="snapshots AND the resume journal (default: <db dir>/agentic-replay, durable)",
     )
     parser.add_argument(
         "--out", type=Path, help="report path (default: <scratch>/report.txt); always written"
