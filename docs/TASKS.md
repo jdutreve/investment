@@ -63,8 +63,8 @@ See IMPROVEMENTS.md for deferred V2 features.
 |                 | + 5 FK columns (composition rule)                             |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
-| Planner         | deepseek-v4-flash via OpenRouter, thinking=512/1024           |
-| Worker          | Sonnet 5 via OpenRouter (owner decision 2026-07-21)           |
+| Planner         | `PLANNER_MODEL` via OpenRouter, thinking=512/1024 (.env decides) |
+| Worker          | `WORKER_MODEL` via OpenRouter (.env decides; every role routes there — owner decision 2026-07-21) |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
 | Veille          | UC3 Event Watch (pinned Fed/ECB/SNB press) + user deposits    |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
@@ -119,10 +119,10 @@ cat > ~/projets/investment/.env << 'EOF'
 ANTHROPIC_API_KEY=sk-ant-...
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-PLANNER_MODEL=qwen/qwen3-8b
+PLANNER_MODEL=REPLACE_ME      # no default in code: .env decides
 PLANNER_THINKING_BUDGET_PRE=512
 PLANNER_THINKING_BUDGET_POST=1024
-WORKER_MODEL=claude-sonnet-5
+WORKER_MODEL=REPLACE_ME       # no default in code: .env decides
 EMBEDDING_MODEL=all-MiniLM-L6-v2   # sentence-transformers, in-process, 384 dims
 
 # SQLite ($HOME expanded by config.py)

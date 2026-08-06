@@ -59,12 +59,18 @@ its code.
 
 Three cognitive roles, strictly separated (full spec: docs/ARCHITECTURE.md):
 
-- **PLANNER** (deepseek-v4-flash via OpenRouter, thinking mode) — assembles Worker
+**Which MODEL runs each role is `.env`'s business alone** — `PLANNER_MODEL` and
+`WORKER_MODEL` have NO default in the code (the agent refuses to start without
+them) and no source file may name a model. Each role states the CAPABILITIES it
+requires; a swap is a `.env` edit plus a smoke test, never a code change.
+
+- **PLANNER** (`PLANNER_MODEL` via OpenRouter, thinking mode) — assembles Worker
   context: mechanical baseline queries + LLM-chosen margin (corpus searches,
   ≤3 whitelisted zooms — never raw SQL). Post-Worker Call 2 = guardrail +
   knowledge extraction. Direct DB access in Python, no tool_call.
-- **WORKER** (claude-sonnet-5 via OpenRouter — owner decision 2026-07-21; the
-  model is unchanged, only the transport) — investment expert; interprets,
+- **WORKER** (`WORKER_MODEL` via OpenRouter — every role routes there, owner
+  decision 2026-07-21; needs structured output AND function tools in the SAME
+  run) — investment expert; interprets,
   never calculates (indicators are already in the DB). DB access via 3
   bridged tools ONLY: `db_query` (FORBIDDEN_SQL whitelist, ≤20 rows),
   `market_fetch` (ALLOWED_TICKERS, ≤30 rows), `portfolio_check`. Unaware of

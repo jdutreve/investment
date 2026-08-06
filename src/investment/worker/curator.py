@@ -388,13 +388,18 @@ def build_agent(
         )
     )
     # PydanticAI's bundled profile for these OpenRouter routes declares
-    # `supports_json_schema_output=False` and defaults to the `tool` mode. That
-    # is WRONG for deepseek-v4-flash: a direct HTTP check (2026-07-21) returned
+    # `supports_json_schema_output=False` and defaults to the `tool` mode. It is
+    # stale, and trusting it is what forced the tool path and produced the
+    # retry-exhaustion failures.
+    #
+    # What this role NEEDS is native structured output; it needs no function
+    # tools at all, which is what lets it override the mode outright. Measured
+    # on the planner model of the day (2026-07-21): a direct HTTP check returned
     # a valid object from `response_format: {type: json_schema, strict: true}`
-    # in 0.85s. Trusting the stale profile is what forced the tool path and
-    # produced the retry-exhaustion failures. Overridden from measurement, not
-    # from optimism — if a future model genuinely lacks it, the request errors
-    # loudly rather than silently degrading.
+    # in 0.85s. That measurement is provenance for the override, not a claim
+    # about whatever `.env` names today — if a model genuinely lacks the
+    # capability the request errors loudly rather than silently degrading, which
+    # is the failure mode to prefer on a swap.
     # The profile is a TypedDict at runtime: copy it and flip the two flags.
     base = dict(OpenAIChatModel(model_name, provider=provider).profile)
     base.update(supports_json_schema_output=True, default_structured_output_mode="native")
@@ -417,8 +422,9 @@ def build_agent(
         model_settings=OpenAIChatModelSettings(
             # Without this the client waits forever on a stalled socket.
             timeout=BATCH_TIMEOUT_SECONDS,
-            # `reasoning_effort` is a str from config; the provider validates
-            # the value (deepseek-v4-flash and sonnet-5 both accept 'xhigh').
+            # `reasoning_effort` is a str from config; the PROVIDER validates
+            # the value and errors loudly on one the model does not accept —
+            # deliberately not a per-model list maintained here.
             openai_reasoning_effort=reasoning_effort,  # type: ignore[typeddict-item]
         ),
     )

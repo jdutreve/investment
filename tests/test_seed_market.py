@@ -127,6 +127,9 @@ def _settings(tmp_path: Path) -> Settings:
     return Settings(
         _env_file=None,
         anthropic_api_key="test",
+        # Required, no default: config.py refuses to guess which model runs.
+        planner_model="test/planner",
+        worker_model="test/worker",
         openrouter_api_key="test",
         fred_api_key="test",
         telegram_bot_token="test",

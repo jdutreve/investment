@@ -141,7 +141,7 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 def test_build_worker_agent_registers_exactly_the_three_tools(db: InvestmentDB) -> None:
     """Least privilege: the Worker gets db_query / market_fetch /
     portfolio_check and nothing else (docs/ARCHITECTURE.md WORKER)."""
-    agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test")
     tool_names = set(agent._function_toolset.tools)
     assert tool_names == {"db_query", "market_fetch", "portfolio_check"}
 
@@ -169,7 +169,7 @@ async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> Non
     WorkerResult. TestModel drives the agent's output path (call_tools=[] keeps
     it to the structured output — the tools themselves are covered in
     test_worker_tools.py)."""
-    agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test")
     with agent.override(model=TestModel(call_tools=[])):
         result = await run_worker(agent, "the prepared context")
     # A schema-valid WorkerResult came back through the real output path. The
@@ -229,7 +229,7 @@ async def test_a_runaway_tool_loop_is_stopped_by_the_budget(db: InvestmentDB) ->
     timeout, billing every turn. It must FAIL, not degrade — a half-cycle
     silently written to the graph is worse than a Monday with no cognitive read.
     """
-    agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test")
     # TestModel(call_tools='all') calls every registered tool, then answers; the
     # budget is squeezed below that to force the runaway path deterministically.
     with agent.override(model=TestModel()), pytest.raises(UsageLimitExceeded):
@@ -242,7 +242,7 @@ async def test_the_shipped_budget_does_not_bite_a_normal_cycle(db: InvestmentDB)
     rejected by the real tool validators long before any budget, so a
     tools-and-all happy path cannot be simulated here; the runaway case above is
     what the budget exists for, and this pins that it stays out of the way."""
-    agent = build_worker_agent(db, "anthropic/claude-sonnet-5", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test")
     with agent.override(model=TestModel(call_tools=[])):
         result = await run_worker(agent, "ctx")
     assert isinstance(result, WorkerResult)

@@ -50,16 +50,21 @@ Filesystem
 
 ## Planner / Worker Asymmetry
 
-> **BOTH ROLES ROUTE THROUGH OPENROUTER** (owner decision 2026-07-21,
-> `config.py`). The Worker MODEL is unchanged — `anthropic/claude-sonnet-5` is
-> OpenRouter's id for it — only the transport is. One provider means one key,
-> one client construction and one place to compare models, which is what makes a
-> cheap-vs-expensive A/B a config change rather than a code change.
-> `anthropic_api_key` is retained but optional: nothing reads it while both roles
-> go through OpenRouter, and reverting the Worker to the direct transport should
-> not need a schema change.
+> **EVERY ROLE ROUTES THROUGH OPENROUTER** (owner decision 2026-07-21,
+> `config.py`). One provider means one key, one client construction and one
+> place to compare models, which is what makes a cheap-vs-expensive A/B a `.env`
+> edit rather than a code change. `anthropic_api_key` is retained but optional:
+> nothing reads it while every role goes through OpenRouter, and reverting a
+> role to a direct transport should not need a schema change.
+>
+> **WHICH models run is `.env`'s business alone** — `PLANNER_MODEL` and
+> `WORKER_MODEL` have NO default in the code and the agent refuses to start
+> without them. Nothing in the source names a model: each role states the
+> CAPABILITIES it needs (the Worker needs structured output *and* function tools
+> in the same run; the Planner needs structured output and a reasoning-effort
+> knob), so a swap is a config edit plus a smoke test, never a code change.
 
-| | Planner (deepseek-v4-flash, OpenRouter) | Worker (Sonnet 5, OpenRouter) |
+| | Planner (`PLANNER_MODEL`, OpenRouter) | Worker (`WORKER_MODEL`, OpenRouter) |
 |--|--------------------------------|------------------------------|
 | DB access | Direct Python asyncio | tool_call via bridged functions |
 | `_db` | direct, in-process | never — closure only |
@@ -1001,7 +1006,7 @@ asyncio.gather (5 fixed queries — no judgment involved, so no LLM):
 ### CALL 1a — Query Strategist (LLM → the VARIABLE margin only)
 ```
 Input  : raw trigger + baseline SUMMARY
-LLM    : deepseek-v4-flash via OpenRouter, thinking=512 tokens
+LLM    : PLANNER_MODEL via OpenRouter, thinking=512 tokens
 
 tool_use output — QueryStrategies (bounded; never raw SQL):
   corpus_queries : list[str] (≤3) — what to search in the corpus THIS

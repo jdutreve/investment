@@ -2,24 +2,37 @@
 context and proposes (docs/ARCHITECTURE.md "WORKER"; docs/TASKS.md Phase 5
 "Worker agent"; docs/USE_CASES.md UC8).
 
-One PydanticAI agent on WORKER_MODEL (`anthropic/claude-sonnet-5` via
-OpenRouter — config.py), output_type=`WorkerResult`, with the three bridged
-tools registered (worker/tools.py). The Worker interprets pre-computed
-indicators, never recalculates; it is UNAWARE of the Planner, Writeback and
-storage — the system prompt says so, and the tools hand it data without ever
-exposing the connection (worker/tools.py `WorkerTools`).
+One PydanticAI agent on WORKER_MODEL (whatever `.env` names — config.py owns
+that choice and nothing here may assume it), output_type=`WorkerResult`, with
+the three bridged tools registered (worker/tools.py). The Worker interprets
+pre-computed indicators, never recalculates; it is UNAWARE of the Planner,
+Writeback and storage — the system prompt says so, and the tools hand it data
+without ever exposing the connection (worker/tools.py `WorkerTools`).
 
-Same transport as the curator (config.py: both roles route through OpenRouter),
-and the same two-knob robustness split: `max_retries` on the HTTP client covers
-transport faults with backoff; PydanticAI's `retries` covers schema-validation
-faults (the "Phase 1bis policy" — validate, retry once with the error appended,
-then raise, never a silent pass).
+Same transport as the curator (config.py: every role routes through
+OpenRouter), and the same two-knob robustness split: `max_retries` on the HTTP
+client covers transport faults with backoff; PydanticAI's `retries` covers
+schema-validation faults (the "Phase 1bis policy" — validate, retry once with
+the error appended, then raise, never a silent pass).
 
-Unlike the curator (a reasoning model that mangled forced tool calls, forcing
-the native-output override), the Worker is Claude: the bundled OpenRouter
-profile's default tool-mode output is exactly right for it, and it must ALSO
-call the three function tools mid-reasoning — so the default output path is
-kept, not overridden.
+WHAT THIS ROLE REQUIRES OF A MODEL — the contract a swap must satisfy, stated
+here so a swap can be checked instead of guessed:
+
+  1. structured output AND function tools in the same run. Unlike the curator
+     (which only needs a final object, and overrides to native output because
+     reasoning models mangled forced tool calls), the Worker must call the
+     three tools MID-reasoning, so the bundled profile's default tool-mode
+     output path is kept rather than overridden. A model that cannot do both
+     at once needs its own profile override here, not a prompt change.
+  2. a `reasoning_effort` knob the provider accepts (`WORKER_REASONING_EFFORT`).
+  3. tolerance for being corrected: it will get a tool argument wrong, and
+     `ToolInputError` is a `ModelRetry` precisely so that costs a turn instead
+     of the cycle (worker/tools.py).
+
+Requirement 1 used to be justified in this docstring by naming the model and
+asserting it was fine. That reasoning does not survive a model swap — the
+justification silently becomes false while the code keeps working, which is
+the worst of both. State the requirement; let the smoke test state the model.
 """
 
 import logging
@@ -65,9 +78,12 @@ WORKER_TOOL_CALLS_LIMIT = 8
 WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
 
 # The UC8 allocation decision is the highest-stakes single call in the system;
-# 'high' is the reasoning depth for it. sonnet-5 accepts the OpenRouter effort
-# levels (worker/curator.py notes 'xhigh' is accepted too); 'high' is the
-# balance point, not a measured optimum — overridable per call.
+# 'high' is the reasoning depth for it — the balance point, not a measured
+# optimum, and overridable per call.
+#
+# Which levels a model accepts is the PROVIDER's business: OpenRouter validates
+# the value and errors loudly on one it does not know, which is the behaviour
+# we want on a model swap. Do not encode a per-model list here.
 WORKER_REASONING_EFFORT = "high"
 
 # Verbatim from docs/ARCHITECTURE.md "WORKER system prompt". The persona is
