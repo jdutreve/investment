@@ -16,8 +16,10 @@ from investment.worker.tools import (
     DB_QUERY_MAX_ROWS,
     MARKET_FETCH_MAX_ROWS,
     PORTFOLIO_EXPOSED_FIELDS,
+    SCHEMA_HIDDEN_TABLES,
     ToolInputError,
     WorkerTools,
+    describe_schema,
     validate_sql,
 )
 
@@ -226,3 +228,32 @@ async def test_an_unknown_portfolio_returns_empty_not_an_error(tools: WorkerTool
     """Absence is an ANSWER — "no such portfolio" is information the Worker
     can reason about, not a failure it must recover from."""
     assert await tools.portfolio_check("does-not-exist") == {}
+
+
+# -- the queryable schema ---------------------------------------------------
+
+
+async def test_the_schema_names_the_tables_the_worker_may_query(tools: WorkerTools) -> None:
+    """Measured 2026-08-06: with no schema in context the Worker opened every
+    cycle by enumerating `sqlite_master`, splitting it in two to beat the 20-row
+    cap, and exhausted budgets of 8 then 12 tool calls before asking anything
+    about markets. The budget was never the problem — a tool that does not say
+    what can be queried forces the model to find out, on the same budget as the
+    thinking."""
+    schema = await describe_schema(tools._db)
+
+    assert "portfolio(" in schema
+    assert "allowed_tickers(" in schema
+    # columns, not just table names: knowing `favors` exists does not tell the
+    # Worker it can select `sortino_rolling` from it
+    assert "sortino_rolling" in schema
+
+
+async def test_the_schema_hides_what_the_worker_must_not_see(tools: WorkerTools) -> None:
+    """The Worker is unaware of Writeback and the journal (worker/agent.py), and
+    the owner's caps bind through the gates rather than through its reasoning.
+    Listing those tables would be an invitation."""
+    schema = await describe_schema(tools._db)
+
+    for hidden in SCHEMA_HIDDEN_TABLES:
+        assert f"{hidden}(" not in schema

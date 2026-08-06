@@ -63,6 +63,46 @@ SQL_KEYWORD_BLACKLIST = frozenset(
 
 PORTFOLIO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,49}$")
 
+# Internals the Worker has no business querying, and whose presence in a schema
+# listing would only invite it. `event_log` is the append-only journal of what
+# the system DID (it is unaware of Writeback — worker/agent.py); the embedding
+# blobs are unreadable to it; `user_profile` reaches the owner's private caps,
+# which bind through the gates and not through the Worker's reasoning.
+SCHEMA_HIDDEN_TABLES = frozenset({"event_log", "user_profile", "sqlite_sequence"})
+
+
+async def describe_schema(db: InvestmentDB) -> str:
+    """The tables and columns the Worker may query, as prompt text.
+
+    READ FROM THE DATABASE, never listed by hand: a hard-coded schema is wrong
+    the first time a migration lands, and wrong SILENTLY — the Worker would go
+    back to guessing, which is the exact failure this repairs.
+
+    WHY THIS EXISTS. Measured on the M8b run of 2026-08-06: with no schema in
+    its context the Worker opened every cycle by enumerating `sqlite_master`,
+    and — because `db_query` caps results at 20 rows — split that enumeration in
+    two to see all the tables. Three to five tool calls per cycle spent
+    rediscovering the database, every month, before a single question about
+    markets. It exhausted a budget of 8, then one of 12 (16 calls requested).
+
+    The budget was never the problem. A tool that does not say what can be
+    queried forces the model to find out, and the finding-out is charged to the
+    same budget as the thinking. Raising the cap chases a moving target; naming
+    the tables removes the need."""
+    rows = await db.query(
+        "SELECT m.name AS tbl, group_concat(i.name) AS cols "
+        "FROM sqlite_master m JOIN pragma_table_info(m.name) i "
+        "WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' "
+        "GROUP BY m.name ORDER BY m.name"
+    )
+    lines = [
+        f"  {row['tbl']}({row['cols']})"
+        for row in rows
+        if str(row["tbl"]) not in SCHEMA_HIDDEN_TABLES
+    ]
+    return "\n".join(lines)
+
+
 # What a portfolio row exposes to the Worker. An allowlist, not a denylist:
 # a column added to `portfolio` later must be opted IN, so the default for
 # anything new is invisible rather than leaked.

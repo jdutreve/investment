@@ -46,7 +46,7 @@ from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
 from investment.worker.result import WorkerResult
-from investment.worker.tools import WorkerTools
+from investment.worker.tools import WorkerTools, describe_schema
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +249,7 @@ def build_worker_agent(
     )
     model = OpenAIChatModel(model_name, provider=provider)
     tools = WorkerTools(db)
-    return Agent(
+    agent: Agent[None, WorkerResult] = Agent(
         model,
         output_type=WorkerResult,
         instructions=build_system_prompt(skills),
@@ -263,6 +263,30 @@ def build_worker_agent(
             openai_reasoning_effort=reasoning_effort,  # type: ignore[typeddict-item]
         ),
     )
+
+    @agent.instructions
+    async def _queryable_schema() -> str:
+        """The tables `db_query` can read, appended to the prompt at run time.
+
+        A DYNAMIC instruction rather than a constant, because the schema is read
+        from the database (`describe_schema`) and this builder is synchronous —
+        and because a schema that regenerates each run cannot go stale against a
+        migration. It costs one local query per cycle against a dozen LLM calls
+        the Worker no longer spends discovering the same thing.
+
+        Measured 2026-08-06: without it the Worker opened every cycle by
+        enumerating `sqlite_master`, twice over to beat the 20-row cap, and
+        exhausted budgets of 8 and then 12 tool calls before reaching a single
+        market question. `describe_schema` carries the full account.
+
+        It does NOT breach the Worker's unawareness of storage (worker/agent.py
+        docstring): it already has `db_query` and is told the DB holds the
+        indicators. Naming the tables tells it what it may ask, not who wrote
+        them — the Planner, Writeback and the journal stay invisible
+        (`SCHEMA_HIDDEN_TABLES`)."""
+        return "# QUERYABLE TABLES (db_query)\n\n" + await describe_schema(db)
+
+    return agent
 
 
 async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerResult:
