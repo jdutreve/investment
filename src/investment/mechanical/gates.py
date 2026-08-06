@@ -380,9 +380,9 @@ def reallocation_gates(
     thresholds: ProposalThresholds,
     allowed_tickers: frozenset[str],
 ) -> GateOutcome:
-    """docs/USE_CASES.md UC8-B gates 1-5, in the spec's own order. Gates 6
-    (cited-invariant eligibility) is not here — see the module docstring: the
-    mechanical replay cites nothing, so it has no input before M8.
+    """docs/USE_CASES.md UC8-B gates 1-5. Gate 6 (cited-invariant eligibility)
+    is not here — see the module docstring: the mechanical replay cites
+    nothing, so it has no input before M8.
 
     Gate 3 is a FLOOR on the largest move, not a ceiling: a reallocation too
     small to matter is noise that only pays costs.
@@ -395,11 +395,29 @@ def reallocation_gates(
     invisible to every one of them. It guards BOTH sides — gates 3 and 4 measure
     the target AGAINST the incumbent, so a NaN in `current` blinds them just as
     thoroughly — under separate names, because they are separate defects (held
-    state vs proposed answer)."""
+    state vs proposed answer).
+
+    EVALUATION ORDER IS NOT THE SPEC'S NUMBERING, for gate 5 only, and that is
+    a reporting decision (owner, 2026-08-06). Only the first refusal is
+    reported, so evaluation order decides WHICH reason the digest shows. Run in
+    the spec's order, a book naming an instrument that does not exist was
+    refused by whichever merit gate it happened to trip first: a proposal
+    holding DOGE came back as `max_turnover_pct`, sending the owner to look for
+    a book that moved too much instead of one built on a ticker the system has
+    never heard of.
+
+    So gate 5 is EVALUATED with the preconditions — it asks whether the
+    proposal is admissible at all, which is the same question they ask and a
+    different question from gates 1-4's "is it any good?". Its NAME and its
+    spec number are unchanged; nothing about what is refused changes, only
+    which of several true reasons gets reported. This is the same principle
+    ADR-011's gate 0 states for jurisdiction over merit."""
     if not allocation_well_formed(proposed):
         return GateOutcome.refused("allocation_well_formed")
     if not weights_well_formed(current):
         return GateOutcome.refused("current_allocation_well_formed")
+    if set(proposed) - allowed_tickers:
+        return GateOutcome.refused("allowed_tickers")
     if abs(sum(proposed.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return GateOutcome.refused("allocation_sums_to_100")
     if not concentration_ok(proposed, caps):
@@ -408,7 +426,4 @@ def reallocation_gates(
         return GateOutcome.refused("min_allocation_change_pts")
     if turnover_pct(current, proposed) > thresholds.max_turnover_pct:
         return GateOutcome.refused("max_turnover_pct")
-    unknown = set(proposed) - allowed_tickers
-    if unknown:
-        return GateOutcome.refused("allowed_tickers")
     return PASSED

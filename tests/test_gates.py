@@ -253,6 +253,19 @@ def test_gate_5_refuses_a_ticker_outside_allowed_tickers() -> None:
     assert outcome.failed_gate == "allowed_tickers"
 
 
+def test_an_unknown_ticker_is_reported_over_any_merit_gate_it_also_trips() -> None:
+    """Only the FIRST refusal is reported, so evaluation order decides what the
+    owner reads on Monday. This book trips the turnover ceiling too — and used
+    to be refused as `max_turnover_pct`, sending the owner to look for a book
+    that moved too much rather than one built on an instrument that does not
+    exist (owner decision 2026-08-06: relevant reporting is the point)."""
+    current = {"SPY": 30.0, "TLT": 30.0, "IEF": 20.0, "GLD": 20.0}
+    proposed = {"SPY": 10.0, "TLT": 10.0, "IEF": 40.0, "DOGE": 40.0}
+    assert turnover_pct(current, proposed) > THRESHOLDS.max_turnover_pct
+    outcome = reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED)
+    assert outcome.failed_gate == "allowed_tickers"
+
+
 def test_gate_3_refuses_a_reallocation_too_small_to_matter() -> None:
     """The gate IS the replay's "should I propose?" trigger — a sub-5pt tweak
     is noise that only pays costs (see `replay._reallocation_target`)."""

@@ -564,7 +564,16 @@ Writeback validates mechanically:
 2. binding concentration caps pass on the proposed allocation;
 3. max per-asset change ≥ `proposal_min_allocation_change_pts` (5.0);
 4. turnover `Σ|delta|/2` ≤ `proposal_max_turnover_pct` (30.0);
-5. every proposed ticker is in `allowed_tickers` (active, non-macro);
+5. every proposed ticker is in `allowed_tickers` (active, non-macro)
+   — **EVALUATED with the well-formedness precondition above, before gates
+   1-4** (owner decision 2026-08-06). Only the first refusal is reported, so
+   evaluation order decides which reason the digest shows, and a book naming an
+   instrument that does not exist was being refused as `max_turnover_pct` —
+   sending the owner after the wrong problem. Gate 5 asks whether the proposal
+   is ADMISSIBLE, the same question the precondition asks; gates 1-4 ask
+   whether it is any good. Numbering and gate name unchanged, and no proposal
+   changes verdict — only which of several true reasons is named. Same
+   principle as ADR-011's gate 0: jurisdiction before merit;
 6. every cited invariant (`supporting_invariants`) is `status='integrated'`
    with `weight_effective` ≥ `proposal_invariant_weight_min` (0.10), AND is
    not measurably refuted: if it has ≥ `invariant_refuted_min_confrontations`
