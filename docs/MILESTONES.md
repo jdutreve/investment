@@ -864,8 +864,15 @@ proof (semi-PIT; real-time performance = forward paper-mode). Default cadence
 - [ ] best-case check: A' (agentic-follow) beats B (All Weather) at all?
 - [ ] behavioral log readable: at 2008 / 2020 / stagflation, does the Worker
       reason sensibly? does it propose sensible improvements?
-- [ ] delta A' − A reported — isolates the REALLOCATION contribution (switches
-      are mechanical in both); LABELLED "semi-PIT, not go-live performance"
+- [ ] delta A' − A reported, LABELLED "semi-PIT, not go-live performance".
+      **It does NOT isolate the reallocation contribution** — this line used to
+      say it did, on the grounds that "switches are mechanical in both", which
+      was true before ADR-007 and is not true now: the live cycle emits NO
+      switch at all (`writeback.py`), so A' contains none while A still runs
+      the bridge's mechanical switch arm. The delta compares THE COGNITIVE
+      CYCLE AS IT WILL RUN against THE MECHANICAL RULES AS THEY WERE MEASURED
+      — two whole policies, not one isolated term. Still the comparison M8b
+      needs; judge it as such (`agentic_replay.py` module docstring)
 - [ ] `test_agentic_replay_semipit`: invariant weights read as-of-t; a
       confrontation dated after t changes no weight before t; agent-discovery
       absent from the run
