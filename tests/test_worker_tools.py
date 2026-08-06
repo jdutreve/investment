@@ -175,6 +175,17 @@ async def test_no_tickers_is_refused(tools: WorkerTools) -> None:
         await tools.market_fetch([], "1m")
 
 
+async def test_a_query_naming_an_unknown_column_is_handed_back_not_raised(
+    tools: WorkerTools,
+) -> None:
+    """`validate_sql` checks shape, never meaning — a valid-looking SELECT over
+    a column that does not exist only fails inside SQLite. Measured 2026-08-06:
+    the Worker wrote `SELECT c FROM portfolio` and killed the cycle. The SQLite
+    message must reach the model, which is the only actor able to fix it."""
+    with pytest.raises(ModelRetry, match="no such column"):
+        await tools.db_query("SELECT no_such_column_here FROM portfolio")
+
+
 async def test_a_refusal_is_handed_back_to_the_model_not_raised_at_the_chain(
     tools: WorkerTools,
 ) -> None:

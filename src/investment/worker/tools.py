@@ -26,6 +26,7 @@ hallucinated statement and the data.
 
 import logging
 import re
+import sqlite3
 from typing import Any
 
 from pydantic_ai.exceptions import ModelRetry
@@ -212,7 +213,28 @@ class WorkerTools:
         20 rows returned."""
         safe = validate_sql(stmt)
         logger.info("worker db_query: %s", safe)
-        return await self._db.query(safe)
+        try:
+            return await self._db.query(safe)
+        except sqlite3.OperationalError as exc:
+            # `validate_sql` checks SHAPE (read-only, one statement, LIMIT); it
+            # cannot check MEANING, so a query naming a column that does not
+            # exist reaches SQLite and comes back as OperationalError. That is a
+            # fault in model-authored input, the same kind as a bad period
+            # literal — and the message ("no such column: c") is precisely what
+            # the model needs to fix it. Measured 2026-08-06: it aborted a whole
+            # cycle instead.
+            #
+            # Deliberately NOT discriminated from the infrastructure
+            # OperationalErrors ("database is locked", "disk I/O error"). A
+            # message-matched exclusion list would be the fragile half of this
+            # function, and it buys nothing: a genuinely unavailable database
+            # fails the retry too, exhausts `WORKER_TOOL_CALLS_LIMIT` and aborts
+            # the cycle with the SQLite text intact. The cost of guessing wrong
+            # is a few wasted turns; the cost of the message-matching going
+            # stale is a real fault silently reclassified.
+            raise ToolInputError(
+                f"the query failed: {exc}. Check names against the schema"
+            ) from exc
 
     async def market_fetch(self, tickers: list[str], period: str) -> list[dict[str, Any]]:
         """Recent market data for known tickers: (ts, ticker, level, speed,
