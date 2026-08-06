@@ -48,6 +48,7 @@ invariants were born in July 2026. That is deliberate (pruning them empties gate
 necessary a-priori screen, never go-live performance.
 """
 
+import asyncio
 import logging
 import sys
 from collections.abc import Callable
@@ -81,6 +82,14 @@ from investment.worker.result import WorkerResult
 logger = logging.getLogger(__name__)
 
 TRIGGER = "M8b agentic replay — the scheduled decision cycle at a historical date"
+
+# Wall clock for ONE decision date, retries and all. 15 minutes against a
+# healthy date's measured 5m09s: generous enough that a slow-but-working cycle
+# is never cut, tight enough that a stalled one costs a quarter hour instead of
+# the 55 minutes measured on 2026-08-06. It bounds the WHOLE cycle — the
+# per-request timeouts underneath bound single requests, which is a different
+# and, on a laptop's network, insufficient promise.
+DATE_TIMEOUT_SECONDS = 900.0
 
 
 @dataclass(frozen=True)
@@ -230,22 +239,33 @@ async def run_agentic_episode(
             #
             # NOT swallowed: the date is recorded as FAILED with its error, it
             # appears in the report, and `_main` exits non-zero. What changes is
-            # only whether the other dates survive it. The Worker is the least
-            # predictable component in the system and every failure so far came
-            # from it (a tool refusal, a bad column name); a run of 84 calls
-            # should assume a third.
+            # only whether the other dates survive it.
+            #
+            # AND IT IS BOUNDED BY A WALL CLOCK, which is the half that was
+            # missing. Measured on the first real run (2026-08-06): a healthy
+            # date completed in 5m09s, while one stalled connection held a date
+            # for 55 MINUTES before failing and another hung 18 minutes inside a
+            # single request — both under a 300s per-request timeout, because a
+            # per-REQUEST timeout bounds a request, not a cycle, and the client's
+            # own retries multiply it. At that rate 21 dates is a ten-hour run
+            # made mostly of failures.
+            #
+            # The bound belongs HERE rather than in the transport: this is the
+            # unit the harness actually cares about, and a wall clock around it
+            # is immune to whatever the layers below do with their own timeouts.
             try:
-                result = await run_decision_cycle(
-                    db,
-                    agents.planner_pre,
-                    agents.worker,
-                    agents.planner_post,
-                    trigger=TRIGGER,
-                    user_profile=user_profile,
-                    thresholds=system_thresholds,
-                    today=as_of,
-                    run_id=f"m8b-{name}-{as_of}",
-                )
+                async with asyncio.timeout(DATE_TIMEOUT_SECONDS):
+                    result = await run_decision_cycle(
+                        db,
+                        agents.planner_pre,
+                        agents.worker,
+                        agents.planner_post,
+                        trigger=TRIGGER,
+                        user_profile=user_profile,
+                        thresholds=system_thresholds,
+                        today=as_of,
+                        run_id=f"m8b-{name}-{as_of}",
+                    )
             except Exception as exc:
                 logger.exception("m8b %s %s: cycle failed, continuing", name, as_of)
                 outcomes.append(_failed(as_of, mechanical, exc))
@@ -469,7 +489,6 @@ def _main() -> int:
     written and still readable — the code exists so a partial run cannot be
     mistaken for a complete one by a caller that only checks the status."""
     import argparse
-    import asyncio
 
     parser = argparse.ArgumentParser(description="M8b agentic replay — the pre-go-live screen")
     parser.add_argument("--scratch", type=Path, required=True, help="where snapshots are built")

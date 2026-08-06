@@ -14,6 +14,7 @@ production code. Three properties matter and none of them is a NAV number:
 - the clock ADVANCES across the episode, so month two knows what month one did.
 """
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import ExitStack
@@ -358,6 +359,31 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
     # the survivors still carry their readings, and the book still prices
     assert any("fiscal impulse" in o.reading for o in episode.outcomes)
     assert len(episode.nav_agentic) > 0
+
+
+async def test_a_stalled_date_is_cut_by_the_wall_clock(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measured 2026-08-06: one stalled connection held a date for 55 minutes
+    under a 300s per-REQUEST timeout, because that bounds a request and not a
+    cycle. The wall clock bounds the unit the harness cares about."""
+    real = AR.run_decision_cycle
+
+    async def _hangs(*args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("today") == OPENS:
+            await asyncio.sleep(60)  # never completes within the patched budget
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _hangs)
+    monkeypatch.setattr(AR, "DATE_TIMEOUT_SECONDS", 0.2)
+
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+
+    stalled = [o for o in episode.outcomes if o.as_of == OPENS]
+    assert stalled[0].failure is not None
+    assert "TimeoutError" in stalled[0].failure
+    # ...and the episode carried on to the dates that follow it
+    assert len(episode.outcomes) > 1
 
 
 async def test_a_failed_date_is_loud_in_the_report(live: Path, tmp_path: Path) -> None:
