@@ -282,6 +282,7 @@ async def run_decision_cycle(
     thresholds: dict[str, float],
     today: date | None = None,
     run_id: str | None = None,
+    context: PlannerContext | None = None,
 ) -> UC8Result:
     """Run one UC8 cycle end to end. Writeback only runs if the Worker proposed
     a reallocation AND a defender exists to reallocate; otherwise the cycle is
@@ -291,8 +292,17 @@ async def run_decision_cycle(
     `run_id` is the scheduled run's id (CLAUDE.md "Dev standards": one per
     scheduled run) and is stamped on the journalled reading. Optional because
     nothing assembles the Monday chain yet (M9) — an ad-hoc UC9 re-run has no
-    run id to give."""
-    context = await planner_pre.run(trigger)
+    run id to give.
+
+    `context` SKIPS the Planner's pre-phase when the caller already holds one.
+    For a RETRY, not for a shortcut: the pre-phase is two LLM calls over a
+    snapshot that has not changed between attempts, so redoing it after a Worker
+    failure re-buys an identical answer — and spends it out of the same bounded
+    budget the first attempt just proved too short (agentic_replay
+    `_cycle_with_retry`). The parameter exists so the harness can re-run only
+    what failed WITHOUT reimplementing the cycle, which Task 9.4 forbids.
+    Default `None` keeps the live Monday chain exactly as it was."""
+    context = context or await planner_pre.run(trigger)
     worker_result = await run_worker(worker_agent, render_context_for_worker(context))
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today

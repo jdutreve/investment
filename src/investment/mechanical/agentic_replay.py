@@ -76,6 +76,7 @@ from investment.mechanical.replay import (
     run_replay,
     shadow_book_nav,
 )
+from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.worker.result import ImprovementProposal, WorkerResult
@@ -121,6 +122,13 @@ DATE_TIMEOUT_SECONDS = 900.0
 # rather than a ladder, and why fail-fast without it loses dates that a single
 # re-attempt recovers.
 DATE_ATTEMPTS = 2
+
+# A retry needs a MEANINGFUL share of the date's budget, not merely a non-zero
+# one. At 2008-10-01 the second attempt inherited 91 seconds of 900 and timed
+# out on schedule — the arithmetic was decided before it sent a request. A third
+# of the budget is roughly what a healthy date has needed (9-14 min against 15),
+# so below that a retry is a formality with a bill.
+RETRY_MIN_BUDGET_FRACTION = 1 / 3
 
 
 @dataclass(frozen=True)
@@ -474,35 +482,48 @@ async def _cycle_with_retry(
     user_profile: dict[str, Any],
     system_thresholds: dict[str, float],
 ) -> UC8Result | BaseException:
-    """One date's cognitive cycle: FAIL FAST, THEN RETRY. The result, or the
-    exception from the last attempt.
+    """One date's cognitive cycle: FAIL FAST, THEN RETRY WHAT A RETRY CAN FIX.
+    The result, or the exception from the last attempt.
 
     The two halves are one policy and neither works alone. The wall clock alone
     turns a 55-minute hang into a 15-minute one and still LOSES the date; the
     retry alone would sit behind the same stall twice. Bounded-then-retried, a
     transient fault costs one attempt and the date still lands.
 
-    The faults this exists for are transient by nature. On 2026-08-06 the
-    MacBook's lid closed mid-run (ADR-002 — this machine sleeps, which is why
-    the whole schedule is due-on-start rather than cron): every in-flight
-    socket died, and dates failed on `ModelAPIError: Connection error` while
-    the models themselves were answering 200 on either side of the gap. That
-    is precisely the fault a retry is for, and precisely the one a bare
-    fail-fast throws away.
+    A RETRY IS FOR A TRANSIENT FAULT, AND ONLY FOR ONE. A dropped socket, a
+    malformed response, a provider that hiccupped — re-ask and it lands. But a
+    `TimeoutError` from the deadline below says THE BUDGET is what ran out, and
+    re-running the same work inside the same budget cannot succeed; it is
+    arithmetic, not luck. Measured 2026-08-06 at 2008-10-01: attempt 1 failed
+    after 13m29 on a malformed response, attempt 2 inherited 91 seconds of a
+    900-second budget and timed out. It contributed a log line.
 
-    ONE retry, not a backoff ladder. The wall clock already spent 15 minutes
-    proving this attempt is not coming back; a second failure means the problem
-    outlives the retry (the lid is still shut, the key is wrong, the model is
-    gone) and more attempts only spend the run's budget confirming it. The date
-    is then recorded FAILED and the episode carries on."""
+    So a retry needs a MEANINGFUL share of the budget left, not merely a
+    non-zero one (`RETRY_MIN_BUDGET_FRACTION`), and a timeout is never retried.
+
+    AND IT RE-RUNS ONLY WHAT FAILED. The Planner's pre-phase is two LLM calls
+    over a snapshot that does not change between attempts, so on a Worker
+    failure it would re-buy an identical answer with time the first attempt just
+    proved to be short. The context is carried over instead
+    (`run_decision_cycle(context=...)`), which also means the retry's Worker
+    reads exactly what the first one read — a retry that quietly deliberated on
+    a different context would not be a retry.
+
+    ONE retry, not a backoff ladder: a second failure means the problem outlives
+    the retry, and more attempts only spend the run's budget confirming it. The
+    date is then recorded FAILED and the episode carries on."""
     last: BaseException = RuntimeError("no attempt ran")
     # ONE deadline for the date, shared by every attempt — see
     # `DATE_TIMEOUT_SECONDS`. A per-attempt clock multiplies by the retry count
     # and bounds nothing that matters.
-    deadline = asyncio.get_running_loop().time() + DATE_TIMEOUT_SECONDS
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + DATE_TIMEOUT_SECONDS
+    context: PlannerContext | None = None
     for attempt in range(1, DATE_ATTEMPTS + 1):
         try:
             async with asyncio.timeout_at(deadline):
+                if context is None:
+                    context = await agents.planner_pre.run(TRIGGER)
                 return await run_decision_cycle(
                     db,
                     agents.planner_pre,
@@ -516,7 +537,18 @@ async def _cycle_with_retry(
                     # journalled reading, and two rows from one date that
                     # cannot be told apart is a worse trace than none.
                     run_id=f"agentic-replay-{name}-{as_of}-a{attempt}",
+                    context=context,
                 )
+        except TimeoutError as exc:
+            # NOT retried, by the arithmetic above: the budget is what failed.
+            logger.error(
+                "agentic-replay %s %s: attempt %d cut by the %.0fs date budget",
+                name,
+                as_of,
+                attempt,
+                DATE_TIMEOUT_SECONDS,
+            )
+            return exc
         except Exception as exc:
             last = exc
             logger.warning(
@@ -528,11 +560,11 @@ async def _cycle_with_retry(
                 type(exc).__name__,
                 exc,
             )
-            if asyncio.get_running_loop().time() >= deadline:
-                # The budget is the date's, so a retry that cannot start is not
-                # attempted — pretending otherwise would log an attempt that
-                # was cut before its first request.
-                logger.error("agentic-replay %s %s: date budget spent, no retry left", name, as_of)
+            if loop.time() >= deadline - DATE_TIMEOUT_SECONDS * RETRY_MIN_BUDGET_FRACTION:
+                # A retry that cannot plausibly finish is not started: it would
+                # spend minutes to fail on the clock, and log an attempt that
+                # never had a chance.
+                logger.error("agentic-replay %s %s: too little budget left to retry", name, as_of)
                 return last
     logger.error(
         "agentic-replay %s %s: all %d attempts failed, continuing", name, as_of, DATE_ATTEMPTS

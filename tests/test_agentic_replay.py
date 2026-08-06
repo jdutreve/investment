@@ -386,6 +386,64 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
     assert len(episode.nav_agentic) > 0
 
 
+async def test_a_budget_timeout_is_not_retried(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retry is for a TRANSIENT fault. A timeout says the BUDGET ran out, and
+    re-running the same work inside the same budget is arithmetic, not luck.
+    Measured 2026-08-06: the second attempt inherited 91 seconds of 900 and
+    timed out on schedule, contributing a log line."""
+    attempts = {"n": 0}
+
+    async def _hangs(*args: Any, **kwargs: Any) -> Any:
+        attempts["n"] += 1
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _hangs)
+    monkeypatch.setattr(AR, "DATE_TIMEOUT_SECONDS", 0.2)
+
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+
+    # one attempt per date, never two
+    assert attempts["n"] == len(episode.outcomes)
+    assert all("TimeoutError" in (o.failure or "") for o in episode.outcomes)
+
+
+async def test_the_planner_is_not_re_run_when_only_the_worker_failed(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pre-phase is two LLM calls over a snapshot that does not change
+    between attempts. Re-buying an identical answer spends time out of the same
+    budget the first attempt just proved short — and a retry deliberating on a
+    freshly-built context would not be a retry."""
+    planner_runs = {"n": 0}
+    cycles = {"n": 0}
+    real_cycle = AR.run_decision_cycle
+
+    async def _fails_once(*args: Any, **kwargs: Any) -> Any:
+        cycles["n"] += 1
+        if cycles["n"] == 1:
+            raise ConnectionError("the Worker's socket died")
+        return await real_cycle(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _fails_once)
+
+    original = PlannerPre.run
+
+    async def _counted(self: PlannerPre, trigger: str) -> Any:
+        planner_runs["n"] += 1
+        return await original(self, trigger)
+
+    monkeypatch.setattr(PlannerPre, "run", _counted)
+
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+
+    # one cycle failed and was retried, so cycles == dates + 1...
+    assert cycles["n"] == len(episode.outcomes) + 1
+    # ...but the Planner ran once per DATE, not once per attempt
+    assert planner_runs["n"] == len(episode.outcomes)
+
+
 async def test_a_transient_failure_is_recovered_by_the_retry(
     live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

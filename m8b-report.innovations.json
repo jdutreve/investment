@@ -1,0 +1,75 @@
+[
+  {
+    "episode": "global-financial-crisis",
+    "as_of": "2008-07-01",
+    "proposal": {
+      "type": "strategy_revision",
+      "title": "Extend the 200d trend overlay to every equity sleeve, not only SPY",
+      "rationale": "The market-signal rule applies its 200-day trend check to SPY and, on failure, redirects the equity allocation to the haven. But the credit-spread-wide book holds its equity beta through IWN (small-cap value), not SPY — so on 2008-07-01 the overlay passed a book carrying 40% IWN while IWN itself was in an accelerating decline (speed -54.7, acceleration -73.1, worse than SPY's on a relative basis). The overlay is checking a ticker the book doesn't hold and ignoring the one it does. This is a rule-level gap, not a one-month misread: any month where the book's equity sleeve diverges from SPY's trend leaves the hedge checking the wrong price. Proposing as a revision so it earns FAVORS in probation rather than being applied on conviction.",
+      "spec": {
+        "strategy_id": "market-signal-stack",
+        "revision": "Apply the 200-day moving-average trend overlay independently to EACH equity sleeve the selected book holds (SPY, IWN, EFA as applicable), redirecting each failing sleeve individually to the haven asset, rather than gating the whole equity allocation on SPY alone.",
+        "current_behavior": "Trend overlay checks SPY 200d MA only; the credit-spread-wide book's 40% IWN sleeve is never trend-checked.",
+        "evidence": "2008-07-01: book moves to IEF 50 / IWN 40 / GLD 10 with SPY redirected, while IWN speed -54.7 and acceleration -73.1 show an unchecked, accelerating downtrend in the sleeve actually held.",
+        "expected_effect": "Reduced drawdown in credit-spread-wide regimes where small-cap value leads the decline; minimal tracking cost when sleeves move with SPY."
+      },
+      "source": "agent-discovery",
+      "author": "system",
+      "status": "proposed",
+      "weight_initial": 0.0,
+      "floor_weight": 0.0,
+      "trace": "market-signal-assessment 2008-07-01: overlay blind spot identified from IWN vs SPY divergence"
+    }
+  },
+  {
+    "episode": "global-financial-crisis",
+    "as_of": "2008-11-03",
+    "proposal": {
+      "type": "data",
+      "title": "Blend a market-implied inflation proxy into the regime detector's inflation leg",
+      "rationale": "The detector tags 2008-11 as rising-inflation on lagged CPI YoY 5.4, but CPI acceleration has already turned negative (-0.16) while every market-priced inflation gauge in the DB is collapsing: GLD speed -327 (accel -432), DJP speed -27.8 in a persistent slide, credit spreads at 2.4x median pricing a deflationary bust. The stale tag activates gold/commodity lighthouses that the forward tape contradicts — this cycle's stagflation-labeled ACTIVE invariants are lit by the label, not by prices. A market-implied leg would have the detector anticipating the rollover instead of echoing the July energy spike.",
+      "spec": {
+        "proposal": "Compute a market-implied inflation-expectations proxy from existing tracked series (e.g., DJP and GLD 90-day level/speed), and blend it 50/50 with lagged CPI YoY for the inflation leg of regime detection; keep CPI-only as the comparison baseline",
+        "inputs": [
+          "DJP",
+          "GLD",
+          "CPI YoY",
+          "GROWTH_COMPOSITE"
+        ],
+        "blend": "0.5 x market-implied proxy + 0.5 x lagged CPI YoY",
+        "validation": "Replay regime tagging 1991-present with both legs; measure regime-switch lead/lag and post-hoc regime fit vs the CPI-only baseline, with 2008-07..2009-06 (inflation rollover into bust) and the disinflation episodes as scored windows",
+        "failure_mode_to_watch": "Proxy must not flip the inflation leg on commodity squeezes unrelated to domestic inflation expectations; constrain with a persistence rule (>=2 consecutive monthly prints)"
+      },
+      "source": "agent-discovery",
+      "author": "system",
+      "status": "proposed",
+      "weight_initial": 0.0,
+      "floor_weight": 0.0,
+      "trace": "UC8 2008-11-03: regime stagflation-2008-07-16 (CPI 5.4, accel -0.16) vs GLD accel -432.27 / DJP speed -27.77 / BAA10Y 5.52 vs median 2.33"
+    }
+  },
+  {
+    "episode": "global-financial-crisis",
+    "as_of": "2008-12-01",
+    "proposal": {
+      "type": "strategy_revision",
+      "title": "Extend the 200d trend overlay to every equity sleeve in the market-signal books (IWN included)",
+      "rationale": "The credit-spread-wide book redirects SPY and GLD when below their 200d trend but holds IWN at full 40% regardless. On 2008-12-01 IWN prints speed −104.8 while the stack carries a −18.8% rolling maxDD vs −8.7% for the falling-growth-defensive leader. In a deleveraging, small-cap value is the most credit-sensitive equity sleeve — the overlay hedges the book's least credit-sensitive equity and leaves its most exposed one bare. This restates the existing disabled strategy strat-01KZBQPGYPHGHZW83HK8VW4SG7 with this cycle's evidence attached; it should be measured in probation, not applied by hand.",
+      "spec": {
+        "rule_current": "200d trend overlay applies to SPY and GLD sleeves only; other sleeves pass through at book weight",
+        "rule_proposed": "200d trend overlay applies to every equity sleeve (SPY, IWN, EFA and any future equity leg) in all three books; below-trend sleeves redirect to the book's haven sleeve",
+        "evidence": [
+          "IWN speed −104.8 on 2008-12-01 with book weight unchanged at 40%",
+          "ms-stack maxDD −18.8% vs −8.7% for 4s-falling-growth-defensive over the same window",
+          "Active invariant 01KY2NVKC5JYXM390EPGZ1Y4NV: forced selling in deleveraging hits credit-sensitive equities hardest"
+        ]
+      },
+      "source": "agent-discovery",
+      "author": "system",
+      "status": "proposed",
+      "weight_initial": 0.0,
+      "floor_weight": 0.0,
+      "trace": "uc8-cycle-2008-12-01: IWN drag observed in market_signal_assessment; rule-level fix routed here per skill-read-market-signal"
+    }
+  }
+]
