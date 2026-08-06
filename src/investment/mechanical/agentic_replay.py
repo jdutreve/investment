@@ -91,6 +91,11 @@ TRIGGER = "M8b agentic replay — the scheduled decision cycle at a historical d
 # and, on a laptop's network, insufficient promise.
 DATE_TIMEOUT_SECONDS = 900.0
 
+# ...and the other half of the same policy. See `_cycle_with_retry` for why one
+# retry rather than a ladder, and why fail-fast without it loses dates that a
+# single re-attempt recovers.
+DATE_ATTEMPTS = 2
+
 
 @dataclass(frozen=True)
 class CognitiveAgents:
@@ -114,6 +119,11 @@ class DateOutcome:
     gate: str | None
     accepted: bool
     innovations: int
+    # The innovations' TITLES, not just their count. M8b's Definition of
+    # Verified asks "does it propose sensible improvements?" — a question no
+    # integer can answer, and the report used to print only the integer. Same
+    # reasoning as `reading`: this channel is judged by READING it.
+    innovation_titles: tuple[str, ...] = ()
     # Set when the cognitive cycle RAISED on this date. Every other field then
     # carries the neutral value, and the date contributes no allocation — the
     # shadow book simply holds. See `run_agentic_episode` for why one bad date
@@ -253,22 +263,16 @@ async def run_agentic_episode(
             # The bound belongs HERE rather than in the transport: this is the
             # unit the harness actually cares about, and a wall clock around it
             # is immune to whatever the layers below do with their own timeouts.
-            try:
-                async with asyncio.timeout(DATE_TIMEOUT_SECONDS):
-                    result = await run_decision_cycle(
-                        db,
-                        agents.planner_pre,
-                        agents.worker,
-                        agents.planner_post,
-                        trigger=TRIGGER,
-                        user_profile=user_profile,
-                        thresholds=system_thresholds,
-                        today=as_of,
-                        run_id=f"m8b-{name}-{as_of}",
-                    )
-            except Exception as exc:
-                logger.exception("m8b %s %s: cycle failed, continuing", name, as_of)
-                outcomes.append(_failed(as_of, mechanical, exc))
+            result = await _cycle_with_retry(
+                db,
+                agents,
+                name=name,
+                as_of=as_of,
+                user_profile=user_profile,
+                system_thresholds=system_thresholds,
+            )
+            if isinstance(result, BaseException):
+                outcomes.append(_failed(as_of, mechanical, result))
                 continue
 
             outcome = _record(as_of, mechanical, result)
@@ -339,7 +343,71 @@ def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcom
         gate=result.gate_outcome.failed_gate if result.gate_outcome else None,
         accepted=result.proposal_id is not None,
         innovations=len(result.worker_result.innovations_proposed),
+        innovation_titles=tuple(i.title for i in result.worker_result.innovations_proposed),
     )
+
+
+async def _cycle_with_retry(
+    db: InvestmentDB,
+    agents: CognitiveAgents,
+    *,
+    name: str,
+    as_of: date,
+    user_profile: dict[str, Any],
+    system_thresholds: dict[str, float],
+) -> UC8Result | BaseException:
+    """One date's cognitive cycle: FAIL FAST, THEN RETRY. The result, or the
+    exception from the last attempt.
+
+    The two halves are one policy and neither works alone. The wall clock alone
+    turns a 55-minute hang into a 15-minute one and still LOSES the date; the
+    retry alone would sit behind the same stall twice. Bounded-then-retried, a
+    transient fault costs one attempt and the date still lands.
+
+    The faults this exists for are transient by nature. On 2026-08-06 the
+    MacBook's lid closed mid-run (ADR-002 — this machine sleeps, which is why
+    the whole schedule is due-on-start rather than cron): every in-flight
+    socket died, and dates failed on `ModelAPIError: Connection error` while
+    the models themselves were answering 200 on either side of the gap. That
+    is precisely the fault a retry is for, and precisely the one a bare
+    fail-fast throws away.
+
+    ONE retry, not a backoff ladder. The wall clock already spent 15 minutes
+    proving this attempt is not coming back; a second failure means the problem
+    outlives the retry (the lid is still shut, the key is wrong, the model is
+    gone) and more attempts only spend the run's budget confirming it. The date
+    is then recorded FAILED and the episode carries on."""
+    last: BaseException = RuntimeError("no attempt ran")
+    for attempt in range(1, DATE_ATTEMPTS + 1):
+        try:
+            async with asyncio.timeout(DATE_TIMEOUT_SECONDS):
+                return await run_decision_cycle(
+                    db,
+                    agents.planner_pre,
+                    agents.worker,
+                    agents.planner_post,
+                    trigger=TRIGGER,
+                    user_profile=user_profile,
+                    thresholds=system_thresholds,
+                    today=as_of,
+                    # The attempt is IN the run id: a retry writes its own
+                    # journalled reading, and two rows from one date that
+                    # cannot be told apart is a worse trace than none.
+                    run_id=f"m8b-{name}-{as_of}-a{attempt}",
+                )
+        except Exception as exc:
+            last = exc
+            logger.warning(
+                "m8b %s %s: attempt %d/%d failed (%s: %s)",
+                name,
+                as_of,
+                attempt,
+                DATE_ATTEMPTS,
+                type(exc).__name__,
+                exc,
+            )
+    logger.error("m8b %s %s: all %d attempts failed, continuing", name, as_of, DATE_ATTEMPTS)
+    return last
 
 
 def _failed(as_of: date, mechanical: AsOfCycle, exc: BaseException) -> DateOutcome:
@@ -396,6 +464,7 @@ def render_report(episodes: list[EpisodeResult]) -> str:
                 f"    {out.as_of}  [{verdict}]  innovations={out.innovations}",
                 f"      {out.reading}",
             ]
+            lines += [f"      innovation: {title}" for title in out.innovation_titles]
         lines.append("")
     return "\n".join(lines)
 

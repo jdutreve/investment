@@ -339,12 +339,11 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
     """An 84-call run must not lose six completed readings because the seventh
     raised. The failure is RECORDED, not swallowed: the date carries its error,
     `failed_dates` counts it, and the surviving dates still produce a curve."""
-    calls = {"n": 0}
+    doomed = OPENS
     real = AR.run_decision_cycle
 
     async def _flaky(*args: Any, **kwargs: Any) -> Any:
-        calls["n"] += 1
-        if calls["n"] == 2:
+        if kwargs.get("today") == doomed:
             raise RuntimeError("the Worker exploded")
         return await real(*args, **kwargs)
 
@@ -353,12 +352,39 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
     episode, _bound = await _run(live, tmp_path, reallocation=None)
 
     assert episode.failed_dates == 1
-    assert len(episode.outcomes) == calls["n"]
     failed = [o for o in episode.outcomes if o.failure]
+    assert failed[0].as_of == doomed
     assert "the Worker exploded" in failed[0].failure  # type: ignore[operator]
     # the survivors still carry their readings, and the book still prices
     assert any("fiscal impulse" in o.reading for o in episode.outcomes)
     assert len(episode.nav_agentic) > 0
+
+
+async def test_a_transient_failure_is_recovered_by_the_retry(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fault this pairing exists for: on 2026-08-06 the MacBook's lid closed
+    mid-run (ADR-002 — this machine sleeps), every in-flight socket died, and
+    dates failed on a connection error while the models answered 200 on either
+    side of the gap. Failing fast without retrying throws exactly that away."""
+    attempts = {"n": 0}
+    real = AR.run_decision_cycle
+
+    async def _once(*args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("today") == OPENS:
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ConnectionError("socket died with the lid")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _once)
+
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+
+    assert attempts["n"] == 2  # failed once, retried once
+    assert episode.failed_dates == 0
+    recovered = [o for o in episode.outcomes if o.as_of == OPENS]
+    assert "fiscal impulse" in recovered[0].reading
 
 
 async def test_a_stalled_date_is_cut_by_the_wall_clock(
@@ -376,6 +402,7 @@ async def test_a_stalled_date_is_cut_by_the_wall_clock(
 
     monkeypatch.setattr(AR, "run_decision_cycle", _hangs)
     monkeypatch.setattr(AR, "DATE_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr(AR, "DATE_ATTEMPTS", 1)  # the retry is tested separately
 
     episode, _bound = await _run(live, tmp_path, reallocation=None)
 
