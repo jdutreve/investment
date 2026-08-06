@@ -373,6 +373,62 @@ def cited_invariant_eligible(
     return active
 
 
+def _inadmissible(
+    current: Mapping[str, float],
+    proposed: Mapping[str, float],
+    allowed_tickers: frozenset[str],
+) -> str | None:
+    """IS THIS A PROPOSAL AT ALL? The refused gate's name, or None to continue.
+
+    Everything here is answerable without knowing the user's caps or thresholds
+    — that is the test for belonging in this function rather than in
+    `_without_merit`, and the reason a check cannot drift between them without
+    someone deciding it should.
+
+    The two well-formedness checks are deliberately NOT called "gate 0", a name
+    ADR-011 already owns across five documents for the mechanical-sovereignty
+    check in `writeback.dispose_reallocation`. They assert the two arguments are
+    books at all, because the merit gates are comparisons and a NaN or a short
+    leg is invisible to every one of them. BOTH sides are guarded — the merit
+    gates measure the target AGAINST the incumbent, so a NaN in `current` blinds
+    them just as thoroughly — under separate names, because they are separate
+    defects (held state vs proposed answer).
+
+    UC8-B gate 5 (`allowed_tickers`) is here despite its number: a ticker the
+    system has never heard of makes the proposal inadmissible, not merely
+    unattractive."""
+    if not allocation_well_formed(proposed):
+        return "allocation_well_formed"
+    if not weights_well_formed(current):
+        return "current_allocation_well_formed"
+    if set(proposed) - allowed_tickers:
+        return "allowed_tickers"
+    return None
+
+
+def _without_merit(
+    current: Mapping[str, float],
+    proposed: Mapping[str, float],
+    caps: Caps,
+    thresholds: ProposalThresholds,
+) -> str | None:
+    """IS IT ANY GOOD? The refused gate's name, or None if it passes.
+
+    UC8-B gates 1-4, in the spec's own order — every one of them a judgment
+    against a cap or a threshold, which is exactly what `_inadmissible` has
+    none of. Gate 3 is a FLOOR on the largest move, not a ceiling: a
+    reallocation too small to matter is noise that only pays costs."""
+    if abs(sum(proposed.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
+        return "allocation_sums_to_100"
+    if not concentration_ok(proposed, caps):
+        return "max_single_asset_pct"
+    if max_allocation_change_pts(current, proposed) < thresholds.min_allocation_change_pts:
+        return "min_allocation_change_pts"
+    if turnover_pct(current, proposed) > thresholds.max_turnover_pct:
+        return "max_turnover_pct"
+    return None
+
+
 def reallocation_gates(
     current: Mapping[str, float],
     proposed: Mapping[str, float],
@@ -384,46 +440,17 @@ def reallocation_gates(
     is not here — see the module docstring: the mechanical replay cites
     nothing, so it has no input before M8.
 
-    Gate 3 is a FLOOR on the largest move, not a ceiling: a reallocation too
-    small to matter is noise that only pays costs.
-
-    Before any of them runs, a WELL-FORMEDNESS PRECONDITION — deliberately not
-    called "gate 0", a name ADR-011 already owns across five documents for the
-    mechanical-sovereignty check in `writeback.dispose_reallocation`. This is
-    not a numbered gate and not a merit test: it asserts the two arguments are
-    books at all, because gates 1-5 are comparisons and a NaN or a short leg is
-    invisible to every one of them. It guards BOTH sides — gates 3 and 4 measure
-    the target AGAINST the incumbent, so a NaN in `current` blinds them just as
-    thoroughly — under separate names, because they are separate defects (held
-    state vs proposed answer).
-
-    EVALUATION ORDER IS NOT THE SPEC'S NUMBERING, for gate 5 only, and that is
-    a reporting decision (owner, 2026-08-06). Only the first refusal is
-    reported, so evaluation order decides WHICH reason the digest shows. Run in
-    the spec's order, a book naming an instrument that does not exist was
-    refused by whichever merit gate it happened to trip first: a proposal
-    holding DOGE came back as `max_turnover_pct`, sending the owner to look for
-    a book that moved too much instead of one built on a ticker the system has
-    never heard of.
-
-    So gate 5 is EVALUATED with the preconditions — it asks whether the
-    proposal is admissible at all, which is the same question they ask and a
-    different question from gates 1-4's "is it any good?". Its NAME and its
-    spec number are unchanged; nothing about what is refused changes, only
-    which of several true reasons gets reported. This is the same principle
-    ADR-011's gate 0 states for jurisdiction over merit."""
-    if not allocation_well_formed(proposed):
-        return GateOutcome.refused("allocation_well_formed")
-    if not weights_well_formed(current):
-        return GateOutcome.refused("current_allocation_well_formed")
-    if set(proposed) - allowed_tickers:
-        return GateOutcome.refused("allowed_tickers")
-    if abs(sum(proposed.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
-        return GateOutcome.refused("allocation_sums_to_100")
-    if not concentration_ok(proposed, caps):
-        return GateOutcome.refused("max_single_asset_pct")
-    if max_allocation_change_pts(current, proposed) < thresholds.min_allocation_change_pts:
-        return GateOutcome.refused("min_allocation_change_pts")
-    if turnover_pct(current, proposed) > thresholds.max_turnover_pct:
-        return GateOutcome.refused("max_turnover_pct")
-    return PASSED
+    EVALUATION ORDER IS NOT THE SPEC'S NUMBERING, and it is not meant to be.
+    Only the FIRST refusal is reported, so the order decides which reason the
+    owner reads. The two helpers below make that order a CONSEQUENCE of what
+    each check is rather than of where someone put its line: admissibility
+    first, merit second, and a check moves only by being moved between two
+    functions whose names say what they mean. Run in the spec's numbering, gate
+    5 sat among the merit gates and a book naming an instrument that does not
+    exist came back as `max_turnover_pct` — sending the owner after a book that
+    moved too much instead of one built on a ticker the system has never heard
+    of (owner decision 2026-08-06)."""
+    reason = _inadmissible(current, proposed, allowed_tickers) or _without_merit(
+        current, proposed, caps, thresholds
+    )
+    return GateOutcome.refused(reason) if reason else PASSED

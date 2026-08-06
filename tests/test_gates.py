@@ -3,6 +3,7 @@ switch / UC8-B reallocation) — pure functions in `mechanical/gates.py`, no DB.
 """
 
 import math
+from dataclasses import replace
 
 import pytest
 from hypothesis import given, settings
@@ -250,6 +251,28 @@ def test_gate_5_refuses_a_ticker_outside_allowed_tickers() -> None:
     current = {"SPY": 50.0, "TLT": 50.0}
     proposed = {"SPY": 40.0, "TLT": 30.0, "DOGE": 30.0}
     outcome = reallocation_gates(current, proposed, CAPS, THRESHOLDS, ALLOWED)
+    assert outcome.failed_gate == "allowed_tickers"
+
+
+def test_admissibility_is_decided_without_caps_or_thresholds() -> None:
+    """The rule that KEEPS the order right, rather than a note asking for it.
+
+    A check belongs in `_inadmissible` exactly when it can be answered without
+    the user's caps or thresholds — which is why `allowed_tickers` sits there
+    and `max_turnover_pct` cannot. Passing junk for both proves the split is
+    real: if a merit gate ever drifts into that function, this raises or
+    returns the wrong name, instead of the mistake surfacing six months later
+    as a slightly misleading line in a Monday digest."""
+    junk_caps = Caps(max_single_asset_pct=float("nan"), max_drawdown_pct=float("nan"))
+    junk_thresholds = replace(
+        THRESHOLDS,
+        min_allocation_change_pts=float("nan"),
+        max_turnover_pct=float("nan"),
+    )
+    proposed = {"SPY": 40.0, "TLT": 30.0, "DOGE": 30.0}
+
+    outcome = reallocation_gates({"SPY": 100.0}, proposed, junk_caps, junk_thresholds, ALLOWED)
+
     assert outcome.failed_gate == "allowed_tickers"
 
 
