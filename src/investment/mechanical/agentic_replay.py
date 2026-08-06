@@ -49,6 +49,7 @@ necessary a-priori screen, never go-live performance.
 """
 
 import logging
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -63,6 +64,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import UC8Result, run_decision_cycle
 from investment.mechanical.as_of_cycle import AsOfCycle, run_as_of_cycle
 from investment.mechanical.replay import (
+    EPISODES,
     NavMetrics,
     ReplayInputs,
     ReplayThresholds,
@@ -103,6 +105,11 @@ class DateOutcome:
     gate: str | None
     accepted: bool
     innovations: int
+    # Set when the cognitive cycle RAISED on this date. Every other field then
+    # carries the neutral value, and the date contributes no allocation — the
+    # shadow book simply holds. See `run_agentic_episode` for why one bad date
+    # does not end the episode.
+    failure: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,6 +128,13 @@ class EpisodeResult:
     @property
     def accepted_reallocations(self) -> int:
         return sum(1 for o in self.outcomes if o.accepted)
+
+    @property
+    def failed_dates(self) -> int:
+        """Dates whose cognitive cycle raised. Read this BEFORE the CAGRs: the
+        NAV of an episode that lost three of seven decisions is a different
+        claim from one that lost none, and nothing else in the metrics says so."""
+        return sum(1 for o in self.outcomes if o.failure)
 
     @property
     def cagr_delta_vs_mechanical(self) -> float | None:
@@ -203,17 +217,39 @@ async def run_agentic_episode(
             previous = as_of
 
             mechanical = await run_as_of_cycle(db, as_of)
-            result = await run_decision_cycle(
-                db,
-                agents.planner_pre,
-                agents.worker,
-                agents.planner_post,
-                trigger=TRIGGER,
-                user_profile=user_profile,
-                thresholds=system_thresholds,
-                today=as_of,
-                run_id=f"m8b-{name}-{as_of}",
-            )
+            # ONE DATE MAY FAIL WITHOUT ENDING THE EPISODE.
+            #
+            # This inverts CLAUDE.md's "unhandled errors surface", and the scope
+            # of that rule is why: it governs the LIVE Monday chain, where
+            # aborting is right because a half-run cycle would be written to the
+            # graph and acted on. Nothing here is live — this is an offline
+            # research harness whose output is a report, and its expensive part
+            # is already spent by the time a late date fails. Losing six
+            # completed cognitive readings because the seventh raised is the
+            # worse failure, and it is the one that was in place.
+            #
+            # NOT swallowed: the date is recorded as FAILED with its error, it
+            # appears in the report, and `_main` exits non-zero. What changes is
+            # only whether the other dates survive it. The Worker is the least
+            # predictable component in the system and every failure so far came
+            # from it (a tool refusal, a bad column name); a run of 84 calls
+            # should assume a third.
+            try:
+                result = await run_decision_cycle(
+                    db,
+                    agents.planner_pre,
+                    agents.worker,
+                    agents.planner_post,
+                    trigger=TRIGGER,
+                    user_profile=user_profile,
+                    thresholds=system_thresholds,
+                    today=as_of,
+                    run_id=f"m8b-{name}-{as_of}",
+                )
+            except Exception as exc:
+                logger.exception("m8b %s %s: cycle failed, continuing", name, as_of)
+                outcomes.append(_failed(as_of, mechanical, exc))
+                continue
 
             outcome = _record(as_of, mechanical, result)
             outcomes.append(outcome)
@@ -286,6 +322,22 @@ def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcom
     )
 
 
+def _failed(as_of: date, mechanical: AsOfCycle, exc: BaseException) -> DateOutcome:
+    """A date whose cognitive cycle raised. `accepted=False` and no allocation,
+    so the shadow book holds through it exactly as it does through a date where
+    the Worker proposed nothing — the arithmetic never sees a gap."""
+    return DateOutcome(
+        as_of=as_of,
+        mechanical=mechanical,
+        reading="",
+        proposed_allocation=None,
+        gate=None,
+        accepted=False,
+        innovations=0,
+        failure=f"{type(exc).__name__}: {exc}",
+    )
+
+
 def render_report(episodes: list[EpisodeResult]) -> str:
     """The two channels M8b's STOP POINT is judged on, side by side. The NAV
     table alone would answer half the question — "does it beat All Weather?" —
@@ -294,7 +346,8 @@ def render_report(episodes: list[EpisodeResult]) -> str:
     lines = ["M8b — AGENTIC REPLAY (semi-PIT, best-case; NOT go-live performance)", ""]
     for ep in episodes:
         lines += [
-            f"## {ep.name}  {ep.opens} .. {ep.closes}   ({len(ep.outcomes)} decision dates)",
+            f"## {ep.name}  {ep.opens} .. {ep.closes}   "
+            f"({len(ep.outcomes)} decision dates, {ep.failed_dates} failed)",
             f"  A' agentic    cagr={_pct(ep.metrics_agentic.cagr)}  "
             f"sortino={_num(ep.metrics_agentic.sortino)}  "
             f"maxDD={_pct(ep.metrics_agentic.max_drawdown)}",
@@ -311,6 +364,13 @@ def render_report(episodes: list[EpisodeResult]) -> str:
             "  behavioural log:",
         ]
         for out in ep.outcomes:
+            if out.failure:
+                # Loud, and counted separately in the header: a date that never
+                # ran is not a date on which the Worker chose to do nothing, and
+                # a report that renders them alike would overstate the coverage
+                # the NAV rests on.
+                lines.append(f"    {out.as_of}  [!! FAILED]  {out.failure}")
+                continue
             verdict = "accepted" if out.accepted else (out.gate or "no proposal")
             lines += [
                 f"    {out.as_of}  [{verdict}]  innovations={out.innovations}",
@@ -336,7 +396,7 @@ async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
     has to exist before the expensive part starts, not after it."""
     from investment.config import Settings
     from investment.corpus.embedding import InProcessEmbedder
-    from investment.mechanical.replay import EPISODES, load_inputs, load_thresholds
+    from investment.mechanical.replay import load_inputs, load_thresholds
     from investment.worker.agent import build_worker_agent
 
     settings = Settings()  # type: ignore[call-arg]  # pydantic-settings fills from .env
@@ -368,34 +428,46 @@ async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
 
     results: list[EpisodeResult] = []
     for name, opens, closes in EPISODES:
-        results.append(
-            await run_agentic_episode(
-                live,
-                scratch,
-                name=name,
-                opens=opens,
-                closes=closes,
-                inputs=inputs,
-                thresholds=thresholds,
-                make_agents=make_agents,
-                user_profile=user_profile,
-                system_thresholds=system_thresholds,
-                cost_bps=system_thresholds["replay_cost_bps"],
-                confirmation_weeks=system_thresholds["replay_confirmation_weeks"],
+        # Episode-level equivalent of the per-date guard: an episode that dies
+        # in its NAV arithmetic must not cost the episodes that have not run
+        # yet. The already-written report stays on disk, and the next episode
+        # rewrites it with its own results appended.
+        try:
+            results.append(
+                await run_agentic_episode(
+                    live,
+                    scratch,
+                    name=name,
+                    opens=opens,
+                    closes=closes,
+                    inputs=inputs,
+                    thresholds=thresholds,
+                    make_agents=make_agents,
+                    user_profile=user_profile,
+                    system_thresholds=system_thresholds,
+                    cost_bps=system_thresholds["replay_cost_bps"],
+                    confirmation_weeks=system_thresholds["replay_confirmation_weeks"],
+                )
             )
-        )
+        except Exception:
+            logger.exception("m8b episode %s failed, continuing to the next", name)
+            continue
         if out is not None:
             out.write_text(render_report(results))
             logger.info("report written after %s: %s", name, out)
     return results
 
 
-def _main() -> None:
+def _main() -> int:
     """`python -m investment.mechanical.agentic_replay --scratch DIR [--out FILE]`
 
     Spends real money: ~21 LLM decision cycles against the live database. With
     `--out` the report is rewritten after every episode, so an episode that dies
-    on its last date does not take the two that already ran down with it."""
+    on its last date does not take the two that already ran down with it.
+
+    Exit code is 1 if ANY episode or decision date failed. The report is still
+    written and still readable — the code exists so a partial run cannot be
+    mistaken for a complete one by a caller that only checks the status."""
     import argparse
     import asyncio
 
@@ -409,7 +481,9 @@ def _main() -> None:
 
     episodes = asyncio.run(_run_all(args.scratch, args.out))
     print(render_report(episodes))
+    incomplete = len(episodes) < len(EPISODES) or any(ep.failed_dates for ep in episodes)
+    return 1 if incomplete else 0
 
 
 if __name__ == "__main__":
-    _main()
+    sys.exit(_main())

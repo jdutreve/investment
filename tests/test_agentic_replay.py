@@ -17,6 +17,7 @@ production code. Three properties matter and none of them is a NAV number:
 import json
 from collections.abc import AsyncIterator
 from contextlib import ExitStack
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
@@ -329,6 +330,57 @@ async def test_the_clock_advances_across_the_episode(live: Path, tmp_path: Path)
     # ...and only the FIRST month emits the stack's opening proposal.
     emitted = [o for o in episode.outcomes if o.mechanical.market_signal_proposal_id]
     assert len(emitted) == 1
+
+
+async def test_one_failing_date_does_not_burn_the_whole_episode(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An 84-call run must not lose six completed readings because the seventh
+    raised. The failure is RECORDED, not swallowed: the date carries its error,
+    `failed_dates` counts it, and the surviving dates still produce a curve."""
+    calls = {"n": 0}
+    real = AR.run_decision_cycle
+
+    async def _flaky(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("the Worker exploded")
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _flaky)
+
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+
+    assert episode.failed_dates == 1
+    assert len(episode.outcomes) == calls["n"]
+    failed = [o for o in episode.outcomes if o.failure]
+    assert "the Worker exploded" in failed[0].failure  # type: ignore[operator]
+    # the survivors still carry their readings, and the book still prices
+    assert any("fiscal impulse" in o.reading for o in episode.outcomes)
+    assert len(episode.nav_agentic) > 0
+
+
+async def test_a_failed_date_is_loud_in_the_report(live: Path, tmp_path: Path) -> None:
+    """A date that never ran is not a date the Worker chose to sit out, and a
+    report that rendered them alike would overstate the coverage."""
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    broken = AR.DateOutcome(
+        as_of=episode.outcomes[0].as_of,
+        mechanical=episode.outcomes[0].mechanical,
+        reading="",
+        proposed_allocation=None,
+        gate=None,
+        accepted=False,
+        innovations=0,
+        failure="RuntimeError: boom",
+    )
+    patched = replace(episode, outcomes=[*episode.outcomes, broken])
+
+    text = AR.render_report([patched])
+
+    assert "!! FAILED" in text
+    assert "RuntimeError: boom" in text
+    assert "1 failed" in text
 
 
 async def test_the_three_curves_cover_the_same_window(live: Path, tmp_path: Path) -> None:
