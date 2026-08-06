@@ -68,7 +68,7 @@ Filesystem
 |--|--------------------------------|------------------------------|
 | DB access | Direct Python asyncio | tool_call via bridged functions |
 | `_db` | direct, in-process | never — closure only |
-| LLM calls | 3 fixed (1a, 1b, 2) | variable (1-8 tool calls) |
+| LLM calls | 3 fixed (1a, 1b, 2) | variable (1-12 tool calls — per-model, see `worker/agent.py`) |
 | DB writes | forbidden | forbidden (Writeback handles) |
 | Scope | full DB read | 3 bridged functions only |
 

@@ -1392,7 +1392,7 @@ async def portfolio_check(portfolio_id: str) -> dict:
 
 PydanticAI agent, model `WORKER_MODEL`, system prompt from ARCHITECTURE,
 skills (markdown files) concatenated into the system context, output type
-`WorkerResult` (schema in ARCHITECTURE). 1-8 tool calls budget.
+`WorkerResult` (schema in ARCHITECTURE). 1-12 tool calls budget — raised from 8 by owner decision 2026-08-06 after the M8b run lost a decision date to it: the Worker asked for a 9th call having checked the books, tickers and invariants it was about to cite, which is thoroughness, not a runaway. The number is per-MODEL, not per-spec (`worker/agent.py`).
 
 Skill files (each: purpose, inputs, method, output contract).
 

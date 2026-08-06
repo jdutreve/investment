@@ -68,13 +68,29 @@ WORKER_TIMEOUT_SECONDS = 300.0
 # Planner's margin has had `MAX_ZOOMS = 3` since M8 for exactly this reason
 # (planner/retrieval.py); this is the Worker's equivalent.
 #
-# 8 is the SPEC's number, not one invented here: docs/TASKS.md Phase 5 pins the
-# Worker at a "1-8 tool calls budget". It is a RUNAWAY guard rather than a
-# frugality knob — the Worker legitimately checks several portfolios and tickers
-# before proposing, and a budget that bit in normal use would cost a cycle to
-# save pennies. `request_limit` sits above it because each tool call costs one
-# request and the final structured answer costs one more, plus the retries.
-WORKER_TOOL_CALLS_LIMIT = 8
+# A RUNAWAY guard rather than a frugality knob — the Worker legitimately checks
+# several portfolios and tickers before proposing, and a budget that bites in
+# normal use costs a whole cycle to save pennies. `request_limit` sits above it
+# because each tool call costs one request and the final structured answer costs
+# one more, plus the retries.
+#
+# 12, RAISED FROM THE SPEC'S 8 (docs/TASKS.md Phase 5, "1-8 tool calls budget")
+# by owner decision 2026-08-06, because the guard did exactly what its own
+# rationale warned against. On the M8b run, the Worker asked for a 9th call at
+# one decision date and a 10th on the retry, and the date was lost — not to a
+# runaway loop but to ordinary thoroughness: it had checked the books, the
+# tickers and the invariants it was about to cite.
+#
+# The 8 was never measured, it was assumed, and it was assumed against a
+# different model. This one explores more per cycle, which is a property of the
+# model and not a fault in it. Left at 8, the budget would silently cost the
+# most careful dates — the ones whose reasoning is worth the most.
+#
+# Still a hard cap, and still the thing that stops an unbounded loop: 12 is
+# generous for the deliberation and nowhere near a runaway. Re-derive it if the
+# model changes again — it is a per-model number wearing a spec number's
+# clothes.
+WORKER_TOOL_CALLS_LIMIT = 12
 WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
 
 # The UC8 allocation decision is the highest-stakes single call in the system;
