@@ -49,6 +49,7 @@ necessary a-priori screen, never go-live performance.
 """
 
 import asyncio
+import json
 import logging
 import sys
 from collections.abc import Callable
@@ -77,23 +78,33 @@ from investment.mechanical.replay import (
 )
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
-from investment.worker.result import WorkerResult
+from investment.worker.result import ImprovementProposal, WorkerResult
 
 logger = logging.getLogger(__name__)
 
 TRIGGER = "M8b agentic replay — the scheduled decision cycle at a historical date"
 
-# Wall clock for ONE decision date, retries and all. 15 minutes against a
-# healthy date's measured 5m09s: generous enough that a slow-but-working cycle
-# is never cut, tight enough that a stalled one costs a quarter hour instead of
-# the 55 minutes measured on 2026-08-06. It bounds the WHOLE cycle — the
-# per-request timeouts underneath bound single requests, which is a different
-# and, on a laptop's network, insufficient promise.
+# TOTAL wall clock for one decision date — every attempt INSIDE it, not each.
+#
+# The distinction is the whole point and the first version got it wrong: a
+# 15-minute budget PER attempt with 2 attempts is a 30-minute date, and 21 of
+# those is the ten-hour run the bound was added to prevent. Bounding each part
+# of a thing does not bound the thing.
+#
+# 900s against a healthy date's measured 5m09s. That is not "3x headroom for
+# one cycle" — it is room for a first attempt to stall, be cut, and a retry to
+# still complete inside the same budget. A date that has already burned twelve
+# minutes gets the three that remain, which is correct: it has given ample
+# evidence that it is not the healthy case.
+#
+# The number is provisional and should be re-derived from the FIRST full run's
+# distribution of healthy-date durations, not from the single measurement it
+# rests on today.
 DATE_TIMEOUT_SECONDS = 900.0
 
-# ...and the other half of the same policy. See `_cycle_with_retry` for why one
-# retry rather than a ladder, and why fail-fast without it loses dates that a
-# single re-attempt recovers.
+# The other half of the same policy. See `_cycle_with_retry` for why one retry
+# rather than a ladder, and why fail-fast without it loses dates that a single
+# re-attempt recovers.
 DATE_ATTEMPTS = 2
 
 
@@ -119,11 +130,15 @@ class DateOutcome:
     gate: str | None
     accepted: bool
     innovations: int
-    # The innovations' TITLES, not just their count. M8b's Definition of
+    # The innovations THEMSELVES, not just their count. M8b's Definition of
     # Verified asks "does it propose sensible improvements?" — a question no
     # integer can answer, and the report used to print only the integer. Same
     # reasoning as `reading`: this channel is judged by READING it.
-    innovation_titles: tuple[str, ...] = ()
+    #
+    # Held whole rather than as titles because they must OUTLIVE the run — see
+    # `write_innovations`. The snapshot they were born in is deleted; the
+    # proposals must not die with it.
+    innovation_proposals: tuple[ImprovementProposal, ...] = ()
     # Set when the cognitive cycle RAISED on this date. Every other field then
     # carries the neutral value, and the date contributes no allocation — the
     # shadow book simply holds. See `run_agentic_episode` for why one bad date
@@ -343,7 +358,7 @@ def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcom
         gate=result.gate_outcome.failed_gate if result.gate_outcome else None,
         accepted=result.proposal_id is not None,
         innovations=len(result.worker_result.innovations_proposed),
-        innovation_titles=tuple(i.title for i in result.worker_result.innovations_proposed),
+        innovation_proposals=tuple(result.worker_result.innovations_proposed),
     )
 
 
@@ -378,9 +393,13 @@ async def _cycle_with_retry(
     gone) and more attempts only spend the run's budget confirming it. The date
     is then recorded FAILED and the episode carries on."""
     last: BaseException = RuntimeError("no attempt ran")
+    # ONE deadline for the date, shared by every attempt — see
+    # `DATE_TIMEOUT_SECONDS`. A per-attempt clock multiplies by the retry count
+    # and bounds nothing that matters.
+    deadline = asyncio.get_running_loop().time() + DATE_TIMEOUT_SECONDS
     for attempt in range(1, DATE_ATTEMPTS + 1):
         try:
-            async with asyncio.timeout(DATE_TIMEOUT_SECONDS):
+            async with asyncio.timeout_at(deadline):
                 return await run_decision_cycle(
                     db,
                     agents.planner_pre,
@@ -406,6 +425,12 @@ async def _cycle_with_retry(
                 type(exc).__name__,
                 exc,
             )
+            if asyncio.get_running_loop().time() >= deadline:
+                # The budget is the date's, so a retry that cannot start is not
+                # attempted — pretending otherwise would log an attempt that
+                # was cut before its first request.
+                logger.error("m8b %s %s: date budget spent, no retry left", name, as_of)
+                return last
     logger.error("m8b %s %s: all %d attempts failed, continuing", name, as_of, DATE_ATTEMPTS)
     return last
 
@@ -464,9 +489,49 @@ def render_report(episodes: list[EpisodeResult]) -> str:
                 f"    {out.as_of}  [{verdict}]  innovations={out.innovations}",
                 f"      {out.reading}",
             ]
-            lines += [f"      innovation: {title}" for title in out.innovation_titles]
+            lines += [f"      innovation: {p.title}" for p in out.innovation_proposals]
         lines.append("")
     return "\n".join(lines)
+
+
+def write_innovations(episodes: list[EpisodeResult], report: Path) -> Path:
+    """Every innovation the Worker proposed, in full, next to the report.
+
+    THE SNAPSHOT IS NOT A SINK. A replayed innovation reaches the same
+    production path a live one does — `writeback/knowledge.py` gives it a
+    `strategy` vertex at `status='proposed'`, which is the entrance to ADR-006's
+    probation (`outcomes.strategy_probation_check`: 12 weeks, FAVORS percentile
+    against the regime median, kept or closed mechanically). It then dies with
+    the snapshot, because the snapshot is deleted. The machinery ran and its
+    output was thrown away.
+
+    Written rather than INJECTED into the live database, deliberately. These are
+    proposed by a Worker reading 2008 through a 2026 corpus, so their motivation
+    carries hindsight the live queue does not; and probation measures forward
+    FAVORS from the date of birth, which for a replayed proposal is a date that
+    has already happened. Auto-injecting would put 21 replays' worth of
+    proposals into a queue whose clock cannot judge them.
+
+    What survives instead is the SPEC — and a spec is portable. The first run
+    produced "Extend the 200-day trend overlay to the IWN sleeve" carrying its
+    evidence AND its own acceptance test (re-run the 35y backtest, adopt only if
+    Sortino holds and maxDD improves). That is testable today, by hand or by a
+    later job, and it is exactly what M8b's second channel exists to harvest.
+    The owner decides which ones enter the live cycle as real innovations."""
+    path = report.with_suffix(".innovations.json")
+    harvest = [
+        {
+            "episode": ep.name,
+            "as_of": out.as_of.isoformat(),
+            "proposal": proposal.model_dump(mode="json"),
+        }
+        for ep in episodes
+        for out in ep.outcomes
+        for proposal in out.innovation_proposals
+    ]
+    path.write_text(json.dumps(harvest, indent=2, ensure_ascii=False), encoding="utf-8")
+    logger.info("harvested %d innovations to %s", len(harvest), path)
+    return path
 
 
 def _pct(value: float | None) -> str:
@@ -543,6 +608,9 @@ async def _run_all(scratch: Path, out: Path | None) -> list[EpisodeResult]:
             continue
         if out is not None:
             out.write_text(render_report(results))
+            # Harvested on the SAME cadence as the report, for the same reason:
+            # two thirds of a paid run is worth keeping when the last third dies.
+            write_innovations(results, out)
             logger.info("report written after %s: %s", name, out)
     return results
 

@@ -194,7 +194,25 @@ async def live(tmp_path: Path) -> AsyncIterator[Path]:
     yield path
 
 
-def _worker_output(reallocation: dict[str, Any] | None) -> dict[str, Any]:
+# A `strategy_revision` shaped like the one the first real run produced: a
+# rule, its evidence, and its OWN acceptance test. The spec is what makes the
+# claim testable later, so the harvest must carry it whole.
+INNOVATION: dict[str, Any] = {
+    "type": "strategy_revision",
+    "title": "Extend the 200-day trend overlay to the IWN sleeve",
+    "rationale": "IWN falls unprotected while SPY is redirected on the same signal",
+    "spec": {
+        "target_strategy": "market-signal-stack",
+        "proposed_rule": "redirect IWN to IEF when below its 200d MA",
+        "test": "re-run the 35y backtest; adopt only if Sortino holds and maxDD improves",
+    },
+    "trace": "proposed by the Worker at a replayed decision date",
+}
+
+
+def _worker_output(
+    reallocation: dict[str, Any] | None, *, innovations: bool = False
+) -> dict[str, Any]:
     return {
         "regime_assessment": "stagflation deepening",
         "ranking_commentary": "defender leads",
@@ -204,12 +222,18 @@ def _worker_output(reallocation: dict[str, Any] | None) -> dict[str, Any]:
         "scenario_adjustments": [],
         "evaluations": [],
         "reallocation_proposed": reallocation,
-        "innovations_proposed": [],
+        "innovations_proposed": [INNOVATION] if innovations else [],
         "reasoning": "tilt to gold",
     }
 
 
-async def _run(live: Path, tmp_path: Path, *, reallocation: dict[str, Any] | None) -> Any:
+async def _run(
+    live: Path,
+    tmp_path: Path,
+    *,
+    reallocation: dict[str, Any] | None,
+    innovations: bool = False,
+) -> Any:
     """Drive one episode with TestModels. The overrides ride on an ExitStack the
     FACTORY pushes onto, because the agents do not exist until the episode opens
     its snapshot — which is the whole point of the factory."""
@@ -222,7 +246,9 @@ async def _run(live: Path, tmp_path: Path, *, reallocation: dict[str, Any] | Non
     select = TestModel(
         custom_output_args={"invariant_ids": ["inv-gold"], "passage_ids": [], "notes": "storm"}
     )
-    worker_out = TestModel(call_tools=[], custom_output_args=_worker_output(reallocation))
+    worker_out = TestModel(
+        call_tools=[], custom_output_args=_worker_output(reallocation, innovations=innovations)
+    )
     extract = TestModel(
         custom_output_args={
             "evaluations": [],
@@ -411,6 +437,30 @@ async def test_a_stalled_date_is_cut_by_the_wall_clock(
     assert "TimeoutError" in stalled[0].failure
     # ...and the episode carried on to the dates that follow it
     assert len(episode.outcomes) > 1
+
+
+async def test_innovations_outlive_the_snapshot_they_were_born_in(
+    live: Path, tmp_path: Path
+) -> None:
+    """The snapshot is deleted; the proposals must not die with it. They reach a
+    real `strategy` vertex at `status='proposed'` inside the snapshot — the
+    entrance to ADR-006 probation — and that whole machinery's output used to be
+    thrown away with the file."""
+    episode, _bound = await _run(live, tmp_path, reallocation=None, innovations=True)
+
+    assert all(o.innovations == 1 for o in episode.outcomes)
+    report = tmp_path / "report.txt"
+    report.write_text(AR.render_report([episode]))
+
+    path = AR.write_innovations([episode], report)
+
+    harvested = json.loads(path.read_text())
+    assert len(harvested) == len(episode.outcomes)
+    assert harvested[0]["episode"] == episode.name
+    assert harvested[0]["proposal"]["title"] == INNOVATION["title"]
+    # the SPEC survives, not just the title — it is what makes the claim testable
+    assert harvested[0]["proposal"]["spec"] == INNOVATION["spec"]
+    assert "innovation: " in AR.render_report([episode])
 
 
 async def test_a_failed_date_is_loud_in_the_report(live: Path, tmp_path: Path) -> None:
