@@ -439,6 +439,51 @@ async def test_a_stalled_date_is_cut_by_the_wall_clock(
     assert len(episode.outcomes) > 1
 
 
+async def test_an_interrupted_episode_resumes_instead_of_paying_twice(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 21-date run on a laptop gets interrupted. Restarting must not re-buy
+    the dates already paid for — and must not re-advance the snapshot's clock
+    past them either, which is why the journal and the snapshot are read as one
+    state."""
+    first = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = first
+    assert len(episode.outcomes) > 1
+
+    cycles = {"n": 0}
+    real = AR.run_decision_cycle
+
+    async def _counted(*args: Any, **kwargs: Any) -> Any:
+        cycles["n"] += 1
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _counted)
+
+    # same scratch directory: the journal and the advanced snapshot are both there
+    again, _bound2 = await _run(live, tmp_path, reallocation=None)
+
+    assert cycles["n"] == 0  # nothing re-run
+    assert [o.as_of for o in again.outcomes] == [o.as_of for o in episode.outcomes]
+    assert [o.reading for o in again.outcomes] == [o.reading for o in episode.outcomes]
+
+
+async def test_a_torn_journal_line_costs_one_date_not_the_episode(
+    live: Path, tmp_path: Path
+) -> None:
+    """The only way to get an unparseable line is a run killed mid-write. The
+    right answer is to redo that one date; refusing to start would make a crash
+    cost everything the journal exists to protect."""
+    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    journal = tmp_path / "gfc.dates.jsonl"
+    lines = journal.read_text().splitlines()
+    journal.write_text("\n".join([*lines[:-1], '{"as_of": "2008-0']))  # truncated write
+
+    kept = AR._read_journal(journal, OPENS)
+
+    assert len(kept) == len(lines) - 1
+    assert kept[0].as_of == episode.outcomes[0].as_of
+
+
 async def test_innovations_outlive_the_snapshot_they_were_born_in(
     live: Path, tmp_path: Path
 ) -> None:

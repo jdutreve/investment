@@ -29,12 +29,12 @@ import logging
 from typing import Any, Protocol
 
 import numpy as np
-from openai import AsyncOpenAI
 from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from investment.db.sqlite import InvestmentDB
+from investment.openrouter_client import build_openrouter_client
 from investment.planner.baseline import gather_baseline
 from investment.planner.context import (
     ContextSelection,
@@ -109,11 +109,15 @@ you will be asked to correct it."""
 
 def _model(model_name: str, api_key: str, base_url: str) -> OpenAIChatModel:
     provider = OpenRouterProvider(
-        openai_client=AsyncOpenAI(
-            api_key=api_key,
+        # Shared transport (investment/openrouter_client.py): the split
+        # timeouts and the bounded keepalive live in ONE place, because a
+        # bare float here silently set the connect and pool budgets to the
+        # read budget, and a reused dead connection then cost minutes.
+        openai_client=build_openrouter_client(
+            api_key,
+            read_timeout=PLANNER_TIMEOUT_SECONDS,
             base_url=base_url,
             max_retries=TRANSPORT_RETRIES,
-            timeout=PLANNER_TIMEOUT_SECONDS,
         )
     )
     return OpenAIChatModel(model_name, provider=provider)

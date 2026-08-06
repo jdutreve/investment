@@ -53,7 +53,7 @@ import json
 import logging
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -229,11 +229,31 @@ async def run_agentic_episode(
 
     initial = inputs.portfolios[inputs.initial_defender_id].allocation
     targets: dict[pd.Timestamp, dict[str, float]] = {dates[0]: dict(initial)}
-    outcomes: list[DateOutcome] = []
 
+    # RESUME. Each finished date was journalled to `<scratch>/<name>.dates.jsonl`
+    # as it completed, and the snapshot on disk is already advanced to the last
+    # of them — so a run interrupted at date 5 of 7 restarts at 6 rather than
+    # paying for 1-5 again. Delete the scratch directory to force a clean run.
+    #
+    # The journal and the snapshot are ONE state: the file records dates whose
+    # cycle ran against a snapshot that was advanced BEFORE the cycle, so the
+    # last journalled date is exactly where the snapshot stands. Reading one
+    # without the other would silently re-advance the clock past a date, which
+    # no assertion downstream would catch.
     snapshot = scratch / f"agentic-{name}.db"
-    snapshot.unlink(missing_ok=True)
-    build_as_of_snapshot(live, snapshot, dates[0].date())
+    journal = scratch / f"{name}.dates.jsonl"
+    outcomes = _read_journal(journal, dates[0].date()) if snapshot.exists() else []
+    if outcomes:
+        logger.info(
+            "m8b %s: resuming after %s (%d dates kept)", name, outcomes[-1].as_of, len(outcomes)
+        )
+        for out in outcomes:
+            if out.accepted and out.proposed_allocation:
+                targets[pd.Timestamp(out.as_of)] = dict(out.proposed_allocation)
+    else:
+        snapshot.unlink(missing_ok=True)
+        journal.unlink(missing_ok=True)
+        build_as_of_snapshot(live, snapshot, dates[0].date())
 
     # ONE handle for the whole episode, and the agents built against it once.
     # `advance_as_of_snapshot` writes to the same file through its own
@@ -243,9 +263,12 @@ async def run_agentic_episode(
     db = InvestmentDB(snapshot)
     agents = make_agents(db)
     try:
-        previous: date | None = None
+        done = {out.as_of for out in outcomes}
+        previous: date | None = outcomes[-1].as_of if outcomes else None
         for stamp in dates:
             as_of = stamp.date()
+            if as_of in done:
+                continue
             if previous is not None:
                 advance_as_of_snapshot(snapshot, live, previous, as_of)
             previous = as_of
@@ -287,11 +310,17 @@ async def run_agentic_episode(
                 system_thresholds=system_thresholds,
             )
             if isinstance(result, BaseException):
-                outcomes.append(_failed(as_of, mechanical, result))
+                failed = _failed(as_of, mechanical, result)
+                outcomes.append(failed)
+                # Journalled like any other: a failed date is a date the resume
+                # must NOT retry, or an interrupted run would grind on the same
+                # broken date every time it restarts.
+                _append_journal(journal, failed)
                 continue
 
             outcome = _record(as_of, mechanical, result)
             outcomes.append(outcome)
+            _append_journal(journal, outcome)
             if outcome.accepted and outcome.proposed_allocation:
                 targets[stamp] = dict(outcome.proposed_allocation)
             logger.info(
@@ -360,6 +389,62 @@ def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcom
         innovations=len(result.worker_result.innovations_proposed),
         innovation_proposals=tuple(result.worker_result.innovations_proposed),
     )
+
+
+def _append_journal(path: Path, outcome: DateOutcome) -> None:
+    """One finished date, appended as one JSON line, flushed immediately.
+
+    APPEND rather than rewrite: the file is the run's memory of what has been
+    paid for, and rewriting it puts every earlier date at risk of the write that
+    is interrupted. One line per date also means a truncated last line costs one
+    date on resume, not the file (`_read_journal` skips what it cannot parse)."""
+    payload = {
+        "as_of": outcome.as_of.isoformat(),
+        "mechanical": asdict(outcome.mechanical),
+        "reading": outcome.reading,
+        "proposed_allocation": outcome.proposed_allocation,
+        "gate": outcome.gate,
+        "accepted": outcome.accepted,
+        "innovations": outcome.innovations,
+        "innovation_proposals": [p.model_dump(mode="json") for p in outcome.innovation_proposals],
+        "failure": outcome.failure,
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, default=str) + "\n")
+
+
+def _read_journal(path: Path, opens: date) -> list[DateOutcome]:
+    """The dates a previous run finished, in order. Missing file -> no resume.
+
+    A line that will not parse is DROPPED, not raised on: the only way to get
+    one is a run killed mid-write, and the correct response to a torn last line
+    is to redo that one date. Refusing to start would make a crash cost the
+    whole episode, which is the failure this file exists to prevent."""
+    if not path.exists():
+        return []
+    outcomes: list[DateOutcome] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            raw = json.loads(line)
+            outcomes.append(
+                DateOutcome(
+                    as_of=date.fromisoformat(raw["as_of"]),
+                    mechanical=AsOfCycle(**{**raw["mechanical"], "as_of": opens}),
+                    reading=raw["reading"],
+                    proposed_allocation=raw["proposed_allocation"],
+                    gate=raw["gate"],
+                    accepted=raw["accepted"],
+                    innovations=raw["innovations"],
+                    innovation_proposals=tuple(
+                        ImprovementProposal.model_validate(p)
+                        for p in raw.get("innovation_proposals", ())
+                    ),
+                    failure=raw["failure"],
+                )
+            )
+        except (ValueError, KeyError, TypeError):
+            logger.warning("m8b: dropping an unreadable journal line in %s", path)
+    return outcomes
 
 
 async def _cycle_with_retry(

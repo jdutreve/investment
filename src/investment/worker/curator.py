@@ -37,7 +37,6 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
@@ -47,6 +46,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from investment.db.seed_data import BENCHMARK_CLASSES, SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.invariants import Registries, validate_invariant
+from investment.openrouter_client import build_openrouter_client
 
 if TYPE_CHECKING:  # import-time cycle: writeback consumes this module's types
     from investment.writeback.knowledge import KnowledgeWriteback
@@ -380,11 +380,15 @@ def build_agent(
     # schema-validation failures. Two different faults, two different knobs —
     # conflating them is what left the stall unprotected.
     provider = OpenRouterProvider(
-        openai_client=AsyncOpenAI(
-            api_key=api_key,
+        # Shared transport (investment/openrouter_client.py): the split
+        # timeouts and the bounded keepalive live in ONE place, because a
+        # bare float here silently set the connect and pool budgets to the
+        # read budget, and a reused dead connection then cost minutes.
+        openai_client=build_openrouter_client(
+            api_key,
+            read_timeout=BATCH_TIMEOUT_SECONDS,
             base_url="https://openrouter.ai/api/v1",
             max_retries=TRANSPORT_RETRIES,
-            timeout=BATCH_TIMEOUT_SECONDS,
         )
     )
     # PydanticAI's bundled profile for these OpenRouter routes declares

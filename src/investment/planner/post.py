@@ -27,12 +27,12 @@ caught by PydanticAI's schema retries, not here — aborts the UC8 step.
 import dataclasses
 import logging
 
-from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
+from investment.openrouter_client import build_openrouter_client
 from investment.planner.context import PlannerContext
 from investment.worker.result import (
     EvaluationDraft,
@@ -302,11 +302,15 @@ def build_extract_agent(
     base_url: str = "https://openrouter.ai/api/v1",
 ) -> Agent[None, PostPlannerResult]:
     provider = OpenRouterProvider(
-        openai_client=AsyncOpenAI(
-            api_key=api_key,
+        # Shared transport (investment/openrouter_client.py): the split
+        # timeouts and the bounded keepalive live in ONE place, because a
+        # bare float here silently set the connect and pool budgets to the
+        # read budget, and a reused dead connection then cost minutes.
+        openai_client=build_openrouter_client(
+            api_key,
+            read_timeout=POST_TIMEOUT_SECONDS,
             base_url=base_url,
             max_retries=TRANSPORT_RETRIES,
-            timeout=POST_TIMEOUT_SECONDS,
         )
     )
     return Agent(

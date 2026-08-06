@@ -38,13 +38,13 @@ the worst of both. State the requirement; let the smoke test state the model.
 import logging
 from pathlib import Path
 
-from openai import AsyncOpenAI
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
+from investment.openrouter_client import build_openrouter_client
 from investment.worker.result import WorkerResult
 from investment.worker.tools import WorkerTools, describe_schema
 
@@ -240,11 +240,15 @@ def build_worker_agent(
     `skills` overrides the loaded skill files (tests, prompt A/B); `None` loads
     `skills/`."""
     provider = OpenRouterProvider(
-        openai_client=AsyncOpenAI(
-            api_key=api_key,
+        # Shared transport (investment/openrouter_client.py): the split
+        # timeouts and the bounded keepalive live in ONE place, because a
+        # bare float here silently set the connect and pool budgets to the
+        # read budget, and a reused dead connection then cost minutes.
+        openai_client=build_openrouter_client(
+            api_key,
+            read_timeout=WORKER_TIMEOUT_SECONDS,
             base_url=base_url,
             max_retries=TRANSPORT_RETRIES,
-            timeout=WORKER_TIMEOUT_SECONDS,
         )
     )
     model = OpenAIChatModel(model_name, provider=provider)
