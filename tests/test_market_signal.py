@@ -9,6 +9,7 @@ the overlay and the switch hysteresis at the edges the backtest exercised.
 """
 
 import pandas as pd
+import pytest
 
 from investment.mechanical import market_signal
 from investment.mechanical.gates import Caps
@@ -187,3 +188,42 @@ def test_cap_violations_is_empty_over_a_run_and_names_what_breaks() -> None:
     assert market_signal.cap_violations(over, caps, -0.10) == [
         f"max_single_asset_pct@{idx[0].date()}"
     ]
+
+
+def test_the_overlay_checks_the_haven_it_redirects_into() -> None:
+    """The Worker's sharpest M8b line, raised on 2022-02-01 in BOTH independent
+    runs: "the overlay trends the sleeve it exits but not the sleeve it enters".
+    A rule that flees a falling asset into a falling asset is not a drawdown
+    control — in Feb 2022 it moved 40% into IEF while IEF was below its own 200d
+    line, in the worst bond tape of the 35-year sample."""
+    book = market_signal.BOOKS["credit-spread-wide"]  # SPY 50 / IWN 40 / GLD 10
+
+    # haven healthy: the classic redirect, everything lands in IEF
+    healthy = market_signal.apply_trend_overlay(book, frozenset({"SPY", "IWN", "GLD"}))
+    assert healthy == {market_signal.TREND_HAVEN: 100.0}
+
+    # haven below trend too: cash instead, which cannot fall
+    below = frozenset({"SPY", "IWN", "GLD", market_signal.TREND_HAVEN})
+    stressed = market_signal.apply_trend_overlay(book, below)
+    assert stressed == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
+
+
+def test_a_book_holding_the_haven_moves_it_too_when_it_fails_the_test() -> None:
+    """The steep book holds IEF 40 as a sleeve. Redirecting INTO the haven while
+    leaving an existing haven sleeve untouched would judge one asset two ways in
+    the same decision."""
+    # VCIT 50 / IEF 40 / IWN 10
+    steep = market_signal.BOOKS["credit-spread-tight-yield-curve-steep"]
+    out = market_signal.apply_trend_overlay(steep, frozenset({"IWN", market_signal.TREND_HAVEN}))
+    assert out[market_signal.TREND_FALLBACK_HAVEN] == pytest.approx(50.0)  # IEF 40 + IWN 10
+    assert out["VCIT"] == pytest.approx(50.0)
+
+
+def test_every_risky_sleeve_is_trend_checked() -> None:
+    """IWN was 40% of the credit-spread-wide book and outside the overlay — a
+    rule premised on impaired credit holding maximum exposure to the most
+    credit-sensitive equity sleeve there is. Found in both M8b runs, five times."""
+    assert set(market_signal.TREND_SLEEVES) >= {"SPY", "GLD", "IWN"}
+    for holdings in market_signal.BOOKS.values():
+        risky = set(holdings) - {market_signal.TREND_HAVEN, "VCIT"}
+        assert risky <= set(market_signal.TREND_SLEEVES), f"unchecked risky sleeve in {holdings}"

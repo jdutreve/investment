@@ -1,5 +1,17 @@
 # V1_STRATEGY.md — the adopted strategy + migration plan
 
+> **OVERLAY COMPLETION, 2026-08-07 (owner-approved).** The 200d overlay now
+> checks EVERY risky sleeve (IWN joined SPY and GLD) and checks the HAVEN it
+> redirects into — when IEF is itself below its 200d line the redirect goes to
+> cash. Both came from the M8b Worker, found independently in two runs; the
+> haven half is the market-priced form of its own proposal, which had gated the
+> haven on CPI (refused: the stack reads prices only). Measured 4-way in one
+> process: 11.10% -> 10.71% CAGR, Sortino 1.09 -> 1.17, maxDD -23.78% ->
+> -20.61%. Neither change is worth much alone — the haven check does NOTHING on
+> its own — and together they cut the drawdown by 3.2 points. The pinned pair is
+> now **10.71% / -20.61%** (`mechanical/market_signal.py`).
+
+
 **Status: ADOPTED as the V1 candidate (owner decision, 2026-07-19).**
 Backtest-validated only. "Adopted" means it is the strategy the code will be
 wired to and that FORWARD PAPER-MODE will validate — NOT that it is proven.

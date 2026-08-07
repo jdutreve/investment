@@ -29,8 +29,28 @@ owner-arbitrated:
   portfolio is USD in a USD account) bills all of them, drift-rebalance
   included.
 
-The pinned pair is therefore **11.14% / -23.8%**. The earlier figures are
-history, not targets. Any OTHER divergence from 11.14% is drift and must be
+- 2026-08-07, the OVERLAY COMPLETION below (IWN trend-checked, and the haven
+  trend-checked too): 11.10% -> **10.71%** CAGR, Sortino 1.09 -> **1.17**,
+  drawdown -23.78% -> **-20.61%**, turnover 42.0 -> 61.1. Measured as a 4-way
+  A/B in one process on one data vintage, which is the only way to compare
+  against a moving baseline (I-48):
+
+      A  current rule            11.10%   1.09   -23.78%   turnover 42.0
+      B  + IWN trend-checked     10.79%   1.17   -23.33%            53.4
+      C  + haven trend-checked   11.03%   1.09   -23.78%            48.2
+      D  both (adopted)          10.71%   1.17   -20.61%            61.1
+
+  C ALONE DOES NOTHING and B alone barely moves the drawdown; together they cut
+  it by 3.2 points. The interaction is the point: adding IWN is what sends large
+  weight into the haven, and only then does checking the haven matter. Adopted
+  against the acceptance test the proposing Worker wrote itself — "adopt only if
+  it does not degrade Sortino and improves maxDD" — which D passes on both legs,
+  for 0.39pp of CAGR and 45% more turnover (already charged at ADR-010's 23 bps).
+  It also buys real headroom against the binding -25% cap the stack was sitting
+  1.2 points inside.
+
+The pinned pair is therefore **10.71% / -20.61%**. The earlier figures are
+history, not targets. Any OTHER divergence from 10.71% is drift and must be
 explained, which is what this module exists to guarantee.
 
 ONE STANDING EXPLANATION IS ALREADY KNOWN, and naming it here is what keeps the
@@ -87,11 +107,34 @@ BOOKS: dict[str, dict[str, float]] = {
     "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
 }
 
-# The 200d trend overlay: these sleeves are redirected to TREND_HAVEN when their
+# The 200d trend overlay: these sleeves are redirected to the haven when their
 # own price is below their 200-day moving average. This is the drawdown control
 # (-24% with it, -50% without — docs/V1_STRATEGY.md).
-TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD")
+#
+# IWN JOINED 2026-08-07. It is 40% of the credit-spread-wide book and was held
+# at full weight whatever its own trend did — the M8b Worker found this in both
+# independent runs, five times in total, and it is verifiable here: a rule whose
+# whole premise is that credit is impaired kept maximum exposure to the most
+# credit-sensitive equity sleeve there is. Every RISKY sleeve is now checked;
+# the haven is handled separately below.
+TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD", "IWN")
+
+# THE HAVEN IS TREND-CHECKED TOO, and that is the other half of the same fix.
+#
+# The Worker's sharpest line of the 21 M8b readings, 2022-02-01, raised in BOTH
+# runs on that same date: "the overlay trends the sleeve it exits but not the
+# sleeve it enters". A rule that flees a falling asset into a falling asset is
+# not a drawdown control. In February 2022 it moved 40% into IEF while IEF was
+# below its own 200d line, in the worst bond tape of the 35-year sample.
+#
+# ITS OWN PROPOSAL WAS TO GATE THE HAVEN ON CPI. Refused: the stack reads
+# PRICES ONLY (no macro regime, no policy, no positioning), and coupling it to
+# the inflation print would reintroduce exactly the macro dependency ADR-007
+# removed. The market-priced expression of the same insight is symmetry — apply
+# to the destination the test already applied to the origin. When the haven is
+# itself below trend, the redirect goes to cash, which cannot fall.
 TREND_HAVEN = "IEF"
+TREND_FALLBACK_HAVEN = ratios.CASH_TICKER
 
 # The STACK itself as a Portfolio vertex — the object that is actually held, as
 # opposed to the 3 books, which are only ever held conditionally and always
@@ -288,13 +331,26 @@ def classify_regime(
 
 
 def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) -> dict[str, float]:
-    """Redirect each TREND_SLEEVES weight to TREND_HAVEN when that sleeve is
-    below its 200d MA. Weights merge additively — if a book already holds
-    TREND_HAVEN (the credit-spread-tight-yield-curve-steep book holds IEF), a
-    redirected sleeve adds to it."""
+    """Redirect each TREND_SLEEVES weight to the haven when that sleeve is below
+    its 200d MA. Weights merge additively — if a book already holds the haven
+    (the credit-spread-tight-yield-curve-steep book holds IEF), a redirected
+    sleeve adds to it.
+
+    THE HAVEN IS CHOSEN BY THE SAME TEST it applies to everything else: when
+    TREND_HAVEN is itself in `below_trend`, the destination becomes
+    TREND_FALLBACK_HAVEN. `below_trend` therefore carries the haven's own read
+    as well as the sleeves' — see `walk_decisions`, which computes it for
+    `TREND_SLEEVES + (TREND_HAVEN,)`.
+
+    A book that HOLDS the haven as a sleeve (steep: IEF 40) also has that weight
+    moved when the haven is below trend — it is the same asset failing the same
+    test, and leaving it in place while refusing to redirect INTO it would be
+    incoherent."""
+    haven = TREND_FALLBACK_HAVEN if TREND_HAVEN in below_trend else TREND_HAVEN
     adjusted: dict[str, float] = {}
     for ticker, weight in book.items():
-        destination = TREND_HAVEN if ticker in TREND_SLEEVES and ticker in below_trend else ticker
+        redirected = ticker in below_trend and ticker in (*TREND_SLEEVES, TREND_HAVEN)
+        destination = haven if redirected else ticker
         adjusted[destination] = adjusted.get(destination, 0.0) + float(weight)
     return adjusted
 
@@ -343,10 +399,14 @@ def walk_decisions(
             _at(spread, t), _at(spread_median, t), _at(slope, t), _at(slope_median, t)
         )
         held, pending, pending_count = advance_hysteresis(held, pending, pending_count, signalled)
+        # THE HAVEN IS READ TOO, not only the sleeves: `apply_trend_overlay`
+        # needs its own trend to decide whether redirecting INTO it is still
+        # sound (see that function). It is reported in `trend` alongside the
+        # sleeves, so the digest and the Worker see the same read the rule used.
         trend = {
             ticker: _trend_read(_at(prices[ticker], t), _at(moving_averages[ticker], t))
-            for ticker in TREND_SLEEVES
-            if ticker in prices
+            for ticker in (*TREND_SLEEVES, TREND_HAVEN)
+            if ticker in prices and ticker in moving_averages
         }
         # `ticker`, not `t` — `t` is the decision date in this scope, and while
         # a generator expression has its own, reusing the name here reads as a
@@ -502,7 +562,7 @@ async def run_market_signal(
     slope_median = slope.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
     moving_averages = {
         ticker: prices[ticker].rolling(MA_WINDOW_DAYS, min_periods=MA_WINDOW_DAYS).mean()
-        for ticker in TREND_SLEEVES
+        for ticker in (*TREND_SLEEVES, TREND_HAVEN)
     }
 
     dates = replay.decision_dates(calendar, start, end, cadence)
