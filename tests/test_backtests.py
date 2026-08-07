@@ -73,7 +73,29 @@ def test_aggregate_metrics_is_simple_mean_ignoring_none() -> None:
     assert agg.sharpe_rolling == pytest.approx(1.5)
     assert agg.sortino_rolling == pytest.approx(1.0)  # the only non-None value
     assert agg.calmar_rolling == pytest.approx(2.0)
-    assert agg.max_drawdown == pytest.approx(-0.15)
+
+
+def test_the_drawdown_aggregate_is_the_worst_instance_not_the_average_one() -> None:
+    """The mean of maxima is not the maximum of anything. A drawdown statistic
+    exists to describe the TAIL; averaging it deletes what it is for, and a
+    strategy with one catastrophic regime instance among a dozen benign ones
+    reads as safe.
+
+    Measured 2026-08-07 on the live DB: `market-signal-stack` showed -4.7% in
+    FAVORS while its worst backtest slice — and its live NAV — were both
+    -23.78%. 89 slices averaging 141 days, meaned, cannot show a 35-year
+    drawdown. The Worker caught the discrepancy on 2020-07-01 and filed the
+    audit that produced this test."""
+    rows = [
+        backtests.PeriodMetrics(1.0, 1.0, 1.0, -0.05, 0.1),
+        backtests.PeriodMetrics(1.0, 1.0, 1.0, -0.24, 0.1),
+        backtests.PeriodMetrics(1.0, 1.0, 1.0, -0.04, 0.1),
+    ]
+    agg = backtests.aggregate_metrics(rows)
+    assert agg.max_drawdown == pytest.approx(-0.24)
+    # ...and the other fields keep the mean: a typical instance is the right
+    # summary for a return or a ratio.
+    assert agg.total_return == pytest.approx(0.1)
 
 
 def test_aggregate_metrics_empty_field_all_none() -> None:

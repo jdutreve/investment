@@ -123,16 +123,43 @@ def _mean_or_none(values: list[float | None]) -> float | None:
     return float(np.mean(present)) if present else None
 
 
+def _worst_or_none(values: list[float | None]) -> float | None:
+    """The most negative drawdown, not the typical one — see `aggregate_metrics`."""
+    present = [v for v in values if v is not None]
+    return float(np.min(present)) if present else None
+
+
 def aggregate_metrics(rows: list[PeriodMetrics]) -> PeriodMetrics:
     """FAVORS aggregation across all of a RegimeType's Backtest rows for one
-    Strategy — simple mean per field (judgment call: "aggregated across all
-    historical instances" does not pin a weighting; equal-weight-per-instance
-    is the least surprising default)."""
+    Strategy — mean per field (judgment call: "aggregated across all historical
+    instances" does not pin a weighting; equal-weight-per-instance is the least
+    surprising default) — EXCEPT `max_drawdown`, which takes the WORST.
+
+    WHY THAT ONE FIELD DIFFERS. The mean of maxima is not the maximum of
+    anything. Return, Sharpe, Sortino and Calmar summarise a typical instance
+    and a mean answers "how does this strategy usually do here"; a drawdown
+    statistic exists to describe the TAIL, and averaging it deletes precisely
+    what it is for. A strategy with one catastrophic regime instance and a dozen
+    benign ones reads as safe.
+
+    Found by the Worker on 2020-07-01, which is the point worth recording: it
+    flagged that `market-signal-stack` shows -4.7% here while the live paper
+    portfolio had realised -23.8%, and filed an audit innovation. The audit
+    (2026-08-07) found the backtests correct — the worst single slice IS
+    -23.78%, matching the live NAV to the decimal — and the AGGREGATE wrong. 89
+    slices averaging 141 days each, meaned, cannot show a 35-year drawdown.
+
+    Nothing gates on this column: `strategy_probation_check` reads
+    `sortino_rolling`, and the reallocation blend reads the FAVORS ordering. Its
+    one consumer is `planner/retrieval.py`'s `strategy_history` zoom — which
+    feeds the Worker's context. So the misleading number went to exactly the
+    reader who caught it, and the fix improves that reader's inputs without
+    moving any verdict."""
     return PeriodMetrics(
         sharpe_rolling=_mean_or_none([r.sharpe_rolling for r in rows]),
         sortino_rolling=_mean_or_none([r.sortino_rolling for r in rows]),
         calmar_rolling=_mean_or_none([r.calmar_rolling for r in rows]),
-        max_drawdown=_mean_or_none([r.max_drawdown for r in rows]),
+        max_drawdown=_worst_or_none([r.max_drawdown for r in rows]),
         total_return=_mean_or_none([r.total_return for r in rows]),
     )
 
