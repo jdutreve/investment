@@ -884,6 +884,45 @@ log) — A' ≈ A alone does not condemn it.
 
 ---
 
+## Corpus health — the invariant population, corrected 2026-08-07
+
+The M8b run showed the Worker unable to cite an invariant in two regimes of
+three, and "209 of 253 invariants have never been confronted" looked like the
+cause. It was not. **They have no `effect`** — no falsifiable consequence — so
+nothing can measure them, whatever their condition. The correlation is total:
+209 of 209 without an effect are unconfronted; 43 of 44 with one are confronted.
+
+They are REFERENCE KNOWLEDGE misfiled as `proposed`. `mature_invariant` already
+demotes them (`REFERENCE_STATUS = "reference"`, a terminal state whose comment
+reads "filed as 'proposed' it was an open promise the system could never
+keep") — the sweep had simply never run over them. All 209 date from a single
+curation pass on 2026-07-21, the day `InvariantCandidate` was fixed to require
+`condition` and `effect`. The upstream hole was closed then; the rows it
+produced stayed.
+
+`mature_seed_invariants` re-run on the live DB (backup:
+`investment.db.bak-pre-reference-20260807`):
+
+```
+before   integrated 4 · proposed 238 · rejected 11
+after    integrated 4 · proposed  29 · reference 209 · rejected 11
+```
+
+**What this changes about the M8b reading.** The corpus is not 2 citable of 253.
+It is 44 confrontable claims, of which 4 have earned integration and 29 are
+still accumulating evidence — an ordinary maturation funnel. The citability
+drought at gate 6 is real but its cause is narrower than it looked: not a
+corpus full of dead weight, but a small confrontable population whose
+integrated members happen to be inflation-shaped, hence dormant in a
+deflationary crisis.
+
+Reference knowledge is not lost: it still reaches the Worker through the same
+corpus, embedding and semantic search. Only its verdict lifecycle differs —
+and ADR-006's "nothing stays proposed forever" no longer has 209 open promises
+it cannot keep.
+
+---
+
 ## M9 — Telegram + Event Watch + real-life scheduling (1.5 d — Phases 6bis, 3.2, 7 + ops core)
 
 Includes `ops/commands.py` (the command layer core — the bot's buttons
