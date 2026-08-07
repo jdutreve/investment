@@ -49,6 +49,25 @@ That is a slower path and a stronger one. A disagreement worth acting on is
 worth proving, and this is the only channel where yours can accumulate evidence
 rather than expire with the cycle.
 
+**Make it measurable in ONE MONTH instead of many, when you can.** Some
+revisions only move a knob the rule already has. If yours is one of them, put
+the proposed values in `spec.parameters` as well as describing them in prose,
+using these names:
+
+    trend_sleeves          which sleeves the 200d overlay checks
+    trend_haven            where a below-trend sleeve is redirected
+    trend_fallback_haven   where it goes when the haven is itself below trend
+    confirm_decisions      consecutive agreeing decisions before a book change
+    ma_window_days         the trend overlay's moving-average window
+    median_window_days     the trailing window the signal's medians use
+
+A revision naming these is re-run over the full 35 years immediately, against a
+baseline measured in the same pass, and gets a verdict on the spot: adopted only
+if Sortino does not degrade AND max drawdown improves. A revision that needs
+anything else still goes through probation on the slow path — say so plainly
+rather than forcing your claim into a knob that does not fit it. A measured
+answer to the wrong question is worse than an honest wait.
+
 **The distinction to keep straight.** "This month's book looks wrong given X" is
 an assessment — it goes in `market_signal_assessment`. "The rule should not use
 X this way" is a revision — it goes in `innovations_proposed`. Putting the
