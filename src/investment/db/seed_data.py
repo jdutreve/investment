@@ -361,7 +361,19 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # inflation via the curve slope (T10Y2Y, above). NOT the paper's exact HY
     # OAS (BAMLH0A0HYM2): ICE restricted historical redistribution, so FRED now
     # exposes only a ~3y rolling window of the BAML* OAS family — useless for a
-    # 35y backtest. BAA10Y is IG- not HY-grade but carries the same credit-
+    # 35y backtest.
+    #
+    # RE-MEASURED 2026-08-07, because the M8b Worker proposed adding
+    # BAMLH0A0HYM2 twice (2020-01-02, both runs) and the constraint deserved a
+    # date rather than a recollection. Still true: BAMLH0A0HYM2 returns 787
+    # points from 2023-08-08, against BAA10Y's 8898 from 1991-01-02. Its stated
+    # rationale was also wrong on its own terms — the invariant it wanted to
+    # unblock (01KY2Q6ZQY2WH5Q32W29QVD0BK) has an empty condition and no effect,
+    # so it is reference knowledge and no series could confront it. A
+    # well-formed credit-spread claim already has a handle: `credit_spread` is
+    # aliased to BAA10Y in SIGNAL_ALIASES.
+    #
+    # BAA10Y is IG- not HY-grade but carries the same credit-
     # stress cycle, is daily from 1986 (before the ~1991 floor), and is not
     # ICE-licensed. DATA-LAYER availability only: wiring it into regime
     # CLASSIFICATION is the detector rework (I-38, measure-first), not this row.
