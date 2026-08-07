@@ -106,17 +106,20 @@ SCRATCH_DIR_NAME = "agentic-replay"
 # minutes gets the three that remain, which is correct: it has given ample
 # evidence that it is not the healthy case.
 #
-# PROVISIONAL, and possibly calibrated BACKWARDS — see docs/IMPROVEMENTS.md
-# I-52. It was set from one healthy date at 5m09s; the observed spread of
-# healthy dates is 3m46 to 13m49, and the date that has exhausted it twice is
-# 2008-10-01 — the peak of the crisis, the richest context, the longest
-# reading. A bound set from the median discards the tail, and the tail is what
-# this screen exists to read.
+# RE-DERIVED from the first completed run (2026-08-06), as I-52 asked, and the
+# owner's reading was right: 900s was cutting the dates worth reading.
 #
-# So treat 900 as a runaway guard, not as a verdict on how long thinking may
-# take. Re-derive it from the FIRST completed run's per-date durations, and
-# from the SUCCESSFUL ones' tail rather than their median.
-DATE_TIMEOUT_SECONDS = 900.0
+# The three dates it lost were 2008-10-01 (Lehman), 2022-01-03 (the inflation
+# shock settling in) and 2022-06-01 (peak inflation panic) — every one a hinge
+# month, the richest context and the longest reading. A bound set from the
+# median discards the tail, and the tail is what this screen exists to read.
+#
+# Successful dates, post transport fix: 206 · 341 · 348 · 378 · 406 · 408 · 423
+# · 445 · 472 · 558 · 661 seconds. Median 408, tail 661. The lost ones were CUT
+# at the ceiling, so how long they actually needed is unknown — which is the
+# argument for headroom rather than for a tight fit. 1800s is 2.7x the observed
+# tail: still a runaway guard, no longer a verdict on how long thinking may take.
+DATE_TIMEOUT_SECONDS = 1800.0
 
 # The other half of the same policy. See `_cycle_with_retry` for why one retry
 # rather than a ladder, and why fail-fast without it loses dates that a single
