@@ -195,6 +195,8 @@ async def gate6_cited_invariants(
     ineligible invariant, is refused. Active-now is computed once via
     `active_invariant_ids` (context.py), the rest read per invariant."""
     if not invariant_ids:
+        if not await _any_citable(db, thresholds, regime_type):
+            return GateOutcome.refused("gate6_corpus_has_nothing_citable")
         return GateOutcome.refused("gate6_no_cited_invariant")
 
     placeholders = ",".join(f":i{n}" for n in range(len(invariant_ids)))
@@ -222,8 +224,53 @@ async def gate6_cited_invariants(
             refuted_score=thresholds["invariant_refuted_score"],
         )
         if not eligible:
+            # TWO DIFFERENT FACTS UNDER ONE NAME, until now. "The Worker cited a
+            # lighthouse it should not have" is an agent error; "nothing in the
+            # corpus was citable this month" is a fact ABOUT THE CORPUS, and the
+            # owner needs to tell them apart — the second is not a failure of
+            # reasoning and no prompt change can fix it.
+            #
+            # Measured on the M8b covid episode: two of three proposals died
+            # here, and both looked like the Worker misbehaving. It was not: the
+            # integrated invariants are inflation-shaped and dormant in a
+            # deflationary crisis, so the citable set was empty whatever it
+            # chose.
+            if not await _any_citable(db, thresholds, regime_type):
+                return GateOutcome.refused("gate6_corpus_has_nothing_citable")
             return GateOutcome.refused("gate6_cited_invariant_eligibility")
     return GateOutcome(passed=True)
+
+
+async def _any_citable(
+    db: InvestmentDB, thresholds: dict[str, float], regime_type: str | None
+) -> bool:
+    """Whether ANY invariant would pass gate 6 right now.
+
+    Asked only when a citation has already failed, so its cost is paid on the
+    refusal path and never on the happy one. The candidate set is narrowed in
+    SQL to `status='integrated'` — the only status gate 6 admits — which keeps
+    the ACTIVE-now evaluation (one query per referenced signal) to a handful of
+    rows rather than the whole table."""
+    rows = await db.query(
+        "SELECT id, status, weight_effective, confirmation_count, infirmation_count, "
+        "market_score FROM invariant WHERE status = 'integrated'"
+    )
+    if not rows:
+        return False
+    active = await active_invariant_ids(db, [str(r["id"]) for r in rows], regime_type)
+    return any(
+        cited_invariant_eligible(
+            status=str(r["status"]),
+            weight_effective=float(r["weight_effective"]),
+            total_confrontations=int(r["confirmation_count"]) + int(r["infirmation_count"]),
+            market_score=float(r["market_score"]),
+            active=str(r["id"]) in active,
+            weight_min=thresholds["proposal_invariant_weight_min"],
+            refuted_min=int(thresholds["invariant_refuted_min_confrontations"]),
+            refuted_score=thresholds["invariant_refuted_score"],
+        )
+        for r in rows
+    )
 
 
 async def _commit_reallocation(

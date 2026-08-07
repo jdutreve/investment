@@ -155,6 +155,48 @@ COST_BPS = ratios.TRADING_COST_BPS
 CONFIRM_DECISIONS = 3
 
 
+def describe_rule() -> str:
+    """The stack's rule as prompt text, GENERATED FROM THE CONSTANTS ABOVE.
+
+    The Worker is asked to challenge this rule, which means it has to know what
+    the rule IS. Until now nothing told it: its context carried the month's
+    DECISION (book, weights, which sleeves were below trend) but never the
+    mechanism, so it reasoned about the rule from whatever it recalled.
+
+    It recalled wrong. Across the two M8b runs it twice described the overlay as
+    covering "SPY only" while `TREND_SLEEVES` includes GLD — and its own run's
+    logs printed `below-trend=['SPY','GLD']` on the very dates it said so. A
+    third reading stated it correctly. Sound critiques, unreliable descriptions
+    of the status quo, and no way for it to tell which it was doing.
+
+    Generated rather than written out, for the same reason `describe_schema`
+    reads the tables from SQLite: a hand-copied rule is wrong at the first edit
+    and wrong SILENTLY, which is the exact failure this repairs. Change
+    `TREND_SLEEVES` and this text changes with it.
+
+    It does NOT breach the Worker's unawareness of Planner/Writeback/storage
+    (worker/agent.py): the stack is an INVESTMENT instrument whose output the
+    Worker already reads and is invited to challenge. Telling it how the
+    instrument works is telling it about the market, not about the plumbing."""
+    books = "\n".join(
+        f"    {name}: " + ", ".join(f"{t} {w:.0f}" for t, w in holdings.items())
+        for name, holdings in BOOKS.items()
+    )
+    return (
+        "THE MECHANICAL RULE THAT DECIDED THIS MONTH (market-signal stack)\n"
+        "  1. Credit spread (BAA10Y) vs its 10-year trailing median, and yield\n"
+        "     slope (T10Y2Y) vs its own, select ONE of three books:\n"
+        f"{books}\n"
+        f"  2. A book change is applied only after {CONFIRM_DECISIONS} consecutive\n"
+        "     monthly decisions agree (hysteresis against boundary flip-flop).\n"
+        f"  3. 200-day trend overlay: {', '.join(TREND_SLEEVES)} — and ONLY these —\n"
+        f"     are checked against their own 200d moving average; whichever is\n"
+        f"     below is redirected to {TREND_HAVEN}. Sleeves outside that list are\n"
+        "     held at book weight whatever their own trend does.\n"
+        "  The rule reads PRICES only: no macro regime, no policy, no positioning."
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class TrendRead:
     """One trend sleeve's 200d overlay read at a decision date. Carries the two

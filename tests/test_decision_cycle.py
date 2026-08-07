@@ -260,7 +260,37 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
         ranking=[{"rank": 1, "portfolio_id": "def-pf", "defender": 1, "allocation": {"SPY": 100}}],
         scenarios=[{"strategy_id": "s1", "scenario": "bull", "probability": 60.0, "shift": 5.0}],
         top_invariants=[
-            {"id": "inv-gold", "title": "gold", "weight_effective": 0.7, "active": True}
+            {
+                "id": "inv-gold",
+                "title": "gold",
+                "weight_effective": 0.7,
+                "active": True,
+                "status": "integrated",
+            },
+            # dormant: right status, wrong moment
+            {
+                "id": "inv-dormant",
+                "title": "dormant",
+                "weight_effective": 0.7,
+                "active": False,
+                "status": "integrated",
+            },
+            # active and integrated, but under the citation floor — the case the
+            # Worker was never told about and could not deduce
+            {
+                "id": "inv-light",
+                "title": "light",
+                "weight_effective": 0.05,
+                "active": True,
+                "status": "integrated",
+            },
+            {
+                "id": "inv-unproven",
+                "title": "unproven",
+                "weight_effective": 0.9,
+                "active": True,
+                "status": "proposed",
+            },
         ],
         recent_proposals=[],
         passages=[],
@@ -268,8 +298,43 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
     )
     text = render_context_for_worker(ctx)
     assert "def-pf *" in text  # defender starred
-    assert "[ACTIVE] inv-gold" in text
-    # the citation rule is stated, so gate 6 cannot fail for a reason the Worker
-    # had no way to know (docs/MILESTONES.md M8 gate-6 watch item)
-    assert "cite ONLY invariants marked [ACTIVE]" in text
+    assert "[CITABLE] inv-gold" in text
+    # ...and every refusal states its OWN reason, so gate 6 cannot refuse for
+    # something the Worker had no way to know (docs/MILESTONES.md M8 gate-6
+    # watch item). Being told "cite ACTIVE and integrated" was not enough: the
+    # weight floor and the refuted test were invisible.
+    assert "[not citable: dormant" in text
+    assert "below the 0.10 floor" in text
+    assert "not citable: status proposed" in text
+    assert "1 citable" in text
     assert "COACH NOTES: framed" in text
+
+
+def test_render_says_so_when_nothing_is_citable() -> None:
+    """Measured on the M8b covid episode: the Worker proposed three times and
+    was refused twice on gate 6, with nothing citable available whatever it
+    chose. Proposing into a vacuum is not a reasoning error, and it must be
+    told rather than left to discover it through a refusal it never sees."""
+    from investment.planner.context import PlannerContext
+
+    ctx = PlannerContext(
+        regime={"regime_name": "Stag", "regime_type_id": "stag", "confidence": 0.7},
+        global_liquidity={},
+        ranking=[],
+        scenarios=[],
+        top_invariants=[
+            {
+                "id": "inv-a",
+                "title": "a",
+                "weight_effective": 0.7,
+                "active": False,
+                "status": "integrated",
+            }
+        ],
+        recent_proposals=[],
+        passages=[],
+        notes="",
+    )
+    text = render_context_for_worker(ctx)
+    assert "NONE is citable this cycle" in text
+    assert "a fact about the corpus" in text

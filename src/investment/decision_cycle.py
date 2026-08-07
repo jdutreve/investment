@@ -34,6 +34,7 @@ from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import GateOutcome
+from investment.mechanical.market_signal import describe_rule
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
@@ -52,6 +53,14 @@ from investment.writeback.writeback import (
 # `outcomes.OUTCOME_EVENT` are — writeback.py owns the event names for what
 # WRITEBACK persists, and this is not a disposition.
 WORKER_READING_EVENT = "WorkerReadingEvent"
+
+# The citation floor as the Worker is TOLD it (`_not_citable_because`). A copy
+# of `system_thresholds.proposal_invariant_weight_min`, not a read of it: this
+# is prompt text built from a context dict that carries no thresholds, while the
+# gate itself reads the seeded value and stays the authority. If they ever
+# disagree the gate wins and the Worker was merely misinformed — which is still
+# strictly better than the previous state, where it was told nothing at all.
+CITATION_WEIGHT_MIN = 0.10
 
 
 @dataclasses.dataclass(frozen=True)
@@ -145,7 +154,36 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
             f"  pending switch to {hysteresis['pending_book']}: "
             f"{hysteresis.get('pending_count')}/{hysteresis.get('confirm_decisions')} confirmations"
         )
+    # THE RULE, not just its output. The block above says what the instrument
+    # DECIDED; this says how it works — and the Worker is asked to challenge the
+    # rule, which it cannot do from memory. Measured across both M8b runs: it
+    # twice described the overlay as covering "SPY only" while TREND_SLEEVES
+    # includes GLD, on dates whose own logs printed below-trend=['SPY','GLD'].
+    # Generated from the constants (`market_signal.describe_rule`), so it cannot
+    # drift from the code the way a hand-copied description would.
+    lines += ["", *describe_rule().splitlines()]
     return lines
+
+
+def _not_citable_because(inv: dict[str, Any]) -> str | None:
+    """Why gate 6 would refuse this invariant as support, or None if it would
+    not — the SAME four clauses as `gates.cited_invariant_eligible`, stated in
+    the Worker's own words.
+
+    Deliberately a second expression of one rule, and the duplication is the
+    lesser evil: the gate is the authority and runs on the DB rows, while this
+    reads the context dict the Worker is handed, which carries no confrontation
+    counts. Keeping them in sync is a real cost; leaving the Worker to guess
+    cost a cycle every time it cited a lighthouse that looked fine
+    (docs/MILESTONES.md M8: "gate 6 may be near-unsatisfiable")."""
+    if str(inv.get("status")) != "integrated":
+        return f"status {inv.get('status')}, not integrated"
+    if not inv.get("active"):
+        return "dormant — its condition does not hold today"
+    weight = inv.get("weight_effective")
+    if weight is not None and float(weight) < CITATION_WEIGHT_MIN:
+        return f"weight {float(weight):.2f} below the {CITATION_WEIGHT_MIN:.2f} floor"
+    return None
 
 
 def render_context_for_worker(context: PlannerContext) -> str:
@@ -183,23 +221,40 @@ def render_context_for_worker(context: PlannerContext) -> str:
             f"{sc.get('probability')} ({sc.get('shift', 0.0):+})"
         )
     lines.append("")
-    lines.append("INVARIANTS (lighthouses — [ACTIVE] holds now):")
+    lines.append("INVARIANTS (lighthouses — [CITABLE] may support a reallocation):")
+    citable = 0
     for inv in context.top_invariants:
-        flag = "[ACTIVE]" if inv.get("active") else "[dormant]"
+        reason = _not_citable_because(inv)
+        citable += reason is None
+        flag = "[CITABLE]" if reason is None else f"[not citable: {reason}]"
         lines.append(
             f"  {flag} {inv.get('id')} — {inv.get('title', '')} "
             f"(weight {inv.get('weight_effective', '?')}, {inv.get('author', 'null')}, "
             f"{inv.get('status', '?')})"
         )
-    # The Worker cannot see the gates, but it CAN be told the citation rule —
-    # otherwise it leans on a dormant or non-integrated lighthouse and the whole
-    # reallocation dies on UC8-B gate 6 for a reason it had no way to know
-    # (docs/MILESTONES.md M8 "gate 6 may be near-unsatisfiable").
-    if context.top_invariants:
+    # THE REASON, not just the verdict. The Worker used to be told "cite only
+    # ACTIVE and integrated" and left to infer the rest — it was never told the
+    # weight floor or the refuted test, so an [ACTIVE] integrated lighthouse
+    # could still fail gate 6 for a reason invisible to it.
+    #
+    # AND IT IS TOLD WHEN THE SET IS EMPTY. Measured on the M8b covid episode:
+    # it proposed three times and was refused twice on gate 6, with nothing
+    # citable available whatever it chose. Proposing into a vacuum is not a
+    # reasoning error, and the cycle it costs is a cycle nobody could have
+    # spent well.
+    if not context.top_invariants:
+        pass
+    elif citable:
         lines.append(
-            "  → to support a reallocation, cite ONLY invariants marked [ACTIVE] and "
-            "status 'integrated': a dormant lighthouse describes a market that is not "
-            "here, and an unproven one is not yet evidence."
+            f"  → {citable} citable. A reallocation MUST cite at least one of them; "
+            "the others are shown for reasoning, not for support."
+        )
+    else:
+        lines.append(
+            "  → NONE is citable this cycle. A reallocation cannot be supported and "
+            "will be refused whatever it cites — this is a fact about the corpus, "
+            "not about your reading. Your contribution this month is the assessment "
+            "and any innovation you file."
         )
     if context.passages:
         lines.append("")

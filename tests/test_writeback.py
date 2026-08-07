@@ -138,6 +138,30 @@ async def test_gate6_paths(db: InvestmentDB) -> None:
     assert await g(["ghost"]) == "gate6_unknown_invariant"
 
 
+async def test_gate6_names_a_corpus_drought_apart_from_a_bad_citation(db: InvestmentDB) -> None:
+    """Two different facts wore one name. "The Worker cited a lighthouse it
+    should not have" is an agent error; "nothing in the corpus was citable this
+    month" is a fact about the CORPUS, which no prompt change can fix and which
+    the owner needs to see as such.
+
+    Measured on the M8b covid episode: two of three proposals died on gate 6 and
+    both read as Worker misbehaviour. They were not — the integrated invariants
+    are inflation-shaped and dormant in a deflationary crisis, so the citable
+    set was empty whatever it chose."""
+
+    async def g(ids: list[str]) -> str | None:
+        return (await W.gate6_cited_invariants(db, ids, THRESHOLDS, "stag")).failed_gate
+
+    # `inv-ok` is citable, so a bad citation is the Worker's own doing...
+    assert await g(["inv-proposed"]) == "gate6_cited_invariant_eligibility"
+    assert await g([]) == "gate6_no_cited_invariant"
+
+    # ...but with every citable invariant gone, the SAME inputs are a drought.
+    await db.command("UPDATE invariant SET status = 'proposed' WHERE id = 'inv-ok'")
+    assert await g(["inv-proposed"]) == "gate6_corpus_has_nothing_citable"
+    assert await g([]) == "gate6_corpus_has_nothing_citable"
+
+
 async def test_dispose_pass_commits_proposal_eventlog_first(db: InvestmentDB) -> None:
     current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
     realloc = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, ["inv-ok"])
