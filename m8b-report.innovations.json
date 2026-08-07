@@ -4,72 +4,92 @@
     "as_of": "2008-07-01",
     "proposal": {
       "type": "strategy_revision",
-      "title": "Extend the 200d trend overlay to every equity sleeve, not only SPY",
-      "rationale": "The market-signal rule applies its 200-day trend check to SPY and, on failure, redirects the equity allocation to the haven. But the credit-spread-wide book holds its equity beta through IWN (small-cap value), not SPY — so on 2008-07-01 the overlay passed a book carrying 40% IWN while IWN itself was in an accelerating decline (speed -54.7, acceleration -73.1, worse than SPY's on a relative basis). The overlay is checking a ticker the book doesn't hold and ignoring the one it does. This is a rule-level gap, not a one-month misread: any month where the book's equity sleeve diverges from SPY's trend leaves the hedge checking the wrong price. Proposing as a revision so it earns FAVORS in probation rather than being applied on conviction.",
+      "title": "Credit-spread-wide book: cap the small-value sleeve and extend the trend overlay to IWN",
+      "rationale": "The implemented credit-spread-wide book holds IWN at 40%, but the source corpus's slowdown portfolio (Dow Jones IG 50% / 10Y Treasuries 40% / small value 10%) caps small value at 10% — the implementation quadruples the equity beta of the most defensive book in the stack. The 200d trend overlay is applied only to SPY and GLD, leaving IWN unprotected even though it is the equity sleeve most sensitive to credit conditions: today IWN's tape (speed -55, accel -73) is worse than SPY's, and the stack's -13.3% max drawdown — worst in the ranked table — is the measurable fingerprint of that concentration. Proposed revision: (a) in the credit-spread-wide book, cap IWN at 15% and move the residual to IEF/TLT; (b) apply the same 200d trend overlay to IWN that SPY receives, redirecting to the haven when below trend. This is a claim about the RULE, not this month's reading, and should be measured in probation rather than applied on conviction.",
       "spec": {
-        "strategy_id": "market-signal-stack",
-        "revision": "Apply the 200-day moving-average trend overlay independently to EACH equity sleeve the selected book holds (SPY, IWN, EFA as applicable), redirecting each failing sleeve individually to the haven asset, rather than gating the whole equity allocation on SPY alone.",
-        "current_behavior": "Trend overlay checks SPY 200d MA only; the credit-spread-wide book's 40% IWN sleeve is never trend-checked.",
-        "evidence": "2008-07-01: book moves to IEF 50 / IWN 40 / GLD 10 with SPY redirected, while IWN speed -54.7 and acceleration -73.1 show an unchecked, accelerating downtrend in the sleeve actually held.",
-        "expected_effect": "Reduced drawdown in credit-spread-wide regimes where small-cap value leads the decline; minimal tracking cost when sleeves move with SPY."
+        "revision_target": "market-signal-stack",
+        "current_rule": "credit-spread-wide book = {IEF: 50, IWN: 40, GLD: 10}; 200d trend overlay on SPY and GLD only",
+        "proposed_rule": "credit-spread-wide book = {IEF: 50, IEF/TLT: 35, IWN: 15, GLD: 10} (weights normalized to 100); extend the 200d trend overlay to IWN, redirecting to the haven sleeve when IWN is below its 200d MA",
+        "evidence": "source passage: slowdown portfolio = 50% IG bonds / 40% 10Y / 10% small value; ms-stack maxDD -13.3% vs defender -4.4%; IWN speed -54.7, accel -73.1 at decision date 2008-07-01",
+        "scenarios": {
+          "bull": "spread mean-reverts below median quickly; small-value cap forfeits some rebound upside — bounded cost",
+          "base": "spread wide 2-3 quarters; reduced equity beta cuts drawdown, overlay catches further deterioration",
+          "bear": "spread blows out past 4.0 (corpus threshold where equities underperform cash); capped, overlaid IWN is the difference between a -5% and a -15% event"
+        }
       },
       "source": "agent-discovery",
       "author": "system",
       "status": "proposed",
       "weight_initial": 0.0,
       "floor_weight": 0.0,
-      "trace": "market-signal-assessment 2008-07-01: overlay blind spot identified from IWN vs SPY divergence"
+      "trace": "uc8-2008-07-01-iwn-sleeve-revision"
     }
   },
   {
     "episode": "global-financial-crisis",
-    "as_of": "2008-11-03",
-    "proposal": {
-      "type": "data",
-      "title": "Blend a market-implied inflation proxy into the regime detector's inflation leg",
-      "rationale": "The detector tags 2008-11 as rising-inflation on lagged CPI YoY 5.4, but CPI acceleration has already turned negative (-0.16) while every market-priced inflation gauge in the DB is collapsing: GLD speed -327 (accel -432), DJP speed -27.8 in a persistent slide, credit spreads at 2.4x median pricing a deflationary bust. The stale tag activates gold/commodity lighthouses that the forward tape contradicts — this cycle's stagflation-labeled ACTIVE invariants are lit by the label, not by prices. A market-implied leg would have the detector anticipating the rollover instead of echoing the July energy spike.",
-      "spec": {
-        "proposal": "Compute a market-implied inflation-expectations proxy from existing tracked series (e.g., DJP and GLD 90-day level/speed), and blend it 50/50 with lagged CPI YoY for the inflation leg of regime detection; keep CPI-only as the comparison baseline",
-        "inputs": [
-          "DJP",
-          "GLD",
-          "CPI YoY",
-          "GROWTH_COMPOSITE"
-        ],
-        "blend": "0.5 x market-implied proxy + 0.5 x lagged CPI YoY",
-        "validation": "Replay regime tagging 1991-present with both legs; measure regime-switch lead/lag and post-hoc regime fit vs the CPI-only baseline, with 2008-07..2009-06 (inflation rollover into bust) and the disinflation episodes as scored windows",
-        "failure_mode_to_watch": "Proxy must not flip the inflation leg on commodity squeezes unrelated to domestic inflation expectations; constrain with a persistence rule (>=2 consecutive monthly prints)"
-      },
-      "source": "agent-discovery",
-      "author": "system",
-      "status": "proposed",
-      "weight_initial": 0.0,
-      "floor_weight": 0.0,
-      "trace": "UC8 2008-11-03: regime stagflation-2008-07-16 (CPI 5.4, accel -0.16) vs GLD accel -432.27 / DJP speed -27.77 / BAA10Y 5.52 vs median 2.33"
-    }
-  },
-  {
-    "episode": "global-financial-crisis",
-    "as_of": "2008-12-01",
+    "as_of": "2008-08-01",
     "proposal": {
       "type": "strategy_revision",
-      "title": "Extend the 200d trend overlay to every equity sleeve in the market-signal books (IWN included)",
-      "rationale": "The credit-spread-wide book redirects SPY and GLD when below their 200d trend but holds IWN at full 40% regardless. On 2008-12-01 IWN prints speed −104.8 while the stack carries a −18.8% rolling maxDD vs −8.7% for the falling-growth-defensive leader. In a deleveraging, small-cap value is the most credit-sensitive equity sleeve — the overlay hedges the book's least credit-sensitive equity and leaves its most exposed one bare. This restates the existing disabled strategy strat-01KZBQPGYPHGHZW83HK8VW4SG7 with this cycle's evidence attached; it should be measured in probation, not applied by hand.",
+      "title": "Extend the 200d trend overlay to all risky-equity sleeves (IWN), not only SPY",
+      "rationale": "In the credit-spread-wide book the stack currently holds IWN 40% while the premise of that book is impaired credit. The 200-day overlay redirects the SPY sleeve to the haven but never examines IWN, so the stack can be 40% long the most credit-sensitive equity class precisely when its own signal says credit is broken. This month is the live example: book = credit-spread-wide (BAA10Y 3.22 vs median 2.29), SPY overlay active, yet IWN 40% rides on momentum (speed +44) that the rule never checks against its own trend. The fix is mechanical and testable: apply the same 200-day-MA redirect to every risky-equity sleeve in every book, redirecting to the same haven sleeve. Over 1991-present this would have mattered most in 2000-02 and 2008-09, exactly the windows the stack is designed for. Let it earn or lose FAVORS in probation rather than be applied on one cycle's conviction.",
       "spec": {
-        "rule_current": "200d trend overlay applies to SPY and GLD sleeves only; other sleeves pass through at book weight",
-        "rule_proposed": "200d trend overlay applies to every equity sleeve (SPY, IWN, EFA and any future equity leg) in all three books; below-trend sleeves redirect to the book's haven sleeve",
-        "evidence": [
-          "IWN speed −104.8 on 2008-12-01 with book weight unchanged at 40%",
-          "ms-stack maxDD −18.8% vs −8.7% for 4s-falling-growth-defensive over the same window",
-          "Active invariant 01KY2NVKC5JYXM390EPGZ1Y4NV: forced selling in deleveraging hits credit-sensitive equities hardest"
-        ]
+        "target_strategy": "market-signal-stack",
+        "revision_kind": "rule_extension",
+        "current_rule": "200-day trend overlay applied to SPY (and GLD) sleeves only; other equity sleeves in a decided book are taken as-is",
+        "proposed_rule": "Apply the 200-day trend overlay to every risky-equity sleeve in every book (SPY, IWN, EFA and any future equity sleeve): sleeve below its own 200d MA -> redirect that sleeve's weight to the book's haven sleeve; sleeve above -> hold",
+        "evidence": "2008-08-01 cycle: book credit-spread-wide, BAA10Y 3.22 vs 2.29 median, SPY below trend and redirected, but IWN 40% unexamined; small-cap value is the equity class most exposed to a widening BAA spread via the refinancing channel",
+        "expected_effect": "Reduced max drawdown in credit-spread-wide regimes at the cost of occasional whipsaw on small-cap momentum; measurable against the existing stack in replay"
       },
       "source": "agent-discovery",
       "author": "system",
       "status": "proposed",
       "weight_initial": 0.0,
       "floor_weight": 0.0,
-      "trace": "uc8-cycle-2008-12-01: IWN drag observed in market_signal_assessment; rule-level fix routed here per skill-read-market-signal"
+      "trace": "UC8 cycle 2008-08-01: market_signal_assessment blind-spot #1 promoted to revision per skill-read-market-signal (rule-level disagreement, not month-level)"
+    }
+  },
+  {
+    "episode": "global-financial-crisis",
+    "as_of": "2008-09-02",
+    "proposal": {
+      "type": "strategy_revision",
+      "title": "Market-signal stack: regime-conditioned inflation-hedge floor before trend redirect",
+      "rationale": "This month the credit-spread-wide book plus 200d overlay moved from {IEF 50, IWN 40, GLD 10} to {IEF 60, IWN 40} — mechanically correct given gold is below its 200d line (speed -295, accelerating down), but it leaves the adopted allocation with zero inflation hedge in a regime detected as stagflation (falling growth, CPI 5.4% and rising, negative real rates). The active invariant complex contradicts a fully nominal book here: 01KY2N410K3N39TB6T6C1721MW (weight 0.80: negative real rates shift investors to inflation-hedge assets, which outperform nominal bonds), inv-inflation-persistence-tips (0.61), and 01KY2MW85Q6JHMNRVPAHMJNQTC (>5% inflation: gold and commodities outperform the median asset class). The trend overlay was validated as a drawdown cap on the book as a whole; it was not confronted on the specific question of whether the inflation-hedge sleeve should be trend-exempt when the macro regime is stagflationary. 2008 is precisely the case to test: if the growth collapse resolves as deflationary recession, the redirect is right; if inflation persists above 5% while real rates stay negative, the redirect removes the only sleeve that hedges the regime. This is a rule-level disagreement, so it should be measured in probation, not applied once.",
+      "spec": {
+        "target_strategy": "market-signal-stack",
+        "current_rule": "200d trend overlay redirects any sleeve below its 200d moving average to the haven asset, unconditionally",
+        "proposed_revision": "When the contemporaneous regime is falling-growth-rising-inflation (or CPI > 5% with negative real short rates), retain a minimum inflation-hedge floor (e.g. 10% gold or TIPS) in the selected book before applying the trend overlay; the overlay continues to apply to all equity sleeves and to any hedge allocation above the floor",
+        "test_evidence": "Regime detector stagflation confidence 86.9 on 2008-09; BAA10Y 3.29 vs 2.3 median; gold redirect removed the last hedge sleeve on 2008-09-02",
+        "backtest_expectation": "Compare current rule vs floored variant over stagflation windows (1973-74, 1979-80, 2007-08H2, 2022): accept if floored variant improves Sortino/Calmar in-regime without degrading out-of-regime drawdown control beyond a configured tolerance"
+      },
+      "source": "agent-discovery",
+      "author": "system",
+      "status": "proposed",
+      "weight_initial": 0.0,
+      "floor_weight": 0.0,
+      "trace": "UC8 cycle 2008-09-02: market_signal_assessment blind-spot (1) escalated to rule level per skill-read-market-signal"
+    }
+  },
+  {
+    "episode": "global-financial-crisis",
+    "as_of": "2008-10-01",
+    "proposal": {
+      "type": "strategy_revision",
+      "title": "Extend the market-signal 200d trend overlay to the equity sleeve of the credit-spread-wide book (IWN)",
+      "rationale": "On 2008-10-01 the overlay redirected SPY and GLD (both below their 200d trend) to the haven, but the credit-spread-wide book's 40% IWN sleeve carries no trend check. IWN is in an accelerating crash — speed -33.2, acceleration -57.6, WORSE acceleration than the SPY sleeve the overlay did protect (-186 vs -58 on acceleration is worse for SPY, but IWN's acceleration is deteriorating faster relative to its own recent history and its speed is unambiguously negative) — and small-cap value in a credit crisis is financials-heavy, the epicenter exposure (invariant 01KY2NVPNGBF5CJ7NS93Y2842R). The instrument therefore holds 40% in an unprotected risk asset precisely when its own overlay logic says risk assets below trend should be redirected. This is a rule-level gap, not a one-month reading: any credit-spread-wide episode with falling equities will reproduce it. Applying the same 200d trend test to the book's equity sleeve (whatever ticker it holds) and redirecting to the haven when below trend is a small, symmetric extension of an already-validated rule. Filed as a revision so it earns adoption through probation and FAVORS measurement rather than being applied once on conviction; the stack's own stagflation FAVORS (maxDD -2.8% over 11 periods vs the live book's -13.3% this cycle) suggest the measured version of the rule already implies tighter drawdown control than the current overlay coverage delivers.",
+      "spec": {
+        "target_strategy": "market-signal-stack",
+        "current_rule": "200d trend overlay applied to SPY and GLD only; other sleeves (e.g., IWN in the credit-spread-wide book) held regardless of trend",
+        "proposed_rule": "Apply the 200d trend overlay to every risk-asset sleeve of the selected book, including the small-cap value sleeve (IWN); redirect below-trend sleeves to the haven exactly as SPY/GLD are today",
+        "evidence": "2008-10-01: IWN speed -33.19, acceleration -57.56 while held at 40% with no overlay; SPY/GLD redirected the same day; live book maxDD -13.3% vs strategy FAVORS stagflation maxDD -2.8%",
+        "hypothesis": "Overlay-complete books show smaller crisis-window drawdowns than overlay-partial books without giving up the spread signal's regime-selection edge"
+      },
+      "source": "agent-discovery",
+      "author": "system",
+      "status": "proposed",
+      "weight_initial": 0.0,
+      "floor_weight": 0.0,
+      "trace": "UC8 2008-10-01: flagged in market_signal_assessment as gap (1); filed here per skill-read-market-signal ('a disagreement worth acting on is worth proving')"
     }
   },
   {
@@ -147,122 +167,116 @@
   },
   {
     "episode": "inflation-shock",
-    "as_of": "2022-02-01",
+    "as_of": "2022-01-03",
     "proposal": {
       "type": "strategy_revision",
-      "title": "Make the trend-overlay haven redirect real-rate aware",
-      "rationale": "The market-signal stack's 200-day overlay redirects a below-trend sleeve to 'the haven' (IEF) unconditionally. In February 2022 that rule moved 40% from GLD into intermediate nominal duration with CPI 5.1% and real rates near -5% — the exact condition under which active, integrated invariants (inv-inflation-persistence-tips w 0.695, inv-low-real-yields-favor-gold w 0.428, inv-low-real-rate-nominal-bonds) say nominal bonds underperform inflation hedges. The redirect target itself was falling (IEF speed -12.1). A rule measured over 1991-2021 mostly saw havens that worked in deflationary scares; the 1970s-style negative-real-rate branch is underweighted in that evidence. This revision lets the claim be measured forward in probation instead of argued once.",
+      "title": "Inflation gate for the market-signal book (CPI >= 5% shifts 10 pts SPY -> GLD)",
+      "rationale": "The market-signal rule reads two coincident prices (credit spread, yield slope) and one trend. In an inflation shock, spreads stay tight precisely until policy stress reaches credit — the signal is late by construction. The 2022-01-03 entry demonstrates the gap: 60% equity into CPI 5.1% with liquidity speed -0.69 and a 70.6-confidence stagflation call from the regime engine. The corpus already holds this knowledge (inv-high-inflation-equities, integrated, market_score 0.67; the >5% returns-cliff invariant; inv-inflation-persistence-tips 0.82) — the instrument just has no input to express it. A 10-pt SPY->GLD gate when trailing CPI YoY >= 5% keeps the rule's anti-drift value while removing its largest blind spot. Proposed for probation: measured monthly against the unmodified stack, adopted or closed mechanically on FAVORS — proven, not applied on conviction.",
       "spec": {
-        "rule_current": "When a sleeve breaches its 200-day trend, redirect its weight to the fixed haven sleeve (IEF).",
-        "rule_proposed": "When a sleeve breaches its 200-day trend, choose the haven by real-rate regime: if trailing CPI minus the short rate is positive (real rate negative) OR CPI > 4%, redirect to short duration/cash (SHY or cash) or a real-asset sleeve; otherwise redirect to IEF as today.",
-        "evidence": "CPI 5.1% (Feb 2022), real short rate ~-5%; IEF speed -12.1/accel -8.2 at redirect time; invariants inv-inflation-persistence-tips (market_score 0.818, 9 confirmations), inv-low-real-yields-favor-gold (market_score 0.612, 41 confrontations); ms-stack rolling calmar 0.515, maxDD -23.8%.",
-        "scope": "market-signal-stack strategy; overlay logic only — the book-selection rule (spread/slope medians) is untouched.",
-        "success_metric": "Forward paper-mode: revised overlay vs current overlay on rolling Sortino and max drawdown over the next 4 quarters."
+        "invariants_supporting": [
+          "inv-high-inflation-equities",
+          "01KY2MY9X0VMVT6FFF2XGBSBGS",
+          "inv-inflation-persistence-tips"
+        ],
+        "measurement": "Paper-mode the gated variant against the unmodified stack over the same monthly decision dates; compare sortino/calmar/maxDD in falling-growth-rising-inflation and rising-growth-rising-inflation regimes; adopt or close mechanically on FAVORS after probation.",
+        "rule_current": "Book selection keys only on BAA10Y vs its 10y trailing median and T10Y2Y vs its 10y trailing median; the credit-spread-tight-yield-curve-flat book is fixed at SPY 50 / GLD 40 / IWN 10 with a 200d trend overlay per sleeve.",
+        "rule_proposed": "Add an inflation gate at the decision date: when trailing CPI YoY >= 5.0, shift 10 points from SPY to GLD within the credit-spread-tight-yield-curve-flat book (50/40/10 -> 40/50/10); unchanged otherwise. 200d trend overlay and binding caps still apply on top.",
+        "trigger_evidence": "2022-01-03 opening entry: 60% equity (SPY 50 + IWN 10) with CPI YoY 5.1, growth composite 100.5 falling (speed -1.22, accel -0.72), global liquidity speed -0.69, regime stagflation conf 70.6. BAA10Y 1.85 vs median 2.39 is tight because policy stress has not yet reached credit — both signal inputs are coincident, not leading, for an inflation shock."
       },
       "source": "agent-discovery",
       "author": "system",
       "status": "proposed",
       "weight_initial": 0.0,
       "floor_weight": 0.0,
-      "trace": "UC8 2022-02-01: stagflation 70.6%, GLD below 200d -> IEF redirect observed; disagreement filed as revision per skill-read-market-signal."
+      "trace": "UC8 cycle 2022-01-03: regime stagflation-2021-08-17 (conf 70.6); market_data CPI 5.1 / liquidity speed -0.69; market-signal decision credit-spread-tight-yield-curve-flat SPY50/GLD40/IWN10; invariants inv-high-inflation-equities (0.67), inv-inflation-persistence-tips (0.82)."
+    }
+  },
+  {
+    "episode": "inflation-shock",
+    "as_of": "2022-02-01",
+    "proposal": {
+      "type": "strategy_revision",
+      "title": "Trend-overlay haven redirect should be regime- and trend-aware (not always IEF)",
+      "rationale": "The market-signal stack's 200d overlay correctly exits GLD when below trend (per invariant 01KY2QBRQJ6BSS25TA6DGSW98V: below-MA gold ~0.0% returns), but it redirects the sleeve to IEF unconditionally. In a negative-real-yield, rising-inflation, tightening-liquidity regime, IEF is not a haven — it is the asset the regime punishes most (inv-low-real-rate-nominal-bonds, ACTIVE; inv-inflation-persistence-tips, ACTIVE). February 2022 is the live case: GLD below trend triggers the redirect while IEF itself is in a downtrend (speed -12.1, acceleration -8.2) with CPI 5.1% and global liquidity speed -0.248. The overlay vets the trend of what it sells but not of what it buys, and it never asks whether duration is a haven in THIS regime. A rule measured over 35 years that contains an unconditional assumption is exactly the kind of thing a probation slot exists to test.",
+      "spec": {
+        "strategy_id": "market-signal-stack",
+        "revision": "When the GLD sleeve fails its 200d trend check, redirect to the haven ONLY if the haven itself passes (a) its own 200d trend check and (b) a real-yield/regime gate (e.g., redirect to IEF only when not in falling-growth-rising-inflation or when 10y real yield > 0); otherwise redirect to the shortest-duration haven (SHY or cash). Symmetrically, consider applying the same veto to any automatic haven leg.",
+        "current_behavior": "GLD below 200d MA -> sleeve redirected to IEF unconditionally.",
+        "evidence": "2022-02-01 decision: GLD->IEF redirect while IEF speed -12.1/accel -8.2, inflation 5.1%, real yields negative, liquidity speed -0.248; ms-stack live maxDD -23.8%, calmar 0.515, worst on the board; stack FAVORS in falling-growth-rising-inflation (sortino 1.80) is its weakest quadrant.",
+        "scenarios": {
+          "bull": {
+            "probability": 30,
+            "description": "Disinflationary soft landing: IEF haven works, revision adds little but costs little",
+            "target_allocation": null
+          },
+          "base": {
+            "probability": 45,
+            "description": "Persistent stagflation/tightening: revision avoids holding duration through the hiking cycle, reducing drawdown vs current rule",
+            "target_allocation": null
+          },
+          "bear": {
+            "probability": 25,
+            "description": "Growth scare flips to falling-growth-falling-inflation: IEF passes the regime gate anyway, revision is neutral",
+            "target_allocation": null
+          }
+        }
+      },
+      "source": "agent-discovery",
+      "author": "system",
+      "status": "proposed",
+      "weight_initial": 0.0,
+      "floor_weight": 0.0,
+      "trace": "worker-uc8-stagflation-2022-02-01: haven-redirect concern escalated from market_signal_assessment to strategy_revision per skill-read-market-signal (a disagreement worth acting on is worth proving)"
     }
   },
   {
     "episode": "inflation-shock",
     "as_of": "2022-03-01",
     "proposal": {
-      "type": "strategy_revision",
-      "title": "Add a spread-speed confirmation gate to the market-signal credit book selector",
-      "rationale": "This month exposed the gap concretely: the signal reads BAA10Y's LEVEL vs its 10y median (2.34 vs 2.36 — 'tight', by 2bps) while the spread's speed is +0.43/month and accelerating (+0.37). The book chosen assumes spread calm that the derivative says is ending. A level-only threshold at the median boundary is maximally fragile exactly where the decision matters most; the 2022 tape is likely to force a whipsaw re-pick within a quarter, paid for in turnover and slippage the backtest may understate.",
+      "type": "data",
+      "title": "Cross-check or substitute the market-signal rule's BAA10Y spread input with a true high-yield spread (HY OAS)",
+      "rationale": "The source text underlying the adopted book describes the countercyclical strategy as reading the HIGH-YIELD spread; the implemented signal uses BAA10Y (Baa corporate minus 10y). Today the 'tight' determination hangs on 2bp (2.34 vs 10y median 2.36) — a margin within measurement noise of a single series. Baa and HY OAS diverge most exactly at regime turns (HY is the more recession-sensitive price). Whether HY OAS changes the timing or the chosen book is a measurable question, not an impression: replay both inputs over 1991-present and adopt only if the switch earns it in paper mode.",
       "spec": {
-        "revision_of": "market-signal monthly stack (credit-spread/yield-slope book selector)",
-        "current_rule": "Select book by credit spread level vs 10y trailing median and yield slope vs its 10y trailing median; apply 200d trend overlay per sleeve.",
-        "proposed_rule": "When the credit spread sits within +/-10bps of its 10y trailing median, require spread speed <= 0 (or below its own trailing median speed) to enter or hold the 'tight' book; if speed is positive and accelerating, defer to the defensive book one month early. Level remains the primary axis — speed only arbitrates the boundary zone.",
-        "evidence": [
-          "BAA10Y 2022-03-01: level 2.34 vs median 2.36, speed +0.43, acceleration +0.37 — a 'tight' print 2bps from the boundary with a strongly widening derivative",
-          "T10Y2Y 0.39 vs median 1.08, speed -0.24: the other signal is unambiguous, so this revision touches only the credit leg",
-          "Regime context: stagflation 70.6% confidence with tightening liquidity (speed -0.247) — historically the environment where spreads gap through their medians rather than hover"
-        ]
+        "candidate_type": "data",
+        "current_input": "BAA10Y vs 10y trailing median",
+        "proposed_input": "HY OAS (e.g., ICE BofA US High Yield OAS) vs its 10y trailing median, run in parallel as challenger",
+        "evaluation": "Replay 1991-present with identical slope signal, trend overlay and caps; compare book selection dates, hit rate and drawdown of the monthly stack under each spread input",
+        "acceptance": "Adopt only if HY-based signal improves forward paper-mode Calmar without raising turnover beyond cap"
       },
       "source": "agent-discovery",
       "author": "system",
       "status": "proposed",
       "weight_initial": 0.0,
       "floor_weight": 0.0,
-      "trace": "UC8 cycle 2022-03-01: market_signal_assessment flagged the level/speed divergence in BAA10Y; the disagreement is with the RULE (level-only boundary), not this month's book, so it enters probation to be measured rather than applied once."
+      "trace": "Market-signal assessment 2022-03-01: spread call resting on 2bp of BAA10Y; source passage says high-yield spread; HY vs Baa divergence is where regime-turn information lives."
     }
   },
   {
     "episode": "inflation-shock",
-    "as_of": "2022-04-01",
+    "as_of": "2022-06-01",
     "proposal": {
       "type": "strategy_revision",
-      "title": "Make the tight-spread book's equity sleeve inflation-regime aware",
-      "rationale": "The market-signal rule picks the equity-heavy book whenever BAA10Y is below its 10y trailing median and the curve is flat, regardless of the inflation quadrant. But the median is nominal: a 1.93% spread is 'loose' against a median minted in a sub-2%-inflation decade, while at CPI ~5.1% it represents negative real compensation — the exact configuration (tight nominal spreads + flat/inverting curve + tightening liquidity, speed -0.98) that preceded the equity drawdowns of 2000-02 and 2007-08, and the ACTIVE invariant 01KY2MY9X0VMVT6FFF2XGBSBGS documents the returns cliff above 5% inflation. This month the rule moved the live book to SPY 50% into a 70.6%-confidence stagflation regime. This is distinct from the two revisions already in probation: the spread-speed confirmation gate (strat-01KZC16RFDQB7XM2NNP4PHB1R5) gates the credit signal's timing, and the real-rate-aware haven redirect (strat-01KZC0STR41Q7VREXBVWH1296Z) governs the haven leg — neither touches the equity sleeve's inflation blindness.",
+      "title": "Inflation-aware duration substitution in the market-signal defensive books",
+      "rationale": "The tight-spread/flat-curve book in force holds 50% IEF — nominal intermediate duration — while CPI runs 8.7% and rising with deeply negative real rates. The signal reads two prices and one trend; it cannot see that the 'defensive' asset its defensive books lean on is the one the inflation regime punishes. The live record corroborates: ms-stack 1y -11.2%, maxDD -23.8%, worst Calmar on the roster. The two probation revisions already pending address the haven redirect and a SPY->GLD gate, but neither touches the duration composition of the defensive books themselves — the gate as proposed shifts SPY->GLD and would not even bind this month (the book holds no SPY). This revision targets the actual blind spot and gets measured over probation instead of overriding the book once on conviction.",
       "spec": {
-        "target_strategy": "market-signal-stack",
-        "current_rule": "Select book from BAA10Y vs 10y trailing median and T10Y2Y vs its 10y trailing median; tight-spread + flat-curve book = SPY 50 / GLD 40 / IWN 10; 200d trend overlay per sleeve.",
-        "proposed_change": "Add an inflation-regime gate on the equity sleeve of the tight-spread book: when trailing CPI > 4% and rising (or regime detector = falling-growth-rising-inflation with confidence >= 60) AND global liquidity speed < 0, cap the equity sleeve at 25-30% and route the difference to the book's gold sleeve and short/intermediate duration (IEF/SHY), OR equivalently compare BAA10Y in real terms (spread minus trailing CPI) against a real-spread median. Gate is symmetric: it lifts when inflation falls back below threshold.",
-        "evidence": "CPI ~5.1% with regime stagflation confidence 70.6% at decision date; T10Y2Y 0.04 (one print from inversion); global liquidity speed -0.978; ms-stack retained track: sortino 0.928, calmar 0.439, maxDD -23.8%; in-regime FAVORS sortino 1.615 vs four-seasons-rp 1.967 — the current regime is the instrument's weakest quadrant; invariant 01KY2MY9X0VMVT6FFF2XGBSBGS (ACTIVE): returns fall off a cliff above 5% inflation.",
-        "success_metric": "In falling-growth-rising-inflation regime windows, revised stack FAVORS sortino/calmar must exceed the unmodified stack's (current: sortino 1.615, calmar 5.89) without degrading its rising-growth-falling-inflation FAVORS (sortino 2.787) by more than 10% over probation."
-      },
-      "source": "agent-discovery",
-      "author": "system",
-      "status": "proposed",
-      "weight_initial": 0.0,
-      "floor_weight": 0.0,
-      "trace": "UC8 cycle 2022-04-01: disagreement with tight-spread book's SPY-50 reading logged in market_signal_assessment; promoted to strategy_revision per skill-read-market-signal so the claim is measured rather than applied once."
-    }
-  },
-  {
-    "episode": "inflation-shock",
-    "as_of": "2022-05-02",
-    "proposal": {
-      "type": "strategy_revision",
-      "title": "Apply the 200-day trend overlay to the GLD sleeve, not only the equity sleeve",
-      "rationale": "This month the overlay correctly redirected SPY 50 → IEF 50, but the same book keeps GLD 40 untouched while gold is itself deteriorating (GLD speed -167, acceleration -160 at 2022-05-02) and real yields are backing up (DGS10 speed +0.54). A 40% haven sleeve that is never trend-checked is a blind spot: in a real-yield backup, gold can fall alongside equities (as in 2013 and March 2022), and the rule as built would hold it through the whole drawdown. Making the overlay symmetric — redirect GLD to SHY/cash when GLD is below its own 200d trend — is a rule-level claim that should be measured in probation, not applied on this cycle's conviction.",
-      "spec": {
-        "revision_of": "market-signal-stack",
-        "current_rule": "200-day trend overlay applies to the equity sleeve (SPY) only; GLD and IWN sleeves are held regardless of their own trend.",
-        "proposed_rule": "Apply the same 200-day trend check to GLD: when GLD closes below its 200-day average, redirect the GLD sleeve to SHY (or cash) until it recovers. IWN sleeve unchanged (already small and capped).",
+        "strategy_id": "market-signal-stack",
+        "current_behavior": "Tight-spread books (slowdown/countercyclical) allocate their defensive sleeve to nominal intermediate/long duration (IEF/TLT-class) regardless of the inflation level; trend overlay redirects equity sleeves to a fixed haven.",
+        "proposed_revision": "When CPI YoY >= 5% at the monthly decision date, substitute up to half of the nominal-duration sleeve of tight-spread defensive books with TIP and/or SHY (short real/nominal duration); revert when CPI YoY falls below 4% or real 10y yields turn positive. Thresholds to be tuned in backtest over 1991-present, explicitly including 2022.",
         "evidence": [
-          "GLD speed -167.04, acceleration -160.50 at 2022-05-02",
-          "DGS10 level 2.89, speed +0.54 — real-yield backup in progress",
-          "ms-stack maxDD -23.8% is the deepest in the table, consistent with un-hedged haven sleeves"
+          "ms-stack 1y -11.2%, maxDD -23.8%, calmar 0.353 vs roster best 0.778",
+          "CPI YoY 8.7% (speed +0.67); ^IRX 1.10 -> deeply negative real short rate",
+          "ACTIVE invariants: inv-high-inflation-equities, 01KY2P6FKSMEYGDE3K2M72JEHX (nominal bonds underperform when inflation >4%), 01KY2N410K3N39TB6T6C1721MW (negative real rates shift investors to inflation-protected assets), inv-low-real-yields-favor-gold",
+          "Precedent concern: 2022 is the first post-1991 episode combining tight spreads with >8% inflation, so backtest must confirm the substitution does not degrade the 1994/2000/2008/2020 readings"
         ],
-        "expected_effect": "Lower max drawdown of the tight-spread book in real-yield-backup episodes at the cost of occasional whipsaw in gold."
+        "expected_effect": "Reduce drawdown and improve Calmar of the tight-spread defensive books in high-inflation tightening episodes without altering the spread/slope book-selection rule itself.",
+        "risk": "If the 2022 window is sui generis, the overlay adds turnover for little gain; probation measurement settles this."
       },
       "source": "agent-discovery",
       "author": "system",
       "status": "proposed",
       "weight_initial": 0.0,
       "floor_weight": 0.0,
-      "trace": "UC8 2022-05-02: market_signal_assessment blind-spot item (2)"
-    }
-  },
-  {
-    "episode": "inflation-shock",
-    "as_of": "2022-05-02",
-    "proposal": {
-      "type": "strategy_revision",
-      "title": "Add a spread-speed early-warning note to the tight-spread book's holding period",
-      "rationale": "The book selector reads BAA10Y level vs its 10y median (2.06 vs 2.32 — tight) but ignores the spread's own momentum: BAA10Y speed is +0.12 to +0.15 with acceleration +0.44 to +0.53, i.e. the spread is widening quickly from a tight level. A book chosen on a tight-spread reading can be one month from its own exit condition and the rule neither sees nor warns about it. The proposal is not to change selection, but to emit an early-warning flag when spread speed exceeds its own trailing norm, so the owner placing manual orders knows the book's premise is decaying. A warning layer is a weaker claim than a gate and can earn FAVORS on its own merits.",
-      "spec": {
-        "revision_of": "market-signal-stack",
-        "current_rule": "Book selection uses BAA10Y level vs 10y trailing median and T10Y2Y level vs its median; no use of spread speed/acceleration.",
-        "proposed_rule": "Compute BAA10Y 3-month speed; when it exceeds +1 standard deviation of its trailing 10y speed distribution while the tight-spread book is in force, attach an 'early-warning: spread widening' flag to the monthly decision output shown to the owner. Selection unchanged.",
-        "evidence": [
-          "BAA10Y speed +0.15, acceleration +0.44 at 2022-04-29",
-          "T10Y2Y 0.19-0.22, within weeks of inversion at current speed +0.15"
-        ],
-        "expected_effect": "Owner sees premise decay one to two months before the level-based rule flips books; no change to backtested selection logic."
-      },
-      "source": "agent-discovery",
-      "author": "system",
-      "status": "proposed",
-      "weight_initial": 0.0,
-      "floor_weight": 0.0,
-      "trace": "UC8 2022-05-02: market_signal_assessment blind-spot item (1)"
+      "trace": "uc8-cycle-2022-06-01: filed after reading the market-signal book's nominal-duration concentration against ACTIVE negative-real-rate invariants; complements, does not duplicate, pending revisions on haven redirect and SPY->GLD gate."
     }
   }
 ]
