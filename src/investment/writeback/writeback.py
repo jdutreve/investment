@@ -183,6 +183,13 @@ async def cooldown_pre_gate(
     return GateOutcome(passed=True)
 
 
+# The Worker's own book (decision_cycle.WORKER_BOOK_ID). Declared here rather
+# than imported: writeback is imported BY decision_cycle, and a back-import
+# would close a cycle. A mismatch is caught by
+# `test_the_cognitive_book_id_agrees_across_the_two_modules`.
+COGNITIVE_BOOK_ID = "worker-book"
+
+
 async def gate6_cited_invariants(
     db: InvestmentDB,
     invariant_ids: list[str],
@@ -280,6 +287,7 @@ async def _commit_reallocation(
     current: dict[str, float],
     market_context: dict[str, Any],
     today: date,
+    citation_verdict: str | None = None,
 ) -> str:
     """Persist a passing reallocation: ProposalEvent to the EventLog FIRST, then
     the Proposal vertex, then upgrade the defender's latest snapshot
@@ -316,9 +324,10 @@ async def _commit_reallocation(
         )
         await db.command(
             "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
-            "recommendation, gap, market_context, reasoning, paper_started, trace, created_at) "
+            "recommendation, gap, market_context, reasoning, paper_started, citation_verdict, "
+            "trace, created_at) "
             "VALUES (:id, :date, 'reallocation', :defender, :alloc, 'paper-test', :gap, :ctx, "
-            ":reason, :date, :trace, :now)",
+            ":reason, :date, :verdict, :trace, :now)",
             id=proposal_id,
             date=today.isoformat(),
             defender=defender_id,
@@ -326,6 +335,7 @@ async def _commit_reallocation(
             gap=json.dumps({"allocation_diff": allocation_diff}),
             ctx=json.dumps(market_context),
             reason=reallocation.reasoning,
+            verdict=citation_verdict,
             trace=trace,
             # created_at is a TIMESTAMP, not the proposal's business date
             # (CLAUDE.md: all persisted timestamps UTC).
@@ -428,14 +438,41 @@ async def dispose_reallocation(
     if not cooldown.passed:
         return cooldown, None
 
+    # GATE 6 RECORDS INSTEAD OF REFUSING, on the cognitive book (owner decision
+    # 2026-08-08: validate DOWNSTREAM, not upstream).
+    #
+    # Its principle was sound — a reallocation should lean on a claim already
+    # confronted over 35 years — and its arithmetic was not: 9 invariants of 673
+    # have reached `integrated`, so on most months nothing is citable whatever
+    # the Worker chooses. Across three M8b runs it refused five times and, in the
+    # 2008 episode, left the cognitive layer entirely mute.
+    #
+    # What made it unanswerable is that a refusal returned `None` — no proposal
+    # row, so no `paper_started`, so `outcomes.evaluate_proposals` never scored
+    # it at +12w. The gate destroyed the evidence that could contradict it. Now
+    # the verdict is WRITTEN and the proposal lives, so in twelve weeks the
+    # question has an answer: did the ones it would have blocked do worse?
+    #
+    # STILL BINDING ELSEWHERE. Only the cognitive book (`worker-book`) is a
+    # shadow the owner never holds — nothing is at risk there, so refusing
+    # protects nothing and only prevents learning (the ADR-009 argument: telling
+    # beats refusing when refusing cannot exit a position). On any other target
+    # a reallocation is a paper-test the owner may act on, and the gate binds.
     gate6 = await gate6_cited_invariants(
         db, reallocation.supporting_invariants, thresholds, regime_type
     )
-    if not gate6.passed:
+    verdict = "passed" if gate6.passed else str(gate6.failed_gate)
+    if not gate6.passed and defender_id != COGNITIVE_BOOK_ID:
         return gate6, None
 
     proposal_id = await _commit_reallocation(
-        db, defender_id, reallocation, current_allocation, market_context, today
+        db,
+        defender_id,
+        reallocation,
+        current_allocation,
+        market_context,
+        today,
+        citation_verdict=verdict,
     )
     return GateOutcome(passed=True), proposal_id
 

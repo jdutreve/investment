@@ -172,6 +172,18 @@ CREATE TABLE IF NOT EXISTS proposal (
   paper_started       TEXT,
   outcome             TEXT,                  -- JSON map, written at +12w
   evaluated_at        TEXT,
+  -- What UC8-B gate 6 WOULD have said, on paths where it no longer refuses
+  -- (owner decision 2026-08-08: validate downstream, not upstream). One of
+  -- 'passed' | 'no_citation' | 'ineligible_citation' | 'corpus_drought', NULL
+  -- on paths where the gate still binds.
+  --
+  -- Recorded because a refusal used to leave NOTHING — no proposal row, so no
+  -- `paper_started`, so `outcomes.evaluate_proposals` never scored it at +12w.
+  -- The gate was unfalsifiable by construction: it destroyed the evidence that
+  -- could contradict it. Five refusals across the three M8b runs, five
+  -- occasions to learn, all lost. With this column the question finally has an
+  -- answer: did the proposals gate 6 would have blocked actually do worse?
+  citation_verdict    TEXT,
   trace               TEXT NOT NULL,
   created_at          TEXT NOT NULL
 );

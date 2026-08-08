@@ -512,3 +512,71 @@ async def test_a_candidate_holding_an_untradable_ticker_gets_no_portfolio(db: In
     """No price series means an empty NAV and a strategy unmeasurable forever —
     better named at birth than diagnosed 24 weeks later by the backstop."""
     assert await _commit_candidate(db, "s-tick", {"SPY": 50, "MOONCOIN": 50}) == []
+
+
+def test_the_cognitive_book_id_agrees_across_the_two_modules() -> None:
+    """`writeback` declares the id rather than importing it, because
+    `decision_cycle` imports writeback and a back-import would close a cycle.
+    Two literals, one meaning — so something has to check they still match."""
+    from investment.decision_cycle import WORKER_BOOK_ID
+
+    assert W.COGNITIVE_BOOK_ID == WORKER_BOOK_ID
+
+
+async def test_gate6_records_instead_of_refusing_on_the_cognitive_book(
+    db: InvestmentDB,
+) -> None:
+    """Owner decision 2026-08-08: validate DOWNSTREAM, not upstream.
+
+    The gate's principle was sound — lean only on a claim confronted over 35
+    years — and its arithmetic was not: 9 invariants of 673 have reached
+    `integrated`, so most months nothing is citable whatever the Worker picks.
+    What made it unanswerable is that a refusal returned None: no proposal row,
+    no `paper_started`, so `evaluate_proposals` never scored it at +12w. The
+    gate destroyed the evidence that could contradict it — five refusals across
+    three M8b runs, five occasions to learn, all lost.
+
+    So on the cognitive book the verdict is WRITTEN and the proposal lives."""
+    await db.command(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('worker-book', 'Cognitive Book', '4s', 0, 1, 'USD', 'b', "
+        "'{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', -25.0, 50.0, 'accumulation', 'tr', "
+        "'2026-01-01')"
+    )
+    uncited = _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, [])
+
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    outcome, proposal_id = await W.dispose_reallocation(
+        db, uncited, "worker-book", current, USER, THRESHOLDS, "stag", {}
+    )
+
+    assert outcome.passed is True  # it is NOT refused...
+    assert proposal_id is not None  # ...and it leaves a row that +12w can score
+    rows = await db.query(
+        "SELECT citation_verdict, paper_started FROM proposal WHERE id = :i", i=proposal_id
+    )
+    assert rows[0]["citation_verdict"] in {
+        "gate6_no_cited_invariant",
+        "gate6_corpus_has_nothing_citable",
+    }
+    assert rows[0]["paper_started"]  # scored like any other proposal
+
+
+async def test_gate6_still_binds_on_every_other_target(db: InvestmentDB) -> None:
+    """Only the cognitive book is a shadow the owner never holds, so refusing
+    there protects nothing. Anywhere else a reallocation is a paper-test the
+    owner may act on, and an unproven claim must not carry it."""
+    current = {"SPY": 50.0, "GLD": 25.0, "IEF": 25.0}
+    outcome, proposal_id = await W.dispose_reallocation(
+        db,
+        _realloc({"SPY": 40.0, "GLD": 35.0, "IEF": 25.0}, []),
+        "def-pf",
+        current,
+        USER,
+        THRESHOLDS,
+        "stag",
+        {},
+    )
+    assert outcome.passed is False
+    assert proposal_id is None
