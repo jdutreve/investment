@@ -35,6 +35,8 @@ justification silently becomes false while the code keeps working, which is
 the worst of both. State the requirement; let the smoke test state the model.
 """
 
+import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -55,6 +57,29 @@ logger = logging.getLogger(__name__)
 OUTPUT_RETRIES = 2  # PydanticAI schema-validation retries (Phase 1bis policy)
 TRANSPORT_RETRIES = 2  # HTTP client retries with backoff (CLAUDE.md async standard)
 WORKER_TIMEOUT_SECONDS = 300.0
+
+# A WALL CLOCK ON ONE CALL, which is the only bound that sees a stalling stream.
+#
+# Diagnosed 2026-08-08: `JSONDecodeError: Expecting value: line 3709 column 1`,
+# raised 12m57s after the previous successful call. The body was VALID for 3708
+# lines and then cut — a truncated stream, not a model writing bad JSON. Nothing
+# caught it early because nothing was watching the total: httpx's read timeout
+# re-arms on every chunk, so a response that dribbles for thirteen minutes never
+# trips it; PydanticAI's `retries` only apply after a successful parse; and the
+# OpenAI SDK's `max_retries` does not retry a 200 with an incomplete body.
+#
+# It is the same lesson as the date budget, taken from the other end: bounding
+# the whole does not bound the parts, and a part that dribbles for thirteen
+# minutes eats the whole. The date keeps its 1800s; this bounds one call inside
+# it.
+WORKER_CALL_BUDGET_SECONDS = 300.0
+
+# ...and re-ask immediately, HERE rather than at the date level. A truncated
+# stream is transient and the answer costs ~5 minutes; letting it bubble up
+# would hit `agentic_replay._cycle_with_retry`, which since 2026-08-07 never
+# retries a TimeoutError — a rule that is right for "the date's budget ran out"
+# and wrong for "one call was cut while the date still has twenty minutes".
+WORKER_CALL_ATTEMPTS = 2
 
 # The agentic-loop budget. `OUTPUT_RETRIES`/`TRANSPORT_RETRIES` bound schema and
 # transport faults; NEITHER bounds the tool loop, so before this a Worker that
@@ -309,11 +334,22 @@ async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerRe
     degraded result: a Worker that burned 12 tool calls without answering has
     not produced a weaker opinion, it has failed, and a half-cycle silently
     written to the graph is worse than a Monday with no cognitive read."""
-    result = await agent.run(
-        context,
-        usage_limits=UsageLimits(
-            request_limit=WORKER_REQUEST_LIMIT,
-            tool_calls_limit=WORKER_TOOL_CALLS_LIMIT,
-        ),
+    limits = UsageLimits(
+        request_limit=WORKER_REQUEST_LIMIT,
+        tool_calls_limit=WORKER_TOOL_CALLS_LIMIT,
     )
-    return result.output
+    last: Exception | None = None
+    for attempt in range(1, WORKER_CALL_ATTEMPTS + 1):
+        try:
+            async with asyncio.timeout(WORKER_CALL_BUDGET_SECONDS):
+                result = await agent.run(context, usage_limits=limits)
+            return result.output
+        except (TimeoutError, json.JSONDecodeError) as exc:
+            last = exc
+            logger.warning(
+                "worker call attempt %d/%d cut or truncated (%s); re-asking",
+                attempt,
+                WORKER_CALL_ATTEMPTS,
+                type(exc).__name__,
+            )
+    raise last if last else RuntimeError("no worker attempt ran")

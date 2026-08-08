@@ -4,8 +4,10 @@ round-trip uses PydanticAI's TestModel — its own transport double, not a mock
 of our code (CLAUDE.md forbids mocking OUR components, e.g. the DB, which stays
 a real throwaway SQLite below)."""
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -129,6 +131,9 @@ def test_reallocation_and_innovation_round_trip() -> None:
 
 
 # -- the agent: it builds, and it round-trips to a valid WorkerResult --------
+
+
+_OUTPUT = object()
 
 
 @pytest.fixture
@@ -337,3 +342,36 @@ def test_a_missing_skills_directory_degrades_rather_than_breaks(tmp_path: Path) 
     unsafe — or unrunnable."""
     assert load_skills(tmp_path / "nope") == ""
     assert build_system_prompt(skills="") == WORKER_SYSTEM_PROMPT
+
+
+async def test_a_cut_call_is_re_asked_immediately_not_left_to_the_date(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Diagnosed 2026-08-08: `JSONDecodeError: Expecting value: line 3709
+    column 1`, raised 12m57s after the previous successful call — a body VALID
+    for 3708 lines and then cut. A truncated stream, not a model writing bad
+    JSON.
+
+    Nothing caught it early because nothing watched the TOTAL: httpx's read
+    timeout re-arms on every chunk, PydanticAI's retries apply only after a
+    successful parse, and the OpenAI SDK does not retry a 200 with an incomplete
+    body. So a call dribbled for thirteen minutes and took the date with it.
+
+    Re-asked HERE, not at the date level, because
+    `agentic_replay._cycle_with_retry` never retries a TimeoutError — right for
+    "the date's budget ran out", wrong for "one call was cut with twenty minutes
+    left"."""
+    calls = {"n": 0}
+    agent = build_worker_agent(db, "test/worker", "sk-test")
+
+    async def _truncated_then_fine(*args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise json.JSONDecodeError("Expecting value", "{", 3709)
+        return SimpleNamespace(output=_OUTPUT)
+
+    monkeypatch.setattr(agent, "run", _truncated_then_fine)
+    out = await run_worker(agent, "context")
+
+    assert calls["n"] == 2  # cut once, re-asked once, answered
+    assert out is _OUTPUT
