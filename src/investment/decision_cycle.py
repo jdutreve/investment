@@ -396,6 +396,7 @@ async def run_decision_cycle(
     today: date | None = None,
     run_id: str | None = None,
     context: PlannerContext | None = None,
+    target_book: str = WORKER_BOOK_ID,
 ) -> UC8Result:
     """Run one UC8 cycle end to end. Writeback only runs if the Worker proposed
     a reallocation AND a defender exists to reallocate; otherwise the cycle is
@@ -414,7 +415,13 @@ async def run_decision_cycle(
     budget the first attempt just proved too short (agentic_replay
     `_cycle_with_retry`). The parameter exists so the harness can re-run only
     what failed WITHOUT reimplementing the cycle, which Task 9.4 forbids.
-    Default `None` keeps the live Monday chain exactly as it was."""
+    Default `None` keeps the live Monday chain exactly as it was.
+
+    `target_book` names the portfolio the reallocation moves. The live chain
+    always uses the cognitive book; the agentic replay overrides it to measure a
+    SECOND arm — the Worker tilting on top of the market-signal stack instead of
+    running a book of its own (`agentic_replay --arm on-stack`). A parameter
+    rather than a second code path, so both arms run the identical cycle."""
     context = context or await planner_pre.run(trigger)
     worker_result = await run_worker(worker_agent, render_context_for_worker(context))
     await journal_worker_reading(
@@ -441,15 +448,15 @@ async def run_decision_cycle(
     # else with no privilege. `worker-book` starts at the defender's allocation,
     # so before its first accepted reallocation the two curves are identical by
     # construction (db/seed_data.py).
-    incumbent = await _book_row(db, WORKER_BOOK_ID)
+    incumbent = await _book_row(db, target_book)
     if reallocation is not None and incumbent is not None:
         # Its own caps, which may only be STRICTER than the user's — the ranking
         # snapshot carries no cap columns, they live on `portfolio`.
-        portfolio = await portfolio_caps(db, WORKER_BOOK_ID)
+        portfolio = await portfolio_caps(db, target_book)
         gate_outcome, proposal_id = await dispose_reallocation(
             db,
             reallocation,
-            WORKER_BOOK_ID,
+            target_book,
             incumbent,
             user_profile,
             thresholds,

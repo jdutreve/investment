@@ -1742,6 +1742,37 @@ PORTFOLIOS: list[dict[str, object]] = [
         "passed every UC8-B gate. One logic among others in the ranking, judged "
         "on its own NAV rather than on stitched-together proposal outcomes.",
     },
+    # THE SECOND ARM (owner, 2026-08-08). `worker-book` measures the Worker
+    # ALONE, drifting from an All-Weather start on its own reallocations. This
+    # one measures it IN COMPLEMENT to the market signal: every month its base
+    # is reset to the stack's target and the Worker tilts from there.
+    #
+    # Two arms because they answer different questions, and the destination
+    # architecture depends on which one wins. Alone: is the cognitive layer a
+    # standalone allocator? On top: does it add to a rule that already works?
+    # The M8b screen could never separate them while the Worker reallocated the
+    # bridge defender, which was the mechanical arm's canvas too.
+    #
+    # Written by `mechanical/agentic_replay.py --arm on-stack`, which resets the
+    # allocation before each cognitive cycle; the live chain never targets it.
+    {
+        "id": "worker-stack-book",
+        "name": "Cognitive Book on the Stack (Worker)",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": False,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "Measurement object for M8b's second arm: the market-signal "
+        "target, tilted by the Worker. `enabled=0` — it is not a book anyone "
+        "holds and must not enter the ranking; the 3 ms-*-book rows are the "
+        "same kind of object.",
+    },
 ]
 
 # Portfolios whose allocation VARIES over time, so their NAV cannot be built by

@@ -121,6 +121,13 @@ async def _seed(db: InvestmentDB) -> None:
         "'accumulation', 'tr', '2026-01-01')",
         alloc=json.dumps(DEFENDER_ALLOCATION),
     )
+    # arm 2's measurement book — reset to the stack's target each month
+    await cmd(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('worker-stack-book', 'On the stack', 'fw', 0, 0, 'USD', 'b', '{}', -25.0, 50.0, "
+        "'accumulation', 'tr', '2026-01-01')"
+    )
     for book_id in BOOK_PORTFOLIO_IDS.values():
         await cmd(
             "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, "
@@ -248,6 +255,7 @@ async def _run(
     *,
     reallocation: dict[str, Any] | None,
     innovations: bool = False,
+    arm: str = "alone",
 ) -> Any:
     """Drive one episode with TestModels. The overrides ride on an ExitStack the
     FACTORY pushes onto, because the agents do not exist until the episode opens
@@ -303,6 +311,7 @@ async def _run(
             system_thresholds=THRESHOLDS,
             cost_bps=THRESHOLDS["replay_cost_bps"],
             confirmation_weeks=THRESHOLDS["replay_confirmation_weeks"],
+            arm=arm,
         )
     return episode, bound
 
@@ -676,3 +685,37 @@ async def test_the_report_shows_both_channels(live: Path, tmp_path: Path) -> Non
     for out in episode.outcomes:
         assert str(out.as_of) in report
         assert out.reading in report  # in full
+
+
+async def test_the_on_stack_arm_resets_to_the_rule_each_month(
+    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The two arms answer different questions. `alone` lets the cognitive book
+    DRIFT on its own accepted reallocations from an All-Weather start — is the
+    Worker a standalone allocator? `on-stack` resets the book to the market-
+    signal target every month, so the tilt is measured AGAINST the rule rather
+    than against the Worker's own previous tilt — does it ADD to a rule that
+    already works?
+
+    Without the reset the second arm would silently become the first one after
+    its opening month, and the comparison would measure nothing."""
+    seen: list[dict[str, float]] = []
+    real = AR.run_decision_cycle
+
+    async def _capture(*args: Any, **kwargs: Any) -> Any:
+        db = args[0]
+        rows = await db.query(
+            "SELECT allocation FROM portfolio WHERE id = :i", i=kwargs["target_book"]
+        )
+        seen.append(json.loads(str(rows[0]["allocation"])))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(AR, "run_decision_cycle", _capture)
+    await _run(live, tmp_path, reallocation=WORKER_TARGET, arm="on-stack")
+
+    stack_books = list(BOOK_PORTFOLIO_IDS.values())
+    assert seen  # at least one cycle ran
+    # every month the incumbent it was shown is the STACK's allocation, never
+    # the tilt it produced the month before
+    assert all(a != WORKER_TARGET for a in seen[1:]), seen
+    assert stack_books  # the fixture seeds the books the stack chooses among

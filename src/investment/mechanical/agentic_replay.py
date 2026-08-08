@@ -64,6 +64,7 @@ from pydantic_ai import Agent
 from investment.db.as_of_snapshot import advance_as_of_snapshot, build_as_of_snapshot
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import UC8Result, run_decision_cycle
+from investment.mechanical import market_signal
 from investment.mechanical.as_of_cycle import AsOfCycle, run_as_of_cycle
 from investment.mechanical.replay import (
     EPISODES,
@@ -125,6 +126,22 @@ DATE_TIMEOUT_SECONDS = 1800.0
 # rather than a ladder, and why fail-fast without it loses dates that a single
 # re-attempt recovers.
 DATE_ATTEMPTS = 2
+
+# THE TWO ARMS (owner, 2026-08-08). They answer different questions, and which
+# one wins decides the destination architecture.
+#
+#   alone     `worker-book` — the Worker as a STANDALONE allocator, drifting
+#             from an All-Weather start on its own accepted reallocations.
+#   on-stack  `worker-stack-book` — the Worker IN COMPLEMENT to the rule: each
+#             month the book is reset to the market-signal target and the Worker
+#             tilts from there.
+#
+# Separate RUNS rather than one dual-arm pass. A reallocation is an absolute
+# allocation formed against the incumbent the Worker was shown, so each arm needs
+# its own cognitive cycle — there is no honest way to apply one arm's proposal to
+# the other's book. Two runs also keep the resume journal per-arm and add no new
+# shape to `EpisodeResult`.
+ARMS: dict[str, str] = {"alone": "worker-book", "on-stack": "worker-stack-book"}
 
 # A retry needs a MEANINGFUL share of the date's budget, not merely a non-zero
 # one. At 2008-10-01 the second attempt inherited 91 seconds of 900 and timed
@@ -230,6 +247,7 @@ async def run_agentic_episode(
     system_thresholds: dict[str, float],
     cost_bps: float,
     confirmation_weeks: float,
+    arm: str = "alone",
 ) -> EpisodeResult:
     """One episode: walk its monthly decision dates with the real cognitive
     cycle, then price the book that followed it.
@@ -303,6 +321,22 @@ async def run_agentic_episode(
             previous = as_of
 
             mechanical = await run_as_of_cycle(db, as_of)
+            # ARM 2 RESETS ITS BASE. `worker-book` drifts on its own decisions;
+            # `worker-stack-book` starts each month from what the rule decided,
+            # so the Worker's tilt is measured AGAINST the rule rather than
+            # against its own previous tilt. Done after the mechanical cycle,
+            # which is what wrote the stack's current allocation.
+            if ARMS[arm] != ARMS["alone"]:
+                stack = await db.query(
+                    "SELECT allocation FROM portfolio WHERE id = :id",
+                    id=market_signal.STACK_PORTFOLIO_ID,
+                )
+                if stack:
+                    await db.command(
+                        "UPDATE portfolio SET allocation = :a WHERE id = :id",
+                        a=str(stack[0]["allocation"]),
+                        id=ARMS[arm],
+                    )
             # ONE DATE MAY FAIL WITHOUT ENDING THE EPISODE.
             #
             # This inverts CLAUDE.md's "unhandled errors surface", and the scope
@@ -337,6 +371,7 @@ async def run_agentic_episode(
                 as_of=as_of,
                 user_profile=user_profile,
                 system_thresholds=system_thresholds,
+                target_book=ARMS[arm],
             )
             if isinstance(result, BaseException):
                 failed = _failed(as_of, mechanical, result)
@@ -484,6 +519,7 @@ async def _cycle_with_retry(
     as_of: date,
     user_profile: dict[str, Any],
     system_thresholds: dict[str, float],
+    target_book: str,
 ) -> UC8Result | BaseException:
     """One date's cognitive cycle: FAIL FAST, THEN RETRY WHAT A RETRY CAN FIX.
     The result, or the exception from the last attempt.
@@ -541,6 +577,7 @@ async def _cycle_with_retry(
                     # cannot be told apart is a worse trace than none.
                     run_id=f"agentic-replay-{name}-{as_of}-a{attempt}",
                     context=context,
+                    target_book=target_book,
                 )
         except TimeoutError as exc:
             # NOT retried, by the arithmetic above: the budget is what failed.
@@ -682,7 +719,9 @@ def _num(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.2f}"
 
 
-async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list[EpisodeResult]:
+async def _run_all(
+    scratch: Path | None = None, out: Path | None = None, arm: str = "alone"
+) -> list[EpisodeResult]:
     """Every episode, against the live database and the real models.
 
     The report is rewritten after EACH episode rather than once at the end. Two
@@ -704,7 +743,9 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
 
     settings = Settings()  # type: ignore[call-arg]  # pydantic-settings fills from .env
     live = Path(settings.db_path)
-    scratch = scratch or live.parent / SCRATCH_DIR_NAME
+    # ONE SUBDIRECTORY PER ARM. The resume journal is keyed by episode name, so
+    # two arms sharing a directory would each resume from the other's dates.
+    scratch = (scratch or live.parent / SCRATCH_DIR_NAME) / arm
     scratch.mkdir(parents=True, exist_ok=True)
     out = out or scratch / "report.txt"
 
@@ -753,6 +794,7 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
                     system_thresholds=system_thresholds,
                     cost_bps=system_thresholds["replay_cost_bps"],
                     confirmation_weeks=system_thresholds["replay_confirmation_weeks"],
+                    arm=arm,
                 )
             )
         except Exception:
@@ -791,11 +833,18 @@ def _main() -> int:
     parser.add_argument(
         "--out", type=Path, help="report path (default: <scratch>/report.txt); always written"
     )
+    parser.add_argument(
+        "--arm",
+        choices=sorted(ARMS),
+        default="alone",
+        help="alone: the Worker as a standalone allocator from an All-Weather start. "
+        "on-stack: the Worker tilting the market-signal target, reset every month.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
-    episodes = asyncio.run(_run_all(args.scratch, args.out))
+    episodes = asyncio.run(_run_all(args.scratch, args.out, args.arm))
     print(render_report(episodes))
     incomplete = len(episodes) < len(EPISODES) or any(ep.failed_dates for ep in episodes)
     return 1 if incomplete else 0
