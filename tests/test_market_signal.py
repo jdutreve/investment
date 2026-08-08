@@ -248,3 +248,27 @@ def test_vcit_stays_outside_the_overlay_and_that_was_measured() -> None:
     were tried and both were wrong. It is CAN IT FALL FAR ENOUGH THAT AVOIDING
     IT BEATS THE WHIPSAW. Re-measure before adding a sleeve; do not reason it."""
     assert "VCIT" not in market_signal.TREND_SLEEVES
+
+
+def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
+    """`describe_rule` promises the Worker a description that cannot go stale.
+    It went stale in six hours: the sleeve list interpolated, the sentence
+    around it did not, and it kept saying below-trend sleeves go to IEF after
+    the haven became trend-checked with a cash fallback. The Worker believed it
+    and burned an innovation re-proposing the fallback that already shipped.
+
+    So every constant the overlay turns on has to APPEAR in the text. This test
+    fails the moment a knob is added to the mechanism without reaching the
+    description — which is the only way the Worker learns about it."""
+    text = market_signal.describe_rule()
+    for sleeve in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN):
+        assert sleeve in text, f"{sleeve} is trend-checked but undescribed"
+    assert market_signal.TREND_FALLBACK_HAVEN in text
+    assert str(market_signal.MA_WINDOW_DAYS) in text
+    assert str(market_signal.CONFIRM_DECISIONS) in text
+    assert f"{market_signal.MEDIAN_WINDOW_DAYS // 252}-year" in text
+    # The books are the decision's whole output — all three, with their weights.
+    for name, holdings in market_signal.BOOKS.items():
+        assert name in text
+        for ticker in holdings:
+            assert ticker in text

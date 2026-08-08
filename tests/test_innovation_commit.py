@@ -3,6 +3,7 @@ Phase 6; src/investment/writeback/writeback.py commit_innovations). A stub
 embedder stands in for the model (find_duplicate works on vectors); the
 structural-identity dedup needs no cosine, so it is deterministic."""
 
+import dataclasses
 import json
 from collections.abc import AsyncIterator
 from datetime import date
@@ -14,9 +15,12 @@ import pytest
 from investment.corpus.embedding import to_blob
 from investment.db.seed_data import INVARIANT_AUTHOR_CONFIG
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical import rule_revision
 from investment.mechanical.invariants import REFERENCE_STATUS, mature_seed_invariants
+from investment.mechanical.replay import NavMetrics
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal
+from investment.writeback import writeback
 from investment.writeback.writeback import commit_innovations
 
 # the invariant-maturation thresholds mature_seed_invariants reads
@@ -218,3 +222,106 @@ async def test_the_backfill_is_the_maturation_sweep_itself(db: InvestmentDB) -> 
     await mature_seed_invariants(db)  # idempotent
     rows = await db.query("SELECT status FROM invariant WHERE id LIKE 'inv-old-%'")
     assert [r["status"] for r in rows] == [REFERENCE_STATUS] * 3
+
+
+def _revision(parameters: dict[str, object]) -> ImprovementProposal:
+    return ImprovementProposal(
+        type="strategy_revision",
+        title="Shorten the trend-overlay window",
+        rationale="the 200d line lags the turn that the credit spread already called",
+        spec={"id": "strat-rev", "parameters": parameters},
+        trace="UC8 agent-discovery",
+    )
+
+
+def _measurement(sortino_delta: float, drawdown_delta: float) -> rule_revision.RevisionMeasurement:
+    """A measurement with the two deltas the acceptance test reads. Built from
+    NavMetrics rather than stubbed, so `adopt` is computed by the real property."""
+    base = NavMetrics(cagr=0.10, sortino=1.0, calmar=0.5, max_drawdown=-0.20)
+    return rule_revision.RevisionMeasurement(
+        overrides={"ma_window_days": 100},
+        baseline=base,
+        variant=dataclasses.replace(
+            base,
+            sortino=1.0 + sortino_delta,
+            max_drawdown=-0.20 + drawdown_delta,
+        ),
+        baseline_turnover=61.1,
+        variant_turnover=98.8,
+    )
+
+
+async def _framework(db: InvestmentDB) -> None:
+    """`_resolve_framework` skips the innovation entirely when no framework row
+    exists — the revision would never be born, and the test would pass on the
+    wrong reason."""
+    await db.command(
+        "INSERT INTO framework (id, name, description, enabled, trace, created_at) "
+        "VALUES ('4seasons', 'All Weather', 'd', 1, 't', '2026-01-01')"
+    )
+
+
+async def test_a_measured_bad_rule_revision_is_CLOSED_not_left_to_rot(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure this repairs: a rule revision changes CONSTANTS, so
+    `_base_allocation` finds no book, no candidate portfolio is born, no NAV
+    exists, and probation closes it months later as 'never had evidence' — while
+    the evidence was one second of walking away."""
+    await _framework(db)
+
+    async def _measured(_db: object, _o: object) -> rule_revision.RevisionMeasurement:
+        return _measurement(-0.07, +0.025)
+
+    monkeypatch.setattr(writeback, "measure_revision", _measured)
+    result = PostPlannerResult(innovations=[_revision({"ma_window_days": 100})])
+    assert await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None) == 1
+
+    row = (await db.query("SELECT status, enabled, trace FROM strategy WHERE id='strat-rev'"))[0]
+    assert row["status"] == "closed"  # drawdown improved but Sortino paid for it
+    assert row["enabled"] == 0
+    assert "-0.070" in row["trace"] and "+2.50pp" in row["trace"]  # the numbers, not a verdict word
+    ev = await db.query("SELECT payload FROM event_log WHERE type='RuleRevisionMeasuredEvent'")
+    assert json.loads(ev[0]["payload"])["verdict"] == "reject"
+
+
+async def test_a_measured_GOOD_revision_stays_proposed_because_the_gate_is_git(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one place ADR-006's no-user-gate does not reach: the knobs are module
+    constants in source, so nothing in the writeback can adopt them. A favourable
+    measurement is recorded and left standing for the owner."""
+    await _framework(db)
+
+    async def _measured(_db: object, _o: object) -> rule_revision.RevisionMeasurement:
+        return _measurement(+0.05, +0.03)
+
+    monkeypatch.setattr(writeback, "measure_revision", _measured)
+    result = PostPlannerResult(innovations=[_revision({"ma_window_days": 100})])
+    await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None)
+
+    row = (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]
+    assert row["status"] == "proposed"
+    ev = await db.query("SELECT payload FROM event_log WHERE type='RuleRevisionMeasuredEvent'")
+    assert json.loads(ev[0]["payload"])["verdict"] == "adopt"
+
+
+async def test_a_revision_naming_no_testable_knob_is_not_measured_at_all(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """'Gate the aggressive book on spread DECELERATION' is a real critique that
+    no knob expresses. The Worker left `parameters` empty rather than forcing it
+    into a button that does not fit — and an empty spec must not be answered
+    with a measurement of nothing."""
+    await _framework(db)
+
+    def _fail(_db: object, _o: object) -> None:
+        raise AssertionError("measured a revision that named no testable knob")
+
+    monkeypatch.setattr(writeback, "measure_revision", _fail)
+    result = PostPlannerResult(innovations=[_revision({"spread_acceleration_gate": True})])
+    await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None)
+
+    row = (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]
+    assert row["status"] == "proposed"
+    assert not await db.query("SELECT 1 FROM event_log WHERE type='RuleRevisionMeasuredEvent'")

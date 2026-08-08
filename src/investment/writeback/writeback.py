@@ -63,6 +63,11 @@ from investment.mechanical.market_signal import (
     TREND_HAVEN,
     Decision,
 )
+from investment.mechanical.rule_revision import (
+    extract_overrides,
+    measure_revision,
+    unknown_parameters,
+)
 from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ReallocationProposal
@@ -87,6 +92,11 @@ CONFRONTATION_EVENT = "ConfrontationEvent"
 EVALUATION_EVENT = "EvaluationEvent"
 SCENARIO_EVENT = "ScenarioEvent"
 INNOVATION_EVENT = "InnovationEvent"
+# A rule revision that named testable knobs, measured over the full 35y on the
+# spot (`mechanical/rule_revision.py`). Its own event type because it is a
+# VERDICT, not a proposal: the InnovationEvent above says what was asked, this
+# one says what the history answered.
+RULE_MEASUREMENT_EVENT = "RuleRevisionMeasuredEvent"
 SOURCE_UC = "UC8"
 _SCENARIO_KINDS = frozenset({"bull", "base", "bear"})
 _SCENARIO_SUM_TOLERANCE = 0.1
@@ -1065,7 +1075,93 @@ async def _commit_strategy_innovation(
     # holding a write transaction open across a full-history synthesis would
     # block the single writer for the whole cycle. Same split as the seed's.
     await _backfill_candidate_nav(db, strategy_id)
+    await _measure_rule_revision(db, strategy_id, proposal, spec, today)
     return strategy_id
+
+
+async def _measure_rule_revision(
+    db: InvestmentDB,
+    strategy_id: str,
+    proposal: ImprovementProposal,
+    spec: dict[str, Any],
+    today: date,
+) -> None:
+    """Measure a revision that named testable knobs, and CLOSE it on a refusal.
+
+    Without this, a rule revision was born to die of silence. `_base_allocation`
+    finds nothing — a revision changes the RULE, not a book — so no candidate
+    portfolio exists, no NAV, no FAVORS, and probation's unmeasurable backstop
+    closes it at the window with "never had evidence". But the evidence was one
+    second away: two 35y walks, baseline and variant on the same vintage. The
+    measurement path (`rule_revision`) shipped before this call site did, so the
+    system could answer these questions and simply never asked.
+
+    Three outcomes, ADR-006's shape:
+    - `adopt is False` -> `status='closed'`, and the numbers go in `trace`. A
+      MEASURED rejection, which the unmeasurable backstop can never be. It also
+      gives the recurrence an answer: the Worker proposed VCIT-in-the-overlay
+      twice across runs, and a closed strategy carrying "-0.01 Sortino, drawdown
+      unchanged" is how the second one gets met with evidence.
+    - `adopt is True` -> stays `proposed`. The knobs are module CONSTANTS in
+      source, so nothing here can adopt them; a favourable measurement is a case
+      put to the owner, and the digest is where it lands. This is the one place
+      the no-user-gate (ADR-006) does not reach, because the gate is `git`.
+    - `adopt is None` -> stays `proposed`, no verdict claimed.
+
+    Never raises into the chain: a malformed knob set must not cost the cycle
+    its other innovations (`_commit_innovation_safely`'s bargain, one level up)."""
+    overrides = extract_overrides(spec)
+    if overrides is None:
+        return
+    unknown = unknown_parameters(spec)
+    try:
+        measurement = await measure_revision(db, overrides)
+    except Exception:  # a knob the walk rejects is a spec defect, not a chain failure
+        logger.exception("rule revision '%s' could not be measured", proposal.title)
+        return
+
+    verdict = {True: "adopt", False: "reject", None: "unmeasurable"}[measurement.adopt]
+    logger.info(
+        "rule revision '%s' measured: %s %s%s",
+        proposal.title,
+        verdict,
+        overrides,
+        f" (untestable: {unknown})" if unknown else "",
+    )
+    now = datetime.now(UTC).isoformat()
+    async with db.transaction():
+        await db.append_event(
+            type=RULE_MEASUREMENT_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=strategy_id,
+            payload={
+                "title": proposal.title,
+                "overrides": overrides,
+                "untestable_parameters": unknown,
+                "verdict": verdict,
+                "sortino_delta": measurement.sortino_delta,
+                "drawdown_delta": measurement.drawdown_delta,
+                "baseline_turnover": measurement.baseline_turnover,
+                "variant_turnover": measurement.variant_turnover,
+            },
+            event_date=today,
+        )
+        # `adopt is False` only ever comes from two present deltas, but that is
+        # a fact about RevisionMeasurement, not one the type carries — read them
+        # back explicitly rather than assert it here.
+        sortino, drawdown = measurement.sortino_delta, measurement.drawdown_delta
+        if measurement.adopt is False and sortino is not None and drawdown is not None:
+            await db.command(
+                "UPDATE strategy SET status = 'closed', enabled = 0, date_revised = :today, "
+                "trace = trace || :reason, updated_at = :now WHERE id = :id",
+                id=strategy_id,
+                today=today.isoformat(),
+                reason=(
+                    f" [measured {today.isoformat()}: {overrides} -> "
+                    f"Sortino {sortino:+.3f}, drawdown {drawdown * 100:+.2f}pp — rejected]"
+                ),
+                now=now,
+            )
 
 
 def candidate_portfolio_id(strategy_id: str) -> str:

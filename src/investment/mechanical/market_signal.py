@@ -217,6 +217,16 @@ def describe_rule() -> str:
     and wrong SILENTLY, which is the exact failure this repairs. Change
     `TREND_SLEEVES` and this text changes with it.
 
+    That promise was only half kept, and it broke the same day. The sleeve list
+    and haven name interpolated, but the SENTENCE around them was hand-written
+    and said the overlay redirects below-trend sleeves to IEF, full stop — six
+    hours after the haven itself became trend-checked with a cash fallback. The
+    Worker read it, believed a 100% IEF book was still reachable, and spent an
+    innovation proposing the fallback that already existed. Every knob the rule
+    turns on is now interpolated: sleeves, haven, fallback, both windows and the
+    hysteresis count. Nothing about the mechanism is asserted in prose that a
+    constant could state instead — the test below asserts exactly that.
+
     It does NOT breach the Worker's unawareness of Planner/Writeback/storage
     (worker/agent.py): the stack is an INVESTMENT instrument whose output the
     Worker already reads and is invited to challenge. Telling it how the
@@ -225,17 +235,25 @@ def describe_rule() -> str:
         f"    {name}: " + ", ".join(f"{t} {w:.0f}" for t, w in holdings.items())
         for name, holdings in BOOKS.items()
     )
+    # The checked set is the sleeves PLUS the haven — `walk_decisions` computes
+    # `below_trend` over exactly this set, and the haven's own read is what
+    # selects TREND_FALLBACK_HAVEN. Deriving it here rather than naming the
+    # sleeves alone is what keeps this text true when the overlay changes.
+    checked = (*TREND_SLEEVES, TREND_HAVEN)
     return (
         "THE MECHANICAL RULE THAT DECIDED THIS MONTH (market-signal stack)\n"
-        "  1. Credit spread (BAA10Y) vs its 10-year trailing median, and yield\n"
-        "     slope (T10Y2Y) vs its own, select ONE of three books:\n"
+        f"  1. Credit spread (BAA10Y) vs its {MEDIAN_WINDOW_DAYS // 252}-year trailing\n"
+        "     median, and yield slope (T10Y2Y) vs its own, select ONE of three books:\n"
         f"{books}\n"
         f"  2. A book change is applied only after {CONFIRM_DECISIONS} consecutive\n"
         "     monthly decisions agree (hysteresis against boundary flip-flop).\n"
-        f"  3. 200-day trend overlay: {', '.join(TREND_SLEEVES)} — and ONLY these —\n"
-        f"     are checked against their own 200d moving average; whichever is\n"
-        f"     below is redirected to {TREND_HAVEN}. Sleeves outside that list are\n"
-        "     held at book weight whatever their own trend does.\n"
+        f"  3. {MA_WINDOW_DAYS}-day trend overlay: {', '.join(checked)} — and ONLY\n"
+        f"     these — are checked against their own {MA_WINDOW_DAYS}d moving average.\n"
+        f"     Whichever sleeve is below is redirected to {TREND_HAVEN}; and when\n"
+        f"     {TREND_HAVEN} is ITSELF below its own line, the destination becomes\n"
+        f"     {TREND_FALLBACK_HAVEN} instead — including the {TREND_HAVEN} a book\n"
+        "     already holds. Sleeves outside the checked set are held at book\n"
+        "     weight whatever their own trend does.\n"
         "  The rule reads PRICES only: no macro regime, no policy, no positioning."
     )
 
