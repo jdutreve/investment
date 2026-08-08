@@ -540,6 +540,14 @@ async def _cycle_with_retry(
     So a retry needs a MEANINGFUL share of the budget left, not merely a
     non-zero one (`RETRY_MIN_BUDGET_FRACTION`), and a timeout is never retried.
 
+    "A timeout" MEANS THIS FUNCTION'S DEADLINE, and only since 2026-08-08 does
+    the type say so unambiguously. A cut worker call raises
+    `WorkerCallExhausted`, not `TimeoutError` (see `worker.agent`), because for
+    one run it did raise `TimeoutError` and this clause read a 300-second call
+    budget as its own 1800-second one: the date was abandoned with 15 minutes
+    unspent. A call that keeps getting cut is a transient fault and belongs in
+    the ordinary retry path below; only the deadline reached here is arithmetic.
+
     AND IT RE-RUNS ONLY WHAT FAILED. The Planner's pre-phase is two LLM calls
     over a snapshot that does not change between attempts, so on a Worker
     failure it would re-buy an identical answer with time the first attempt just

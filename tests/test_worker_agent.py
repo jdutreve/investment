@@ -23,6 +23,7 @@ from investment.worker.agent import (
     WORKER_REQUEST_LIMIT,
     WORKER_SYSTEM_PROMPT,
     WORKER_TOOL_CALLS_LIMIT,
+    WorkerCallExhausted,
     build_system_prompt,
     build_worker_agent,
     load_skills,
@@ -375,3 +376,32 @@ async def test_a_cut_call_is_re_asked_immediately_not_left_to_the_date(
 
     assert calls["n"] == 2  # cut once, re-asked once, answered
     assert out is _OUTPUT
+
+
+async def test_exhausted_calls_do_not_masquerade_as_the_date_budget(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measured 2026-08-08 at 2009-01-02, the run after the call budget shipped.
+
+    Both calls were cut at 300s, `run_worker` re-raised the last `TimeoutError`
+    as-is, and `agentic_replay._cycle_with_retry` — whose `except TimeoutError`
+    can only have meant its OWN deadline — abandoned the date at 874s of 1800
+    with 15 minutes unspent, logging a bound that had not been reached.
+
+    The type is what tells the two bounds apart, so the type is what this test
+    pins: never `TimeoutError` out of here, whatever cut the calls, and the last
+    cause still attached for the log line that reports it."""
+    agent = build_worker_agent(db, "test/worker", "sk-test")
+
+    async def _always_cut(*args: object, **kwargs: object) -> object:
+        raise TimeoutError
+
+    monkeypatch.setattr(agent, "run", _always_cut)
+
+    with pytest.raises(WorkerCallExhausted) as caught:
+        await run_worker(agent, "context")
+
+    # A date-level handler keying on TimeoutError must NOT catch this one.
+    assert not isinstance(caught.value, TimeoutError)
+    assert isinstance(caught.value.__cause__, TimeoutError)
+    assert "TimeoutError" in str(caught.value)

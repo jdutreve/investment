@@ -81,6 +81,30 @@ WORKER_CALL_BUDGET_SECONDS = 300.0
 # and wrong for "one call was cut while the date still has twenty minutes".
 WORKER_CALL_ATTEMPTS = 2
 
+
+class WorkerCallExhausted(Exception):
+    """Every worker call attempt was cut or truncated. NOT a `TimeoutError`.
+
+    THE TYPE IS THE FIX. The comment above got the hazard right and stopped one
+    step short: re-asking here spares the date level a bubbled-up TimeoutError
+    only while a local attempt SUCCEEDS. When both are cut, the last one was
+    still re-raised as-is, and `_cycle_with_retry`'s `except TimeoutError` —
+    which can only mean "my own deadline fired", because nothing else raised
+    that type when it was written — read it as the date budget expiring.
+
+    Measured 2026-08-08 at 2009-01-02, one run after the budget shipped: two
+    calls cut at 300s each, the date abandoned at 874s of 1800 with 15 minutes
+    unspent, under a log line that named a bound which had not been reached.
+    A false cause in the log is the smaller half; refusing the retry that the
+    remaining budget had paid for is what lost the date.
+
+    So the two bounds now differ in TYPE, not only in duration: a date-level
+    TimeoutError still means "the budget is gone, retrying is arithmetic that
+    cannot work", and this means "the calls kept getting cut, the date may well
+    have time" — a transient fault like any other, routed to the ordinary retry
+    path and gated by `RETRY_MIN_BUDGET_FRACTION` like any other."""
+
+
 # The agentic-loop budget. `OUTPUT_RETRIES`/`TRANSPORT_RETRIES` bound schema and
 # transport faults; NEITHER bounds the tool loop, so before this a Worker that
 # kept calling `db_query` ran until the 300s timeout, billing every turn — the
@@ -347,9 +371,17 @@ async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerRe
         except (TimeoutError, json.JSONDecodeError) as exc:
             last = exc
             logger.warning(
-                "worker call attempt %d/%d cut or truncated (%s); re-asking",
+                # "re-asking" only when there IS another attempt: the last one
+                # said it too, and a log that announces a retry it will not run
+                # sends the reader looking for a third call that never existed.
+                "worker call attempt %d/%d cut or truncated (%s); %s",
                 attempt,
                 WORKER_CALL_ATTEMPTS,
                 type(exc).__name__,
+                "re-asking" if attempt < WORKER_CALL_ATTEMPTS else "giving the date its turn",
             )
-    raise last if last else RuntimeError("no worker attempt ran")
+    if last is None:  # unreachable: the loop runs at least once
+        raise RuntimeError("no worker attempt ran")
+    raise WorkerCallExhausted(
+        f"all {WORKER_CALL_ATTEMPTS} worker calls cut or truncated ({type(last).__name__}: {last})"
+    ) from last
