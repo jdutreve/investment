@@ -637,3 +637,17 @@ DOCUMENT_TABLES = {
     # a domain entity, but it is a table and it is counted.
     "curated_passage",
 }
+
+
+# Columns added to a table that already exists somewhere. `CREATE TABLE IF NOT
+# EXISTS` is a no-op on a live database, so a new column in the DDL above
+# reaches a fresh install and NOTHING else — the code then fails at runtime on
+# "no such column", which is exactly what happened to `proposal.citation_verdict`
+# on 2026-08-08.
+#
+# Applied idempotently after the schema script. This is NOT the numbered
+# migration convention: CLAUDE.md starts that at the first POST-go-live change,
+# and V1 is still pre-go-live. It is the smallest thing that keeps an existing
+# database in step with the DDL, and every entry should be deleted the day the
+# real migrations begin.
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (("proposal", "citation_verdict", "TEXT"),)

@@ -41,6 +41,7 @@ from typing import Any, TypeVar
 from ulid import ULID
 
 from investment.db.schema import (
+    ADDED_COLUMNS,
     DOCUMENT_TABLES,
     ENTITY_TABLES,
     RELATION_TABLES,
@@ -91,6 +92,10 @@ class InvestmentDB:
         for pragma in ("journal_mode=WAL", "synchronous=NORMAL", "foreign_keys=ON"):
             self._con.execute(f"PRAGMA {pragma}")
         self._con.executescript(SCHEMA_SQL)
+        for table, column, decl in ADDED_COLUMNS:
+            existing = {r["name"] for r in self._con.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                self._con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
         self._columns_cache: dict[str, set[str]] = {}
         # Transaction-granularity serialization (see module docstring). The
         # owner task is tracked alongside the lock because the transaction's OWN
