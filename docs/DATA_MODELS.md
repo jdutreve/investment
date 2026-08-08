@@ -501,7 +501,9 @@ Portfolio {
   framework_id         : STRING  -- references Framework vertex; ex: '4seasons'
   defender             : BOOLEAN -- true = current defender. Exactly one in V1.
   enabled              : BOOLEAN -- false = excluded from ranking
-  currency             : STRING  -- user display currency (CHF)
+  currency             : STRING  -- USD end to end (owner, 2026-08-08): display,
+                                 -- NAV and performance. Was CHF; the label
+                                 -- contradicted every portfolio_nav row.
   benchmark            : STRING  -- benchmark ticker for this portfolio (Portfolio-level,
                                  --   not Strategy-level)
   allocation           : MAP     -- concrete ETF allocation, mandatory

@@ -146,7 +146,16 @@ class Settings(BaseSettings):
     telegram_chat_id: str
 
     # User profile defaults (BINDING rules — see docs/REVISION_NOTES.md)
-    user_currency: str = "CHF"
+    # USD, not CHF (owner, 2026-08-08): everything in this system is USD —
+    # display, NAV, performance. The CHF default was the last survivor of an
+    # earlier assumption already retired elsewhere: `ratios.TRADING_COST_BPS`
+    # records on 2026-08-02 that "every portfolio in this system is
+    # USD-denominated and held in a USD account", and both `user_profile` and
+    # all 113k `portfolio_nav` rows already said USD while the 12 `portfolio`
+    # rows still said CHF. A label contradicting the data around it is the same
+    # class of defect as the FAVORS drawdown aggregate: it misleads every
+    # reader, including the Worker, which sees these rows.
+    user_currency: str = "USD"
     # ADR-007: raised from -15 for the accumulation-horizon market-signal stack;
     # applies to the STACK's realized drawdown, not each book's standalone one.
     user_max_drawdown_pct: float = -25.0

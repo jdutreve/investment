@@ -116,7 +116,8 @@ vintages — ADR-003; 35y backfill →1991 via HISTORY_PROXIES splice) ·
 Telegram bot + `invest` CLI + local dashboard 127.0.0.1:8765 — three fronts
 of ONE command layer `ops/commands.py` (ADR-005): reads direct on SQLite,
 writes only through the running agent. All indicators USD (rf = ^IRX);
-CHFUSD=X for display only. Full table: docs/TASKS.md Phase 0.
+USD end to end — display, NAV and performance (owner, 2026-08-08); CHFUSD=X is
+tracked but unused. Full table: docs/TASKS.md Phase 0.
 
 ## Non-negotiable rules
 
