@@ -707,6 +707,38 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
         return results
     run = await market_signal.run_market_signal(db, end=date.today())
     stack = await market_signal.persist_stack_nav(db, run, window)
+    # ...and the ALLOCATION column with it. Without this the seed leaves the
+    # literal from `seed_data.PORTFOLIOS` — a book the walk it just ran
+    # contradicts, and by a lot: on 2026-08-08 the row said SPY 50 / IWN 40 /
+    # GLD 10 while the rule's target was VCIT 50 / cash 40 / IWN 10, ninety
+    # points apart. Only `dispose_market_signal` moved this column, and that
+    # runs in the LIVE monthly cycle (M9), so on a freshly seeded database the
+    # row is wrong from the first second and nothing reconciles it.
+    #
+    # The walk is already in hand — it was just run to build the NAV — so the
+    # seed has the right answer and was throwing it away. Third instance today
+    # of a column whose name promises more than it carried (`portfolio.currency`
+    # said CHF, FAVORS `max_drawdown` was a mean); this one the seed can fix
+    # itself.
+    # ONLY WHEN NOTHING HAS EVER DECIDED. `dispose_market_signal` deliberately
+    # leaves this column untouched on a blocked or no-change decision — "which
+    # is the truth", since the stack is then frozen OFF its target — and
+    # `test_reseeding_does_not_reset_the_stack_held_allocation` pins that a
+    # re-seed must not reset it either. Writing the walk's target
+    # unconditionally would clobber exactly those legitimate states.
+    #
+    # With no decision event at all there is no held state to protect: the
+    # column holds a seed literal and the rule's answer is strictly better.
+    decided = await db.query(
+        "SELECT 1 FROM event_log WHERE type = 'MarketSignalDecisionEvent' LIMIT 1"
+    )
+    if run.decisions and not decided:
+        await db.command(
+            "UPDATE portfolio SET allocation = :alloc, updated_at = :now WHERE id = :id",
+            alloc=json.dumps(run.decisions[-1].target),
+            now=datetime.now(UTC).isoformat(),
+            id=market_signal.STACK_PORTFOLIO_ID,
+        )
     results[market_signal.STACK_PORTFOLIO_ID] = dataclasses.asdict(stack)
     return results
 

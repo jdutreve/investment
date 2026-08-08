@@ -183,3 +183,46 @@ async def test_reseeding_does_not_reset_the_stack_held_allocation(tmp_path: Path
         assert stack_id in TIME_VARYING_PORTFOLIOS
     finally:
         await db.close()
+
+
+async def test_a_never_decided_stack_row_gets_the_rule_s_answer(tmp_path: Path) -> None:
+    """On a database where the LIVE monthly cycle has never run, `ms-stack`
+    carried the literal from `seed_data.PORTFOLIOS` — a book the walk run
+    seconds earlier contradicted. Measured on the live DB 2026-08-08: the row
+    said SPY 50 / IWN 40 / GLD 10 while the rule's target was VCIT 50 / cash 40
+    / IWN 10, ninety points apart, with `MarketSignalDecisionEvent` count 0.
+
+    The column means WHAT IS HELD. With nothing ever decided there is no held
+    state to protect and the seed already has the right answer in hand — it just
+    ran the walk to build the NAV. Bounded to that case precisely, because a
+    blocked decision legitimately freezes the row OFF its target and the test
+    above pins that a re-seed must not reset it."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_static_graph_and_market_data(db, settings)
+        # the two signals that pick the book — absent from the shared fixture,
+        # which only needs the sleeves
+        rows = await db.query("SELECT DISTINCT ts FROM market_data ORDER BY ts")
+        for ticker, level in ((market_signal.CREDIT_SPREAD, 2.0), (market_signal.YIELD_SLOPE, 1.0)):
+            await db.append_ts_batch(
+                "market_data",
+                [
+                    {
+                        "ts": str(r["ts"]),
+                        "ticker": ticker,
+                        "asset_class": "MACRO",
+                        "currency": "USD",
+                        "level": level,
+                    }
+                    for r in rows
+                ],
+            )
+        await seed._seed_portfolio_nav(db)
+
+        stack_id = market_signal.STACK_PORTFOLIO_ID
+        run = await market_signal.run_market_signal(db)
+        row = await db.query("SELECT allocation FROM portfolio WHERE id = :i", i=stack_id)
+        assert json.loads(str(row[0]["allocation"])) == run.decisions[-1].target
+    finally:
+        await db.close()
