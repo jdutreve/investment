@@ -20,7 +20,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
-from typing import Any
+from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
 
@@ -50,6 +50,11 @@ class Baseline:
     top_invariants: list[dict[str, Any]]  # 3 relevance buckets, integrated, ≤20 deduped
     recent_proposals: list[dict[str, Any]]  # last 3, any status
     market_signal: dict[str, Any]  # latest live market-signal decision (ADR-007); {} if none
+    # Default-empty because absent IS empty and both callers can hit it: no
+    # current regime means no per-regime standings to show, and a database with
+    # no MACRO rows is a legitimate early state rather than an error.
+    favors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 # -- pure core --------------------------------------------------------------
@@ -136,6 +141,49 @@ async def _global_liquidity(db: InvestmentDB) -> dict[str, Any]:
         "ORDER BY ts DESC LIMIT 1"
     )
     return dict(rows[0]) if rows else {}
+
+
+async def _favors(db: InvestmentDB, regime_type_id: str | None) -> list[dict[str, Any]]:
+    """Every strategy's FAVORS standing in the CURRENT regime type.
+
+    The single biggest thing the Worker was buying with its own tool calls:
+    across the two M8b runs it queried this table 37 times, more than anything
+    else, because "which strategy suits this regime" is central to its job and
+    the table was absent from its context entirely.
+
+    Scoped to the current regime type, not the whole table. FAVORS is per-regime
+    precisely so a Sortino earned in stagflation is not compared against a
+    disinflation peer group (`outcomes._fallback_regime` makes the same point),
+    and handing it all five would invite exactly that comparison."""
+    if not regime_type_id:
+        return []
+    rows = await db.query(
+        "SELECT strategy_id, sharpe_rolling, sortino_rolling, calmar_rolling, max_drawdown, "
+        "n_periods FROM favors WHERE regime_type_id = :rt ORDER BY sortino_rolling DESC",
+        rt=regime_type_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
+    """The latest level/speed/acceleration of every MACRO series.
+
+    Fetched 15 times across the two M8b runs, one ticker list at a time. The
+    Worker reads WEATHER (docs/ARCHITECTURE.md WORKER persona) and its context
+    carried exactly two macro readings — the regime label and global liquidity —
+    so CPI, the curve, the credit spread and the real rate all cost it tool
+    calls it could have spent on portfolios and tickers instead.
+
+    Latest row per ticker, so a series that stopped updating shows its last
+    knowable print rather than disappearing (ADR-003: a stale print IS what was
+    knowable; `alerts.signal_freshness_alert` is what reports the staleness)."""
+    rows = await db.query(
+        "SELECT m.ticker, m.ts, m.level, m.speed, m.acceleration FROM market_data m "
+        "JOIN (SELECT ticker, MAX(ts) AS ts FROM market_data WHERE asset_class = 'MACRO' "
+        "      GROUP BY ticker) last ON last.ticker = m.ticker AND last.ts = m.ts "
+        "ORDER BY m.ticker"
+    )
+    return [dict(r) for r in rows]
 
 
 async def _ranking(db: InvestmentDB) -> list[dict[str, Any]]:
@@ -241,22 +289,31 @@ async def gather_baseline(db: InvestmentDB) -> Baseline:
     Steps") — the spec's 5, plus the live market-signal decision ADR-007 made
     the allocation path. The independent reads gather concurrently; bucket ④
     then runs against the resolved regime + ranking (see module docstring)."""
-    (
-        regime,
-        global_liquidity,
-        ranking,
-        scenarios,
-        recent_proposals,
-        market_signal,
-    ) = await asyncio.gather(
+    results = await asyncio.gather(
         _regime(db),
         _global_liquidity(db),
         _ranking(db),
         _scenarios(db),
         _recent_proposals(db),
         _market_signal(db),
+        _macro(db),
     )
-    top_invariants = await _top_invariants(db, regime, ranking)
+    # Unpacked after the gather rather than in the assignment: mypy widens a
+    # heterogeneous `gather` to the join of its element types, so the tuple form
+    # types every field as that join and every downstream use errors.
+    regime = cast(dict[str, Any], results[0])
+    global_liquidity = cast(dict[str, Any], results[1])
+    ranking = cast(list[dict[str, Any]], results[2])
+    scenarios = cast(list[dict[str, Any]], results[3])
+    recent_proposals = cast(list[dict[str, Any]], results[4])
+    market_signal = cast(dict[str, Any], results[5])
+    macro = cast(list[dict[str, Any]], results[6])
+    # FAVORS needs the resolved regime type, so it runs after the gather — the
+    # same sequencing bucket ④ has, and for the same reason.
+    top_invariants, favors = await asyncio.gather(
+        _top_invariants(db, regime, ranking),
+        _favors(db, regime.get("regime_type_id")),
+    )
     return Baseline(
         regime=regime,
         global_liquidity=global_liquidity,
@@ -265,4 +322,6 @@ async def gather_baseline(db: InvestmentDB) -> Baseline:
         top_invariants=top_invariants,
         recent_proposals=recent_proposals,
         market_signal=market_signal,
+        favors=favors,
+        macro=macro,
     )

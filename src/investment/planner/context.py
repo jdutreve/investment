@@ -77,6 +77,8 @@ class PlannerContext:
     # validated over 35 years; the Worker's job is to nuance and challenge that
     # reading (docs/V1_STRATEGY.md Step 4), never to re-pick the book.
     market_signal: dict[str, Any] = dataclasses.field(default_factory=dict)
+    favors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 # -- pure core: the pool the selection is validated against -----------------
@@ -221,6 +223,8 @@ def assemble_context(
         passages=passages,
         notes=selection.notes,
         market_signal=baseline.market_signal,
+        favors=baseline.favors,
+        macro=baseline.macro,
     )
 
 

@@ -247,6 +247,37 @@ def render_context_for_worker(context: PlannerContext) -> str:
             f"  {sc.get('strategy_id')}/{sc.get('name') or sc.get('scenario')}: "
             f"{sc.get('probability')} ({sc.get('shift', 0.0):+})"
         )
+    # THE MACRO TAPE AND THE REGIME STANDINGS, handed over rather than sold.
+    # Measured across the two M8b runs: the Worker spent 37 tool calls
+    # re-querying FAVORS and 15 fetching MACRO series, out of a budget meant for
+    # checking the books and tickers it is about to name. Its context carried
+    # exactly two macro readings — the regime label and global liquidity — while
+    # the persona asks it to read the WEATHER.
+    #
+    # FAVORS is scoped to the CURRENT regime type (baseline `_favors`): the table
+    # is per-regime precisely so a Sortino earned in stagflation is not compared
+    # against a disinflation peer group.
+    if context.macro:
+        lines.append("")
+        lines.append("MACRO TAPE (level / speed / acceleration, latest knowable):")
+        for row in context.macro:
+            lines.append(
+                f"  {row.get('ticker')}: {row.get('level')} "
+                f"(speed {row.get('speed')}, accel {row.get('acceleration')}) "
+                f"as of {row.get('ts')}"
+            )
+    if context.favors:
+        lines.append("")
+        lines.append(
+            f"STRATEGY STANDINGS in {context.regime.get('regime_type_id', 'this regime')} "
+            "(FAVORS, sortino DESC):"
+        )
+        for row in context.favors:
+            lines.append(
+                f"  {row.get('strategy_id')}: sortino {row.get('sortino_rolling')}, "
+                f"calmar {row.get('calmar_rolling')}, maxDD {row.get('max_drawdown')} "
+                f"over n={row.get('n_periods')}"
+            )
     lines.append("")
     lines.append("INVARIANTS (lighthouses — [CITABLE] may support a reallocation):")
     citable = 0
