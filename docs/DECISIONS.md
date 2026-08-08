@@ -482,6 +482,33 @@ cap still binds every other sleeve and every seeded-portfolio proposal (the
 `exempt` default is empty). This is why it does not reopen the "binding caps bind
 ALL candidacy" principle — it is a named exception, not a hole.
 
+**Second addendum, extended (2026-08-08, owner sign-off) — the exemption covers
+the whole haven CHAIN, cash included.** The addendum above says "only IEF", and
+that WAS the whole chain when it was written. On 2026-08-07 the haven itself
+became trend-checked with a cash fallback (when IEF is below its own 200d, the
+redirect goes to cash, which cannot fall) — and the exemption did not follow the
+new destination. Measured on the M8b agentic run of 2026-08-08: at four of the
+seven inflation-shock dates (2022-03-01, -05-02, -06-01, -07-01) all four
+checked instruments were below trend, the overlay produced the 100%-cash target,
+and `max_single_asset_pct` refused it. The stack held its stale book through the
+2022 drawdown.
+
+A SECOND block sat behind it, found only by widening the test that was supposed
+to prove no reachable state is refused: `cash` is not in `allowed_tickers`
+(those are instruments with a price series), so the gate refused the fallback as
+an unknown sleeve at ANY weight, not just at 100%. The log named only the cap
+because that gate runs first.
+
+Decision: `HAVEN_EXEMPT = {IEF, cash}`, defined once in `market_signal.py` and
+used by both enforcement sites, and the cash fallback is accepted by the
+tradable-ticker check. Rationale: ADR-009's own argument, transferred from the
+drawdown leg to the concentration leg — refusing a proposal cannot exit a
+position, only FREEZE one, and the proposal being refused here is precisely the
+overlay's flight to safety. Cash at 100% is not a conviction bet; it is the
+absence of one, and the only destination left when every checked instrument is
+falling. Scope stays narrow and named: the cap binds every other sleeve and
+every seeded-portfolio proposal, the `exempt` default is still empty.
+
 **Third addendum (2026-07-20, owner sign-off) — the 3 books are renamed after
 the SIGNAL STATE, not after a macro regime.** The books were seeded as
 `growth` / `inflation` / `slowdown`, names that assert a macro reading they do
@@ -645,8 +672,11 @@ drawdown trigger on a monthly cadence arrives mechanically after the hole.
   (`mechanical/alerts.py`) and changes nothing the system does. The protection
   remains the 200d overlay.
 - `market_signal_gates` keeps only sum-to-100, the single-asset cap (with the
-  IEF trend-haven exemption) and allowed-tickers, documented for what they are:
-  **regression guards** against a config or code change, not a safety control.
+  haven-chain exemption: IEF **and the cash fallback** — ADR-007's second
+  addendum as extended 2026-08-08) and allowed-tickers (which the cash fallback
+  is exempt from too, cash having no price series), documented for what they
+  are: **regression guards** against a config or code change, not a safety
+  control.
 
 **Also recorded here, previously only in code comments.** The market-signal path
 is exempt from the 4-week anti-repetition cooldown, from UC8-B gate 6

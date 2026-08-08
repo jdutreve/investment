@@ -178,7 +178,11 @@ ADR-009 scopes the DRAWDOWN leg out of the market-signal path**: it is measured
 there on the stack's 36-month rolling drawdown and raises a digest ALERT,
 because refusing a proposal cannot exit a position, only freeze one — and the
 proposal blocked during a drawdown is the 200d overlay's flight to safety. The
-concentration cap still binds (with the IEF trend-haven exemption).
+concentration cap still binds, EXCEPT on the haven chain — `HAVEN_EXEMPT` =
+IEF **and the cash fallback** (ADR-007's second addendum, extended 2026-08-08
+after the cap froze the stack in its stale book on four of the seven 2022 dates
+of the M8b run). Same reason as the drawdown leg: a refusal cannot exit a
+position, and the target being refused was the flight to safety itself.
 
 **Trading costs (ADR-010)** — ONE rate, `ratios.TRADING_COST_BPS` = **23 bps
 per order** (Saxo actual; no FX leg, every portfolio is USD in a USD account),

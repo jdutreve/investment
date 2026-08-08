@@ -11,6 +11,7 @@ month is a no-op; and the +12w outcome path scores the result against what was
 HELD rather than against the book's static row.
 """
 
+import itertools
 import json
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
@@ -260,20 +261,26 @@ def test_no_reachable_book_state_can_be_refused() -> None:
     across every book x overlay state the strategy can actually reach, no gate
     refuses. These are REGRESSION GUARDS against a config or code change, not a
     safety control on the allocation — and a future reader must not mistake the
-    one for the other."""
+    one for the other.
+
+    THE STATES ARE DERIVED FROM THE CHECKED SET, not listed. Hand-listed, they
+    were {}, {SPY}, {GLD}, {SPY,GLD} — four subsets of a two-sleeve overlay,
+    frozen there while the overlay grew to check IWN and then the haven itself.
+    The unlisted states were not rare: `IEF below trend` is the one that sends
+    the book to 100% cash, it was refused by the single-asset cap, and it hit
+    four of the seven 2022 dates on the M8b run of 2026-08-08 — a state this
+    test asserted was unreachable while the strategy reached it monthly. A
+    guard that enumerates by hand stops guarding the day the code grows."""
     caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
     allowed = frozenset(MS.STACK_TICKERS)
+    checked = (*MS.TREND_SLEEVES, MS.TREND_HAVEN)
     states = [
-        (book, below)
+        (book, frozenset(below))
         for book in MS.BOOKS
-        for below in (
-            frozenset(),
-            frozenset({"SPY"}),
-            frozenset({"GLD"}),
-            frozenset({"SPY", "GLD"}),
-        )
+        for r in range(len(checked) + 1)
+        for below in itertools.combinations(checked, r)
     ]
-    assert len(states) == 12
+    assert len(states) == len(MS.BOOKS) * 2 ** len(checked)
     for book, below in states:
         target = MS.apply_trend_overlay(MS.BOOKS[book], below)
         assert W.market_signal_gates(target, {}, caps, allowed).passed, (book, below)

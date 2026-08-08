@@ -59,7 +59,9 @@ from investment.mechanical.invariants import compute_weight_update, mature_seed_
 from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
     CONFIRM_DECISIONS,
+    HAVEN_EXEMPT,
     STACK_PORTFOLIO_ID,
+    TREND_FALLBACK_HAVEN,
     TREND_HAVEN,
     Decision,
 )
@@ -508,11 +510,14 @@ def market_signal_gates(
     They assert the code still agrees with ADR-007; they do not protect capital.
 
     1. the target sums to 100 (a malformed book is a bug, not an allocation);
-    2. `max_single_asset_pct`, with TREND_HAVEN exempt — the overlay can pile
-       both equity/gold sleeves into IEF (~90% in risk-off), the deliberate
-       flight to safety the validated -23.8% includes (ADR-007 addendum, choice
-       (a)). Same predicate and exemption as `market_signal.cap_violations`
-       applies over the 35y backtest;
+    2. `max_single_asset_pct`, with the haven CHAIN exempt (`HAVEN_EXEMPT`) —
+       the overlay can pile both equity/gold sleeves into IEF (~90% in
+       risk-off), the deliberate flight to safety the validated -23.8%
+       includes (ADR-007 addendum, choice (a)), and all of it into cash when
+       IEF is itself below trend (owner, 2026-08-08, after this gate froze the
+       stack in its stale book on four of the seven 2022 dates of the M8b run).
+       Same predicate and exemption as `market_signal.cap_violations` applies
+       over the 35y backtest;
     3. every sleeve is an active tradable ticker.
 
     THE DRAWDOWN RULE IS NOT HERE, and that is the correction this function
@@ -557,9 +562,18 @@ def market_signal_gates(
         return GateOutcome.refused("held_allocation_well_formed")
     if abs(sum(target.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return GateOutcome.refused("allocation_sums_to_100")
-    if not concentration_ok(target, caps, exempt=frozenset({TREND_HAVEN})):
+    if not concentration_ok(target, caps, exempt=HAVEN_EXEMPT):
         return GateOutcome.refused("max_single_asset_pct")
-    unknown = set(target) - allowed_tickers
+    # CASH IS NOT A TICKER, it is the absence of a position, and this check is
+    # about tradability: `allowed_tickers` comes from the instruments with a
+    # price series (STACK_TICKERS drives `ratios.load_price`), which cash has
+    # none of and needs none of — `shadow_book_nav` accrues it at the risk-free
+    # rate. Without this the cash fallback was refused here as an "unknown
+    # sleeve", a SECOND block behind the concentration cap: the cap refused it
+    # only at 100%, this refused it at any weight. The M8b log named only the
+    # cap because that gate is tested first, so lifting the cap alone would have
+    # moved the refusal down one line and looked like a fix.
+    unknown = set(target) - allowed_tickers - {TREND_FALLBACK_HAVEN}
     if unknown:
         return GateOutcome.refused("allowed_tickers")
     return GateOutcome(passed=True)
@@ -724,8 +738,16 @@ def _market_signal_reasoning(decision: Decision, held_allocation: dict[str, floa
             f"'{decision.held}'."
         )
     below = decision.below_trend
+    # THE DESTINATION IS CONDITIONAL, so the sentence has to be too. This read
+    # "-> redirected to IEF" unconditionally, written when IEF was the only
+    # destination there was, and it kept saying so after the haven became
+    # trend-checked with a cash fallback (2026-08-07) — stating the opposite of
+    # the target printed in the very next clause on the four 2022 dates where
+    # IEF was itself below its line. Same defect as `describe_rule()` the same
+    # week (93e7abd), in the text the OWNER reads to place the order.
+    haven = TREND_FALLBACK_HAVEN if TREND_HAVEN in below else TREND_HAVEN
     parts.append(
-        f"200d overlay: {', '.join(below)} below trend -> redirected to {TREND_HAVEN}."
+        f"200d overlay: {', '.join(below)} below trend -> redirected to {haven}."
         if below
         else "200d overlay: no sleeve below trend, the book is held as designed."
     )

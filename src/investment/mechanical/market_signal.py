@@ -136,6 +136,27 @@ TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD", "IWN")
 TREND_HAVEN = "IEF"
 TREND_FALLBACK_HAVEN = ratios.CASH_TICKER
 
+# BOTH DESTINATIONS OF THE HAVEN CHAIN ARE EXEMPT FROM THE SINGLE-ASSET CAP
+# (owner, 2026-08-08), defined once because two call sites enforce it and their
+# docstrings promise each other they use "the same exemption".
+#
+# The ADR-007 addendum exempted IEF, and that was the whole chain at the time.
+# When the haven became trend-checked with a cash fallback (2026-08-07), the
+# exemption did not follow it, and the flight to safety became unreachable in
+# exactly the tape that needs it: measured on the M8b run of 2026-08-08, four of
+# the seven inflation-shock dates (2022-03-01, -05-02, -06-01, -07-01) had all
+# four sleeves AND the haven below trend, produced the 100%-cash target, and had
+# it refused by the 50% cap. The stack sat in its stale book through the 2022
+# drawdown.
+#
+# ADR-009 had already reasoned this out for the DRAWDOWN leg — refusing a
+# proposal cannot exit a position, only freeze one, and the proposal blocked
+# during a drawdown IS the overlay's flight to safety — and scoped that leg out
+# of this path. The argument transfers wholesale to the concentration leg: cash
+# at 100% is not a conviction bet, it is the absence of one, and it is the only
+# destination left when every checked instrument is falling.
+HAVEN_EXEMPT = frozenset({TREND_HAVEN, TREND_FALLBACK_HAVEN})
+
 # The STACK itself as a Portfolio vertex — the object that is actually held, as
 # opposed to the 3 books, which are only ever held conditionally and always
 # through the overlay. It exists so the stack has a `portfolio_nav` series like
@@ -502,9 +523,11 @@ def cap_violations(run: MarketSignalRun, caps: Caps, stack_drawdown: float | Non
     applied to the stack, not to each book standalone — ADR-007). Returns the
     failing gate names, [] if none.
 
-    TREND_HAVEN is exempted from the single-asset cap (ADR-007 addendum,
-    choice (a)): the overlay's flight-to-safety can pile both equity/gold sleeves
-    into IEF (~90% in risk-off), which is the deliberate drawdown control, not a
+    The haven CHAIN is exempted from the single-asset cap (`HAVEN_EXEMPT`:
+    ADR-007 addendum choice (a) for IEF, extended to the cash fallback by the
+    owner on 2026-08-08): the overlay's flight-to-safety can pile both
+    equity/gold sleeves into IEF (~90% in risk-off) and, when IEF is itself
+    below trend, all of it into cash — the deliberate drawdown control, not a
     conviction bet. Uses the SAME `gates.py` predicate the live Writeback runs,
     with the same exemption, so a book blocked live was blocked here too.
 
@@ -515,9 +538,8 @@ def cap_violations(run: MarketSignalRun, caps: Caps, stack_drawdown: float | Non
     asserts, whereas live the rule is a 36-month rolling ALERT and never blocks
     (ADR-009). Called by the M6-bis validation and by `test_market_signal.py`."""
     violations: list[str] = []
-    haven = frozenset({TREND_HAVEN})
     for t, book in sorted(run.targets.items()):
-        if not concentration_ok(book, caps, exempt=haven):
+        if not concentration_ok(book, caps, exempt=HAVEN_EXEMPT):
             violations.append(f"max_single_asset_pct@{t.date()}")
     if not drawdown_ok(stack_drawdown, caps):
         violations.append("max_drawdown_pct@stack")

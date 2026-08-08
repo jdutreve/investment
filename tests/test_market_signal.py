@@ -77,6 +77,28 @@ def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
     assert concentration_ok(book, caps, exempt=frozenset({market_signal.TREND_HAVEN}))
 
 
+def test_the_cash_fallback_is_exempt_too_or_the_flight_to_safety_is_unreachable() -> None:
+    """Owner, 2026-08-08, from the M8b run's four blocked 2022 dates.
+
+    When the haven is ITSELF below trend the overlay sends everything to cash,
+    and the exemption did not follow the destination when the fallback shipped
+    the day before. On 2022-03-01, -05-02, -06-01 and -07-01 that produced a
+    100%-cash target refused by the 50% cap, and the stack held its stale book
+    through the drawdown — a refusal freezing the very move the overlay exists
+    to make (the ADR-009 argument, transferred to the concentration leg)."""
+    from investment.mechanical.gates import Caps, concentration_ok
+
+    all_below = frozenset({"SPY", "GLD", "IWN", market_signal.TREND_HAVEN})
+    book = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], all_below)
+    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+
+    assert book == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
+    assert not concentration_ok(book, caps)  # 100 breaches the cap unexempted
+    # The IEF-only exemption is what shipped, and it is what blocked these dates.
+    assert not concentration_ok(book, caps, exempt=frozenset({market_signal.TREND_HAVEN}))
+    assert concentration_ok(book, caps, exempt=market_signal.HAVEN_EXEMPT)
+
+
 def test_build_targets_emits_only_on_change() -> None:
     # Two decision dates in the same (credit-spread-wide) regime, above trend -> one target.
     idx = pd.to_datetime(["2020-01-06", "2020-02-03"])
