@@ -493,6 +493,22 @@ async def _latest_proposal(
         None,
     )
     proposal["current_allocation"] = _json_map(current.get("allocation")) if current else {}
+    # PREFER THE PROPOSAL'S OWN DIFF. The ranking lookup above is a Monday
+    # photograph and misses the target entirely once it is not a ranked
+    # defender — and worse, since 2026-08-08 an accepted reallocation MOVES the
+    # book it targets (`writeback._commit_reallocation`), so by digest time the
+    # portfolio row already holds the NEW allocation and any "before" read from
+    # live state would render a change of nothing.
+    #
+    # `gap.allocation_diff` is written inside the same transaction as the
+    # proposal and is immutable, so `current = proposed - diff` is the one
+    # reconstruction that cannot go stale.
+    diff = _json_map(proposal.get("gap")).get("allocation_diff")
+    if isinstance(diff, dict):
+        proposed = proposal["proposed_allocation"]
+        proposal["current_allocation"] = {
+            t: float(proposed.get(t, 0.0)) - float(delta) for t, delta in diff.items()
+        }
     return proposal
 
 

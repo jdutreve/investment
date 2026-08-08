@@ -69,6 +69,15 @@ async def _seed(db: InvestmentDB) -> None:
         "trace) VALUES ('2026-07-20', 'def-pf', 1, '4s', "
         "'{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', 1, 1.18, 1.9, '{}', 'maintain', 't')"
     )
+    # The cognitive book the Worker reallocates (decision_cycle.WORKER_BOOK_ID),
+    # seeded at the defender's allocation as db/seed_data.py does.
+    await cmd(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('worker-book', 'Cognitive Book', '4s', 0, 1, 'CHF', 'b', "
+        "'{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', -25.0, 50.0, 'accumulation', 'tr', "
+        "'2026-01-01')"
+    )
     for tk, cls in (("SPY", "equities"), ("GLD", "gold-commodities"), ("IEF", "bonds")):
         await cmd(
             "INSERT INTO allowed_tickers (ticker, asset_class, currency, source, transform, "

@@ -342,13 +342,31 @@ async def _commit_reallocation(
                 pid=proposal_id,
                 iid=invariant_id,
             )
-        # Upgrade the defender's latest snapshot recommendation so the digest
+        # Upgrade the target's latest snapshot recommendation so the digest
         # reflects that a paper-test was emitted (no-op if no snapshot yet).
         await db.command(
             "UPDATE portfolio_weekly_snapshot SET recommendation = 'paper-test' "
             "WHERE portfolio_id = :pid AND date = "
             "(SELECT MAX(date) FROM portfolio_weekly_snapshot WHERE portfolio_id = :pid)",
             pid=defender_id,
+        )
+        # THE BOOK ACTUALLY MOVES. Same treatment `dispose_market_signal` gives
+        # `ms-stack`, and for the same reason: the `allocation` column records
+        # what is HELD, so a passing proposal must move it or the row describes a
+        # book nobody holds. Without this the cognitive book would have no NAV of
+        # its own — every proposal would be recorded and none would ever change
+        # anything, which is precisely the state that left the Worker judged on
+        # five stitched-together 12-week windows.
+        #
+        # Inside the transaction, after the EventLog appends, and only on a
+        # proposal that passed every gate. Still paper: V1 executes nothing
+        # (ADR-006) and the owner alone places orders — this is what the book
+        # WOULD have held, priced like every other paper series in the ranking.
+        await db.command(
+            "UPDATE portfolio SET allocation = :alloc, updated_at = :now WHERE id = :id",
+            alloc=json.dumps(reallocation.proposed_allocation),
+            now=datetime.now(UTC).isoformat(),
+            id=defender_id,
         )
     return proposal_id
 

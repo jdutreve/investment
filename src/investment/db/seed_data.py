@@ -1700,6 +1700,48 @@ PORTFOLIOS: list[dict[str, object]] = [
         "held as written, so only this row carries the strategy's realized "
         "drawdown, which is what the -25% cap binds.",
     },
+    # THE COGNITIVE BOOK — the Worker's own allocation, and the reason it exists
+    # is the same one that gave `ms-stack` a row (owner decision 2026-08-08).
+    #
+    # Until now the Worker reallocated the BRIDGE DEFENDER, which is also the
+    # mechanical bridge's own book. Two consequences, both bad. Judging the
+    # Worker meant stitching together disjoint 12-week proposal outcomes — five
+    # observations across the whole M8b screen, which can carry no signal. And
+    # the M8b delta "A' - A" compared two whole policies rather than isolating
+    # the cognitive one, because the same portfolio was the canvas for both.
+    #
+    # As its own row it accumulates ONE NAV, every day, ranked against everything
+    # else by the rule CLAUDE.md already applies to all of them: "all enabled
+    # portfolios ranked together, never privileged". If it ranks last for a year,
+    # that is the answer, and no interpretation is needed to read it.
+    #
+    # IT IS JUST ONE LOGIC AMONG OTHERS (owner's words). Not a privileged agent
+    # book: same cadence as every other portfolio, same 23 bps per order, same
+    # caps, same ranking.
+    #
+    # SAME STARTING ALLOCATION as the bridge defender, deliberately. Before its
+    # first accepted reallocation the two are identical, so its NAV before that
+    # date IS the defender's — not a fiction to be explained, an identity. That
+    # is also what gives it a full history to be ranked on from day one, instead
+    # of 36 months of waiting for a rolling window to fill.
+    {
+        "id": "worker-book",
+        "name": "Cognitive Book (Worker)",
+        "framework_id": "4seasons",
+        "defender": False,
+        "enabled": True,
+        "currency": "CHF",
+        "benchmark": "all-weather-USD",
+        "allocation": {"IEF": 20, "TLT": 30, "GLD": 10, "DJP": 7.5, "SPY": 30, "cash": 2.5},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 97.5,
+        "trace": "The Worker's own book (owner decision 2026-08-08). Starts at the "
+        "bridge defender's allocation and moves only on a reallocation that "
+        "passed every UC8-B gate. One logic among others in the ranking, judged "
+        "on its own NAV rather than on stitched-together proposal outcomes.",
+    },
 ]
 
 # Portfolios whose allocation VARIES over time, so their NAV cannot be built by

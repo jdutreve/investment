@@ -62,6 +62,11 @@ WORKER_READING_EVENT = "WorkerReadingEvent"
 # strictly better than the previous state, where it was told nothing at all.
 CITATION_WEIGHT_MIN = 0.10
 
+# The portfolio the Worker's reallocations move (db/seed_data.py `worker-book`).
+# Declared here, beside the cycle that targets it, as `market_signal` declares
+# `STACK_PORTFOLIO_ID` beside the cycle that moves that one.
+WORKER_BOOK_ID = "worker-book"
+
 
 @dataclasses.dataclass(frozen=True)
 class UC8Result:
@@ -163,6 +168,28 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
     # drift from the code the way a hand-copied description would.
     lines += ["", *describe_rule().splitlines()]
     return lines
+
+
+async def _book_row(db: InvestmentDB, portfolio_id: str) -> dict[str, float] | None:
+    """The book's CURRENT allocation, or None if the row is absent.
+
+    Read from `portfolio` rather than from the weekly snapshot: the snapshot is
+    a Monday photograph, and this row moves the moment a reallocation passes
+    (`writeback._commit_reallocation`). Comparing a new proposal against a stale
+    incumbent would let the min-change and turnover gates judge against a book
+    that is no longer held — the same error `outcomes._incumbent_allocation`
+    exists to avoid on the scoring side.
+
+    None when the row is missing, which is a fresh database rather than an
+    error: the cycle is then knowledge-only, exactly as it was when no defender
+    existed."""
+    rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=portfolio_id)
+    if not rows:
+        return None
+    parsed = rows[0]["allocation"]
+    if isinstance(parsed, str):
+        parsed = json.loads(parsed)
+    return {str(k): float(v) for k, v in (parsed or {}).items()}
 
 
 def _not_citable_because(inv: dict[str, Any]) -> str | None:
@@ -372,18 +399,27 @@ async def run_decision_cycle(
     gate_outcome: GateOutcome | None = None
     proposal_id: str | None = None
     reallocation = worker_result.reallocation_proposed
-    defender = _defender_row(context.ranking)
-    if reallocation is not None and defender is not None:
-        defender_id = str(defender["portfolio_id"])
-        # The defender's own caps: the ranking snapshot carries no cap columns
-        # (they live on `portfolio`), so without this only the looser user caps
-        # would bind — and per-portfolio rules may only be STRICTER.
-        portfolio = await portfolio_caps(db, defender_id)
+    # THE WORKER REALLOCATES ITS OWN BOOK (owner decision 2026-08-08), not the
+    # bridge defender. Two things were wrong with the old target. The defender is
+    # also the mechanical bridge's book, so the same portfolio was the canvas for
+    # both policies and M8b's "A' - A" could never isolate the cognitive one. And
+    # judging the Worker meant stitching disjoint 12-week proposal outcomes —
+    # five observations across the whole screen, which carry no signal.
+    #
+    # With a book of its own it accumulates ONE NAV, ranked against everything
+    # else with no privilege. `worker-book` starts at the defender's allocation,
+    # so before its first accepted reallocation the two curves are identical by
+    # construction (db/seed_data.py).
+    incumbent = await _book_row(db, WORKER_BOOK_ID)
+    if reallocation is not None and incumbent is not None:
+        # Its own caps, which may only be STRICTER than the user's — the ranking
+        # snapshot carries no cap columns, they live on `portfolio`.
+        portfolio = await portfolio_caps(db, WORKER_BOOK_ID)
         gate_outcome, proposal_id = await dispose_reallocation(
             db,
             reallocation,
-            defender_id,
-            _allocation(defender),
+            WORKER_BOOK_ID,
+            incumbent,
             user_profile,
             thresholds,
             regime_type,

@@ -99,6 +99,23 @@ async def _seed(db: InvestmentDB) -> None:
             t=tk,
             c=cls,
         )
+    await db.command(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('def-pf', 'D', '4s', 1, 1, 'CHF', 'b', "
+        "'{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', -25.0, 50.0, 'accumulation', 'tr', "
+        "'2026-01-01')"
+    )
+    # The COGNITIVE BOOK the Worker reallocates (decision_cycle.WORKER_BOOK_ID).
+    # Seeded at the defender's allocation, as db/seed_data.py does: before the
+    # first accepted reallocation the two are identical by construction.
+    await cmd(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('worker-book', 'Cognitive Book', '4s', 0, 1, 'CHF', 'b', "
+        "'{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', -25.0, 50.0, 'accumulation', 'tr', "
+        "'2026-01-01')"
+    )
     # an integrated, always-active, well-confirmed invariant the Worker can cite
     await cmd(
         "INSERT INTO invariant (id, title, description, source, status, condition, "
@@ -167,19 +184,14 @@ async def test_bear_shift_reallocation_passes_gates_and_persists(rig) -> None:  
 
 
 async def test_defender_stricter_single_asset_cap_binds(rig) -> None:  # type: ignore[no-untyped-def]
-    """CLAUDE.md "Binding caps": the defender's OWN cap may be stricter than the
-    user's, and Writeback enforces the stricter of the two. The snapshot carries
-    no cap columns, so the cycle must fetch the `portfolio` row and thread it in — this
-    proves that wiring. SPY 45 clears the user's 50 cap but breaches the
-    defender's own 40, so the proposal must be blocked, not persisted."""
+    """CLAUDE.md "Binding caps": the TARGET's own cap may be stricter than the
+    user's, and Writeback enforces the stricter of the two. The ranking snapshot
+    carries no cap columns, so the cycle must fetch the `portfolio` row and
+    thread it in — this proves that wiring. SPY 45 clears the user's 50 cap but
+    breaches the cognitive book's own 40, so the proposal must be blocked."""
     db, pre, worker, post = rig
-    # the defender as a portfolio with a STRICTER 40 single-asset cap
-    await db.command(
-        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
-        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
-        "('def-pf', 'D', '4s', 1, 1, 'CHF', 'SPY', '{\"SPY\": 50, \"GLD\": 25, \"IEF\": 25}', "
-        "-0.15, 40.0, 'accumulation', 't', '2026-01-01')"
-    )
+    # the TARGET book with a STRICTER 40 single-asset cap
+    await db.command("UPDATE portfolio SET max_single_asset_pct = 40.0 WHERE id = 'worker-book'")
     realloc = dict(_REALLOC, proposed_allocation={"SPY": 45.0, "GLD": 30.0, "IEF": 25.0})
     q, s, w, p = _overrides(pre, worker, post, _worker_output(realloc))
     with q, s, w, p:
@@ -227,28 +239,33 @@ async def test_the_reading_is_journalled_even_when_the_allocation_is_refused(rig
     allocation, and what it CAN contribute must not be thrown away with the
     proposal that was refused.
 
-    The defender flip is the scheduled one (V1_STRATEGY Step 6, retiring the
-    bridge), which is precisely why the gate exists rather than the accident of
-    `ms-stack.defender` being seeded False."""
+    Refused here on a CAP, not on gate 0. Since 2026-08-08 the Worker
+    reallocates its own book and nothing threads a portfolio id in from the
+    ranking, so ADR-011's mechanical sovereignty stopped being a gate the cycle
+    can reach and became structural: there is no input by which the Worker can
+    aim at `ms-stack`. Gate 0 stays as defence in depth and is exercised
+    directly in test_writeback.py."""
     db, pre, worker, post = rig
-    await db.command(
-        "UPDATE portfolio_weekly_snapshot SET portfolio_id = :s WHERE portfolio_id = 'def-pf'",
-        s=STACK_PORTFOLIO_ID,
-    )
+    await db.command("UPDATE portfolio SET max_single_asset_pct = 10.0 WHERE id = 'worker-book'")
     q, s, w, p = _overrides(pre, worker, post, _worker_output(_REALLOC))
     with q, s, w, p:
         result = await run_decision_cycle(
             db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
         )
     assert result.gate_outcome is not None
-    assert result.gate_outcome.failed_gate == "mechanical_allocation"
+    assert result.gate_outcome.failed_gate == "max_single_asset_pct"
     assert result.proposal_id is None
     assert await db.query("SELECT id FROM proposal") == []
     assert await db.query("SELECT id FROM event_log WHERE type = 'ProposalEvent'") == []
 
+    # ...and the reading survives the refusal, which is the point of the test.
     ev = await db.query("SELECT payload FROM event_log WHERE type = :t", t=WORKER_READING_EVENT)
     assert len(ev) == 1
     assert json.loads(str(ev[0]["payload"]))["market_signal_assessment"]
+
+    # The stack is unreachable from this path by construction: the cycle names
+    # its target, and it is never a time-varying portfolio.
+    assert STACK_PORTFOLIO_ID not in {r["id"] for r in await db.query("SELECT id FROM proposal")}
 
 
 def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
@@ -338,3 +355,33 @@ def test_render_says_so_when_nothing_is_citable() -> None:
     text = render_context_for_worker(ctx)
     assert "NONE is citable this cycle" in text
     assert "a fact about the corpus" in text
+
+
+async def test_the_worker_moves_its_own_book_and_leaves_the_defender_alone(rig) -> None:  # type: ignore[no-untyped-def]
+    """The reason the cognitive book exists (owner decision 2026-08-08). While
+    the Worker reallocated the BRIDGE DEFENDER, the same portfolio was the canvas
+    for two policies — so M8b's "A' - A" compared them both at once and could
+    never isolate the cognitive one. And judging the Worker meant stitching
+    disjoint 12-week proposal outcomes: five observations across the whole
+    screen, which carry no signal.
+
+    An accepted proposal must therefore MOVE the book, exactly as
+    `dispose_market_signal` moves `ms-stack`: the `allocation` column records
+    what is HELD, and a row that never moves describes a book nobody holds."""
+    db, pre, worker, post = rig
+    before = await db.query("SELECT allocation FROM portfolio WHERE id = 'def-pf'")
+
+    q, s, w, p = _overrides(pre, worker, post, _worker_output(_REALLOC))
+    with q, s, w, p:
+        result = await run_decision_cycle(
+            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
+        )
+    assert result.proposal_id is not None
+
+    book = await db.query("SELECT allocation FROM portfolio WHERE id = 'worker-book'")
+    assert json.loads(str(book[0]["allocation"])) == _REALLOC["proposed_allocation"]
+    # ...and the bridge defender is untouched: it is the benchmark, not the canvas
+    assert await db.query("SELECT allocation FROM portfolio WHERE id = 'def-pf'") == before
+    # the proposal names the book it moved
+    prop = await db.query("SELECT defender_id FROM proposal WHERE id = :i", i=result.proposal_id)
+    assert prop[0]["defender_id"] == "worker-book"

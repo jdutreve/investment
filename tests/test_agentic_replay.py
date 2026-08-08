@@ -110,6 +110,17 @@ async def _seed(db: InvestmentDB) -> None:
         "'2026-01-01')",
         alloc=json.dumps(DEFENDER_ALLOCATION),
     )
+    # The cognitive book the Worker reallocates — seeded at the defender's
+    # allocation, as db/seed_data.py does: before the first accepted
+    # reallocation the two are identical by construction, which is exactly what
+    # makes A' start equal to B.
+    await cmd(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('worker-book', 'Cognitive Book', 'fw', 0, 1, 'USD', 'b', :alloc, -25.0, 50.0, "
+        "'accumulation', 'tr', '2026-01-01')",
+        alloc=json.dumps(DEFENDER_ALLOCATION),
+    )
     for book_id in BOOK_PORTFOLIO_IDS.values():
         await cmd(
             "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, "
@@ -147,23 +158,27 @@ async def _seed(db: InvestmentDB) -> None:
         )
 
     days = (END - START).days + 1
-    await db.append_ts_batch(
-        "portfolio_nav",
-        [
-            {
-                "portfolio_id": "def-pf",
-                "currency": "USD",
-                "ts": (START + timedelta(days=i)).isoformat(),
-                "nav": 100.0 + i * 0.05,
-                "daily_return": 0.0005,
-                "sharpe_rolling": 0.5,
-                "sortino_rolling": 1.25,
-                "calmar_rolling": 1.50,
-                "drawdown": -0.08,
-            }
-            for i in range(days)
-        ],
-    )
+    # Both books get a NAV: the cognitive one is a ranked portfolio like any
+    # other, and `run_replay` values every enabled row. Identical series,
+    # because they start at the same allocation.
+    for book in ("def-pf", "worker-book"):
+        await db.append_ts_batch(
+            "portfolio_nav",
+            [
+                {
+                    "portfolio_id": book,
+                    "currency": "USD",
+                    "ts": (START + timedelta(days=i)).isoformat(),
+                    "nav": 100.0 + i * 0.05,
+                    "daily_return": 0.0005,
+                    "sharpe_rolling": 0.5,
+                    "sortino_rolling": 1.25,
+                    "calmar_rolling": 1.50,
+                    "drawdown": -0.08,
+                }
+                for i in range(days)
+            ],
+        )
     rising = [100.0 + i * 0.05 for i in range(days)]
     series: dict[str, list[float]] = {t: rising for t in (*STACK_TICKERS, *DEFENDER_ALLOCATION)}
     series["^IRX"] = [2.0] * days
