@@ -227,3 +227,24 @@ def test_every_risky_sleeve_is_trend_checked() -> None:
     for holdings in market_signal.BOOKS.values():
         risky = set(holdings) - {market_signal.TREND_HAVEN, "VCIT"}
         assert risky <= set(market_signal.TREND_SLEEVES), f"unchecked risky sleeve in {holdings}"
+
+
+def test_vcit_stays_outside_the_overlay_and_that_was_measured() -> None:
+    """VCIT is 50% of the steep book and IS capable of falling — on 2026-08-08
+    it sat below its own 200d line while real yields rose at accelerating speed,
+    which looks exactly like the IWN gap fixed the same morning.
+
+    It was measured rather than argued (`mechanical/rule_revision.py`, 35y):
+    adding it moved CAGR 10.72% -> 10.65%, Sortino 1.17 -> 1.16, and the
+    drawdown NOT AT ALL (-20.61% both ways), for more turnover. REJECTED on the
+    acceptance test, both legs.
+
+    The reason is the useful part. VCIT is investment-grade corporate credit:
+    its drawdowns are shallow, so exiting below trend avoids a small loss AND
+    misses the recovery, paying 23 bps each way. IWN is small-cap value with
+    real crash beta, where the overlay catches something worth catching.
+
+    So the membership rule is neither "asset class" nor "can it fall" — both
+    were tried and both were wrong. It is CAN IT FALL FAR ENOUGH THAT AVOIDING
+    IT BEATS THE WHIPSAW. Re-measure before adding a sleeve; do not reason it."""
+    assert "VCIT" not in market_signal.TREND_SLEEVES
