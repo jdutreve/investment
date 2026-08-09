@@ -24,9 +24,11 @@ is defence in depth rather than the only thing standing between a
 hallucinated statement and the data.
 """
 
+import functools
 import logging
 import re
 import sqlite3
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic_ai.exceptions import ModelRetry
@@ -237,6 +239,36 @@ def _enforce_limit(text: str) -> str:
     return f"{text[: match.start()].rstrip()} LIMIT {DB_QUERY_MAX_ROWS}"
 
 
+def visible_refusal[**P, T](tool: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
+    """Log a refused tool call, then re-raise it unchanged.
+
+    A REFUSAL COSTS A TURN AND LEFT NO TRACE, which made the tool budget
+    impossible to reason about. `validate_sql` raises before `db_query` reaches
+    its `logger.info`, so the log showed only the calls that SUCCEEDED while
+    `tool_calls_limit` counted every attempt including the corrected ones.
+
+    Measured 2026-08-09 at 2008-10-01 of the on-stack run: the limit reported
+    15 tool calls, the log carried 7 — seven sensible, non-repeating queries and
+    eight invisible refusals. A whole day was spent theorising about that
+    budget (thoroughness? a loop? the new prompt?) from a log that could not
+    show what was consuming it. The retries were doing their job; nothing said
+    so.
+
+    Kept as INFO rather than WARNING: a corrected tool call is the designed
+    behaviour of `ToolInputError` being a `ModelRetry`, not a fault. It only
+    has to be COUNTABLE."""
+
+    @functools.wraps(tool)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return await tool(*args, **kwargs)
+        except ToolInputError as exc:
+            logger.info("worker %s REFUSED (costs a turn): %s", tool.__name__, exc)
+            raise
+
+    return wrapper
+
+
 class WorkerTools:
     """The three bridged tools, bound to one database connection.
 
@@ -248,6 +280,7 @@ class WorkerTools:
     def __init__(self, db: InvestmentDB) -> None:
         self._db = db
 
+    @visible_refusal
     async def db_query(self, stmt: str) -> list[dict[str, Any]]:
         """Run a READ-ONLY SQL query. SELECT/WITH only, one statement, at most
         20 rows returned."""
@@ -276,6 +309,7 @@ class WorkerTools:
                 f"the query failed: {exc}. Check names against the schema"
             ) from exc
 
+    @visible_refusal
     async def market_fetch(self, tickers: list[str], period: str) -> list[dict[str, Any]]:
         """Recent market data for known tickers: (ts, ticker, level, speed,
         acceleration), most recent first, at most 30 rows in total."""
@@ -311,6 +345,7 @@ class WorkerTools:
             **params,
         )
 
+    @visible_refusal
     async def portfolio_check(self, portfolio_id: str) -> dict[str, Any]:
         """One portfolio's exposed fields. Returns `{}` if no such portfolio."""
         if not PORTFOLIO_ID_RE.match(portfolio_id):

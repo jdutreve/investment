@@ -23,6 +23,7 @@ from investment.mechanical.gates import (
     turnover_pct,
     weights_well_formed,
 )
+from investment.mechanical.market_signal import HAVEN_EXEMPT
 from investment.mechanical.snapshots import RankedRow, ValuationRow
 
 CAPS = Caps(max_single_asset_pct=40.0, max_drawdown_pct=-15.0)
@@ -444,3 +445,39 @@ def test_no_accepted_allocation_is_ever_unholdable(proposed: dict[str, float]) -
         assert proposed
         for weight in proposed.values():
             assert math.isfinite(weight) and weight >= 0.0
+
+
+def test_the_haven_chain_is_exempt_on_the_cognitive_path_too() -> None:
+    """Owner decision 2026-08-09, from 2008-10-01 of the on-stack M8b run.
+
+    The incumbent was the stack's own IEF 100 — legal, the market-signal path
+    has exempted the haven since ADR-007's second addendum — and the Worker
+    proposed IEF 72.5 / TLT 12.5 / GLD 10 / cash 5. A DE-concentration, refused
+    by `max_single_asset_pct`, which left the 100% standing: the gate could only
+    freeze the breach it would not let the Worker reduce.
+
+    The exemption is about the SLEEVE, not the path. Pinned with the real
+    numbers, against the behaviour that shipped, and with the conviction bet
+    that must still be refused."""
+    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    allowed = frozenset({"IEF", "TLT", "GLD", "SPY", "cash"})
+    incumbent = {"IEF": 100.0}
+    de_concentrated = {"IEF": 72.5, "TLT": 12.5, "GLD": 10.0, "cash": 5.0}
+
+    # What shipped, and what it cost: the move toward compliance, refused.
+    assert (
+        reallocation_gates(incumbent, de_concentrated, caps, THRESHOLDS, allowed).failed_gate
+        == "max_single_asset_pct"
+    )
+    assert reallocation_gates(
+        incumbent, de_concentrated, caps, THRESHOLDS, allowed, exempt=HAVEN_EXEMPT
+    ).passed
+
+    # A conviction bet on a NON-haven sleeve is still bound, exemption or not.
+    concentrated_equity = {"SPY": 70.0, "IEF": 30.0}
+    assert (
+        reallocation_gates(
+            incumbent, concentrated_equity, caps, THRESHOLDS, allowed, exempt=HAVEN_EXEMPT
+        ).failed_gate
+        == "max_single_asset_pct"
+    )

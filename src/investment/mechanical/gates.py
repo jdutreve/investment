@@ -411,6 +411,7 @@ def _without_merit(
     proposed: Mapping[str, float],
     caps: Caps,
     thresholds: ProposalThresholds,
+    exempt: frozenset[str] = frozenset(),
 ) -> str | None:
     """IS IT ANY GOOD? The refused gate's name, or None if it passes.
 
@@ -420,7 +421,7 @@ def _without_merit(
     reallocation too small to matter is noise that only pays costs."""
     if abs(sum(proposed.values()) - 100.0) > ALLOCATION_SUM_TOLERANCE:
         return "allocation_sums_to_100"
-    if not concentration_ok(proposed, caps):
+    if not concentration_ok(proposed, caps, exempt=exempt):
         return "max_single_asset_pct"
     if max_allocation_change_pts(current, proposed) < thresholds.min_allocation_change_pts:
         return "min_allocation_change_pts"
@@ -435,6 +436,7 @@ def reallocation_gates(
     caps: Caps,
     thresholds: ProposalThresholds,
     allowed_tickers: frozenset[str],
+    exempt: frozenset[str] = frozenset(),
 ) -> GateOutcome:
     """docs/USE_CASES.md UC8-B gates 1-5. Gate 6 (cited-invariant eligibility)
     is not here — see the module docstring: the mechanical replay cites
@@ -449,8 +451,26 @@ def reallocation_gates(
     5 sat among the merit gates and a book naming an instrument that does not
     exist came back as `max_turnover_pct` — sending the owner after a book that
     moved too much instead of one built on a ticker the system has never heard
-    of (owner decision 2026-08-06)."""
+    of (owner decision 2026-08-06).
+
+    `exempt` NAMES THE SLEEVES THE CONCENTRATION CAP DOES NOT BIND, and callers
+    on the cognitive path now pass the haven chain (owner, 2026-08-09). Empty by
+    default, so nothing changes for a caller that does not ask.
+
+    Why the cognitive path needed it too. Measured at 2008-10-01 of the
+    on-stack run: the incumbent was the stack's own IEF 100 — legal, because the
+    market-signal path has exempted the haven since ADR-007's second addendum —
+    and the Worker proposed IEF 72.5 / TLT 12.5 / GLD 10 / cash 5. A
+    DE-concentration, refused by this cap, which left the 100% standing. The
+    gate could only freeze the breach it was refusing to reduce.
+
+    That is ADR-009's argument arriving in a third place, and the exemption is
+    about the SLEEVE, not the path: a haven concentration is a safety redirect
+    rather than a conviction bet, whoever proposes it. It does loosen a binding
+    cap on every cognitive proposal, including the bridge defender's — stated
+    plainly in docs/DECISIONS.md rather than hidden in the narrow case that
+    prompted it."""
     reason = _inadmissible(current, proposed, allowed_tickers) or _without_merit(
-        current, proposed, caps, thresholds
+        current, proposed, caps, thresholds, exempt
     )
     return GateOutcome.refused(reason) if reason else PASSED

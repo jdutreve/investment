@@ -5,6 +5,8 @@ adversarial by design: what is pinned is what the tools REFUSE, and that the
 refusal message tells the model enough to correct itself.
 """
 
+import inspect
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -257,3 +259,41 @@ async def test_the_schema_hides_what_the_worker_must_not_see(tools: WorkerTools)
 
     for hidden in SCHEMA_HIDDEN_TABLES:
         assert f"{hidden}(" not in schema
+
+
+async def test_a_refused_tool_call_is_visible_in_the_log(
+    tools: WorkerTools, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Measured 2026-08-09 at 2008-10-01 of the on-stack run: the tool budget
+    reported 15 calls, the log carried 7.
+
+    `validate_sql` raises before `db_query` reaches its `logger.info`, so a
+    REFUSED call cost a turn against `tool_calls_limit` and left no trace. The
+    budget was therefore impossible to reason about from the logs — a day was
+    spent theorising about thoroughness and loops while eight invisible
+    refusals were doing the spending.
+
+    The refusal must still REACH the model unchanged (it is a `ModelRetry`, and
+    the self-correction depends on it), so this pins both halves."""
+    with (
+        caplog.at_level(logging.INFO, logger="investment.worker.tools"),
+        pytest.raises(ToolInputError),
+    ):
+        await tools.db_query("DELETE FROM invariant")
+
+    logged = [r.getMessage() for r in caplog.records]
+    assert any("db_query REFUSED" in m for m in logged)
+    assert any("READ-ONLY" in m for m in logged)  # the reason, not merely "refused"
+
+
+async def test_the_decorator_keeps_what_pydantic_ai_reads_off_the_tool(
+    tools: WorkerTools,
+) -> None:
+    """PydanticAI builds each tool's schema from its NAME, DOCSTRING and
+    ANNOTATIONS. Wrapping the three methods to log refusals must not rename
+    them or empty their descriptions — the Worker would lose the contract it is
+    told to satisfy, which is how a tool budget gets spent guessing."""
+    assert tools.db_query.__name__ == "db_query"
+    assert "READ-ONLY" in (tools.db_query.__doc__ or "")
+    assert "20 rows" in (tools.db_query.__doc__ or "")
+    assert inspect.signature(tools.db_query).parameters.keys() == {"stmt"}

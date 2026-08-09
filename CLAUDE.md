@@ -183,6 +183,11 @@ IEF **and the cash fallback** (ADR-007's second addendum, extended 2026-08-08
 after the cap froze the stack in its stale book on four of the seven 2022 dates
 of the M8b run). Same reason as the drawdown leg: a refusal cannot exit a
 position, and the target being refused was the flight to safety itself.
+**`HAVEN_EXEMPT` binds the COGNITIVE path too** (2026-08-09): `reallocation_gates`
+takes it from Writeback, so a Worker proposal may exceed the cap on IEF or cash
+and on nothing else — the exemption is a property of the sleeve, not of the
+path. It refused a DE-concentration otherwise, freezing the breach it would not
+let the Worker reduce.
 
 **Trading costs (ADR-010)** — ONE rate, `ratios.TRADING_COST_BPS` = **23 bps
 per order** (Saxo actual; no FX leg, every portfolio is USD in a USD account),

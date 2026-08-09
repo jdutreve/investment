@@ -440,7 +440,16 @@ async def dispose_reallocation(
     allowed = await _allowed_reallocation_tickers(db)
 
     outcome = reallocation_gates(
-        current_allocation, reallocation.proposed_allocation, caps, thr, allowed
+        current_allocation,
+        reallocation.proposed_allocation,
+        caps,
+        thr,
+        allowed,
+        # The SAME haven-chain exemption the mechanical path has had since
+        # ADR-007's second addendum (owner, 2026-08-09). Without it this gate
+        # refused a de-concentration and left the breach it was refusing to
+        # reduce — see `reallocation_gates` for the 2008-10-01 measurement.
+        exempt=HAVEN_EXEMPT,
     )
     if not outcome.passed:
         return outcome, None

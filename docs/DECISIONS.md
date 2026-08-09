@@ -509,6 +509,26 @@ absence of one, and the only destination left when every checked instrument is
 falling. Scope stays narrow and named: the cap binds every other sleeve and
 every seeded-portfolio proposal, the `exempt` default is still empty.
 
+**Second addendum, extended again (2026-08-09, owner sign-off) — the haven
+exemption also binds the COGNITIVE path.** Measured at 2008-10-01 of the
+on-stack M8b run: the incumbent was the stack's own IEF 100 (legal here, exempt
+since the addendum above), and the Worker proposed IEF 72.5 / TLT 12.5 / GLD 10
+/ cash 5 — a DE-concentration. `reallocation_gates` refused it on
+`max_single_asset_pct`, and the 100% stayed. The gate could only freeze the
+breach it would not let the Worker reduce.
+
+ADR-009's argument, arriving in a third place. Decision: `reallocation_gates`
+takes an `exempt` set and Writeback passes `HAVEN_EXEMPT`, the same chain the
+mechanical path uses. Rationale: the exemption is a property of the SLEEVE, not
+of the path — a haven concentration is a safety redirect, not a conviction bet,
+whoever proposes it.
+
+SCOPE, stated plainly because it is wider than the case that prompted it: this
+loosens a binding cap on EVERY cognitive reallocation, the bridge defender's
+included. A Worker proposal may now hold more than `max_single_asset_pct` in
+IEF or in cash. Every other sleeve is still bound, the `exempt` default is
+still empty, and a conviction bet on equities is refused exactly as before.
+
 **Third addendum (2026-07-20, owner sign-off) — the 3 books are renamed after
 the SIGNAL STATE, not after a macro regime.** The books were seeded as
 `growth` / `inflation` / `slowdown`, names that assert a macro reading they do
