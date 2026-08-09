@@ -33,6 +33,7 @@ ranked defender/challenger duel, so no live cycle emits a switch. `switch_gates`
 import dataclasses
 import json
 import logging
+from collections.abc import Coroutine
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -1029,6 +1030,44 @@ async def _resolve_framework(db: InvestmentDB, spec_value: Any) -> str | None:
     return resolved
 
 
+async def _commit_innovation_safely(
+    commit: Coroutine[Any, Any, str | None], innovation: ImprovementProposal
+) -> str | None:
+    """One innovation's commit, isolated so a malformed one cannot cost the
+    others. Returns the new vertex id, or None when it was dropped.
+
+    THE BARGAIN THIS NAME ALREADY PROMISED. `_measure_rule_revision` has cited
+    "`_commit_innovation_safely`'s bargain, one level up" since it shipped, and
+    the wrapper did not exist: `commit_innovations` iterated bare. Measured on
+    the on-stack M8b run, 2008-09-02 — a Worker wrote `spec["effect"]` as prose,
+    `validate_invariant` reached `.get` on a string, and the AttributeError came
+    out through Writeback, the decision cycle and the retry, costing the date an
+    entire second attempt. One bad field, the whole cycle.
+
+    `spec` is `dict[str, Any]`: Pydantic validates the ENVELOPE and nothing
+    below it, so every nested shape is a model's free text until something
+    checks it. Shape checks belong where the shape is known (and 2026-08-09 put
+    the missing one in `validate_invariant`) — but they cannot be exhaustive
+    against a generative source, which is why the loop needs a floor as well.
+
+    Deliberately narrower than it looks: this inverts CLAUDE.md's "unhandled
+    errors surface" for ONE unit, on the same reasoning as the replay harness's
+    per-date guard. The alternative is not a safer cycle, it is a cycle that
+    loses its reading, its other innovations and its reallocation to one
+    malformed field. The drop is LOUD — `logger.exception` with the innovation's
+    type and title — and it is bounded to the innovation channel: a failure in
+    the reallocation path still surfaces."""
+    try:
+        return await commit
+    except Exception:
+        logger.exception(
+            "innovation dropped, the cycle continues: type=%s title=%r",
+            innovation.type,
+            innovation.title,
+        )
+        return None
+
+
 async def _commit_strategy_innovation(
     db: InvestmentDB, proposal: ImprovementProposal, today: date
 ) -> str | None:
@@ -1400,7 +1439,25 @@ async def _commit_invariant_innovation(
     this is the same move on the UC8 path."""
     spec = proposal.spec or {}
     condition = spec.get("condition", [])
+    # NORMALISED AT THE WRITE BOUNDARY, because every reader downstream assumes
+    # this column is a JSON object or NULL and there is no end to patching them
+    # one at a time. On 2008-09-02 of the on-stack M8b run a Worker wrote
+    # `effect` as prose; `spec` is `dict[str, Any]`, so Pydantic passed it
+    # through. Following the string downstream found the dedup gate's two
+    # comparators, then `validate_invariant`, then — after the row had been
+    # PERSISTED as reference knowledge — the 35y maturation sweep reading it
+    # back with `json.loads`, outside any per-innovation guard. Four readers,
+    # one bad write.
+    #
+    # Dropped to None rather than to a coerced object: `effect=None` is an
+    # invariant the system already understands (reference knowledge, never
+    # confronted, matured as such by `_mature_one`), whereas a guessed structure
+    # would be a claim nobody made. The prose is kept in the trace, so the
+    # information survives even though the structure does not.
     effect = spec.get("effect")
+    malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
+    if malformed_effect is not None:
+        effect = None
     title, description = proposal.title, proposal.rationale
     vector = embedder.encode([invariant_embedding_input(title, description)])[0]
 
@@ -1452,7 +1509,12 @@ async def _commit_invariant_innovation(
                 "effect": effect,
                 "weight_initial": band.bind(proposal.weight_initial),
                 "floor_weight": band.floor,
-                "trace": proposal.trace or "UC8 agent-discovery innovation",
+                "trace": (proposal.trace or "UC8 agent-discovery innovation")
+                + (
+                    f" [effect dropped, not an object: {malformed_effect}]"
+                    if malformed_effect is not None
+                    else ""
+                ),
             },
         )
     corpus.add(invariant_id, condition, effect, vector)
@@ -1480,12 +1542,17 @@ async def commit_innovations(
 
     for innovation in post_result.innovations:
         if innovation.type in _STRATEGY_INNOVATION_TYPES:
-            if await _commit_strategy_innovation(db, innovation, today) is not None:
+            strategy_id = await _commit_innovation_safely(
+                _commit_strategy_innovation(db, innovation, today), innovation
+            )
+            if strategy_id is not None:
                 committed += 1
         elif innovation.type == "new_invariant" and embedder is not None:
             if corpus is None:
                 corpus = await load_invariant_corpus(db)
-            new_id = await _commit_invariant_innovation(db, innovation, embedder, corpus, today)
+            new_id = await _commit_innovation_safely(
+                _commit_invariant_innovation(db, innovation, embedder, corpus, today), innovation
+            )
             if new_id is not None:
                 committed += 1
                 created_invariant = True

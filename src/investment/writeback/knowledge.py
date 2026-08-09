@@ -491,16 +491,45 @@ def _predicate_key(predicate: dict[str, Any]) -> tuple[str, str, str, float]:
     )
 
 
+def _comparable_effects(
+    effect: dict[str, Any], existing: _Existing
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """The two effects narrowed to objects, or None if they cannot be compared.
+
+    Returns the PAIR rather than a bool so the narrowing survives the call: a
+    predicate helper leaves both callers holding `dict | Any` and needing a
+    `type: ignore` each, which is the same guard duplicated in a worse form.
+
+    ONE HELPER FOR BOTH COMPARATORS, because they had the same guard and only
+    one of them was enough. `_identical_structure` and `_same_invariant` each
+    tested `existing.effect is None` and then called `.get` on both sides — a
+    check for ABSENCE standing in for a check of SHAPE.
+
+    These run BEFORE `validate_invariant` (writeback `_commit_invariant_
+    innovation`), so they are the first code to touch an effect a model just
+    wrote, and on 2008-09-02 of the on-stack M8b run one arrived as prose.
+    Fixing the first comparator only moved the AttributeError eight lines down
+    to the second, which is why the guard now lives in one place.
+
+    The EXISTING side needs it as much as the incoming one: `validate_invariant`
+    demotes a malformed effect rather than discarding it, so the row persists
+    with the shape it was born with, and one such row in the corpus would break
+    the dedup of every invariant proposed after it."""
+    if isinstance(effect, dict) and isinstance(existing.effect, dict):
+        return effect, existing.effect
+    return None
+
+
 def _identical_structure(
     condition: list[dict[str, Any]], effect: dict[str, Any], existing: _Existing
 ) -> bool:
     """Same predicates and same effect — order-insensitive, since a condition
     is an AND and `[A, B]` is `[B, A]`."""
-    if existing.effect is None:
+    pair = _comparable_effects(effect, existing)
+    if pair is None:
         return False
-    if {k: effect.get(k) for k in _EFFECT_FIELDS} != {
-        k: existing.effect.get(k) for k in _EFFECT_FIELDS
-    }:
+    incoming, known = pair
+    if {k: incoming.get(k) for k in _EFFECT_FIELDS} != {k: known.get(k) for k in _EFFECT_FIELDS}:
         return False
     return sorted(map(_predicate_key, condition)) == sorted(map(_predicate_key, existing.condition))
 
@@ -514,9 +543,11 @@ def _same_invariant(
     paraphrased. Reference knowledge (no effect) is never a merge target: it
     carries no condition to compare, so "similar wording" is all that would
     be left, which is exactly what this guard exists to distrust."""
-    if existing.effect is None:
+    pair = _comparable_effects(effect, existing)
+    if pair is None:
         return False
-    same_effect = all(effect.get(field) == existing.effect.get(field) for field in _EFFECT_FIELDS)
+    incoming, known = pair
+    same_effect = all(incoming.get(field) == known.get(field) for field in _EFFECT_FIELDS)
     # `conditions_can_overlap` is the same helper the contradiction detector
     # uses: provably-disjoint predicates on the same (signal, feature) — wide
     # vs tight spreads — mean the two can never be active together, so they

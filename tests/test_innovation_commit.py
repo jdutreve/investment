@@ -325,3 +325,67 @@ async def test_a_revision_naming_no_testable_knob_is_not_measured_at_all(
     row = (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]
     assert row["status"] == "proposed"
     assert not await db.query("SELECT 1 FROM event_log WHERE type='RuleRevisionMeasuredEvent'")
+
+
+async def test_a_prose_effect_is_demoted_to_reference_knowledge_not_followed_downstream(
+    db: InvestmentDB,
+) -> None:
+    """Measured on the on-stack M8b run, 2008-09-02 and 2008-11-03.
+
+    A Worker wrote `spec["effect"]` as prose. `spec` is `dict[str, Any]`, so
+    Pydantic validated the envelope and let it through, and the string was
+    followed downstream into FOUR readers that each assume an object: the dedup
+    gate's two comparators, `validate_invariant`, and — after the row had
+    already been persisted — the 35y maturation sweep reading it back with
+    `json.loads`. Each raised out through Writeback and the decision cycle,
+    costing the date a whole second attempt.
+
+    Normalising at the WRITE boundary is what makes those four safe at once.
+    The claim is not discarded: `effect=None` is reference knowledge, a state
+    the system already understands, and the prose survives in the trace."""
+    malformed = _innovation("Effect written as prose")
+    malformed.spec["effect"] = "gold outperforms when real yields are negative"
+    good = _innovation("A well-formed neighbour")
+    good.spec = {**good.spec, "id": "inv-good"}
+
+    result = PostPlannerResult(innovations=[malformed, good])
+    n = await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
+
+    assert n == 2  # demoted, not dropped — and the neighbour is unaffected
+    row = (await db.query("SELECT effect, trace FROM invariant WHERE id='inv-new'"))[0]
+    assert row["effect"] is None  # the column keeps the shape every reader assumes
+    assert "effect dropped, not an object" in row["trace"]
+    assert "real yields are negative" in row["trace"]  # the claim itself survives
+    assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
+
+
+async def test_one_failing_innovation_does_not_cost_the_others(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The floor under the shape checks, which cannot be exhaustive against a
+    generative source. `_measure_rule_revision` had cited
+    "`_commit_innovation_safely`'s bargain, one level up" since it shipped, and
+    the wrapper did not exist — `commit_innovations` iterated bare, so anything
+    unforeseen in one innovation took the cycle's reading, its other
+    innovations and its reallocation with it.
+
+    The bad one goes FIRST, which is the ordering a bare loop fails."""
+    boom = _innovation("The one that raises")
+    good = _innovation("A well-formed neighbour")
+    good.spec = {**good.spec, "id": "inv-good"}
+
+    real = writeback._commit_invariant_innovation
+
+    async def _raise_for_the_first(
+        db_: object, proposal: object, *args: object, **kwargs: object
+    ) -> object:
+        if getattr(proposal, "title", "") == "The one that raises":
+            raise RuntimeError("something no shape check anticipated")
+        return await real(db_, proposal, *args, **kwargs)  # type: ignore[arg-type]  # passthrough
+
+    monkeypatch.setattr(writeback, "_commit_invariant_innovation", _raise_for_the_first)
+    result = PostPlannerResult(innovations=[boom, good])
+    n = await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
+
+    assert n == 1  # the neighbour survived
+    assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []

@@ -427,6 +427,16 @@ def validate_invariant(
             return reason
     if effect is None:
         return None
+    # A NON-OBJECT EFFECT IS A DEMOTION REASON, not a crash. `spec` is typed
+    # `dict[str, Any]`, so Pydantic guarantees the envelope and NOTHING about
+    # what sits under `effect` — and on 2008-09-02 of the on-stack M8b run a
+    # Worker wrote it as prose. Every other malformed shape here returns a
+    # reason; this one reached `effect.get` and raised `AttributeError` out of
+    # the whole cognitive cycle, which is exactly the "never silently breaks
+    # maturation" promise in this docstring, broken by the one field the
+    # function forgot to shape-check.
+    if not isinstance(effect, dict):
+        return f"invalid effect: expected an object, got {type(effect).__name__}"
     asset_classes, strategy_ids, assets = (
         registries.asset_classes,
         registries.strategies,

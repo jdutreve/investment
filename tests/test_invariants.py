@@ -430,6 +430,23 @@ def test_validate_invariant_rejects_unknown_signal() -> None:
     assert reason is not None and "moon_phase" in reason
 
 
+def test_validate_invariant_demotes_a_non_object_effect_instead_of_raising() -> None:
+    """Measured on the on-stack M8b run, 2008-09-02: a Worker wrote `effect` as
+    prose. `spec` is `dict[str, Any]`, so Pydantic validates the envelope and
+    nothing under it — and this function, which returns a REASON for every other
+    malformed shape, reached `.get` on a string and raised AttributeError out
+    through Writeback and the whole decision cycle.
+
+    A demotion reason is the contract ("a malformed condition/effect never
+    silently breaks maturation"); the raise was the one field that escaped it."""
+    reason = invariants.validate_invariant(
+        [],
+        "gold outperforms when real yields are negative",  # type: ignore[arg-type]  # the shape under test
+        _seed_registries(),
+    )
+    assert reason is not None and "expected an object" in reason
+
+
 def test_validate_invariant_rejects_hyphenated_signal_alias() -> None:
     """The registry key is `real_rate`; 'real-yield' is a plausible-looking
     near-miss that must DEMOTE rather than silently resolve (it arrived that
