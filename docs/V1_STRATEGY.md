@@ -370,16 +370,71 @@ instead of being refused without the test being able to say why. The
 generalisation is the owner's: it holds for ANY indicator that does not degrade,
 not only for the drawdown.
 
-Implementing it needed one measured number. An exact comparison refused the veto
-on a max-drawdown delta of **-2.2e-16** — the same trough, -0.2061245891298571
-against -0.20612458912985732, reached by a different arithmetic path. Left
-alone, Pareto would refuse every revision ever proposed, since any change
-perturbs every indicator at machine epsilon. `NOISE_REL_TOL = 1e-9` sits seven
-orders above that noise and six below the smallest move that could change a
-decision, so no plausible retuning of it flips a verdict.
+Implementing it needed a measured noise floor, and the number is measured
+rather than chosen. Two things move these indicators without the strategy
+changing: float noise (the veto reached the SAME covid trough by a different
+arithmetic path — a delta of -2.2e-16, which an exact comparison called a
+degradation) and, much larger, the ground itself. Shifting the replay's start
+date across 1991 changes nothing about the strategy and moves it this much over
+twelve starts:
+
+    indicator      spread   stdev
+    sortino         0.71%   0.20%
+    cagr            0.54%   0.15%
+    calmar          0.54%   0.15%
+    max_drawdown    0.00%   0.00%
+
+Corroborated independently: the 2026-08-03 re-seed moved CAGR 0.36% with 418
+IDENTICAL decisions (I-48). `NOISE_REL_TOL = 0.0071` is the worst observed
+spread. Verified to change no verdict on the day it shipped — it only stops the
+system ever calling a shift of the ground an improvement.
+
+**A 1% band was considered and refused.** It would have tolerated the 125-day
+overlay's Sortino loss (0.94%) and so adopted its 2.75pp drawdown gain — but it
+sits inside the 8-basis-point corridor between the measured floor (0.71%) and
+the smallest improvement the sweep calls real (+1.02% of Sortino at
+ma_window_days=225). 0.011 down and 0.012 up are the same movement; a number
+chosen in that corridor decides one case rather than measuring anything.
+Whether a small Sortino loss buys a large drawdown gain is a TRADE-OFF, and it
+belongs to the owner stated as one, not laundered through a tolerance.
 
 **What is NOT decided: turning the veto on.** `SPREAD_SPEED_VETO` remains None.
 The measurement says adopt at 0.10-0.40, best at 0.20; flipping the constant
 changes ADR-007's live allocation, and the gate there is git and an owner
 signature, not ADR-006 (`rule_revision` module docstring). The evidence is
 recorded; the switch is not thrown.
+
+
+### The overlay's own windows, swept (2026-08-09)
+
+Today's finding said the drawdown belongs to the overlay, so the overlay's
+parameters are where a drawdown improvement could come from. `MA_WINDOW_DAYS`
+(200) had never been confronted with an alternative.
+
+    ma_window_days   sortino            maxDD                cagr    turnover  verdict
+    100              +1.173 -> +1.105   -20.61% -> -18.10%   10.09%      98.8  reject
+    125              +1.173 -> +1.162   -20.61% -> -17.86%   10.56%      82.9  reject
+    150              +1.173 -> +1.167   -20.61% -> -20.61%   10.79%      71.8  reject
+    175              +1.173 -> +1.190   -20.61% -> -20.61%   10.85%      63.1  ADOPT
+    200 (current)                                            10.72%      61.1
+    225              +1.173 -> +1.185   -20.61% -> -20.61%   10.92%      54.2  ADOPT
+    250              +1.173 -> +1.162   -20.61% -> -21.08%   10.86%      52.2  reject
+    300              +1.173 -> +1.191   -20.61% -> -20.61%   11.10%      43.6  ADOPT
+
+`median_window_days` at 1260 / 1890 / 3150: all reject, all degrade Sortino.
+
+Best of the adoptions is **300 days** — same drawdown, +0.38pp CAGR, and
+turnover down 29% (61.1 -> 43.6), which is a robustness gain as much as a cost
+one.
+
+**The refusal is more interesting than the adoptions.** 125 days is the only
+setting that materially improves the drawdown: -20.61% -> **-17.86%**, 2.75
+points, exactly what rule #1 wants. It is refused because Sortino gives up
+0.94%. The ORIGINAL acceptance test refused it too, for the same reason. So no
+test in this system can adopt a TRADE-OFF, by construction — and the one change
+that would have bought real safety is the one no rule can take. That is a
+doctrine question for the owner, not a defect.
+
+Nothing here is adopted. Both the veto and the 300-day window are fitted on a
+single 35-year sample and would need an out-of-sample check before the constant
+is touched.

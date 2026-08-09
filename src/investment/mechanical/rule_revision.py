@@ -69,21 +69,45 @@ _COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_
 # is a perfectly good thing to measure and reject.
 _FLOAT_KNOBS = frozenset({"spread_speed_veto"})
 
-# WHAT COUNTS AS "UNCHANGED", and the number is measured rather than picked.
+# WHAT COUNTS AS "UNCHANGED", and the number is MEASURED, not chosen.
 #
 # A Pareto verdict has to tell an indicator that MOVED from one that merely got
-# there by a different arithmetic path. Measured 2026-08-09 on the velocity
-# veto: the max drawdown was -0.2061245891298571 against -0.20612458912985732 —
-# the same trough to fifteen significant figures, a delta of -2.2e-16 — and an
-# exact comparison read it as a degradation and refused the revision. Left
-# unfixed, the rule would refuse everything: any change perturbs every indicator
-# at machine epsilon.
+# there by a different path. Two things move these numbers without the strategy
+# changing at all, and both are measured rather than assumed:
 #
-# 1e-9 sits about seven orders above that noise and six below the smallest move
-# that could change a decision (a basis point of CAGR, 0.001 of Sortino). The
-# gap is wide enough that no plausible tightening or loosening of it changes any
-# verdict — which is the property a threshold like this needs.
-NOISE_REL_TOL = 1e-9
+#   float noise — the velocity veto reached the SAME covid trough by a different
+#   arithmetic path: -0.2061245891298571 vs -0.20612458912985732, a delta of
+#   -2.2e-16. An exact comparison called that a degradation and refused the
+#   revision. Left alone it refuses EVERYTHING, since any change perturbs every
+#   indicator at machine epsilon.
+#
+#   THE GROUND ITSELF — and this is the larger term. Shifting the replay's start
+#   date across 1991 changes nothing about the strategy (it is not a different
+#   strategy because you began measuring it in March), and moves the indicators
+#   by this much over twelve starts, 2026-08-09:
+#
+#       indicator        spread   stdev
+#       sortino           0.71%   0.20%
+#       cagr              0.54%   0.15%
+#       calmar            0.54%   0.15%
+#       max_drawdown      0.00%   0.00%
+#
+#   Independently corroborated: the 2026-08-03 re-seed moved CAGR by 0.36% with
+#   418 IDENTICAL decisions (docs/IMPROVEMENTS.md I-48).
+#
+# 0.71% is the worst observed spread — Sortino's — so anything smaller is ground
+# and not result. It is a NOISE floor, deliberately not a materiality threshold:
+# a 1% band was considered and refused because it sits inside the 8-basis-point
+# corridor between this floor and the smallest improvement the sweep classifies
+# as real (+1.02% of Sortino at ma_window_days=225). Choosing a number in that
+# corridor decides one specific case, which is calibrating to an outcome rather
+# than measuring noise. Whether a small Sortino loss is worth a large drawdown
+# gain is a TRADE-OFF and belongs to the owner, stated as such — not laundered
+# through a tolerance.
+#
+# Verified to change no verdict on the day it shipped: it only stops the system
+# ever calling a shift of the ground an improvement.
+NOISE_REL_TOL = 0.0071
 NOISE_ABS_TOL = 1e-12
 
 

@@ -105,15 +105,35 @@ def test_the_verdict_is_pareto_over_every_indicator() -> None:
         ).adopt
         is True
     )
-    # ...and a real move of the same indicator is still caught. 1e-9 sits six
-    # orders below the smallest decision-relevant change, so the gap is wide
-    # enough that no plausible retuning of it flips a verdict.
+    # ...and a real move of the same indicator is still caught.
     assert (
         _measurement(
-            sortino=(1.173, 1.244), drawdown=(-0.2061, -0.2062), cagr=(0.1072, 0.1110)
+            sortino=(1.173, 1.244), drawdown=(-0.2061, -0.2200), cagr=(0.1072, 0.1110)
         ).adopt
         is False
     )
+
+
+def test_the_noise_floor_is_the_measured_ground_movement() -> None:
+    """0.71%: the worst spread any indicator shows under a perturbation that
+    changes nothing about the strategy — twelve replay start dates across 1991,
+    measured 2026-08-09. Sortino moves 0.71%, CAGR and Calmar 0.54%, the max
+    drawdown not at all.
+
+    A NOISE floor, not a materiality threshold. The distinction is load-bearing:
+    a 1% band was considered and refused because it lands inside the
+    8-basis-point corridor between this floor and the smallest improvement the
+    sweep calls real (+1.02% of Sortino at ma_window_days=225) — and a number
+    chosen in that corridor decides one specific case rather than measuring
+    anything. Trade-offs belong to the owner, stated as trade-offs."""
+    assert rule_revision.NOISE_REL_TOL == 0.0071
+
+    # Under the floor: ground, not result. Nothing else moves -> no adoption.
+    assert _measurement(sortino=(1.1725, 1.1760), drawdown=(-0.2061, -0.2061)).adopt is False
+    # Over it: a real degradation, however small. This is the 125-day overlay's
+    # exact shape — 0.94% of Sortino for 2.75pp of drawdown — refused because it
+    # is a TRADE-OFF, which is a different answer from "too small to see".
+    assert _measurement(sortino=(1.173, 1.162), drawdown=(-0.2061, -0.1786)).adopt is False
     # a single indicator improving, alone, is enough when nothing else moves
     assert _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.206)).adopt is True
     # and CALMAR counts like the rest — it is not a derived afterthought here
