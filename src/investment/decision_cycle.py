@@ -213,16 +213,38 @@ def _not_citable_because(inv: dict[str, Any]) -> str | None:
     return None
 
 
-def render_context_for_worker(context: PlannerContext) -> str:
+def render_context_for_worker(
+    context: PlannerContext,
+    *,
+    book_id: str = WORKER_BOOK_ID,
+    held: dict[str, float] | None = None,
+) -> str:
     """The PlannerContext as the text the Worker reads (docs/ARCHITECTURE.md
     WORKER: "the data in your context"). Deliberately unaware of provenance —
     no Planner, no pool, no storage — just the market picture, the ranking, the
-    lighthouses (with which are lit NOW), and the framing."""
+    lighthouses (with which are lit NOW), and the framing.
+
+    `book_id`/`held` NAME THE BOOK THE WORKER ACTUALLY HOLDS, and until
+    2026-08-09 nothing did. `target_book` reached Writeback and stopped there,
+    so both M8b arms handed the Worker a byte-identical prompt whose only
+    reallocation avenue was "the defender's own allocation" — a portfolio that
+    had not been the target since 2026-08-08. Measured over 37 dates across the
+    two arms: on `alone` the Worker reasoned exclusively about whether it might
+    OVERRIDE the mechanical stack and proposed almost nothing; on `on-stack`
+    every one of its four proposals was the six-sleeve defender blend, refused
+    on turnover against a book reset to IEF 90 / GLD 10.
+
+    It was answering the question it was asked. This is the question it should
+    have been asked."""
     regime = context.regime
     lines = [
         f"REGIME: {regime.get('regime_name', '?')} ({regime.get('regime_type_id', '?')}), "
         f"confidence {regime.get('confidence', '?')}",
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
+        "",
+        f"YOUR BOOK: {book_id} — this is the portfolio your reallocation moves, "
+        "and the only one it can move.",
+        f"  it currently holds: {held if held else '(nothing yet)'}",
     ]
     lines.extend(_market_signal_lines(context.market_signal))
     lines += [
@@ -423,7 +445,15 @@ async def run_decision_cycle(
     running a book of its own (`agentic_replay --arm on-stack`). A parameter
     rather than a second code path, so both arms run the identical cycle."""
     context = context or await planner_pre.run(trigger)
-    worker_result = await run_worker(worker_agent, render_context_for_worker(context))
+    # READ BEFORE THE WORKER RUNS, not after. The incumbent was fetched just
+    # above the gates, which was late for one reason and wrong for another: the
+    # Worker never saw the book it was allocating, and the gates compared
+    # against a row read later than the reading that produced the proposal.
+    # One read, one snapshot, both halves judging the same book.
+    incumbent = await _book_row(db, target_book)
+    worker_result = await run_worker(
+        worker_agent, render_context_for_worker(context, book_id=target_book, held=incumbent)
+    )
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today
     )
@@ -447,8 +477,8 @@ async def run_decision_cycle(
     # With a book of its own it accumulates ONE NAV, ranked against everything
     # else with no privilege. `worker-book` starts at the defender's allocation,
     # so before its first accepted reallocation the two curves are identical by
-    # construction (db/seed_data.py).
-    incumbent = await _book_row(db, target_book)
+    # construction (db/seed_data.py). `incumbent` was read above, before the
+    # Worker, so it is the same book the reading was formed against.
     if reallocation is not None and incumbent is not None:
         # Its own caps, which may only be STRICTER than the user's — the ranking
         # snapshot carries no cap columns, they live on `portfolio`.

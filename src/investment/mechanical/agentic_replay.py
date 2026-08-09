@@ -63,7 +63,7 @@ from pydantic_ai import Agent
 
 from investment.db.as_of_snapshot import advance_as_of_snapshot, build_as_of_snapshot
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import UC8Result, run_decision_cycle
+from investment.decision_cycle import UC8Result, _book_row, run_decision_cycle
 from investment.mechanical import market_signal
 from investment.mechanical.as_of_cycle import AsOfCycle, run_as_of_cycle
 from investment.mechanical.replay import (
@@ -187,6 +187,17 @@ class DateOutcome:
     # shadow book simply holds. See `run_agentic_episode` for why one bad date
     # does not end the episode.
     failure: str | None = None
+    # What the RULE targeted this month (`on-stack` only; None on `alone`).
+    #
+    # Journalled because RESUME has to rebuild the priced walk, and this is the
+    # one part of it that cannot be recomputed: the accepted allocations are in
+    # the journal, the All-Weather seed is a constant, but the stack's monthly
+    # target lived only in the snapshot the resume is skipping past. Without it
+    # a resumed on-stack run would price the rule's path only from the date it
+    # resumed at, and silently — the very failure mode this arm was just fixed
+    # for. Set even on a FAILED date: the rule targeted something that month
+    # whether or not the Worker managed to read it.
+    stack_target: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +306,11 @@ async def run_agentic_episode(
             len(outcomes),
         )
         for out in outcomes:
+            # SAME PRECEDENCE AS THE LIVE LOOP: the rule's target for the month,
+            # replaced by the Worker's tilt where one was accepted. Rebuilt in
+            # this order so a resumed walk is identical to an uninterrupted one.
+            if out.stack_target:
+                targets[pd.Timestamp(out.as_of)] = dict(out.stack_target)
             if out.accepted and out.proposed_allocation:
                 targets[pd.Timestamp(out.as_of)] = dict(out.proposed_allocation)
     else:
@@ -326,15 +342,31 @@ async def run_agentic_episode(
             # so the Worker's tilt is measured AGAINST the rule rather than
             # against its own previous tilt. Done after the mechanical cycle,
             # which is what wrote the stack's current allocation.
+            #
+            # IN THE PRICED WALK AS WELL AS IN THE ROW, and the second half is
+            # the correction (owner, 2026-08-09). Until now the reset wrote only
+            # `portfolio.allocation` — the incumbent the GATES compare against —
+            # while `targets`, which is what `shadow_book_nav` actually prices,
+            # kept the All-Weather seed from `dates[0]` and moved only on an
+            # accepted tilt. So the rule's own path never entered A' at all: the
+            # first on-stack run returned A' equal to B to the cent in both
+            # completed episodes, because with no tilt accepted the walk was
+            # plain All Weather. Even an accepted tilt would have priced
+            # "All Weather until the tilt", never "stack plus tilt".
+            #
+            # Writing the stack's target into `targets` every month makes the
+            # arm's baseline the RULE, which is the only reading under which
+            # "does the cognitive layer add to a rule that already works?" has
+            # an answer. An accepted tilt then REPLACES that month's entry
+            # below, so the walk is the stack except where the Worker moved it.
+            stack_target: dict[str, float] | None = None
             if ARMS[arm] != ARMS["alone"]:
-                stack = await db.query(
-                    "SELECT allocation FROM portfolio WHERE id = :id",
-                    id=market_signal.STACK_PORTFOLIO_ID,
-                )
-                if stack:
+                stack_target = await _book_row(db, market_signal.STACK_PORTFOLIO_ID)
+                if stack_target:
+                    targets[stamp] = dict(stack_target)
                     await db.command(
                         "UPDATE portfolio SET allocation = :a WHERE id = :id",
-                        a=str(stack[0]["allocation"]),
+                        a=json.dumps(stack_target),
                         id=ARMS[arm],
                     )
             # ONE DATE MAY FAIL WITHOUT ENDING THE EPISODE.
@@ -374,7 +406,7 @@ async def run_agentic_episode(
                 target_book=ARMS[arm],
             )
             if isinstance(result, BaseException):
-                failed = _failed(as_of, mechanical, result)
+                failed = _failed(as_of, mechanical, result, stack_target)
                 outcomes.append(failed)
                 # Journalled like any other: a failed date is a date the resume
                 # must NOT retry, or an interrupted run would grind on the same
@@ -382,7 +414,7 @@ async def run_agentic_episode(
                 _append_journal(journal, failed)
                 continue
 
-            outcome = _record(as_of, mechanical, result)
+            outcome = _record(as_of, mechanical, result, stack_target)
             outcomes.append(outcome)
             _append_journal(journal, outcome)
             if outcome.accepted and outcome.proposed_allocation:
@@ -436,7 +468,12 @@ async def run_agentic_episode(
     )
 
 
-def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcome:
+def _record(
+    as_of: date,
+    mechanical: AsOfCycle,
+    result: UC8Result,
+    stack_target: dict[str, float] | None = None,
+) -> DateOutcome:
     """Flatten one cycle into the log line M8b's behavioural channel reads.
 
     `accepted` is deliberately NOT "the Worker proposed something": a proposal
@@ -452,6 +489,7 @@ def _record(as_of: date, mechanical: AsOfCycle, result: UC8Result) -> DateOutcom
         accepted=result.proposal_id is not None,
         innovations=len(result.worker_result.innovations_proposed),
         innovation_proposals=tuple(result.worker_result.innovations_proposed),
+        stack_target=stack_target,
     )
 
 
@@ -472,6 +510,7 @@ def _append_journal(path: Path, outcome: DateOutcome) -> None:
         "innovations": outcome.innovations,
         "innovation_proposals": [p.model_dump(mode="json") for p in outcome.innovation_proposals],
         "failure": outcome.failure,
+        "stack_target": outcome.stack_target,
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, default=str) + "\n")
@@ -504,6 +543,7 @@ def _read_journal(path: Path, opens: date) -> list[DateOutcome]:
                         for p in raw.get("innovation_proposals", ())
                     ),
                     failure=raw["failure"],
+                    stack_target=raw.get("stack_target"),
                 )
             )
         except (ValueError, KeyError, TypeError):
@@ -620,7 +660,12 @@ async def _cycle_with_retry(
     return last
 
 
-def _failed(as_of: date, mechanical: AsOfCycle, exc: BaseException) -> DateOutcome:
+def _failed(
+    as_of: date,
+    mechanical: AsOfCycle,
+    exc: BaseException,
+    stack_target: dict[str, float] | None = None,
+) -> DateOutcome:
     """A date whose cognitive cycle raised. `accepted=False` and no allocation,
     so the shadow book holds through it exactly as it does through a date where
     the Worker proposed nothing — the arithmetic never sees a gap."""
@@ -633,6 +678,10 @@ def _failed(as_of: date, mechanical: AsOfCycle, exc: BaseException) -> DateOutco
         accepted=False,
         innovations=0,
         failure=f"{type(exc).__name__}: {exc}",
+        # The rule targeted something this month whether or not the Worker
+        # managed to read it — a failed date must still price the stack's leg,
+        # or the on-stack walk would silently hold through it.
+        stack_target=stack_target,
     )
 
 

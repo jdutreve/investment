@@ -30,6 +30,7 @@ from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import agentic_replay as AR
+from investment.mechanical.as_of_cycle import AsOfCycle
 from investment.mechanical.market_signal import BOOK_PORTFOLIO_IDS, STACK_TICKERS
 from investment.mechanical.replay import load_inputs, load_thresholds
 from investment.planner.post import PlannerPost
@@ -719,3 +720,67 @@ async def test_the_on_stack_arm_resets_to_the_rule_each_month(
     # the tilt it produced the month before
     assert all(a != WORKER_TARGET for a in seen[1:]), seen
     assert stack_books  # the fixture seeds the books the stack chooses among
+
+
+def test_the_on_stack_walk_is_the_rule_where_the_worker_did_not_move_it(tmp_path: Path) -> None:
+    """The defect that cost the first on-stack run (2026-08-09).
+
+    Arm 2's monthly reset wrote `portfolio.allocation` — the incumbent the GATES
+    compare against — and nothing else, while `targets`, the dict
+    `shadow_book_nav` actually prices, kept the All-Weather seed and moved only
+    on an accepted tilt. So the rule's path never entered A': both completed
+    episodes returned A' equal to B to the cent, and the -12.95% "delta"
+    measured All Weather against the stack rather than the Worker against
+    anything.
+
+    The journal carries `stack_target` for exactly this reason — it is the one
+    part of the walk a resume cannot recompute, since it lived in the snapshot
+    the resume skips past. Pinned through a round-trip, with the precedence a
+    resumed run has to reproduce: the rule's target, REPLACED where a tilt was
+    accepted."""
+    journal = tmp_path / "ep.dates.jsonl"
+    mechanical = AsOfCycle(
+        as_of=date(2008, 7, 1),
+        favors_edges=0,
+        strategies_scored=0,
+        portfolios_valued=0,
+        portfolios_ranked=0,
+        invariants_reweighed=0,
+        market_signal_decision=None,
+        market_signal_proposal_id=None,
+    )
+    stack_january = {"IEF": 90.0, "GLD": 10.0}
+    stack_february = {"cash": 100.0}
+    tilt = {"IEF": 70.0, "GLD": 20.0, "cash": 10.0}
+
+    for as_of, stack, accepted, alloc in (
+        (date(2008, 7, 1), stack_january, False, None),
+        (date(2008, 8, 1), stack_february, True, tilt),
+    ):
+        AR._append_journal(
+            journal,
+            AR.DateOutcome(
+                as_of=as_of,
+                mechanical=mechanical,
+                reading="",
+                proposed_allocation=alloc,
+                gate=None,
+                accepted=accepted,
+                innovations=0,
+                stack_target=stack,
+            ),
+        )
+
+    kept = AR._read_journal(journal, date(2008, 7, 1))
+
+    assert [o.stack_target for o in kept] == [stack_january, stack_february]
+    # The precedence `run_agentic_episode` applies on resume.
+    targets: dict[date, dict[str, float]] = {}
+    for out in kept:
+        if out.stack_target:
+            targets[out.as_of] = dict(out.stack_target)
+        if out.accepted and out.proposed_allocation:
+            targets[out.as_of] = dict(out.proposed_allocation)
+
+    assert targets[date(2008, 7, 1)] == stack_january  # no tilt -> the rule stands
+    assert targets[date(2008, 8, 1)] == tilt  # a tilt -> it replaces the rule
