@@ -334,14 +334,16 @@ something earns a change. Swept over 1991-2026:
     veto (pp/30d)   sortino            maxDD                cagr     verdict
     0.00            +1.173 -> +1.056   -20.61% -> -20.61%   +9.35%   reject
     0.05            +1.173 -> +1.145   -20.61% -> -20.61%  +10.11%   reject
-    0.10            +1.173 -> +1.229   -20.61% -> -20.61%  +10.95%   reject
-    0.20            +1.173 -> +1.244   -20.61% -> -20.61%  +11.10%   reject
-    0.40            +1.173 -> +1.232   -20.61% -> -20.61%  +11.11%   reject
+    0.10            +1.173 -> +1.229   -20.61% -> -20.61%  +10.95%   ADOPT
+    0.20            +1.173 -> +1.244   -20.61% -> -20.61%  +11.10%   ADOPT
+    0.40            +1.173 -> +1.232   -20.61% -> -20.61%  +11.11%   ADOPT
 
 It is the ONLY proposal of the five families that improves anything: at 0.20,
-Sortino +0.071 and CAGR +0.38pp. It is rejected anyway, because the acceptance
-test requires the drawdown to IMPROVE and the drawdown does not move — not by a
-basis point, at any threshold.
+Sortino +0.071 and CAGR +0.38pp for an unchanged drawdown. Under the ORIGINAL
+acceptance test it was refused at every threshold, because that test required
+the drawdown to IMPROVE and the drawdown does not move — not by a basis point.
+Under the Pareto rule that replaced it (below) it is adopted from 0.10 up, and
+still refused at 0.00 and 0.05 where it genuinely degrades.
 
 **THAT IMMOBILITY IS THE FINDING.** The stack's worst drawdown is 2020-03-20,
 and through the whole covid crash the book in force was already
@@ -359,10 +361,25 @@ test is keyed on. Both revisions it has ever adopted (2026-08-07: IWN
 trend-checked, the haven trend-checked) were overlay changes, which is now
 explained rather than coincidental.
 
-**An open owner decision**, recorded here rather than settled: is that intended?
-The don't-lose doctrine says only drawdown-reducing changes deserve adoption,
-and that is a defensible reading. But under a rule of "Sortino improves AND
-drawdown does not WORSEN", the velocity veto at 0.20 would be adopted — +0.071
-Sortino and +0.38pp CAGR for no additional drawdown. The test as written cannot
-express that trade, and the system will keep rejecting return-improving,
-risk-neutral revisions without ever saying why.
+**Settled the same day (owner decision 2026-08-09): the acceptance test is now
+PARETO** over the four indicators — adopt iff at least one improves and none
+degrades. Rule #1 is intact, since nothing may get worse and a revision buying
+return with drawdown is still refused on the spot; what changes is that a
+revision improving return at UNCHANGED risk becomes expressible as an adoption
+instead of being refused without the test being able to say why. The
+generalisation is the owner's: it holds for ANY indicator that does not degrade,
+not only for the drawdown.
+
+Implementing it needed one measured number. An exact comparison refused the veto
+on a max-drawdown delta of **-2.2e-16** — the same trough, -0.2061245891298571
+against -0.20612458912985732, reached by a different arithmetic path. Left
+alone, Pareto would refuse every revision ever proposed, since any change
+perturbs every indicator at machine epsilon. `NOISE_REL_TOL = 1e-9` sits seven
+orders above that noise and six below the smallest move that could change a
+decision, so no plausible retuning of it flips a verdict.
+
+**What is NOT decided: turning the veto on.** `SPREAD_SPEED_VETO` remains None.
+The measurement says adopt at 0.10-0.40, best at 0.20; flipping the constant
+changes ADR-007's live allocation, and the gate there is git and an owner
+signature, not ADR-006 (`rule_revision` module docstring). The evidence is
+recorded; the switch is not thrown.

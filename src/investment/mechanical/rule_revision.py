@@ -19,14 +19,17 @@ CODE (a new signal, a different classifier shape) is outside this, and the
 registry saying so is itself useful — "we cannot measure this yet" is a better
 verdict than an unmeasurable strategy quietly ageing out.
 
-THE VERDICT RULE is the one the proposing Worker wrote itself, repeatedly and
-unprompted: adopt only if Sortino does not degrade AND max drawdown improves.
-That asymmetry is the system's own doctrine (rule #1: don't lose) expressed as
-an acceptance test, and it is the one under which the 2026-08-07 pair was
-adopted.
+THE VERDICT RULE is PARETO over the four NavMetrics indicators: adopt iff at
+least one improves and none degrades. It was "Sortino not degraded AND max
+drawdown improved" — the Worker's own words, and the test the 2026-08-07 pair
+was adopted under — until measuring the Worker's most repeated critique showed
+that test could only ever adopt OVERLAY changes, because the stack's max
+drawdown is an overlay property and book selection cannot move it (see `adopt`).
+Rule #1 is intact: nothing may get worse.
 """
 
 import dataclasses
+import math
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
@@ -66,6 +69,23 @@ _COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_
 # is a perfectly good thing to measure and reject.
 _FLOAT_KNOBS = frozenset({"spread_speed_veto"})
 
+# WHAT COUNTS AS "UNCHANGED", and the number is measured rather than picked.
+#
+# A Pareto verdict has to tell an indicator that MOVED from one that merely got
+# there by a different arithmetic path. Measured 2026-08-09 on the velocity
+# veto: the max drawdown was -0.2061245891298571 against -0.20612458912985732 —
+# the same trough to fifteen significant figures, a delta of -2.2e-16 — and an
+# exact comparison read it as a degradation and refused the revision. Left
+# unfixed, the rule would refuse everything: any change perturbs every indicator
+# at machine epsilon.
+#
+# 1e-9 sits about seven orders above that noise and six below the smallest move
+# that could change a decision (a basis point of CAGR, 0.001 of Sortino). The
+# gap is wide enough that no plausible tightening or loosening of it changes any
+# verdict — which is the property a threshold like this needs.
+NOISE_REL_TOL = 1e-9
+NOISE_ABS_TOL = 1e-12
+
 
 def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
     """`{knob: why}` for every override this registry cannot apply, empty if all
@@ -104,6 +124,19 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
     return bad
 
 
+def _direction(baseline: float, variant: float) -> int:
+    """+1 improved, -1 degraded, 0 unchanged — every indicator being
+    higher-is-better (see `RevisionMeasurement.deltas`).
+
+    `math.isclose` rather than `==`, for the reason `NOISE_REL_TOL` records: two
+    runs that reach the same trough by different arithmetic differ in the last
+    bit, and a verdict that cannot say "unchanged" refuses every revision ever
+    proposed."""
+    if math.isclose(baseline, variant, rel_tol=NOISE_REL_TOL, abs_tol=NOISE_ABS_TOL):
+        return 0
+    return 1 if variant > baseline else -1
+
+
 @dataclasses.dataclass(frozen=True)
 class RevisionMeasurement:
     """Baseline and variant measured in ONE process on ONE data vintage.
@@ -135,14 +168,51 @@ class RevisionMeasurement:
         return self.variant.max_drawdown - self.baseline.max_drawdown
 
     @property
-    def adopt(self) -> bool | None:
-        """The Worker's own acceptance test: Sortino not degraded AND drawdown
-        improved. `None` when either arm has no metric to compare — the honest
-        answer, not a False that reads as a refusal."""
-        s, d = self.sortino_delta, self.drawdown_delta
-        if s is None or d is None:
+    def deltas(self) -> dict[str, float] | None:
+        """variant - baseline, per indicator. EVERY `NavMetrics` field is
+        higher-is-better, `max_drawdown` included: it is a negative fraction, so
+        -0.18 beats -0.24 and the sign needs no special case.
+
+        `None` if any indicator is missing on either arm — a partial comparison
+        is not a comparison."""
+        base, var = self.baseline.as_map(), self.variant.as_map()
+        if any(base[k] is None or var[k] is None for k in base):
             return None
-        return s >= 0.0 and d > 0.0
+        return {k: float(var[k]) - float(base[k]) for k in base}  # type: ignore[arg-type]  # guarded
+
+    @property
+    def adopt(self) -> bool | None:
+        """PARETO: adopt iff at least one indicator improves and NONE degrades.
+        `None` when an indicator is missing on either arm — the honest answer,
+        not a False that reads as a refusal.
+
+        THE TEST USED TO BE "Sortino not degraded AND max drawdown improved",
+        which the proposing Worker wrote and which the 2026-08-07 pair was
+        adopted under. Measuring the Worker's own most repeated critique
+        (`SPREAD_SPEED_VETO`) is what retired it, on 2026-08-09.
+
+        The veto improved Sortino by 0.071 and CAGR by 0.38pp and was refused,
+        because the drawdown did not move — and it could not have: the stack's
+        worst drawdown is 2020-03-20, the book in force through the covid crash
+        was already the tight one, and the veto only defers a WIDE read. The
+        -20.61% belongs to the 200d overlay's latency, not to book selection.
+        So "the drawdown must IMPROVE" was structurally an overlay-only filter:
+        no book-selection revision could ever pass it, whatever its merit, and
+        both revisions ever adopted were overlay changes.
+
+        Pareto keeps the doctrine and drops the artefact. Nothing may get worse
+        — rule #1 is intact, and a revision that buys CAGR with drawdown is
+        still refused on the spot. What changes is that a revision improving
+        return at UNCHANGED risk is now expressible as an adoption instead of
+        being rejected without the test ever being able to say why (owner
+        decision 2026-08-09)."""
+        base, var = self.baseline.as_map(), self.variant.as_map()
+        if any(base[k] is None or var[k] is None for k in base):
+            return None
+        directions = [_direction(float(base[k]), float(var[k])) for k in base]  # type: ignore[arg-type]  # guarded
+        if any(d < 0 for d in directions):
+            return False
+        return any(d > 0 for d in directions)
 
 
 def extract_overrides(spec: dict[str, Any]) -> dict[str, Any] | None:
