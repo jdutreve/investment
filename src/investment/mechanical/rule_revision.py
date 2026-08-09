@@ -30,6 +30,7 @@ Rule #1 is intact: nothing may get worse.
 
 import dataclasses
 import math
+from datetime import date
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
@@ -272,8 +273,21 @@ def unknown_parameters(spec: dict[str, Any]) -> list[str]:
     return sorted(k for k in raw if k not in TESTABLE_PARAMETERS)
 
 
-async def measure_revision(db: InvestmentDB, overrides: dict[str, Any]) -> RevisionMeasurement:
+async def measure_revision(
+    db: InvestmentDB,
+    overrides: dict[str, Any],
+    *,
+    start: date | None = None,
+    end: date | None = None,
+) -> RevisionMeasurement:
     """Run the stack twice — as it is, then with `overrides` — and return both.
+
+    `start`/`end` BOUND THE WINDOW, and exist so out-of-sample validation is a
+    capability of the measurement rather than a scratchpad hack. A knob that
+    "adopts" on the whole 35-year sample and on neither half of it has been
+    fitted, not found, and the only way to see that is to measure the halves
+    with the same function that measured the whole. Defaults keep
+    `run_market_signal`'s own window.
 
     The overrides are applied by SETTING THE MODULE CONSTANTS and restoring them
     in a `finally`. That is blunt, and the alternative is worse: threading six
@@ -286,7 +300,12 @@ async def measure_revision(db: InvestmentDB, overrides: dict[str, Any]) -> Revis
     if unusable:
         raise ValueError(f"revision names values the walk cannot apply: {unusable}")
 
-    baseline_run = await market_signal.run_market_signal(db)
+    window: dict[str, date] = {}
+    if start is not None:
+        window["start"] = start
+    if end is not None:
+        window["end"] = end
+    baseline_run = await market_signal.run_market_signal(db, **window)  # type: ignore[arg-type]  # date kwargs
     baseline = await market_signal.stack_metrics(db, baseline_run)
 
     saved = {attr: getattr(market_signal, attr) for attr in TESTABLE_PARAMETERS.values()}
@@ -295,7 +314,7 @@ async def measure_revision(db: InvestmentDB, overrides: dict[str, Any]) -> Revis
             attr = TESTABLE_PARAMETERS[key]
             current = saved[attr]
             setattr(market_signal, attr, tuple(value) if isinstance(current, tuple) else value)
-        variant_run = await market_signal.run_market_signal(db)
+        variant_run = await market_signal.run_market_signal(db, **window)  # type: ignore[arg-type]  # date kwargs
         variant = await market_signal.stack_metrics(db, variant_run)
     finally:
         for attr, value in saved.items():

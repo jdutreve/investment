@@ -438,3 +438,36 @@ doctrine question for the owner, not a defect.
 Nothing here is adopted. Both the veto and the 300-day window are fitted on a
 single 35-year sample and would need an out-of-sample check before the constant
 is touched.
+
+### Out-of-sample: which of them were found, and which were fitted (2026-08-09)
+
+Every candidate above was judged on the same 35 years it was fitted on. Split at
+2009 — roughly equal halves, and the break falls between two monetary worlds
+rather than inside one — `measure_revision(start=, end=)` re-runs the identical
+comparison on each.
+
+    candidate               full 1991-2026   first 1991-2008   second 2009-2026
+    spread_speed_veto 0.10  ADOPT            ADOPT             ADOPT
+    spread_speed_veto 0.20  ADOPT            ADOPT             ADOPT
+    spread_speed_veto 0.40  ADOPT            ADOPT             ADOPT
+    ma_window_days 175      ADOPT            reject            ADOPT
+    ma_window_days 225      ADOPT            ADOPT             reject
+    ma_window_days 300      ADOPT            ADOPT             ADOPT
+
+**175 and 225 are sample artefacts** — each adopts on the whole and fails on one
+half, fitted to the other. This is what the split exists to catch, and it caught
+two of three on its first use.
+
+**The veto survives everywhere**, and the halves say something the full sample
+could not: on 1991-2008 it improves the max drawdown by **+2.96pp**. Its risk
+benefit is real; it was invisible over 35 years only because the full-sample trough
+is covid, where the veto is inert. At 0.20: Sortino +0.180 on the first half,
++0.105 on the second, CAGR +0.76pp and +0.75pp.
+
+**300 days survives too**, thinly — +0.010 of Sortino on the second half, barely
+above the 0.71% noise floor.
+
+So the Worker's most repeated critique is the one solid finding of the screen:
+proposed six ways from independent dates, mechanically measurable once given a
+knob, robust in and out of sample, and worth three points of drawdown in 2008.
+Still not switched on — that is git and an owner signature (ADR-007).
