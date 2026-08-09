@@ -84,6 +84,7 @@ from datetime import date
 import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
+from investment.market.derivatives import compute_derivatives
 from investment.mechanical import ratios, replay
 from investment.mechanical.gates import Caps, concentration_ok, drawdown_ok
 from investment.mechanical.replay import NavMetrics, nav_metrics, shadow_book_nav
@@ -346,8 +347,45 @@ class MarketSignalRun:
 # -- pure decision logic (no I/O — unit-testable, shared with the live path) --
 
 
+# THE WORKER'S MOST REPEATED CRITIQUE, made measurable (2026-08-09). OFF by
+# default: `None` leaves `classify_regime` exactly as ADR-007 validated it, and
+# `rule_revision` can switch it on to earn a 35-year verdict before anything is
+# adopted.
+#
+# Six distinct formulations across independent dates and runs said one thing:
+# the book is selected on the LEVEL of the spread against its trailing median,
+# and should be selected on its TRAJECTORY. At 2020-03-02 — "BAA10Y 2.27 vs
+# median 2.59 says 'tight'. The level is tight; the TRAJECTORY is not. 2008
+# taught exactly this lesson: the level-vs-median read stays 'tight' longest
+# precisely when widening is fastest, because the median trails and the level
+# starts low."
+#
+# THE DIRECTION IS THE OPPOSITE OF WHAT "VETO" SUGGESTS, and getting it backwards
+# would measure the reverse of the claim. `credit-spread-wide` is the RISK-ON
+# book (SPY 50 / IWN 40 / GLD 10): the countercyclical bet that stress is already
+# priced. The Worker's objection is to taking that bet while the stress is still
+# forming — "the spread is wide because a credit event is still forming"
+# (2008-07-01). So the veto DEFERS the wide reading while the spread is still
+# widening faster than the threshold, falling through to the curve branch and
+# its lighter book. It does not accelerate into it.
+#
+# Units are the spread's own (percentage points of BAA10Y) over
+# SPREAD_SPEED_LOOKBACK_DAYS.
+SPREAD_SPEED_VETO: float | None = None
+
+# Matches `system_thresholds.derivative_lookback_short`, and the speed itself is
+# computed by `market.derivatives.compute_derivatives` rather than differenced
+# here — CLAUDE.md's "two implementations must produce the same numbers" applies
+# to a knob that will be compared against readings the Worker saw.
+SPREAD_SPEED_LOOKBACK_DAYS = 30
+
+
 def classify_regime(
-    spread: float, spread_median: float | None, slope: float, slope_median: float | None
+    spread: float,
+    spread_median: float | None,
+    slope: float,
+    slope_median: float | None,
+    spread_speed: float | None = None,
 ) -> str:
     """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"):
     credit spread WIDE vs its 10y median -> `credit-spread-wide` (stress is
@@ -362,7 +400,13 @@ def classify_regime(
     A missing median (warm-up, before MEDIAN_MIN_DAYS of history) defaults to
     `credit-spread-wide` — the equity-tilted book — exactly as the backtest did
     rather than stalling; the trend overlay still guards its downside."""
-    if spread_median is None or pd.isna(spread_median) or spread > spread_median:
+    wide = spread_median is None or pd.isna(spread_median) or spread > spread_median
+    # See SPREAD_SPEED_VETO: defer the risk-on book while the crack is still
+    # opening. A missing speed (warm-up) never vetoes — the rule falls back to
+    # the level read it has always used.
+    if wide and SPREAD_SPEED_VETO is not None and spread_speed is not None:
+        wide = pd.isna(spread_speed) or spread_speed <= SPREAD_SPEED_VETO
+    if wide:
         return "credit-spread-wide"
     if slope_median is None or pd.isna(slope_median) or slope < slope_median:
         return "credit-spread-tight-yield-curve-flat"
@@ -422,6 +466,7 @@ def walk_decisions(
     slope_median: pd.Series,
     moving_averages: Mapping[str, pd.Series],
     prices: Mapping[str, pd.Series],
+    spread_speed: pd.Series | None = None,
 ) -> list[Decision]:
     """Walk the decision clock and record EVERY decision — the full journal.
 
@@ -435,7 +480,11 @@ def walk_decisions(
     pending_count = 0
     for t in dates:
         signalled = classify_regime(
-            _at(spread, t), _at(spread_median, t), _at(slope, t), _at(slope_median, t)
+            _at(spread, t),
+            _at(spread_median, t),
+            _at(slope, t),
+            _at(slope_median, t),
+            None if spread_speed is None else _at(spread_speed, t),
         )
         held, pending, pending_count = advance_hysteresis(held, pending, pending_count, signalled)
         # THE HAVEN IS READ TOO, not only the sleeves: `apply_trend_overlay`
@@ -606,8 +655,12 @@ async def run_market_signal(
     }
 
     dates = replay.decision_dates(calendar, start, end, cadence)
+    # Computed unconditionally and cheap: the walk ignores it while
+    # SPREAD_SPEED_VETO is None, and computing it only when the knob is set
+    # would make the measured variant read a series the baseline never built.
+    spread_speed = compute_derivatives(spread, CREDIT_SPREAD, SPREAD_SPEED_LOOKBACK_DAYS)["speed"]
     decisions = walk_decisions(
-        dates, spread, slope, spread_median, slope_median, moving_averages, prices
+        dates, spread, slope, spread_median, slope_median, moving_averages, prices, spread_speed
     )
     targets = {d.date: d.target for d in decisions if d.changed}
     nav, turnover = shadow_book_nav(targets, prices, rf, cost_bps, calendar)

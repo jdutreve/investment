@@ -48,6 +48,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "confirm_decisions": "CONFIRM_DECISIONS",
     "ma_window_days": "MA_WINDOW_DAYS",
     "median_window_days": "MEDIAN_WINDOW_DAYS",
+    "spread_speed_veto": "SPREAD_SPEED_VETO",
 }
 
 
@@ -60,6 +61,10 @@ TESTABLE_PARAMETERS: dict[str, str] = {
 # carries a traceback instead of a verdict, and the owner reads neither.
 _TICKER_KNOBS = frozenset({"trend_haven", "trend_fallback_haven", "trend_sleeves"})
 _COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_days"})
+# A threshold in the spread's own units, so any finite number is expressible —
+# including a negative one, which vetoes only while spreads are TIGHTENING and
+# is a perfectly good thing to measure and reject.
+_FLOAT_KNOBS = frozenset({"spread_speed_veto"})
 
 
 def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
@@ -88,6 +93,10 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
             unknown = [n for n in names if not isinstance(n, str) or n not in allowed]
             if unknown:
                 bad[knob] = f"not a tradable sleeve with a price series: {unknown}"
+        elif knob in _FLOAT_KNOBS and not (
+            isinstance(value, int | float) and not isinstance(value, bool)
+        ):
+            bad[knob] = f"expected a number in spread units, got {value!r}"
         elif knob in _COUNT_KNOBS and not (
             isinstance(value, int) and not isinstance(value, bool) and value > 0
         ):

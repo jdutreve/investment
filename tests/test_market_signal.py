@@ -294,3 +294,43 @@ def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
         assert name in text
         for ticker in holdings:
             assert ticker in text
+
+
+def test_the_spread_speed_veto_is_off_by_default() -> None:
+    """The knob exists to be MEASURED, not to change the adopted rule. ADR-007's
+    validated numbers must survive its arrival untouched, so the default is
+    None and `classify_regime` behaves exactly as before whatever speed it is
+    handed."""
+    assert market_signal.SPREAD_SPEED_VETO is None
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 99.0) == WIDE
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE
+
+
+def test_the_spread_speed_veto_defers_the_risk_on_book_it_does_not_hasten_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE DIRECTION IS THE WHOLE CLAIM, and it is the opposite of what "veto"
+    suggests at first reading.
+
+    `credit-spread-wide` is the RISK-ON book (SPY 50 / IWN 40 / GLD 10): the
+    countercyclical bet that stress is already priced. The Worker's objection,
+    in six formulations across independent dates, is to taking that bet while
+    the stress is still forming — "the spread is wide because a credit event is
+    still forming" (2008-07-01). So a spread that is wide AND still widening
+    fast must fall through to the curve branch and its lighter book, not rush
+    into the distressed one.
+
+    Getting this backwards would measure the reverse of the claim and report it
+    under the claim's name."""
+    monkeypatch.setattr(market_signal, "SPREAD_SPEED_VETO", 0.10)
+
+    # Wide level, widening FAST -> deferred to the curve branch.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
+    # Wide level, stabilised -> the risk-on book, as the rule always did.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.05) == WIDE
+    # Wide and TIGHTENING -> equally the risk-on book: the veto is one-sided.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, -0.50) == WIDE
+    # A tight level is untouched by the veto — it only ever defers a WIDE read.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
+    # Warm-up: no speed yet, so no veto and no crash.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE

@@ -261,3 +261,108 @@ nothing quickly — and that is the right pace for a 10-15y accumulation-horizon
 project. There is no urgency to reach a verdict; the discipline is to let real
 unseen data accumulate rather than to conclude fast. The build work (M6-bis →
 M8b) proceeds meanwhile, but the go-live verdict waits on time it cannot rush.
+
+---
+
+## What the knowledge factory proposed, and what measuring it said (2026-08-09)
+
+Two days of M8b runs produced **25 distinct innovations** across ~40 readings,
+each one appearing twice or more from independent dates and runs. Nine named
+knobs `rule_revision.TESTABLE_PARAMETERS` can move, which reduce to **five
+distinct experiments** once deduplicated on the override set — five differently
+worded proposals resolving to the same constants are one experiment, and paying
+for the 35y walk five times would not make the answer truer.
+
+Measured over 1991-2026 by `measure_revision`, judged by the acceptance test the
+proposing Worker itself wrote (adopt only if Sortino does not degrade AND max
+drawdown improves). Baseline: sortino +1.173, maxDD -20.61%, CAGR +10.72%.
+
+    override                                 sortino   maxDD delta   verdict
+    trend_haven=GLD, fallback=IEF             -0.154        -2.92pp  reject
+    trend_haven=GLD, fallback=cash            -0.238        -5.11pp  reject
+    confirm_decisions=2 (was 3)               -0.010         0.00pp  reject
+    trend_sleeves += VCIT                     -0.010         0.00pp  reject
+    trend_haven=cash                          not expressible: the primary
+                                              haven is trend-CHECKED, so it
+                                              needs a price series
+
+**ALL FOUR REJECTED.** The gold-haven family — the Worker's most persistent
+allocation intuition, proposed five ways across independent dates — makes the
+35-year drawdown three to five points DEEPER. This is ADR-006 doing exactly what
+it exists for: belief does not grant integration, history does. It cost minutes
+of compute, no LLM call, and no capital.
+
+**The pattern worth carrying forward**, and it is the same one ADR-012 acted on
+from the cost side: the Worker's DIAGNOSTIC readings are excellent — one of them
+found `max_single_asset_pct` freezing the stack in a stale book through the
+whole 2022 drawdown, a real defect the mechanical half could not see about
+itself — while its PRESCRIPTIVE allocation intuitions do not survive
+measurement. Read it for what the instrument cannot see; measure anything it
+proposes before believing it.
+
+**The most repeated critique is not in the table**, because no knob expressed it
+until `spread_speed_veto` (below): six distinct formulations of "the book is
+selected on the LEVEL of the spread against its trailing median, and should be
+selected on its TRAJECTORY" — *"the level-vs-median read stays 'tight' longest
+precisely when widening is fastest, because the median trails and the level
+starts low"* (2008-08-01, and again independently at 2020-03-02).
+
+Raw output: `~/data/investment/agentic-replay/rule-revisions-measured-*.txt`.
+
+### A free measurement of the stack against the bridge
+
+The on-stack run of 2026-08-09 priced its walk on the stack's own monthly
+target and accepted no cognitive tilt, so its A' curve IS the stack. Over
+global-financial-crisis (2008-07 .. 2009-01):
+
+    market-signal stack   CAGR +16.95%   sortino  2.48   maxDD  -4.60%
+    the bridge's rules    CAGR  -4.05%   sortino -0.51   maxDD -10.38%
+    All Weather held      CAGR -17.00%   sortino -1.74   maxDD -15.14%
+
+ONE seven-month episode, so a datapoint and not a verdict — but it is a clean
+one, and it bears directly on Step 6 (retiring the bridge): the 200d overlay cut
+the drawdown by two thirds against All Weather in the worst equity quarter since
+1929. Recorded because it came free and would otherwise be lost in a run log.
+
+### The most repeated critique, measured — and what its failure revealed
+
+`SPREAD_SPEED_VETO` (2026-08-09) makes it testable: defer the risk-on
+`credit-spread-wide` book while the spread is still widening faster than a
+threshold. OFF by default, so ADR-007's validated numbers are untouched until
+something earns a change. Swept over 1991-2026:
+
+    veto (pp/30d)   sortino            maxDD                cagr     verdict
+    0.00            +1.173 -> +1.056   -20.61% -> -20.61%   +9.35%   reject
+    0.05            +1.173 -> +1.145   -20.61% -> -20.61%  +10.11%   reject
+    0.10            +1.173 -> +1.229   -20.61% -> -20.61%  +10.95%   reject
+    0.20            +1.173 -> +1.244   -20.61% -> -20.61%  +11.10%   reject
+    0.40            +1.173 -> +1.232   -20.61% -> -20.61%  +11.11%   reject
+
+It is the ONLY proposal of the five families that improves anything: at 0.20,
+Sortino +0.071 and CAGR +0.38pp. It is rejected anyway, because the acceptance
+test requires the drawdown to IMPROVE and the drawdown does not move — not by a
+basis point, at any threshold.
+
+**THAT IMMOBILITY IS THE FINDING.** The stack's worst drawdown is 2020-03-20,
+and through the whole covid crash the book in force was already
+`credit-spread-tight-yield-curve-flat`; it switched to `credit-spread-wide` only
+in June, after the bottom. The veto defers a WIDE reading, so it is inert
+exactly where the drawdown is set. The -20.61% is not a property of BOOK
+SELECTION at all — it is the 200d overlay's latency, SPY still reading
+above-trend on the 2020-03-02 decision and below only by 04-01, nine days after
+the trough.
+
+So the acceptance test — "Sortino not degraded AND max drawdown improved" — is
+structurally an OVERLAY-ONLY filter. No book-selection revision can ever pass
+it, whatever its merit, because book selection does not touch the number the
+test is keyed on. Both revisions it has ever adopted (2026-08-07: IWN
+trend-checked, the haven trend-checked) were overlay changes, which is now
+explained rather than coincidental.
+
+**An open owner decision**, recorded here rather than settled: is that intended?
+The don't-lose doctrine says only drawdown-reducing changes deserve adoption,
+and that is a defensible reading. But under a rule of "Sortino improves AND
+drawdown does not WORSEN", the velocity veto at 0.20 would be adopted — +0.071
+Sortino and +0.38pp CAGR for no additional drawdown. The test as written cannot
+express that trade, and the system will keep rejecting return-improving,
+risk-neutral revisions without ever saying why.

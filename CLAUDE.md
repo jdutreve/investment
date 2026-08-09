@@ -54,6 +54,22 @@ its code.
   message); any non-obvious judgment call gets a one-line "why" in the commit.
 - **Confirm before anything hard to reverse or system-wide** (deps, dotfiles,
   launchd, data deletion).
+- **WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED THE FIRST.** The most productive
+  review question this project has: a constant, a set or a sentence that named
+  the only thing existing when it was written, and a second thing arrives
+  without the rule following. Five occurrences in the week of 2026-08-08 —
+  `COGNITIVE_BOOK_ID` (one book id, then two, so gate 6 recorded on one and
+  refused on the other), `HAVEN_EXEMPT` (IEF, then a cash fallback the
+  exemption did not follow, freezing the stack through the 2022 drawdown), a
+  hand-written `describe_rule` sentence, a hand-listed "every reachable state"
+  test that stopped covering them, and a digest line saying "redirected to IEF"
+  when the target was cash. Grep for the singular name; ask what else is now of
+  its kind.
+- **A bound whose consumption is not logged cannot be re-derived.** The Worker's
+  12-tool-call budget was undiagnosable for a day — refused calls raised before
+  the log line, so the budget counted fifteen and the log showed seven, and
+  three successive theories were built on the missing eight. When you add a
+  limit, log what spends it.
 
 ## Architecture in one screen
 
