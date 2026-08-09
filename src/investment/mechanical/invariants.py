@@ -975,15 +975,35 @@ async def _mature_one(
     condition = json.loads(inv["condition"]) if inv["condition"] else []
     effect = json.loads(inv["effect"]) if inv["effect"] else None
 
-    fingerprint = maturation_fingerprint(
-        condition, effect, verdict_rule(thresholds, effect["metric"] if effect else None)
-    )
-
     if effect is None:
         await _force_uncertified(
             db, invariant_id, "reference knowledge: no effect to measure", REFERENCE_STATUS
         )
         return MaturationResult(invariant_id, 0, 0, 0, 1.0, REFERENCE_STATUS, "reference_knowledge")
+
+    # VALIDATED BEFORE IT IS INDEXED, and the order was the other way round.
+    # `maturation_fingerprint` reads `effect["metric"]` and used to run twenty
+    # lines above the validation that guarantees the key exists — so an effect
+    # that IS an object but lacks `metric` raised `KeyError` out of the 35y
+    # sweep. The sweep runs after `commit_innovations`' loop, outside its
+    # per-innovation guard, so one such row would cost the whole cycle.
+    #
+    # Nothing upstream stops it: the UC8 path writes an invariant WITHOUT
+    # calling this function (`writeback._commit_invariant_innovation`), which
+    # normalises only a non-object effect (2026-08-09) and passes any dict
+    # through. A model that writes `{"handle": "gold"}` is writing a dict.
+    #
+    # Found by audit rather than by a crash, which is the only reason it is not
+    # a third entry in the day's list of the same shape.
+    reason = validate_invariant(condition, effect, registries)
+    if reason is not None:
+        await _demote_to_reference(db, invariant_id, reason)
+        await _force_uncertified(db, invariant_id, reason, REFERENCE_STATUS)
+        return MaturationResult(invariant_id, 0, 0, 0, 1.0, REFERENCE_STATUS, "demoted")
+
+    fingerprint = maturation_fingerprint(
+        condition, effect, verdict_rule(thresholds, effect["metric"])
+    )
 
     if await _already_matured(db, invariant_id, fingerprint):
         return MaturationResult(
@@ -995,12 +1015,6 @@ async def _mature_one(
             str(inv["status"]),
             "already_matured",
         )
-
-    reason = validate_invariant(condition, effect, registries)
-    if reason is not None:
-        await _demote_to_reference(db, invariant_id, reason)
-        await _force_uncertified(db, invariant_id, reason, REFERENCE_STATUS)
-        return MaturationResult(invariant_id, 0, 0, 0, 1.0, REFERENCE_STATUS, "demoted")
 
     method = effect["method"]
     handle = effect["handle"]

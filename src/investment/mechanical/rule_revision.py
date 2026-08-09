@@ -51,6 +51,47 @@ TESTABLE_PARAMETERS: dict[str, str] = {
 }
 
 
+# The knobs whose VALUE must name a tradable sleeve, and the ones that must be a
+# positive whole number. A model writes these, and until 2026-08-09 nothing
+# checked them: `measure_revision` set the module constant and the error
+# surfaced as a `KeyError` deep inside a pandas price frame, twice in two days
+# (`dynamic_best_of(GLD,IEF)` on 08-08, `SHY` on 08-09). Both degraded cleanly —
+# the caller catches and logs "could not be measured" — but the revision then
+# carries a traceback instead of a verdict, and the owner reads neither.
+_TICKER_KNOBS = frozenset({"trend_haven", "trend_fallback_haven", "trend_sleeves"})
+_COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_days"})
+
+
+def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
+    """`{knob: why}` for every override this registry cannot apply, empty if all
+    are applicable.
+
+    A knob NAMED correctly can still carry a value the walk cannot use, and the
+    two failures are different answers: an unknown knob means "the registry does
+    not reach that", an unusable value means "the proposal is not expressible".
+    Both belong in the verdict; neither belongs in a traceback.
+
+    `cash` is legal as a haven and only as a haven: it has no price series (it
+    is the absence of a position, accrued at the risk-free rate), so it cannot
+    be a trend-checked sleeve."""
+    bad: dict[str, str] = {}
+    known = set(market_signal.STACK_TICKERS)
+    for knob, value in overrides.items():
+        if knob in _TICKER_KNOBS:
+            names = list(value) if isinstance(value, list | tuple) else [value]
+            allowed = known | (
+                {market_signal.TREND_FALLBACK_HAVEN} if knob != "trend_sleeves" else set()
+            )
+            unknown = [n for n in names if not isinstance(n, str) or n not in allowed]
+            if unknown:
+                bad[knob] = f"not a tradable sleeve with a price series: {unknown}"
+        elif knob in _COUNT_KNOBS and not (
+            isinstance(value, int) and not isinstance(value, bool) and value > 0
+        ):
+            bad[knob] = f"expected a positive whole number, got {value!r}"
+    return bad
+
+
 @dataclasses.dataclass(frozen=True)
 class RevisionMeasurement:
     """Baseline and variant measured in ONE process on ONE data vintage.
@@ -135,6 +176,10 @@ async def measure_revision(db: InvestmentDB, overrides: dict[str, Any]) -> Revis
     for the sole benefit of an offline measurement, and the live path is the one
     thing this module must not perturb. Single-process, single-writer, no
     concurrency (ADR-004) — the restore is the whole guarantee needed."""
+    unusable = untestable_values(overrides)
+    if unusable:
+        raise ValueError(f"revision names values the walk cannot apply: {unusable}")
+
     baseline_run = await market_signal.run_market_signal(db)
     baseline = await market_signal.stack_metrics(db, baseline_run)
 

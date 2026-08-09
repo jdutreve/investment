@@ -67,6 +67,7 @@ from investment.mechanical.rule_revision import (
     extract_overrides,
     measure_revision,
     unknown_parameters,
+    untestable_values,
 )
 from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
@@ -827,6 +828,18 @@ async def _measure_rule_revision(
     if overrides is None:
         return
     unknown = unknown_parameters(spec)
+    # A KNOB NAMED RIGHT CAN STILL CARRY A VALUE THE WALK CANNOT USE, and that
+    # is an answer, not an incident: reported like an unknown parameter rather
+    # than discovered as a `KeyError` in a pandas price frame. Measured twice —
+    # `dynamic_best_of(GLD,IEF)` (2026-08-08) and `SHY` (2026-08-09), both
+    # caught below and both logging a traceback where the owner needed a
+    # sentence.
+    unusable = untestable_values(overrides)
+    if unusable:
+        logger.info(
+            "rule revision '%s' names values the walk cannot apply: %s", proposal.title, unusable
+        )
+        return
     try:
         measurement = await measure_revision(db, overrides)
     except Exception:  # a knob the walk rejects is a spec defect, not a chain failure

@@ -720,3 +720,43 @@ async def test_an_unmeasurable_candidate_is_closed_not_left_pending(tmp_path: Pa
         ] == []
     finally:
         await db.close()
+
+
+async def test_an_effect_missing_metric_demotes_instead_of_crashing_the_sweep(
+    tmp_path: Path,
+) -> None:
+    """Found by audit, 2026-08-09, before it cost a cycle.
+
+    `maturation_fingerprint` reads `effect["metric"]` and ran twenty lines ABOVE
+    the validation that guarantees the key exists, so an effect that is a dict
+    but lacks `metric` raised `KeyError` out of the 35y sweep. The sweep runs
+    after `commit_innovations`' loop, OUTSIDE its per-innovation guard, so one
+    such row cost the whole cognitive cycle — the same failure a prose `effect`
+    caused that morning, through a shape its fix does not cover:
+    `{"handle": ...}` IS a dict.
+
+    Nothing upstream stops it either: the UC8 path writes an invariant without
+    validating it. The contract is `validate_invariant`'s own promise — "a
+    malformed condition/effect never silently breaks maturation" — so the
+    answer is a demotion, not a raise."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_through_step_10(db, settings)
+        await db.command(
+            "INSERT INTO invariant (id, title, description, source, status, condition, effect, "
+            "weight_initial, floor_weight, weight_effective, trace, created_at, updated_at) "
+            "VALUES ('inv-no-metric', 't', 'd', 'agent-discovery', 'proposed', '[]', :eff, "
+            "0.5, 0.2, 0.5, 'tr', '2026-01-01', '2026-01-01')",
+            eff=json.dumps(
+                {"handle": "asset:GLD", "method": "absolute", "direction": "outperform"}
+            ),
+        )
+
+        await seed._mature_seed_invariants(db)
+
+        row = (await db.query("SELECT status, trace FROM invariant WHERE id='inv-no-metric'"))[0]
+        assert row["status"] == REFERENCE_STATUS
+        assert "metric" in str(row["trace"])
+    finally:
+        await db.close()

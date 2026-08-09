@@ -5,6 +5,7 @@ structural-identity dedup needs no cosine, so it is deterministic."""
 
 import dataclasses
 import json
+import logging
 from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
@@ -389,3 +390,36 @@ async def test_one_failing_innovation_does_not_cost_the_others(
 
     assert n == 1  # the neighbour survived
     assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
+
+
+async def test_a_revision_naming_an_unusable_value_is_reported_not_crashed(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Measured twice in two days on the M8b runs: a Worker proposed a haven of
+    `dynamic_best_of(GLD,IEF)` (2026-08-08) and then of `SHY` (2026-08-09).
+
+    Both are values, not knobs — the knob name was right. `measure_revision`
+    set the module constant and the error surfaced as a `KeyError` deep in a
+    pandas price frame, caught one level up and logged as a traceback. It
+    degraded cleanly enough, but a revision then carries a stack trace where
+    the owner needed a sentence, and the 35y walk is paid for twice before
+    anything notices.
+
+    A value the walk cannot apply is now an ANSWER, reported like an unknown
+    parameter, and the walk is never started."""
+
+    def _fail(_db: object, _o: object) -> None:
+        raise AssertionError("started a 35y walk on a value it cannot apply")
+
+    monkeypatch.setattr(writeback, "measure_revision", _fail)
+    await _framework(db)
+
+    with caplog.at_level(logging.INFO, logger="investment.writeback.writeback"):
+        result = PostPlannerResult(innovations=[_revision({"trend_haven": "SHY"})])
+        await commit_innovations(db, result, today=date(2026, 8, 9), embedder=None)
+
+    assert any("cannot apply" in r.getMessage() and "SHY" in r.getMessage() for r in caplog.records)
+    # The strategy itself still landed: an unmeasurable revision is still a claim.
+    assert (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]["status"] == (
+        "proposed"
+    )
