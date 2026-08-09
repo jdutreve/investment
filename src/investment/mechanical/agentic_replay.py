@@ -2,50 +2,36 @@
 docs/MILESTONES.md M8b, a STOP POINT).
 
 The mechanical replay (M6) answers "do the rules beat holding All Weather?".
-This answers the question M6 cannot: "does the COGNITIVE half add anything?" —
-by running the real Planner, the real Worker and the real gates at historical
-decision dates, and comparing the capital that follows them.
+This answers what M6 cannot: "is the cognitive half worth running?" — by
+executing the real Planner, the real Worker and the real knowledge commit at
+historical decision dates, and handing the owner what they said.
 
-THREE CURVES, per episode:
-  A'  agent-follow  — the shadow book follows the reallocations the Worker
-                      proposed AND the gates accepted;
-  A   mechanical    — the same window, same dates, no Worker (`run_replay`);
-  B   hold          — the initial defender, untouched. All Weather.
-WHAT `A' - A` ACTUALLY MEASURES, which is NOT quite what MILESTONES wrote.
-The milestone says the delta isolates the reallocation contribution because
-"switches are mechanical in both arms". That was true before ADR-007. It is not
-true now: the live cycle emits NO switch at all (writeback.py — "ADR-007
-superseded the ranked defender/challenger duel, so no live cycle emits a
-switch"), so A' contains none, while A still runs the bridge's mechanical switch
-arm. The delta therefore compares THE COGNITIVE CYCLE AS IT WILL RUN against THE
-MECHANICAL RULES AS THEY WERE MEASURED — two whole policies, not one isolated
-term. That is still the comparison M8b needs, and pretending otherwise would put
-a false precision on a 7-month number that is noise as much as signal.
+ONE CHANNEL, since ADR-012 (2026-08-09). This module used to price three
+curves — A' following the reallocations the Worker proposed and the gates
+accepted, A the mechanical rules, B All Weather held — and the whole apparatus
+is gone with the cognitive allocation it measured. What it produces now is the
+behavioural log: one market-signal READING per decision date, and the
+innovations the cycle proposed.
 
-WHICH BOOK A' TRACKS, and why it is the BRIDGE. Two books move in this system.
-`ms-stack` is ADR-007's live allocation and ADR-011 makes it SOVEREIGN — gate 0
-of `dispose_reallocation` refuses any cognitive reallocation aimed at it, so the
-Worker cannot move it by construction and an A'/A comparison there would be zero
-by definition, measuring nothing. The bridge defender (`4s-balanced-defender`)
-is where the Worker may still reallocate, so it is where a delta can exist. The
-market-signal decision still runs at every replayed date — not to feed A', but
-because the Worker READS it, and a Worker deliberating on a `market_signal: {}`
-baseline is not the Worker that will run live.
+That is not a lesser screen; it is the half MILESTONES always weighted equally,
+and the half that paid. Across two days of runs the NAV channel returned
+seven-month deltas that were noise as much as signal, while the readings
+produced specific, code-checkable critiques of the mechanical rule — including
+the one that found `max_single_asset_pct` freezing the stack in a stale book
+through the whole 2022 drawdown. The runs that produced both are archived under
+`~/data/investment/agentic-replay/`, and ADR-012 records what they showed.
 
 WHY EPISODES ARE SEPARATE RUNS (owner decision). The 21 dates fall in three
-windows with an 11-year gap between the first two. One continuous curve would
-freeze the book across those gaps, and a 14-year A' vs B would be dominated by
-two frozen decades rather than by any decision. So each episode is its own
-mini-replay with its own three curves. The horizon is short (7 months), so a
-single delta is noise as much as signal — which is why M8b is a SCREEN, necessary
-and not sufficient, and why the second channel (the behavioural log) carries
-equal weight in its Definition of Verified.
+windows with an 11-year gap between the first two, and each is its own walk
+over its own snapshot. The reason survives the loss of the NAV: a snapshot
+advanced across a decade would spend most of its dates in a world nobody is
+asking about.
 
-SEMI-PIT, and the label is not a formality. The world the Worker reads is bounded
-at t by `db/as_of_snapshot.py`, but the CORPUS is today's: the integrated
-invariants were born in July 2026. That is deliberate (pruning them empties gate
-6 and the screen measures nothing) and it makes this a BEST-CASE run — a
-necessary a-priori screen, never go-live performance.
+SEMI-PIT, and the label is not a formality. The world the Worker reads is
+bounded at t by `db/as_of_snapshot.py`, but the CORPUS is today's: the
+integrated invariants were born in July 2026. That is deliberate (pruning them
+empties gate 6 and the screen measures nothing) and it makes this a BEST-CASE
+run — a necessary a-priori screen, never go-live performance.
 """
 
 import asyncio
@@ -58,24 +44,17 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 from pydantic_ai import Agent
 
 from investment.db.as_of_snapshot import advance_as_of_snapshot, build_as_of_snapshot
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import UC8Result, _book_row, run_decision_cycle
-from investment.mechanical import market_signal
+from investment.decision_cycle import UC8Result, run_decision_cycle
 from investment.mechanical.as_of_cycle import AsOfCycle, run_as_of_cycle
 from investment.mechanical.replay import (
     EPISODES,
-    NavMetrics,
     ReplayInputs,
-    ReplayThresholds,
     _book_calendar,
     decision_dates,
-    nav_metrics,
-    run_replay,
-    shadow_book_nav,
 )
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost
@@ -127,22 +106,6 @@ DATE_TIMEOUT_SECONDS = 1800.0
 # re-attempt recovers.
 DATE_ATTEMPTS = 2
 
-# THE TWO ARMS (owner, 2026-08-08). They answer different questions, and which
-# one wins decides the destination architecture.
-#
-#   alone     `worker-book` — the Worker as a STANDALONE allocator, drifting
-#             from an All-Weather start on its own accepted reallocations.
-#   on-stack  `worker-stack-book` — the Worker IN COMPLEMENT to the rule: each
-#             month the book is reset to the market-signal target and the Worker
-#             tilts from there.
-#
-# Separate RUNS rather than one dual-arm pass. A reallocation is an absolute
-# allocation formed against the incumbent the Worker was shown, so each arm needs
-# its own cognitive cycle — there is no honest way to apply one arm's proposal to
-# the other's book. Two runs also keep the resume journal per-arm and add no new
-# shape to `EpisodeResult`.
-ARMS: dict[str, str] = {"alone": "worker-book", "on-stack": "worker-stack-book"}
-
 # A retry needs a MEANINGFUL share of the date's budget, not merely a non-zero
 # one. At 2008-10-01 the second attempt inherited 91 seconds of 900 and timed
 # out on schedule — the arithmetic was decided before it sent a request. A third
@@ -169,9 +132,6 @@ class DateOutcome:
     as_of: date
     mechanical: AsOfCycle
     reading: str
-    proposed_allocation: dict[str, float] | None
-    gate: str | None
-    accepted: bool
     innovations: int
     # The innovations THEMSELVES, not just their count. M8b's Definition of
     # Verified asks "does it propose sensible improvements?" — a question no
@@ -187,61 +147,30 @@ class DateOutcome:
     # shadow book simply holds. See `run_agentic_episode` for why one bad date
     # does not end the episode.
     failure: str | None = None
-    # What the RULE targeted this month (`on-stack` only; None on `alone`).
-    #
-    # Journalled because RESUME has to rebuild the priced walk, and this is the
-    # one part of it that cannot be recomputed: the accepted allocations are in
-    # the journal, the All-Weather seed is a constant, but the stack's monthly
-    # target lived only in the snapshot the resume is skipping past. Without it
-    # a resumed on-stack run would price the rule's path only from the date it
-    # resumed at, and silently — the very failure mode this arm was just fixed
-    # for. Set even on a FAILED date: the rule targeted something that month
-    # whether or not the Worker managed to read it.
-    stack_target: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
 class EpisodeResult:
+    """One episode's readings. NO NAV since ADR-012: the Worker does not
+    allocate, so there is no A' to price and no A/B to price it against. What
+    an episode produces is what M8b's Definition of Verified always weighted
+    equally — a behavioural log to READ."""
+
     name: str
     opens: date
     closes: date
     outcomes: list[DateOutcome]
-    metrics_agentic: NavMetrics
-    metrics_mechanical: NavMetrics
-    metrics_hold: NavMetrics
-    nav_agentic: pd.Series
-    nav_mechanical: pd.Series
-    nav_hold: pd.Series
-
-    @property
-    def accepted_reallocations(self) -> int:
-        return sum(1 for o in self.outcomes if o.accepted)
 
     @property
     def failed_dates(self) -> int:
-        """Dates whose cognitive cycle raised. Read this BEFORE the CAGRs: the
-        NAV of an episode that lost three of seven decisions is a different
-        claim from one that lost none, and nothing else in the metrics says so."""
+        """Dates whose cognitive cycle raised. Read this before the log: an
+        episode that lost three of seven decisions is a different claim from one
+        that lost none, and nothing else here says so."""
         return sum(1 for o in self.outcomes if o.failure)
 
     @property
-    def cagr_delta_vs_mechanical(self) -> float | None:
-        """A' - A: the Worker's reallocation contribution, in CAGR points.
-        `None` when either arm has too little data to have a CAGR at all — the
-        honest answer, and one a caller must handle rather than read as zero."""
-        agentic, mechanical = self.metrics_agentic.cagr, self.metrics_mechanical.cagr
-        if agentic is None or mechanical is None:
-            return None
-        return agentic - mechanical
-
-    @property
-    def beats_all_weather(self) -> bool | None:
-        """The STOP POINT's first question. `at all?` is the milestone's own
-        wording — this is a screen, so the bar is a sign, not a margin."""
-        agentic, hold = self.metrics_agentic.cagr, self.metrics_hold.cagr
-        if agentic is None or hold is None:
-            return None
-        return agentic > hold
+    def innovations(self) -> int:
+        return sum(len(o.innovation_proposals) for o in self.outcomes)
 
 
 async def run_agentic_episode(
@@ -252,13 +181,9 @@ async def run_agentic_episode(
     opens: date,
     closes: date,
     inputs: ReplayInputs,
-    thresholds: ReplayThresholds,
     make_agents: Callable[[InvestmentDB], CognitiveAgents],
     user_profile: dict[str, Any],
     system_thresholds: dict[str, float],
-    cost_bps: float,
-    confirmation_weeks: float,
-    arm: str = "alone",
 ) -> EpisodeResult:
     """One episode: walk its monthly decision dates with the real cognitive
     cycle, then price the book that followed it.
@@ -282,9 +207,6 @@ async def run_agentic_episode(
     if not dates:
         raise ValueError(f"episode {name}: no decision date in {opens}..{closes}")
 
-    initial = inputs.portfolios[inputs.initial_defender_id].allocation
-    targets: dict[pd.Timestamp, dict[str, float]] = {dates[0]: dict(initial)}
-
     # RESUME. Each finished date was journalled to `<scratch>/<name>.dates.jsonl`
     # as it completed, and the snapshot on disk is already advanced to the last
     # of them — so a run interrupted at date 5 of 7 restarts at 6 rather than
@@ -305,14 +227,6 @@ async def run_agentic_episode(
             outcomes[-1].as_of,
             len(outcomes),
         )
-        for out in outcomes:
-            # SAME PRECEDENCE AS THE LIVE LOOP: the rule's target for the month,
-            # replaced by the Worker's tilt where one was accepted. Rebuilt in
-            # this order so a resumed walk is identical to an uninterrupted one.
-            if out.stack_target:
-                targets[pd.Timestamp(out.as_of)] = dict(out.stack_target)
-            if out.accepted and out.proposed_allocation:
-                targets[pd.Timestamp(out.as_of)] = dict(out.proposed_allocation)
     else:
         snapshot.unlink(missing_ok=True)
         journal.unlink(missing_ok=True)
@@ -337,38 +251,6 @@ async def run_agentic_episode(
             previous = as_of
 
             mechanical = await run_as_of_cycle(db, as_of)
-            # ARM 2 RESETS ITS BASE. `worker-book` drifts on its own decisions;
-            # `worker-stack-book` starts each month from what the rule decided,
-            # so the Worker's tilt is measured AGAINST the rule rather than
-            # against its own previous tilt. Done after the mechanical cycle,
-            # which is what wrote the stack's current allocation.
-            #
-            # IN THE PRICED WALK AS WELL AS IN THE ROW, and the second half is
-            # the correction (owner, 2026-08-09). Until now the reset wrote only
-            # `portfolio.allocation` — the incumbent the GATES compare against —
-            # while `targets`, which is what `shadow_book_nav` actually prices,
-            # kept the All-Weather seed from `dates[0]` and moved only on an
-            # accepted tilt. So the rule's own path never entered A' at all: the
-            # first on-stack run returned A' equal to B to the cent in both
-            # completed episodes, because with no tilt accepted the walk was
-            # plain All Weather. Even an accepted tilt would have priced
-            # "All Weather until the tilt", never "stack plus tilt".
-            #
-            # Writing the stack's target into `targets` every month makes the
-            # arm's baseline the RULE, which is the only reading under which
-            # "does the cognitive layer add to a rule that already works?" has
-            # an answer. An accepted tilt then REPLACES that month's entry
-            # below, so the walk is the stack except where the Worker moved it.
-            stack_target: dict[str, float] | None = None
-            if ARMS[arm] != ARMS["alone"]:
-                stack_target = await _book_row(db, market_signal.STACK_PORTFOLIO_ID)
-                if stack_target:
-                    targets[stamp] = dict(stack_target)
-                    await db.command(
-                        "UPDATE portfolio SET allocation = :a WHERE id = :id",
-                        a=json.dumps(stack_target),
-                        id=ARMS[arm],
-                    )
             # ONE DATE MAY FAIL WITHOUT ENDING THE EPISODE.
             #
             # This inverts CLAUDE.md's "unhandled errors surface", and the scope
@@ -403,10 +285,9 @@ async def run_agentic_episode(
                 as_of=as_of,
                 user_profile=user_profile,
                 system_thresholds=system_thresholds,
-                target_book=ARMS[arm],
             )
             if isinstance(result, BaseException):
-                failed = _failed(as_of, mechanical, result, stack_target)
+                failed = _failed(as_of, mechanical, result)
                 outcomes.append(failed)
                 # Journalled like any other: a failed date is a date the resume
                 # must NOT retry, or an interrupted run would grind on the same
@@ -414,82 +295,32 @@ async def run_agentic_episode(
                 _append_journal(journal, failed)
                 continue
 
-            outcome = _record(as_of, mechanical, result, stack_target)
+            outcome = _record(as_of, mechanical, result)
             outcomes.append(outcome)
             _append_journal(journal, outcome)
-            if outcome.accepted and outcome.proposed_allocation:
-                targets[stamp] = dict(outcome.proposed_allocation)
-            logger.info(
-                "agentic-replay %s %s: gate=%s accepted=%s innovations=%d",
-                name,
-                as_of,
-                outcome.gate or "n/a",
-                outcome.accepted,
-                outcome.innovations,
-            )
+            logger.info("agentic-replay %s %s: innovations=%d", name, as_of, outcome.innovations)
     finally:
         await db.close()
 
-    window = calendar[(calendar >= dates[0]) & (calendar <= pd.Timestamp(closes))]
-    nav_agentic, _ = shadow_book_nav(targets, inputs.prices, inputs.rf, cost_bps, window)
-
-    # Arm A and arm B from the SAME harness the go-live gate uses, over the same
-    # window and the same dates — a hand-rolled mechanical arm here would be the
-    # second decision loop Task 9.4 forbids.
-    mechanical_run = run_replay(
-        inputs,
-        thresholds,
-        start=dates[0].date(),
-        end=closes,
-        cost_bps=cost_bps,
-        confirmation_weeks=confirmation_weeks,
-        cadence="monthly",
-    )
-
-    # `run_replay` prices its book from the first decision date to the END OF THE
-    # CALENDAR, not to `end` — invisible in M6, where the replay runs to the last
-    # trading day anyway, and wrong here: arm B came back with 549 daily points
-    # against the agentic arm's 123, so the three CAGRs were measured over different windows
-    # and the delta was an artefact. All three curves are cut to the episode.
-    nav_mechanical = mechanical_run.nav_agent_follow.loc[: pd.Timestamp(closes)]
-    nav_hold = mechanical_run.nav_hold_defender.loc[: pd.Timestamp(closes)]
-
-    return EpisodeResult(
-        name=name,
-        opens=opens,
-        closes=closes,
-        outcomes=outcomes,
-        metrics_agentic=nav_metrics(nav_agentic, inputs.rf),
-        metrics_mechanical=nav_metrics(nav_mechanical, inputs.rf),
-        metrics_hold=nav_metrics(nav_hold, inputs.rf),
-        nav_agentic=nav_agentic,
-        nav_mechanical=nav_mechanical,
-        nav_hold=nav_hold,
-    )
+    return EpisodeResult(name=name, opens=opens, closes=closes, outcomes=outcomes)
 
 
 def _record(
     as_of: date,
     mechanical: AsOfCycle,
     result: UC8Result,
-    stack_target: dict[str, float] | None = None,
 ) -> DateOutcome:
-    """Flatten one cycle into the log line M8b's behavioural channel reads.
+    """Flatten one cycle into the behavioural log M8b reads.
 
-    `accepted` is deliberately NOT "the Worker proposed something": a proposal
-    the gates refused moves no capital, and conflating the two would credit the
-    Worker for reallocations Writeback threw out."""
-    reallocation = result.worker_result.reallocation_proposed
+    THE READING AND THE INNOVATIONS, and since ADR-012 nothing else: the Worker
+    proposes no allocation, so there is no gate outcome to record and no
+    acceptance to count."""
     return DateOutcome(
         as_of=as_of,
         mechanical=mechanical,
         reading=result.worker_result.market_signal_assessment,
-        proposed_allocation=dict(reallocation.proposed_allocation) if reallocation else None,
-        gate=result.gate_outcome.failed_gate if result.gate_outcome else None,
-        accepted=result.proposal_id is not None,
         innovations=len(result.worker_result.innovations_proposed),
         innovation_proposals=tuple(result.worker_result.innovations_proposed),
-        stack_target=stack_target,
     )
 
 
@@ -504,13 +335,9 @@ def _append_journal(path: Path, outcome: DateOutcome) -> None:
         "as_of": outcome.as_of.isoformat(),
         "mechanical": asdict(outcome.mechanical),
         "reading": outcome.reading,
-        "proposed_allocation": outcome.proposed_allocation,
-        "gate": outcome.gate,
-        "accepted": outcome.accepted,
         "innovations": outcome.innovations,
         "innovation_proposals": [p.model_dump(mode="json") for p in outcome.innovation_proposals],
         "failure": outcome.failure,
-        "stack_target": outcome.stack_target,
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, default=str) + "\n")
@@ -534,16 +361,12 @@ def _read_journal(path: Path, opens: date) -> list[DateOutcome]:
                     as_of=date.fromisoformat(raw["as_of"]),
                     mechanical=AsOfCycle(**{**raw["mechanical"], "as_of": opens}),
                     reading=raw["reading"],
-                    proposed_allocation=raw["proposed_allocation"],
-                    gate=raw["gate"],
-                    accepted=raw["accepted"],
                     innovations=raw["innovations"],
                     innovation_proposals=tuple(
                         ImprovementProposal.model_validate(p)
                         for p in raw.get("innovation_proposals", ())
                     ),
                     failure=raw["failure"],
-                    stack_target=raw.get("stack_target"),
                 )
             )
         except (ValueError, KeyError, TypeError):
@@ -559,7 +382,6 @@ async def _cycle_with_retry(
     as_of: date,
     user_profile: dict[str, Any],
     system_thresholds: dict[str, float],
-    target_book: str,
 ) -> UC8Result | BaseException:
     """One date's cognitive cycle: FAIL FAST, THEN RETRY WHAT A RETRY CAN FIX.
     The result, or the exception from the last attempt.
@@ -625,7 +447,6 @@ async def _cycle_with_retry(
                     # cannot be told apart is a worse trace than none.
                     run_id=f"agentic-replay-{name}-{as_of}-a{attempt}",
                     context=context,
-                    target_book=target_book,
                 )
         except TimeoutError as exc:
             # NOT retried, by the arithmetic above: the budget is what failed.
@@ -664,7 +485,6 @@ def _failed(
     as_of: date,
     mechanical: AsOfCycle,
     exc: BaseException,
-    stack_target: dict[str, float] | None = None,
 ) -> DateOutcome:
     """A date whose cognitive cycle raised. `accepted=False` and no allocation,
     so the shadow book holds through it exactly as it does through a date where
@@ -673,54 +493,40 @@ def _failed(
         as_of=as_of,
         mechanical=mechanical,
         reading="",
-        proposed_allocation=None,
-        gate=None,
-        accepted=False,
         innovations=0,
         failure=f"{type(exc).__name__}: {exc}",
         # The rule targeted something this month whether or not the Worker
         # managed to read it — a failed date must still price the stack's leg,
         # or the on-stack walk would silently hold through it.
-        stack_target=stack_target,
     )
 
 
 def render_report(episodes: list[EpisodeResult]) -> str:
-    """The two channels M8b's STOP POINT is judged on, side by side. The NAV
-    table alone would answer half the question — "does it beat All Weather?" —
-    and MILESTONES weights "does the Worker reason sensibly?" equally, so the
-    readings are printed in full rather than counted."""
-    lines = ["M8b — AGENTIC REPLAY (semi-PIT, best-case; NOT go-live performance)", ""]
+    """THE ONE CHANNEL LEFT, and the one MILESTONES always weighted equally.
+
+    There is no NAV table since ADR-012: the Worker does not allocate, so no A'
+    exists to compare against A or B. The question this report answers is the
+    STOP POINT's other half — "is the reasoning sensible, are the improvements
+    sensible?" — which no number was ever going to settle. The readings are
+    printed in FULL rather than counted, because reading them is the test."""
+    lines = ["M8b — AGENTIC REPLAY (semi-PIT, best-case; the behavioural channel)", ""]
     for ep in episodes:
         lines += [
             f"## {ep.name}  {ep.opens} .. {ep.closes}   "
-            f"({len(ep.outcomes)} decision dates, {ep.failed_dates} failed)",
-            f"  A' agentic    cagr={_pct(ep.metrics_agentic.cagr)}  "
-            f"sortino={_num(ep.metrics_agentic.sortino)}  "
-            f"maxDD={_pct(ep.metrics_agentic.max_drawdown)}",
-            f"  A  mechanical cagr={_pct(ep.metrics_mechanical.cagr)}  "
-            f"sortino={_num(ep.metrics_mechanical.sortino)}  "
-            f"maxDD={_pct(ep.metrics_mechanical.max_drawdown)}",
-            f"  B  all-weather cagr={_pct(ep.metrics_hold.cagr)}  "
-            f"sortino={_num(ep.metrics_hold.sortino)}  "
-            f"maxDD={_pct(ep.metrics_hold.max_drawdown)}",
-            f"  A' - A = {_pct(ep.cagr_delta_vs_mechanical)}   "
-            f"beats all-weather: {ep.beats_all_weather}   "
-            f"accepted reallocations: {ep.accepted_reallocations}",
+            f"({len(ep.outcomes)} decision dates, {ep.failed_dates} failed, "
+            f"{ep.innovations} innovations)",
             "",
             "  behavioural log:",
         ]
         for out in ep.outcomes:
             if out.failure:
                 # Loud, and counted separately in the header: a date that never
-                # ran is not a date on which the Worker chose to do nothing, and
-                # a report that renders them alike would overstate the coverage
-                # the NAV rests on.
+                # ran is not a date on which the Worker had nothing to say, and
+                # a report that rendered them alike would overstate the coverage.
                 lines.append(f"    {out.as_of}  [!! FAILED]  {out.failure}")
                 continue
-            verdict = "accepted" if out.accepted else (out.gate or "no proposal")
             lines += [
-                f"    {out.as_of}  [{verdict}]  innovations={out.innovations}",
+                f"    {out.as_of}  innovations={out.innovations}",
                 f"      {out.reading}",
             ]
             lines += [f"      innovation: {p.title}" for p in out.innovation_proposals]
@@ -768,17 +574,7 @@ def write_innovations(episodes: list[EpisodeResult], report: Path) -> Path:
     return path
 
 
-def _pct(value: float | None) -> str:
-    return "n/a" if value is None else f"{value * 100:+.2f}%"
-
-
-def _num(value: float | None) -> str:
-    return "n/a" if value is None else f"{value:.2f}"
-
-
-async def _run_all(
-    scratch: Path | None = None, out: Path | None = None, arm: str = "alone"
-) -> list[EpisodeResult]:
+async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list[EpisodeResult]:
     """Every episode, against the live database and the real models.
 
     The report is rewritten after EACH episode rather than once at the end. Two
@@ -795,20 +591,19 @@ async def _run_all(
     missing on the run that mattered."""
     from investment.config import Settings
     from investment.corpus.embedding import InProcessEmbedder
-    from investment.mechanical.replay import load_inputs, load_thresholds
+    from investment.mechanical.replay import load_inputs
     from investment.worker.agent import build_worker_agent
 
     settings = Settings()  # type: ignore[call-arg]  # pydantic-settings fills from .env
     live = Path(settings.db_path)
     # ONE SUBDIRECTORY PER ARM. The resume journal is keyed by episode name, so
     # two arms sharing a directory would each resume from the other's dates.
-    scratch = (scratch or live.parent / SCRATCH_DIR_NAME) / arm
+    scratch = scratch or live.parent / SCRATCH_DIR_NAME
     scratch.mkdir(parents=True, exist_ok=True)
     out = out or scratch / "report.txt"
 
     db = InvestmentDB(live)
     inputs = await load_inputs(db)
-    thresholds = await load_thresholds(db)
     rows = await db.query("SELECT key, value FROM system_thresholds")
     system_thresholds = {str(r["key"]): float(r["value"]) for r in rows}
     profile = await db.query(
@@ -845,13 +640,9 @@ async def _run_all(
                     opens=opens,
                     closes=closes,
                     inputs=inputs,
-                    thresholds=thresholds,
                     make_agents=make_agents,
                     user_profile=user_profile,
                     system_thresholds=system_thresholds,
-                    cost_bps=system_thresholds["replay_cost_bps"],
-                    confirmation_weeks=system_thresholds["replay_confirmation_weeks"],
-                    arm=arm,
                 )
             )
         except Exception:
@@ -890,18 +681,11 @@ def _main() -> int:
     parser.add_argument(
         "--out", type=Path, help="report path (default: <scratch>/report.txt); always written"
     )
-    parser.add_argument(
-        "--arm",
-        choices=sorted(ARMS),
-        default="alone",
-        help="alone: the Worker as a standalone allocator from an All-Weather start. "
-        "on-stack: the Worker tilting the market-signal target, reset every month.",
-    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
-    episodes = asyncio.run(_run_all(args.scratch, args.out, args.arm))
+    episodes = asyncio.run(_run_all(args.scratch, args.out))
     print(render_report(episodes))
     incomplete = len(episodes) < len(EPISODES) or any(ep.failed_dates for ep in episodes)
     return 1 if incomplete else 0

@@ -928,3 +928,88 @@ Worker a capped satellite sleeve) are specified in docs/IMPROVEMENTS.md I-46,
 which must be settled INSIDE the Step 6 plan. Not decided now on purpose: the
 answer depends on whether forward paper-mode retires the bridge at all, and if
 the stack fails, the question dissolves.
+
+---
+
+## ADR-012 — The Worker does not allocate. It reads, and it proposes knowledge.
+
+**Status:** accepted 2026-08-09 (owner decision).
+
+**Context.** ADR-011 made the market-signal allocation sovereign and left the
+Worker two things it could still move: its own measurement book (`worker-book`,
+2026-08-08) and the retained bridge's defender. M8b's agentic replay existed to
+answer whether either was worth having — "does the cognitive half add anything
+to the capital?" — through an A' curve following the reallocations the Worker
+proposed and the gates accepted.
+
+Two days of runs answered it, and the answer is not mainly about performance.
+
+**What the runs measured.**
+
+*Cost and complexity, unambiguous.* Four restarts in one day, and a systematic
+audit that found seven defects — six of them in the cognitive ALLOCATION path
+and nowhere else: the two measurement books diverging (one ranked, one not; gate
+6 recording on one and refusing on the other), the priced walk never carrying
+the rule it claimed to tilt, the concentration cap freezing the de-concentration
+it refused, the turnover cap never decided for a monthly rotating incumbent, the
+cooldown never reconciled with a monthly cadence. The knowledge path produced
+one defect in the same period.
+
+*Performance, weaker and honestly so.* On the standalone arm A' - A came to
+-10.49% (GFC), -2.32% (covid, an identity — zero reallocations accepted) and
++1.41% (inflation shock). On the on-stack arm, zero accepted reallocations over
+16 dates, then one proposal in seven. Seven-month windows: noise as much as
+signal, which is what M8b always said it was.
+
+AND THE MEASUREMENT WAS COMPROMISED, which this ADR records rather than hides:
+until 2026-08-09 the Worker was never told it held a book at all. `target_book`
+reached Writeback and stopped there, and the only reallocation avenue the prompt
+offered was a blend formula for a portfolio that had stopped being the target.
+So the runs do not show "the Worker allocates badly". They show that this
+harness never asked it properly, at considerable cost.
+
+*Where the value actually appeared.* The behavioural channel produced specific,
+verifiable, code-checkable critiques of the mechanical rule — including the one
+that found `max_single_asset_pct` freezing the stack in a stale book through the
+entire 2022 drawdown, a real defect the mechanical half could not see about
+itself. That is a knowledge factory that works, bolted to an allocator that does
+not convince.
+
+**Decision.** The Worker does not allocate. Anything. `WorkerResult` loses
+`reallocation_proposed`; `ReallocationProposal`, `dispose_reallocation` and the
+gates that existed only to judge a cognitive allocation are deleted; the two
+measurement books are removed; the agentic replay keeps its readings and
+innovations and loses its A' curve and its arms.
+
+Its contribution is the market-signal reading, the innovations
+(`strategy_revision`, `new_invariant`, `process`), the invariant corpus and the
+rule revisions ADR-006 matures — everything that gets MEASURED over time rather
+than applied once on conviction.
+
+The bridge defender becomes purely mechanical: `replay.py` still applies the
+0.4/0.6 blend through `blend_allocation` and `reallocation_gates`, which stay
+for that reason and are untouched by this ADR.
+
+**Consequences.**
+
+- M8b stops being a NAV screen. Its Definition of Verified keeps the channel
+  MILESTONES already weighted equally — read the behavioural log — and drops
+  "A' beats B". The mechanical premise gate (M6) is unaffected: it never
+  involved the Worker.
+- ADR-011 is subsumed, not contradicted. Its gate 0 refused cognitive
+  reallocations aimed at `ms-stack`; there are now no cognitive reallocations at
+  all, so the property it protected holds by construction rather than by a
+  check. The reasoning is kept here because it is the reasoning that led here.
+- The retained bridge keeps a defender and loses its cognitive half. CLAUDE.md
+  called that defender "deliberately cognitive, it is the benchmark"; it is now
+  deliberately mechanical, and the benchmark is the cleaner for it — two
+  mechanical policies compared, with no LLM variance inside either.
+- **Reversible, and the way back is written down.** Reopening means giving the
+  Worker a book and TELLING it so — the thing never done. docs/IMPROVEMENTS.md
+  I-46 (the capped satellite sleeve) is where that returns if it returns, and
+  the runs archived under `~/data/investment/agentic-replay/` are the evidence
+  it would start from.
+
+**What this does not touch.** The market-signal stack and every gate on it
+(ADR-007, ADR-009), the invariant maturation and its verdicts (ADR-006), the
+curator, the corpus, the digest's reading of the monthly decision.

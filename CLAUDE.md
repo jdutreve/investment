@@ -75,8 +75,8 @@ requires; a swap is a `.env` edit plus a smoke test, never a code change.
   bridged tools ONLY: `db_query` (FORBIDDEN_SQL whitelist, ≤20 rows),
   `market_fetch` (ALLOWED_TICKERS, ≤30 rows), `portfolio_check`. Unaware of
   Planner/Writeback/storage — never mention them in Worker prompts.
-  `WorkerResult` always includes `innovations_proposed: list` and
-  `reallocation_proposed: Optional` (docs/DATA_MODELS.md).
+  `WorkerResult` always includes `innovations_proposed: list`; it carries NO
+  allocation — the Worker does not allocate (ADR-012).
 - **MECHANICAL JOBS** (APScheduler, pure Python, no LLM) — everything else.
 
 Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
@@ -183,11 +183,8 @@ IEF **and the cash fallback** (ADR-007's second addendum, extended 2026-08-08
 after the cap froze the stack in its stale book on four of the seven 2022 dates
 of the M8b run). Same reason as the drawdown leg: a refusal cannot exit a
 position, and the target being refused was the flight to safety itself.
-**`HAVEN_EXEMPT` binds the COGNITIVE path too** (2026-08-09): `reallocation_gates`
-takes it from Writeback, so a Worker proposal may exceed the cap on IEF or cash
-and on nothing else — the exemption is a property of the sleeve, not of the
-path. It refused a DE-concentration otherwise, freezing the breach it would not
-let the Worker reduce.
+`reallocation_gates` takes the same exemption for the bridge's mechanical
+blend, which is now its only cognitive-free caller (ADR-012).
 
 **Trading costs (ADR-010)** — ONE rate, `ratios.TRADING_COST_BPS` = **23 bps
 per order** (Saxo actual; no FX leg, every portfolio is USD in a USD account),
@@ -196,22 +193,21 @@ drift-rebalance. `system_thresholds.replay_cost_bps` must equal it: a replay
 that validates a strategy and a ranking that compares it have to charge the
 same rate.
 
-**UC8 — Worker proposes, Writeback disposes** — the 5 switch gates and the
-reallocation gates (user caps, min change, turnover cap, cited-invariant
-eligibility incl. condition-ACTIVE-now) are deterministic and run
-mechanically in Writeback, plus a 4-week anti-repetition cooldown. Those govern
-the RANKING/BRIDGE paths; the market-signal path's much smaller gate set and the
-reasons for each exclusion are ADR-009. Gate details: docs/USE_CASES.md UC8.
-
-**Mechanical allocation is SOVEREIGN (ADR-011)** — the Worker READS the
-market-signal decision and contributes a qualitative reading; it may not cancel
-it, delay it, re-pick the book, or adjust its weights. Enforced as gate 0 of
-`dispose_reallocation` (refuses `mechanical_allocation` on any
-`TIME_VARYING_PORTFOLIOS` target, before any merit gate), not by prompt alone.
-A disagreement with the RULE rather than with the month goes through
+**THE WORKER DOES NOT ALLOCATE (ADR-012)** — it READS the market-signal
+decision and contributes a qualitative reading, invariants, rule revisions and
+process critiques. It proposes no allocation, for any book: `WorkerResult` has
+no allocation field, `dispose_reallocation` and its gates are gone, and the two
+M8b measurement books with them. A disagreement with the RULE goes through
 `innovations_proposed` (`strategy_revision`), where ADR-006's maturation
-measures it. The retained bridge's defender stays cognitive — it is the
-benchmark, deliberately.
+MEASURES it instead of applying it once on conviction.
+
+This subsumes ADR-011 rather than contradicting it: its gate 0 refused cognitive
+reallocations aimed at the stack, and there are none left to refuse, so the
+property holds by construction. The retained bridge's defender is now purely
+mechanical (`replay.py` applies the 0.4/0.6 blend through `blend_allocation` +
+`reallocation_gates`), which makes it the cleaner benchmark — two mechanical
+policies compared, no LLM variance inside either. Two days of M8b runs are the
+evidence, and ADR-012 records both what they show and what they do not.
 
 **Mechanical calculations** — Sharpe/Sortino/Calmar in numpy/pandas, no LLM;
 rolling window 756 trading days; cumulative `return_3m/6m/1y/3y/5y` on

@@ -1,7 +1,7 @@
 # Skill — the retained bridge
 
 > **NONE OF THIS IS THE LIVE ALLOCATION.** The Dalio 4-quadrant ranking, the
-> defender/challenger comparison and the scenario-driven reallocation were
+> defender/challenger comparison and the scenario-driven blend were
 > superseded by the market-signal monthly stack (see
 > `skill-read-market-signal`). They are RETAINED as fallback, benchmark and
 > knowledge factory — kept, measured, and not deleted until forward paper-mode
@@ -36,32 +36,15 @@ this is for is telling the owner how the fallback is faring against its
 alternatives, which is what would make the fallback trustworthy if it is ever
 needed.
 
-## Propose a reallocation — the one ACTION here
+## You do not reallocate it
 
-> Bounded by ADR-011: this may never target a mechanically-allocated portfolio.
-> Proposing the stack's allocation back with a few points moved is re-deciding
-> it by another route, and is refused before any merit gate.
+ADR-012: allocation is mechanical everywhere, including here. The bridge's
+defender is rebalanced by the 0.4 x scenario + 0.6 x structural blend applied in
+code, with no cognitive step — which is what makes it a clean benchmark: two
+mechanical policies compared, no model variance inside either.
 
-**When** — one of:
-- the active scenario's probability shifted by more than the configured trigger,
-- or allocation drift versus the blend target exceeds 5 points.
-
-Otherwise return `null`. Returning null is a real answer; proposing every week
-to look useful is how a fallback book gets churned into underperformance.
-
-**How.**
-
-```
-proposed_allocation = current + 0.4 x scenario_delta + 0.6 x favors_delta
-```
-
-rounded to 2.5-point increments, then renormalized to sum to 100.
-
-**Requirements.**
-- Cite at least one supporting invariant, BOTH bright (`weight_effective`) AND
-  active (its `condition` holds now) — that exact pair is verified
-  mechanically, so a citation failing it is wasted work.
-- Explain the blend in `reasoning`: what the scenario leg contributed, what the
-  structural leg contributed, and why.
-- Weights are percent, long-only, finite, summing to 100. A negative or
-  non-finite weight fails validation and you will be asked again.
+Your job on the bridge is the paragraph above this one — explain how the
+fallback is faring against its alternatives, so the owner would know whether to
+trust it if the stack ever failed. If you think the BLEND ITSELF is wrong, that
+is a `strategy_revision` innovation, where it gets measured over 35 years
+instead of applied once.

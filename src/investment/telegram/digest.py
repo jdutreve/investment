@@ -265,35 +265,25 @@ def _g(value: Any) -> str:
 
 
 def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
-    """The BRIDGE's proposal slot (switch / reallocation). Market-signal
-    proposals are deliberately not routed here — they are rendered by
-    `_market_signal_block` off their journal, so the two paths cannot compete
-    for one slot."""
+    """The BRIDGE's proposal slot. Market-signal proposals are deliberately not
+    routed here — they are rendered by `_market_signal_block` off their journal,
+    so the two paths cannot compete for one slot.
+
+    THE REALLOCATION BRANCH IS GONE (ADR-012): the Worker does not allocate, so
+    nothing mints a `reallocation` row any more and rendering one was rendering
+    a state the system can no longer reach. The switch branch is kept as it
+    was — no live cycle emits a switch either since ADR-007, but that is a
+    separate piece of deadwood with a separate history, and folding the two
+    into one deletion would bury it."""
     if proposal is None:
         return ["", "🟢 No bridge proposal this week — maintain."]
-    if proposal.get("proposal_type") == "reallocation":
-        current = proposal.get("current_allocation", {})
-        proposed = proposal.get("proposed_allocation", {})
-        moves = [
-            f"{t} {current.get(t, 0):g}→{proposed.get(t, 0):g}"
-            for t in sorted(set(current) | set(proposed))
-            if current.get(t, 0) != proposed.get(t, 0)
-        ]
-        lines = [
-            "",
-            f"🔧 Reallocation proposal (paper-test), decided {proposal.get('date', '?')} "
-            "— defender stays, allocation tilts:",
-            "   " + " | ".join(moves),
-        ]
-    else:
-        lines = [
-            "",
-            f"🔀 Switch proposal ({proposal.get('recommendation', 'monitor')}), "
-            f"decided {proposal.get('date', '?')}: "
-            f"{proposal.get('challenger_id')} over {proposal.get('defender_id')}",
-        ]
-    lines.append(f"   Why: {proposal.get('reasoning', '')}")
-    return lines
+    return [
+        "",
+        f"🔀 Switch proposal ({proposal.get('recommendation', 'monitor')}), "
+        f"decided {proposal.get('date', '?')}: "
+        f"{proposal.get('challenger_id')} over {proposal.get('defender_id')}",
+        f"   Why: {proposal.get('reasoning', '')}",
+    ]
 
 
 def _alert_block(alerts: list[Alert]) -> list[str]:

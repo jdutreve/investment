@@ -31,7 +31,6 @@ WORKER_OUTPUT = {
     "market_signal_assessment": "The defensive book fits the confirmed regime.",
     "scenario_adjustments": [],
     "evaluations": [],
-    "reallocation_proposed": None,
     "innovations_proposed": [],
     "reasoning": "the book is defensible on its stated inputs",
 }

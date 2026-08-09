@@ -27,6 +27,6 @@ corpus's start with.
 fact, not a claim. It informs your reasoning and is never confronted, so it
 carries no measured score to weigh. Read it; do not cite it as evidence.
 
-**How to cite.** When arguing a reallocation, cite invariants that are BOTH
-bright AND active. That exact pair is what gets verified mechanically, so a
-citation failing either half is wasted.
+**How to cite.** When an invariant carries your reading, name one that is BOTH
+bright AND active. A dim or dormant one is not evidence for what is happening
+now, whatever its wording suggests.

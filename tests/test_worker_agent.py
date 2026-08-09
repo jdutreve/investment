@@ -32,7 +32,6 @@ from investment.worker.agent import (
 from investment.worker.result import (
     ImprovementProposal,
     ImprovementType,
-    ReallocationProposal,
     ScenarioAdjustment,
     WorkerResult,
 )
@@ -53,10 +52,8 @@ def test_worker_result_empty_state_is_a_value_not_an_omission() -> None:
         reasoning="—",
         scenario_adjustments=[],
         evaluations=[],
-        reallocation_proposed=None,
         innovations_proposed=[],
     )
-    assert r.reallocation_proposed is None
     assert r.innovations_proposed == []
     assert r.scenario_adjustments == []
     assert r.evaluations == []
@@ -95,19 +92,11 @@ def test_scenario_probability_is_bounded() -> None:
         ScenarioAdjustment(strategy_id="s", scenario="bull", probability=140.0, rationale="x")
 
 
-def test_reallocation_and_innovation_round_trip() -> None:
+def test_innovation_round_trip() -> None:
     r = WorkerResult(
         regime_assessment="stagflation building",
         ranking_commentary="defender leads on Sortino",
         market_signal_assessment="the steep-curve book is defensible; watch the haven crowding",
-        reallocation_proposed=ReallocationProposal(
-            proposed_allocation={"GLD": 50.0, "VCIT": 50.0},
-            scenario_delta={"GLD": 10.0},
-            favors_delta={"GLD": 5.0},
-            blend_note="0.4 tactical + 0.6 structural",
-            supporting_invariants=["inv-gold-ratio-trend-tilt"],
-            reasoning="gold above its 7y trend and rising",
-        ),
         innovations_proposed=[
             ImprovementProposal(
                 type=ImprovementType.new_invariant,
@@ -123,8 +112,6 @@ def test_reallocation_and_innovation_round_trip() -> None:
         scenario_adjustments=[],
         evaluations=[],
     )
-    assert r.reallocation_proposed is not None
-    assert r.reallocation_proposed.supporting_invariants == ["inv-gold-ratio-trend-tilt"]
     assert r.innovations_proposed[0].type is ImprovementType.new_invariant
     # author/status default to the floor-tier + proposed convention
     assert r.innovations_proposed[0].author == "system"
@@ -183,47 +170,6 @@ async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> Non
     # POPULATES them with samples rather than defaulting them, so this test can
     # only speak to validity — the empty state is covered directly above.
     assert isinstance(result, WorkerResult)
-
-
-# -- the allocation contract at the LLM boundary -----------------------------
-
-
-def _realloc(**over: object) -> ReallocationProposal:
-    fields: dict[str, object] = {
-        "proposed_allocation": {"GLD": 50.0, "VCIT": 50.0},
-        "scenario_delta": {"GLD": 10.0},
-        "favors_delta": {"GLD": -5.0},  # a NEGATIVE delta is legal: it is a change
-        "blend_note": "b",
-        "supporting_invariants": [],
-        "reasoning": "r",
-    }
-    fields.update(over)
-    return ReallocationProposal(**fields)  # type: ignore[arg-type]
-
-
-def test_a_negative_weight_is_rejected_at_the_boundary() -> None:
-    """V1 is long-only. Rejected HERE and not only by the gate, because a
-    validation error is fed back to the model as a retry — the Worker is told
-    what is wrong and answers again, instead of losing the cycle to a silent ⛔."""
-    with pytest.raises(ValidationError, match="long-only"):
-        _realloc(proposed_allocation={"GLD": 130.0, "VCIT": -30.0})
-
-
-def test_non_finite_weights_are_rejected_everywhere_they_can_appear() -> None:
-    """JSON's `NaN`/`Infinity` tokens parse, and a NaN weight is invisible to
-    every comparison-based gate downstream (mechanical/gates.py gate 0)."""
-    for bad in (float("nan"), float("inf"), float("-inf")):
-        with pytest.raises(ValidationError):
-            _realloc(proposed_allocation={"GLD": 50.0, "VCIT": bad})
-        # deltas are recorded rather than gated, so a NaN there is persisted raw
-        with pytest.raises(ValidationError, match="finite"):
-            _realloc(scenario_delta={"GLD": bad})
-
-
-def test_negative_deltas_stay_legal() -> None:
-    """The long-only rule binds the ALLOCATION, never the deltas: a delta is a
-    change, and a negative one is how a sleeve is cut."""
-    assert _realloc(favors_delta={"GLD": -12.5}).favors_delta == {"GLD": -12.5}
 
 
 # -- the agentic-loop budget -------------------------------------------------
@@ -307,7 +253,7 @@ def test_the_skills_carry_the_contracts_the_gates_enforce() -> None:
     skills = load_skills()
     assert "[-10, +10]" in skills  # EvaluationDraft's Field bounds
     assert "neutral" in skills  # the fourth Literal verdict
-    assert "0.4 x scenario_delta + 0.6 x favors_delta" in skills  # the blend
+    assert "0.4 x scenario + 0.6 x structural" in skills  # the blend, now mechanical
     assert "bright" in skills and "active" in skills  # gate 6's exact pair
 
 
@@ -316,7 +262,7 @@ def test_the_bridge_skill_says_it_is_the_bridge() -> None:
     superseded path must not read as live instruction."""
     text = (SKILLS_DIR / "skill-the-retained-bridge.md").read_text()
     assert "NONE OF THIS IS THE LIVE ALLOCATION" in text
-    assert "ADR-011" in text  # stated where the reallocation is described
+    assert "ADR-012" in text  # stated where the bridge says it does not allocate
 
 
 def test_the_live_skill_separates_an_assessment_from_a_rule_challenge() -> None:

@@ -60,9 +60,11 @@ def _digest(**over: object) -> str:
             },
         ],
         "proposal": {
-            "proposal_type": "reallocation",
-            "current_allocation": {"TIP": 20, "GLD": 10, "TLT": 30},
-            "proposed_allocation": {"TIP": 25, "GLD": 15, "TLT": 20},
+            "proposal_type": "switch",
+            "recommendation": "switch",
+            "date": "2026-07-20",
+            "challenger_id": "chal-pf",
+            "defender_id": "def-pf",
             "reasoning": "bear scenario 55% (+35pts); gold tilt backed by GLD invariant",
         },
         "scoreboard": {
@@ -103,8 +105,8 @@ def test_render_is_complete_and_readable() -> None:
     assert "⛔ excluded from defender role and proposal candidacy (drawdown -18.2%)" in text
     # invariant with weight (decimal, not percent) + confirmed counts
     assert "TIPS inflation persistence: 0.756 (8/9 confirmed) [dalio]" in text
-    # reallocation old->new moves (sorted by ticker), unchanged sleeves omitted
-    assert "GLD 10→15 | TIP 20→25 | TLT 30→20" in text
+    # the bridge's switch slot (ADR-012 removed the reallocation branch)
+    assert "🔀 Switch proposal (switch)" in text
     # scoreboard hit-rate + paper-tests
     assert "Proposals hit-rate: 1/1 (100.0%) at +12w" in text
     assert "Paper-tests in progress: 1" in text
@@ -219,8 +221,8 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
     await db.command(
         "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
         "recommendation, market_context, reasoning, paper_started, trace, created_at) VALUES "
-        "('pr1', '2026-07-20', 'reallocation', 'def-pf', "
-        "'{\"SPY\": 40, \"GLD\": 35, \"IEF\": 25}', 'paper-test', '{}', 'tilt into gold', "
+        "('pr1', '2026-07-20', 'switch', 'def-pf', "
+        "'{\"SPY\": 40, \"GLD\": 35, \"IEF\": 25}', 'switch', '{}', 'tilt into gold', "
         "'2026-07-20', 't', '2026-07-20T09:00:00+00:00')"
     )
 
@@ -231,9 +233,9 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
     assert "Regime: Stagflation (78.0% — stag)" in text
     assert "def-pf: 1.18 ★ (defender)" in text
     assert "GLD stagflation hedge: 0.756 (8/9 confirmed) [dalio]" in text
-    # the assembler resolved current_allocation off the defender's snapshot —
-    # the Proposal vertex stores only the target
-    assert "GLD 25→35 | SPY 50→40" in text
+    # the bridge's switch slot; ADR-012 removed the reallocation branch that
+    # used to render an old->new move here
+    assert "🔀 Switch proposal" in text
     assert "Paper-tests in progress: 1" in text
     assert "3m +3.8%" in text
 

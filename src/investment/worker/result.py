@@ -1,24 +1,30 @@
 """The Worker's structured output contract (docs/ARCHITECTURE.md "WORKER";
-docs/DATA_MODELS.md WorkerResult / ImprovementProposal / ReallocationProposal;
-docs/TASKS.md Phase 5 `worker/result.py`).
+docs/DATA_MODELS.md WorkerResult / ImprovementProposal; docs/TASKS.md Phase 5
+`worker/result.py`).
 
 These are the LLM I/O boundary models (CLAUDE.md "Dev standards": pydantic at
 every I/O boundary). The Worker fills them; Writeback consumes them and runs
-the mechanical gates over `reallocation_proposed` / `innovations_proposed`. The
-Worker never sees the gates — it proposes, Writeback disposes (UC8).
+the mechanical gates over `innovations_proposed`. The Worker never sees the
+gates — it proposes, Writeback disposes (UC8).
+
+THE WORKER DOES NOT ALLOCATE (ADR-012, 2026-08-09). `reallocation_proposed` and
+`ReallocationProposal` were removed with it: two days of M8b runs put the
+cognitive value in the READING and the innovations, and the cognitive
+ALLOCATION path in six of the seven defects an audit of it found. What the
+Worker contributes is a market-signal reading and knowledge that gets MEASURED
+over time (ADR-006), never an allocation applied once on conviction.
 
 `WorkerResult` is ALWAYS complete: every field is present on every run, with
-`reallocation_proposed = None` and `innovations_proposed = []` standing for
-"nothing to propose" (docs/ARCHITECTURE.md: "always complete, fields possibly
-empty"). Optionality carries the meaning; a missing field would be a schema
-violation the Phase-1bis retry policy rejects, not a silent no-op.
+`innovations_proposed = []` standing for "nothing to propose"
+(docs/ARCHITECTURE.md: "always complete, fields possibly empty"). Emptiness
+carries the meaning; a missing field would be a schema violation the Phase-1bis
+retry policy rejects, not a silent no-op.
 """
 
-import math
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ImprovementType(StrEnum):
@@ -46,9 +52,8 @@ class StrictModel(BaseModel):
     `additionalProperties: false` into the JSON schema the provider sees, so the
     typo is likelier not to happen at all.
 
-    The same reasoning `ReallocationProposal._weights_are_finite_and_long_only`
-    spells out: a boundary rejection is recoverable, a silent acceptance is a
-    lost week."""
+    One principle, applied at every field of this boundary: a rejection is
+    recoverable, a silent acceptance is a lost week."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -124,57 +129,6 @@ class ImprovementProposal(StrictModel):
     trace: str
 
 
-class ReallocationProposal(StrictModel):
-    """A paper-mode adjustment of the DEFENDER's allocation (docs/DATA_MODELS.md;
-    UC8). `proposed_allocation` is percent weights that must sum to 100.
-    `scenario_delta` (tactical) and `favors_delta` (structural) are the two
-    inputs the 0.4/0.6 blend combined; `blend_note` records how. Writeback
-    validates the user caps, the min change, the turnover cap and the
-    cited-invariant eligibility BEFORE persisting a Proposal vertex — the
-    Worker proposes, the gates dispose."""
-
-    proposed_allocation: dict[str, float]
-    scenario_delta: dict[str, float]
-    favors_delta: dict[str, float]
-    blend_note: str
-    supporting_invariants: list[str]
-    reasoning: str
-
-    @field_validator("proposed_allocation")
-    @classmethod
-    def _weights_are_finite_and_long_only(cls, value: dict[str, float]) -> dict[str, float]:
-        """Reject a book the owner could not hold, AT THE BOUNDARY.
-
-        `mechanical/gates.py` re-checks this (`allocation_well_formed`) and that
-        duplication is deliberate — but this copy is the one that does the
-        useful thing. A gate refusal is silent to the model: the cycle ends with
-        a ⛔ in the digest and the week's reasoning is lost. A validation error
-        here is fed back by PydanticAI as a retry (`agent.OUTPUT_RETRIES`), so
-        the Worker is TOLD what is wrong and gets to answer again — which is the
-        difference between losing a cycle and correcting one.
-
-        Non-negative because V1 is long-only; finite because JSON's `NaN` and
-        `Infinity` tokens parse, and a NaN weight is invisible to every
-        comparison-based gate downstream."""
-        bad = {t: w for t, w in value.items() if not math.isfinite(w) or w < 0.0}
-        if bad:
-            raise ValueError(
-                f"proposed_allocation weights must be finite and >= 0 (V1 is long-only); got {bad}"
-            )
-        return value
-
-    @field_validator("scenario_delta", "favors_delta")
-    @classmethod
-    def _deltas_are_finite(cls, value: dict[str, float]) -> dict[str, float]:
-        """Deltas are CHANGES, so a negative one is correct and expected — only
-        non-finite is rejected. They are recorded on the proposal rather than
-        gated, so a NaN here would be persisted unexamined."""
-        bad = {t: w for t, w in value.items() if not math.isfinite(w)}
-        if bad:
-            raise ValueError(f"delta weights must be finite; got {bad}")
-        return value
-
-
 class WorkerResult(StrictModel):
     """The Worker's complete output for one UC8 cycle (docs/ARCHITECTURE.md
     "WORKER"). Always complete; empty fields mean "nothing to propose", not
@@ -204,12 +158,10 @@ class WorkerResult(StrictModel):
     # clean as [], so "the Worker had nothing to propose" and "the Worker forgot
     # the field" became the same result — exactly the silent partial answer the
     # Phase-1bis policy rejects. The empty state stays expressible ([] and null,
-    # per CLAUDE.md's `innovations_proposed: list` / `reallocation_proposed:
-    # Optional`); it just has to be SAID. The system prompt already asks for it
-    # in those words (agent.py: "must include innovations_proposed (empty list
-    # if none) and reallocation_proposed (null if none)").
+    # per CLAUDE.md's `innovations_proposed: list`); it just has to be SAID.
+    # The system prompt already asks for it in those words (agent.py: "must
+    # include innovations_proposed, an empty list if none").
     scenario_adjustments: list[ScenarioAdjustment]
     evaluations: list[EvaluationDraft]
-    reallocation_proposed: ReallocationProposal | None
     innovations_proposed: list[ImprovementProposal]
     reasoning: str  # also the Proposal vertex's reasoning (switch commentary folded in)

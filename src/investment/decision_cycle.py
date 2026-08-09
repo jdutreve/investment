@@ -33,20 +33,13 @@ from typing import Any
 from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.gates import GateOutcome
 from investment.mechanical.market_signal import describe_rule
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import run_worker
 from investment.worker.result import WorkerResult
-from investment.writeback.writeback import (
-    SOURCE_UC,
-    KnowledgeCommit,
-    commit_knowledge,
-    dispose_reallocation,
-    portfolio_caps,
-)
+from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_knowledge
 
 # The cycle's own journal entry (see `journal_worker_reading`). Declared here,
 # beside the only thing that appends it, as `chain.ERROR_EVENT` and
@@ -62,24 +55,20 @@ WORKER_READING_EVENT = "WorkerReadingEvent"
 # strictly better than the previous state, where it was told nothing at all.
 CITATION_WEIGHT_MIN = 0.10
 
-# The portfolio the Worker's reallocations move (db/seed_data.py `worker-book`).
-# Declared here, beside the cycle that targets it, as `market_signal` declares
-# `STACK_PORTFOLIO_ID` beside the cycle that moves that one.
-WORKER_BOOK_ID = "worker-book"
-
 
 @dataclasses.dataclass(frozen=True)
 class UC8Result:
     """One decision cycle's full output — the context the Worker saw, its
-    result, the guardrailed knowledge, and the disposition of any reallocation
-    (proposal_id set iff every gate passed)."""
+    result, and the guardrailed knowledge it produced.
+
+    NO DISPOSITION FIELDS since ADR-012: the Worker does not allocate, so a
+    cycle has no gate outcome and mints no Proposal. What it leaves behind is
+    the journalled reading and whatever knowledge survived the guardrail."""
 
     context: PlannerContext
     worker_result: WorkerResult
     post_result: PostPlannerResult
     knowledge: KnowledgeCommit  # what the guardrailed knowledge commit persisted
-    gate_outcome: GateOutcome | None  # None iff the Worker proposed no reallocation
-    proposal_id: str | None
 
 
 def _defender_row(ranking: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -213,38 +202,22 @@ def _not_citable_because(inv: dict[str, Any]) -> str | None:
     return None
 
 
-def render_context_for_worker(
-    context: PlannerContext,
-    *,
-    book_id: str = WORKER_BOOK_ID,
-    held: dict[str, float] | None = None,
-) -> str:
+def render_context_for_worker(context: PlannerContext) -> str:
     """The PlannerContext as the text the Worker reads (docs/ARCHITECTURE.md
     WORKER: "the data in your context"). Deliberately unaware of provenance —
     no Planner, no pool, no storage — just the market picture, the ranking, the
     lighthouses (with which are lit NOW), and the framing.
 
-    `book_id`/`held` NAME THE BOOK THE WORKER ACTUALLY HOLDS, and until
-    2026-08-09 nothing did. `target_book` reached Writeback and stopped there,
-    so both M8b arms handed the Worker a byte-identical prompt whose only
-    reallocation avenue was "the defender's own allocation" — a portfolio that
-    had not been the target since 2026-08-08. Measured over 37 dates across the
-    two arms: on `alone` the Worker reasoned exclusively about whether it might
-    OVERRIDE the mechanical stack and proposed almost nothing; on `on-stack`
-    every one of its four proposals was the six-sleeve defender blend, refused
-    on turnover against a book reset to IEF 90 / GLD 10.
-
-    It was answering the question it was asked. This is the question it should
-    have been asked."""
+    NO BOOK IS NAMED HERE, and briefly one was. On 2026-08-09 this renderer
+    grew a `YOUR BOOK` block, because the Worker had never been told which
+    portfolio its reallocations moved; ADR-012 removed the reallocation itself
+    hours later, and the block with it. What the Worker reads is the world and
+    the mechanical decision — it holds nothing."""
     regime = context.regime
     lines = [
         f"REGIME: {regime.get('regime_name', '?')} ({regime.get('regime_type_id', '?')}), "
         f"confidence {regime.get('confidence', '?')}",
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
-        "",
-        f"YOUR BOOK: {book_id} — this is the portfolio your reallocation moves, "
-        "and the only one it can move.",
-        f"  it currently holds: {held if held else '(nothing yet)'}",
     ]
     lines.extend(_market_signal_lines(context.market_signal))
     lines += [
@@ -418,7 +391,6 @@ async def run_decision_cycle(
     today: date | None = None,
     run_id: str | None = None,
     context: PlannerContext | None = None,
-    target_book: str = WORKER_BOOK_ID,
 ) -> UC8Result:
     """Run one UC8 cycle end to end. Writeback only runs if the Worker proposed
     a reallocation AND a defender exists to reallocate; otherwise the cycle is
@@ -439,21 +411,11 @@ async def run_decision_cycle(
     what failed WITHOUT reimplementing the cycle, which Task 9.4 forbids.
     Default `None` keeps the live Monday chain exactly as it was.
 
-    `target_book` names the portfolio the reallocation moves. The live chain
-    always uses the cognitive book; the agentic replay overrides it to measure a
-    SECOND arm — the Worker tilting on top of the market-signal stack instead of
-    running a book of its own (`agentic_replay --arm on-stack`). A parameter
-    rather than a second code path, so both arms run the identical cycle."""
+    NOTHING IS DISPOSED HERE since ADR-012. The cycle runs the three roles,
+    journals the reading and commits the guardrailed knowledge; there is no
+    reallocation to gate, so no Proposal is minted and no book moves."""
     context = context or await planner_pre.run(trigger)
-    # READ BEFORE THE WORKER RUNS, not after. The incumbent was fetched just
-    # above the gates, which was late for one reason and wrong for another: the
-    # Worker never saw the book it was allocating, and the gates compared
-    # against a row read later than the reading that produced the proposal.
-    # One read, one snapshot, both halves judging the same book.
-    incumbent = await _book_row(db, target_book)
-    worker_result = await run_worker(
-        worker_agent, render_context_for_worker(context, book_id=target_book, held=incumbent)
-    )
+    worker_result = await run_worker(worker_agent, render_context_for_worker(context))
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today
     )
@@ -464,36 +426,4 @@ async def run_decision_cycle(
         db, post_result, regime_type, thresholds, today=today, embedder=planner_pre.embedder
     )
 
-    gate_outcome: GateOutcome | None = None
-    proposal_id: str | None = None
-    reallocation = worker_result.reallocation_proposed
-    # THE WORKER REALLOCATES ITS OWN BOOK (owner decision 2026-08-08), not the
-    # bridge defender. Two things were wrong with the old target. The defender is
-    # also the mechanical bridge's book, so the same portfolio was the canvas for
-    # both policies and M8b's "A' - A" could never isolate the cognitive one. And
-    # judging the Worker meant stitching disjoint 12-week proposal outcomes —
-    # five observations across the whole screen, which carry no signal.
-    #
-    # With a book of its own it accumulates ONE NAV, ranked against everything
-    # else with no privilege. `worker-book` starts at the defender's allocation,
-    # so before its first accepted reallocation the two curves are identical by
-    # construction (db/seed_data.py). `incumbent` was read above, before the
-    # Worker, so it is the same book the reading was formed against.
-    if reallocation is not None and incumbent is not None:
-        # Its own caps, which may only be STRICTER than the user's — the ranking
-        # snapshot carries no cap columns, they live on `portfolio`.
-        portfolio = await portfolio_caps(db, target_book)
-        gate_outcome, proposal_id = await dispose_reallocation(
-            db,
-            reallocation,
-            target_book,
-            incumbent,
-            user_profile,
-            thresholds,
-            regime_type,
-            _market_context(context),
-            portfolio=portfolio,
-            today=today,
-        )
-
-    return UC8Result(context, worker_result, post_result, knowledge, gate_outcome, proposal_id)
+    return UC8Result(context, worker_result, post_result, knowledge)

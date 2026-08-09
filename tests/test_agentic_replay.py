@@ -24,15 +24,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import pytest
 from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import agentic_replay as AR
-from investment.mechanical.as_of_cycle import AsOfCycle
 from investment.mechanical.market_signal import BOOK_PORTFOLIO_IDS, STACK_TICKERS
-from investment.mechanical.replay import load_inputs, load_thresholds
+from investment.mechanical.replay import load_inputs
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import build_worker_agent
@@ -233,9 +231,7 @@ INNOVATION: dict[str, Any] = {
 }
 
 
-def _worker_output(
-    reallocation: dict[str, Any] | None, *, innovations: bool = False
-) -> dict[str, Any]:
+def _worker_output(*, innovations: bool = False) -> dict[str, Any]:
     return {
         "regime_assessment": "stagflation deepening",
         "ranking_commentary": "defender leads",
@@ -244,26 +240,17 @@ def _worker_output(
         ),
         "scenario_adjustments": [],
         "evaluations": [],
-        "reallocation_proposed": reallocation,
         "innovations_proposed": [INNOVATION] if innovations else [],
         "reasoning": "tilt to gold",
     }
 
 
-async def _run(
-    live: Path,
-    tmp_path: Path,
-    *,
-    reallocation: dict[str, Any] | None,
-    innovations: bool = False,
-    arm: str = "alone",
-) -> Any:
+async def _run(live: Path, tmp_path: Path, *, innovations: bool = False) -> Any:
     """Drive one episode with TestModels. The overrides ride on an ExitStack the
     FACTORY pushes onto, because the agents do not exist until the episode opens
     its snapshot — which is the whole point of the factory."""
     db = InvestmentDB(live)
     inputs = await load_inputs(db)
-    thresholds = await load_thresholds(db)
     await db.close()
 
     query = TestModel(custom_output_args={"corpus_queries": [], "zooms": []})
@@ -271,7 +258,7 @@ async def _run(
         custom_output_args={"invariant_ids": ["inv-gold"], "passage_ids": [], "notes": "storm"}
     )
     worker_out = TestModel(
-        call_tools=[], custom_output_args=_worker_output(reallocation, innovations=innovations)
+        call_tools=[], custom_output_args=_worker_output(innovations=innovations)
     )
     extract = TestModel(
         custom_output_args={
@@ -306,13 +293,9 @@ async def _run(
             opens=OPENS,
             closes=CLOSES,
             inputs=inputs,
-            thresholds=thresholds,
             make_agents=make_agents,
             user_profile=USER,
             system_thresholds=THRESHOLDS,
-            cost_bps=THRESHOLDS["replay_cost_bps"],
-            confirmation_weeks=THRESHOLDS["replay_confirmation_weeks"],
-            arm=arm,
         )
     return episode, bound
 
@@ -322,51 +305,15 @@ async def test_the_worker_is_bound_to_the_snapshot_not_the_live_database(
 ) -> None:
     """The leak that would be total and silent: agents built against the live
     handle answer every query, just with 2026 data."""
-    _episode, bound = await _run(live, tmp_path, reallocation=None)
+    _episode, bound = await _run(live, tmp_path)
     assert bound and all(str(db._db_path) != str(live) for db in bound)
     assert all("agentic-gfc" in str(db._db_path) for db in bound)
-
-
-async def test_an_accepted_reallocation_moves_the_book(live: Path, tmp_path: Path) -> None:
-    episode, _bound = await _run(
-        live,
-        tmp_path,
-        reallocation={
-            "proposed_allocation": WORKER_TARGET,
-            "scenario_delta": {},
-            "favors_delta": {},
-            "blend_note": "0.4/0.6",
-            "supporting_invariants": ["inv-gold"],
-            "reasoning": "gold above its 7y trend; tilt in",
-        },
-    )
-    assert episode.name == "gfc"
-    assert len(episode.outcomes) == 4  # monthly, July..October 2008
-    assert episode.accepted_reallocations >= 1
-    accepted = [o for o in episode.outcomes if o.accepted]
-    assert accepted[0].proposed_allocation == WORKER_TARGET
-    # A' followed it, so it cannot be the hold curve.
-    assert not episode.nav_agentic.equals(episode.nav_hold)
-
-
-async def test_a_worker_that_proposes_nothing_holds_the_book(live: Path, tmp_path: Path) -> None:
-    """A Worker that proposes nothing moves no capital, so A' IS the hold curve.
-
-    Not "the delta is zero", which is what this test asserted first and what the
-    milestone's wording suggests: arm A runs the mechanical reallocation
-    triggers and the bridge's switch arm on its own, so it moves when the Worker
-    does not. A' - A compares two whole policies (module docstring), and a
-    Worker that stands still is a policy too."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
-    assert episode.accepted_reallocations == 0
-    assert all(o.proposed_allocation is None for o in episode.outcomes)
-    assert episode.nav_agentic.equals(episode.nav_hold)
 
 
 async def test_the_behavioural_log_carries_the_worker_reading(live: Path, tmp_path: Path) -> None:
     """M8b's SECOND channel, weighted equally with the NAVs in its Definition of
     Verified — and the only one that answers "does it reason sensibly?"."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
     assert [o.as_of for o in episode.outcomes] == sorted(o.as_of for o in episode.outcomes)
     assert all("fiscal impulse" in o.reading for o in episode.outcomes)
     # the mechanical half ran at every one of them
@@ -376,7 +323,7 @@ async def test_the_behavioural_log_carries_the_worker_reading(live: Path, tmp_pa
 async def test_the_clock_advances_across_the_episode(live: Path, tmp_path: Path) -> None:
     """Month two must know what month one did — otherwise the market-signal
     decision replays as an opening entry every month."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
     decisions = [o.mechanical.market_signal_decision for o in episode.outcomes]
     assert decisions == [o.as_of.isoformat() for o in episode.outcomes]
     # ...and only the FIRST month emits the stack's opening proposal.
@@ -389,7 +336,7 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
 ) -> None:
     """An 84-call run must not lose six completed readings because the seventh
     raised. The failure is RECORDED, not swallowed: the date carries its error,
-    `failed_dates` counts it, and the surviving dates still produce a curve."""
+    `failed_dates` counts it, and the surviving readings are still reported."""
     doomed = OPENS
     real = AR.run_decision_cycle
 
@@ -400,7 +347,7 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
 
     monkeypatch.setattr(AR, "run_decision_cycle", _flaky)
 
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
 
     assert episode.failed_dates == 1
     failed = [o for o in episode.outcomes if o.failure]
@@ -408,7 +355,7 @@ async def test_one_failing_date_does_not_burn_the_whole_episode(
     assert "the Worker exploded" in failed[0].failure  # type: ignore[operator]
     # the survivors still carry their readings, and the book still prices
     assert any("fiscal impulse" in o.reading for o in episode.outcomes)
-    assert len(episode.nav_agentic) > 0
+    assert len([o for o in episode.outcomes if not o.failure]) == len(episode.outcomes) - 1
 
 
 async def test_a_budget_timeout_is_not_retried(
@@ -427,7 +374,7 @@ async def test_a_budget_timeout_is_not_retried(
     monkeypatch.setattr(AR, "run_decision_cycle", _hangs)
     monkeypatch.setattr(AR, "DATE_TIMEOUT_SECONDS", 0.2)
 
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
 
     # one attempt per date, never two
     assert attempts["n"] == len(episode.outcomes)
@@ -461,7 +408,7 @@ async def test_the_planner_is_not_re_run_when_only_the_worker_failed(
 
     monkeypatch.setattr(PlannerPre, "run", _counted)
 
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
 
     # one cycle failed and was retried, so cycles == dates + 1...
     assert cycles["n"] == len(episode.outcomes) + 1
@@ -488,7 +435,7 @@ async def test_a_transient_failure_is_recovered_by_the_retry(
 
     monkeypatch.setattr(AR, "run_decision_cycle", _once)
 
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
 
     assert attempts["n"] == 2  # failed once, retried once
     assert episode.failed_dates == 0
@@ -513,7 +460,7 @@ async def test_a_stalled_date_is_cut_by_the_wall_clock(
     monkeypatch.setattr(AR, "DATE_TIMEOUT_SECONDS", 0.2)
     monkeypatch.setattr(AR, "DATE_ATTEMPTS", 1)  # the retry is tested separately
 
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
 
     stalled = [o for o in episode.outcomes if o.as_of == OPENS]
     assert stalled[0].failure is not None
@@ -529,7 +476,7 @@ async def test_an_interrupted_episode_resumes_instead_of_paying_twice(
     the dates already paid for — and must not re-advance the snapshot's clock
     past them either, which is why the journal and the snapshot are read as one
     state."""
-    first = await _run(live, tmp_path, reallocation=None)
+    first = await _run(live, tmp_path)
     episode, _bound = first
     assert len(episode.outcomes) > 1
 
@@ -543,7 +490,7 @@ async def test_an_interrupted_episode_resumes_instead_of_paying_twice(
     monkeypatch.setattr(AR, "run_decision_cycle", _counted)
 
     # same scratch directory: the journal and the advanced snapshot are both there
-    again, _bound2 = await _run(live, tmp_path, reallocation=None)
+    again, _bound2 = await _run(live, tmp_path)
 
     assert cycles["n"] == 0  # nothing re-run
     assert [o.as_of for o in again.outcomes] == [o.as_of for o in episode.outcomes]
@@ -556,7 +503,7 @@ async def test_a_torn_journal_line_costs_one_date_not_the_episode(
     """The only way to get an unparseable line is a run killed mid-write. The
     right answer is to redo that one date; refusing to start would make a crash
     cost everything the journal exists to protect."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
     journal = tmp_path / "gfc.dates.jsonl"
     lines = journal.read_text().splitlines()
     journal.write_text("\n".join([*lines[:-1], '{"as_of": "2008-0']))  # truncated write
@@ -574,7 +521,7 @@ async def test_innovations_outlive_the_snapshot_they_were_born_in(
     real `strategy` vertex at `status='proposed'` inside the snapshot — the
     entrance to ADR-006 probation — and that whole machinery's output used to be
     thrown away with the file."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None, innovations=True)
+    episode, _bound = await _run(live, tmp_path, innovations=True)
 
     assert all(o.innovations == 1 for o in episode.outcomes)
     report = tmp_path / "report.txt"
@@ -594,14 +541,11 @@ async def test_innovations_outlive_the_snapshot_they_were_born_in(
 async def test_a_failed_date_is_loud_in_the_report(live: Path, tmp_path: Path) -> None:
     """A date that never ran is not a date the Worker chose to sit out, and a
     report that rendered them alike would overstate the coverage."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+    episode, _bound = await _run(live, tmp_path)
     broken = AR.DateOutcome(
         as_of=episode.outcomes[0].as_of,
         mechanical=episode.outcomes[0].mechanical,
         reading="",
-        proposed_allocation=None,
-        gate=None,
-        accepted=False,
         innovations=0,
         failure="RuntimeError: boom",
     )
@@ -612,17 +556,6 @@ async def test_a_failed_date_is_loud_in_the_report(live: Path, tmp_path: Path) -
     assert "!! FAILED" in text
     assert "RuntimeError: boom" in text
     assert "1 failed" in text
-
-
-async def test_the_three_curves_cover_the_same_window(live: Path, tmp_path: Path) -> None:
-    """`run_replay` prices to the end of the CALENDAR, not to its `end`. Left
-    uncut, arm B ran 549 daily points against the agentic arm's 123 and the three CAGRs were
-    measured over different windows — a delta made of nothing."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
-    assert len(episode.nav_agentic) == len(episode.nav_mechanical) == len(episode.nav_hold)
-    for nav in (episode.nav_agentic, episode.nav_mechanical, episode.nav_hold):
-        assert nav.index[0] >= pd.Timestamp(OPENS)
-        assert nav.index[-1] <= pd.Timestamp(CLOSES)
 
 
 async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
@@ -648,7 +581,7 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
     assert live_view[0]["n"] == 49
     await db.close()
 
-    episode, bound = await _run(live, tmp_path, reallocation=None)
+    episode, bound = await _run(live, tmp_path)
     assert episode.outcomes
 
     snapshot = bound[0]._db_path
@@ -673,114 +606,17 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
         await seen.close()
 
 
-async def test_the_report_shows_both_channels(live: Path, tmp_path: Path) -> None:
-    """A NAV table alone answers half the STOP POINT. The readings are printed
-    in full, not counted, because "does the Worker reason sensibly?" cannot be
-    read off a number."""
-    episode, _bound = await _run(live, tmp_path, reallocation=None)
+async def test_the_report_prints_the_readings_in_full(live: Path, tmp_path: Path) -> None:
+    """The one channel left (ADR-012). It was two, and the NAV table went with
+    the cognitive allocation it measured; what remains is the half MILESTONES
+    always weighted equally. The readings are printed IN FULL, not counted,
+    because "does the Worker reason sensibly?" cannot be read off a number."""
+    episode, _bound = await _run(live, tmp_path)
     report = AR.render_report([episode])
 
-    assert "semi-PIT" in report and "NOT go-live performance" in report
-    assert "A' agentic" in report and "all-weather" in report
+    assert "semi-PIT" in report
     assert "behavioural log" in report
+    assert "cagr" not in report  # no NAV channel to mistake for a verdict
     for out in episode.outcomes:
         assert str(out.as_of) in report
         assert out.reading in report  # in full
-
-
-async def test_the_on_stack_arm_resets_to_the_rule_each_month(
-    live: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The two arms answer different questions. `alone` lets the cognitive book
-    DRIFT on its own accepted reallocations from an All-Weather start — is the
-    Worker a standalone allocator? `on-stack` resets the book to the market-
-    signal target every month, so the tilt is measured AGAINST the rule rather
-    than against the Worker's own previous tilt — does it ADD to a rule that
-    already works?
-
-    Without the reset the second arm would silently become the first one after
-    its opening month, and the comparison would measure nothing."""
-    seen: list[dict[str, float]] = []
-    real = AR.run_decision_cycle
-
-    async def _capture(*args: Any, **kwargs: Any) -> Any:
-        db = args[0]
-        rows = await db.query(
-            "SELECT allocation FROM portfolio WHERE id = :i", i=kwargs["target_book"]
-        )
-        seen.append(json.loads(str(rows[0]["allocation"])))
-        return await real(*args, **kwargs)
-
-    monkeypatch.setattr(AR, "run_decision_cycle", _capture)
-    await _run(live, tmp_path, reallocation=WORKER_TARGET, arm="on-stack")
-
-    stack_books = list(BOOK_PORTFOLIO_IDS.values())
-    assert seen  # at least one cycle ran
-    # every month the incumbent it was shown is the STACK's allocation, never
-    # the tilt it produced the month before
-    assert all(a != WORKER_TARGET for a in seen[1:]), seen
-    assert stack_books  # the fixture seeds the books the stack chooses among
-
-
-def test_the_on_stack_walk_is_the_rule_where_the_worker_did_not_move_it(tmp_path: Path) -> None:
-    """The defect that cost the first on-stack run (2026-08-09).
-
-    Arm 2's monthly reset wrote `portfolio.allocation` — the incumbent the GATES
-    compare against — and nothing else, while `targets`, the dict
-    `shadow_book_nav` actually prices, kept the All-Weather seed and moved only
-    on an accepted tilt. So the rule's path never entered A': both completed
-    episodes returned A' equal to B to the cent, and the -12.95% "delta"
-    measured All Weather against the stack rather than the Worker against
-    anything.
-
-    The journal carries `stack_target` for exactly this reason — it is the one
-    part of the walk a resume cannot recompute, since it lived in the snapshot
-    the resume skips past. Pinned through a round-trip, with the precedence a
-    resumed run has to reproduce: the rule's target, REPLACED where a tilt was
-    accepted."""
-    journal = tmp_path / "ep.dates.jsonl"
-    mechanical = AsOfCycle(
-        as_of=date(2008, 7, 1),
-        favors_edges=0,
-        strategies_scored=0,
-        portfolios_valued=0,
-        portfolios_ranked=0,
-        invariants_reweighed=0,
-        market_signal_decision=None,
-        market_signal_proposal_id=None,
-    )
-    stack_january = {"IEF": 90.0, "GLD": 10.0}
-    stack_february = {"cash": 100.0}
-    tilt = {"IEF": 70.0, "GLD": 20.0, "cash": 10.0}
-
-    for as_of, stack, accepted, alloc in (
-        (date(2008, 7, 1), stack_january, False, None),
-        (date(2008, 8, 1), stack_february, True, tilt),
-    ):
-        AR._append_journal(
-            journal,
-            AR.DateOutcome(
-                as_of=as_of,
-                mechanical=mechanical,
-                reading="",
-                proposed_allocation=alloc,
-                gate=None,
-                accepted=accepted,
-                innovations=0,
-                stack_target=stack,
-            ),
-        )
-
-    kept = AR._read_journal(journal, date(2008, 7, 1))
-
-    assert [o.stack_target for o in kept] == [stack_january, stack_february]
-    # The precedence `run_agentic_episode` applies on resume.
-    targets: dict[date, dict[str, float]] = {}
-    for out in kept:
-        if out.stack_target:
-            targets[out.as_of] = dict(out.stack_target)
-        if out.accepted and out.proposed_allocation:
-            targets[out.as_of] = dict(out.proposed_allocation)
-
-    assert targets[date(2008, 7, 1)] == stack_january  # no tilt -> the rule stands
-    assert targets[date(2008, 8, 1)] == tilt  # a tilt -> it replaces the rule

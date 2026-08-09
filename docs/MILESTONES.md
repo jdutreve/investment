@@ -851,36 +851,45 @@ invariants the right ones?
 
 ---
 
-## M8b — Agentic replay: the best-case pre-go-live screen (0.5 d — Task 9.4) — STOP POINT
+## M8b — Agentic replay: the pre-go-live screen (Task 9.4) — STOP POINT
 
-The SAME replay harness as M6, `include_worker=True` — the live chain
-accelerated (no reimplemented decision loop). Because the corpus is known from
-t=start, it is a **best-case** run → a NECESSARY a-priori screen: *if even this
-cannot beat All Weather, the real-time system has no chance.* Not a *sufficient*
-proof (semi-PIT; real-time performance = forward paper-mode). Default cadence
-'episodes' (≈20 LLM runs) to bound cost.
+The SAME harness as M6 with the cognitive cycle running — the live chain
+accelerated at historical dates, no reimplemented decision loop. Because the
+corpus is known from t=start it is a **best-case** run: a NECESSARY a-priori
+screen, never a sufficient proof (semi-PIT; real-time performance is forward
+paper-mode). Episodes cadence (~21 LLM cycles) to bound cost.
+
+**ONE CHANNEL, since ADR-012 (2026-08-09).** This milestone used to ask two
+questions — "does A' beat All Weather?" and "does the Worker reason sensibly?"
+— and weighted them equally. The first is gone with the cognitive allocation it
+measured: the Worker does not allocate, so there is no A' to price. What
+remains is the question that paid.
 
 **Definition of Verified**
-- [ ] best-case check: A' (agentic-follow) beats B (All Weather) at all?
-- [ ] behavioral log readable: at 2008 / 2020 / stagflation, does the Worker
-      reason sensibly? does it propose sensible improvements?
-- [ ] delta A' − A reported, LABELLED "semi-PIT, not go-live performance".
-      **It does NOT isolate the reallocation contribution** — this line used to
-      say it did, on the grounds that "switches are mechanical in both", which
-      was true before ADR-007 and is not true now: the live cycle emits NO
-      switch at all (`writeback.py`), so A' contains none while A still runs
-      the bridge's mechanical switch arm. The delta compares THE COGNITIVE
-      CYCLE AS IT WILL RUN against THE MECHANICAL RULES AS THEY WERE MEASURED
-      — two whole policies, not one isolated term. Still the comparison M8b
-      needs; judge it as such (`agentic_replay.py` module docstring)
+- [ ] behavioural log readable: at 2008 / 2020 / the inflation shock, does the
+      Worker reason sensibly? does it propose sensible improvements? This is
+      the box the OWNER must READ — no number stands in for it
+- [ ] the innovations are harvested and outlive the run
+      (`report.innovations.json`), so a `strategy_revision` can be measured by
+      ADR-006 rather than admired once
+- [ ] failed dates are counted and loud in the report — an episode that lost
+      three of seven decisions is a different claim from one that lost none
 - [ ] `test_agentic_replay_semipit`: invariant weights read as-of-t; a
       confrontation dated after t changes no weight before t; agent-discovery
       absent from the run
 
-**⚔️ STOP:** if the best-case system can't beat All Weather, or the Worker's
-reasoning reads incoherent, do NOT proceed to live. Judge the Worker on BOTH
-channels: decisions (A' − A) AND the improvements it proposes (off-NAV, in the
-log) — A' ≈ A alone does not condemn it.
+**⚔️ STOP:** if the Worker's reasoning reads incoherent, or its proposals are
+not the kind of thing ADR-006 could ever measure, do NOT proceed to live. The
+mechanical premise gate is M6's and is unaffected — it never involved the
+Worker.
+
+**What the runs of 2026-08-08/09 found**, kept because it is the evidence
+ADR-012 rests on and the reason this milestone shrank: the NAV channel returned
+seven-month deltas that were noise as much as signal, while the readings
+produced specific, code-checkable critiques of the mechanical rule — including
+the one that found `max_single_asset_pct` freezing the stack in a stale book
+through the whole 2022 drawdown. Archived under
+`~/data/investment/agentic-replay/`.
 
 ---
 

@@ -34,13 +34,12 @@ import dataclasses
 import json
 import logging
 from collections.abc import Coroutine
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 from ulid import ULID
 
 from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
-from investment.db.seed_data import TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
 from investment.mechanical.gates import (
@@ -49,11 +48,9 @@ from investment.mechanical.gates import (
     GateOutcome,
     ProposalThresholds,
     allocation_well_formed,
-    cited_invariant_eligible,
     concentration_ok,
     effective_caps,
     max_allocation_change_pts,
-    reallocation_gates,
     weights_well_formed,
 )
 from investment.mechanical.invariants import compute_weight_update, mature_seed_invariants
@@ -73,7 +70,7 @@ from investment.mechanical.rule_revision import (
 )
 from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
-from investment.worker.result import ImprovementProposal, ReallocationProposal
+from investment.worker.result import ImprovementProposal
 from investment.writeback.knowledge import (
     DEDUP_COSINE_THRESHOLD,
     InvariantCorpus,
@@ -135,371 +132,17 @@ async def portfolio_caps(db: InvestmentDB, portfolio_id: str) -> dict[str, Any] 
     return dict(rows[0]) if rows else None
 
 
-async def _allowed_reallocation_tickers(db: InvestmentDB) -> frozenset[str]:
-    """The tickers a reallocation may hold (docs/TASKS.md Phase 6 gate B): active
-    tradable tickers (non-MACRO asset class) plus the synthetic 'cash' sleeve."""
+async def _allowed_sleeve_tickers(db: InvestmentDB) -> frozenset[str]:
+    """The tickers an allocation may hold: active tradable tickers (non-MACRO
+    asset class) plus the synthetic 'cash' sleeve.
+
+    Was `_allowed_reallocation_tickers` until ADR-012 removed the cognitive
+    reallocation it was named after. Its one remaining caller is the
+    market-signal disposition, which is what the name now says."""
     rows = await db.query(
         "SELECT ticker FROM allowed_tickers WHERE active = 1 AND asset_class != 'MACRO'"
     )
     return frozenset({str(r["ticker"]) for r in rows} | {"cash"})
-
-
-async def cooldown_pre_gate(
-    db: InvestmentDB,
-    defender_id: str,
-    proposed: dict[str, float],
-    thresholds: dict[str, float],
-    regime_type: str | None,
-    today: date,
-) -> GateOutcome:
-    """The anti-repetition pre-gate (CLAUDE.md "UC8 — Worker proposes, Writeback
-    disposes": "a 4-week anti-repetition cooldown").
-
-    ADR-006 REINTERPRETATION, stated explicitly because it departs from the
-    letter of docs/USE_CASES.md UC8-A: the spec keys the cooldown on "a
-    challenger rejected BY THE USER within the last proposal_cooldown_weeks",
-    and ADR-006 deleted user rejections entirely — so the trigger as written can
-    never fire. What survives is the PURPOSE (don't re-litigate the same idea
-    every cycle) and the escape clause ("unless the regime type has changed"),
-    both kept here, re-keyed onto what V1 actually has: a recently COMMITTED
-    proposal for the same defender.
-
-    Refused iff a proposal for this defender inside the window proposed a
-    NEAR-IDENTICAL allocation — near-identical meaning no asset differs by
-    `proposal_min_allocation_change_pts`, the same test gate 3 uses against the
-    current book, so the cooldown introduces no new knob. A genuinely different
-    tilt passes: the UC9 ad-hoc re-run (one per day) exists to act on new
-    information, and blocking it would cost signal. The regime escape lifts the
-    cooldown when the world changed under the old proposal.
-
-    Blocked proposals never reach the ledger, so only proposals actually EMITTED
-    can start a cooldown — nothing was shown to the owner, so there is nothing
-    to not-repeat."""
-    window_weeks = thresholds["proposal_cooldown_weeks"]
-    since = (today - timedelta(weeks=int(window_weeks))).isoformat()
-    rows = await db.query(
-        "SELECT proposed_allocation, market_context FROM proposal "
-        "WHERE defender_id = :pid AND proposed_allocation IS NOT NULL AND date >= :since "
-        "ORDER BY date DESC",
-        pid=defender_id,
-        since=since,
-    )
-    min_change = thresholds["proposal_min_allocation_change_pts"]
-    for row in rows:
-        previous = json.loads(str(row["proposed_allocation"]))
-        if max_allocation_change_pts(previous, proposed) >= min_change:
-            continue  # a materially different tilt — not a repeat
-        context = json.loads(str(row["market_context"])) if row["market_context"] else {}
-        if regime_type is not None and context.get("regime") != regime_type:
-            continue  # the regime type changed since: the escape clause lifts it
-        return GateOutcome.refused("cooldown_repeat_proposal")
-    return GateOutcome(passed=True)
-
-
-# The Worker's own book (decision_cycle.WORKER_BOOK_ID). Declared here rather
-# than imported: writeback is imported BY decision_cycle, and a back-import
-# would close a cycle. A mismatch is caught by
-# `test_the_cognitive_book_id_agrees_across_the_two_modules`.
-COGNITIVE_BOOK_ID = "worker-book"
-
-
-async def gate6_cited_invariants(
-    db: InvestmentDB,
-    invariant_ids: list[str],
-    thresholds: dict[str, float],
-    regime_type: str | None,
-) -> GateOutcome:
-    """UC8-B gate 6 over the whole cited set. A reallocation must CITE support
-    and every cited invariant must be eligible (mechanical/gates.py
-    `cited_invariant_eligible`): an uncited reallocation, or one citing an
-    ineligible invariant, is refused. Active-now is computed once via
-    `active_invariant_ids` (context.py), the rest read per invariant."""
-    if not invariant_ids:
-        if not await _any_citable(db, thresholds, regime_type):
-            return GateOutcome.refused("gate6_corpus_has_nothing_citable")
-        return GateOutcome.refused("gate6_no_cited_invariant")
-
-    placeholders = ",".join(f":i{n}" for n in range(len(invariant_ids)))
-    params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
-    rows = await db.query(
-        "SELECT id, status, weight_effective, confirmation_count, infirmation_count, market_score "
-        f"FROM invariant WHERE id IN ({placeholders})",
-        **params,
-    )
-    by_id = {str(r["id"]): r for r in rows}
-    active = await active_invariant_ids(db, invariant_ids, regime_type)
-
-    for iid in invariant_ids:
-        row = by_id.get(iid)
-        if row is None:
-            return GateOutcome.refused("gate6_unknown_invariant")
-        eligible = cited_invariant_eligible(
-            status=str(row["status"]),
-            weight_effective=float(row["weight_effective"]),
-            total_confrontations=int(row["confirmation_count"]) + int(row["infirmation_count"]),
-            market_score=float(row["market_score"]),
-            active=iid in active,
-            weight_min=thresholds["proposal_invariant_weight_min"],
-            refuted_min=int(thresholds["invariant_refuted_min_confrontations"]),
-            refuted_score=thresholds["invariant_refuted_score"],
-        )
-        if not eligible:
-            # TWO DIFFERENT FACTS UNDER ONE NAME, until now. "The Worker cited a
-            # lighthouse it should not have" is an agent error; "nothing in the
-            # corpus was citable this month" is a fact ABOUT THE CORPUS, and the
-            # owner needs to tell them apart — the second is not a failure of
-            # reasoning and no prompt change can fix it.
-            #
-            # Measured on the M8b covid episode: two of three proposals died
-            # here, and both looked like the Worker misbehaving. It was not: the
-            # integrated invariants are inflation-shaped and dormant in a
-            # deflationary crisis, so the citable set was empty whatever it
-            # chose.
-            if not await _any_citable(db, thresholds, regime_type):
-                return GateOutcome.refused("gate6_corpus_has_nothing_citable")
-            return GateOutcome.refused("gate6_cited_invariant_eligibility")
-    return GateOutcome(passed=True)
-
-
-async def _any_citable(
-    db: InvestmentDB, thresholds: dict[str, float], regime_type: str | None
-) -> bool:
-    """Whether ANY invariant would pass gate 6 right now.
-
-    Asked only when a citation has already failed, so its cost is paid on the
-    refusal path and never on the happy one. The candidate set is narrowed in
-    SQL to `status='integrated'` — the only status gate 6 admits — which keeps
-    the ACTIVE-now evaluation (one query per referenced signal) to a handful of
-    rows rather than the whole table."""
-    rows = await db.query(
-        "SELECT id, status, weight_effective, confirmation_count, infirmation_count, "
-        "market_score FROM invariant WHERE status = 'integrated'"
-    )
-    if not rows:
-        return False
-    active = await active_invariant_ids(db, [str(r["id"]) for r in rows], regime_type)
-    return any(
-        cited_invariant_eligible(
-            status=str(r["status"]),
-            weight_effective=float(r["weight_effective"]),
-            total_confrontations=int(r["confirmation_count"]) + int(r["infirmation_count"]),
-            market_score=float(r["market_score"]),
-            active=str(r["id"]) in active,
-            weight_min=thresholds["proposal_invariant_weight_min"],
-            refuted_min=int(thresholds["invariant_refuted_min_confrontations"]),
-            refuted_score=thresholds["invariant_refuted_score"],
-        )
-        for r in rows
-    )
-
-
-async def _commit_reallocation(
-    db: InvestmentDB,
-    defender_id: str,
-    reallocation: ReallocationProposal,
-    current: dict[str, float],
-    market_context: dict[str, Any],
-    today: date,
-    citation_verdict: str | None = None,
-) -> str:
-    """Persist a passing reallocation: ProposalEvent to the EventLog FIRST, then
-    the Proposal vertex, then upgrade the defender's latest snapshot
-    recommendation — all in ONE transaction (CLAUDE.md "EventLog"). `outcome` is
-    left NULL: evaluate_proposals() picks it up as pending at +12w.
-
-    `paper_started` is set to `today` (ADR-006): the schema comment "set when
-    user accepts a paper-test" predates the no-user-gate decision, and there is
-    no accept step left — a proposal that passed every gate IS the paper-test,
-    and paper_test_progress() / the digest scoreboard track it from this date. It
-    is the same date as `date` today; they are kept distinct because they answer
-    different questions (when it was proposed vs when tracking began)."""
-    proposal_id = str(ULID())
-    allocation_diff = {
-        t: reallocation.proposed_allocation.get(t, 0.0) - current.get(t, 0.0)
-        for t in set(reallocation.proposed_allocation) | set(current)
-    }
-    trace = (
-        "UC8-B reallocation: passed gates 1-6 (caps, min-change, turnover, "
-        "allowed-tickers, cited-invariant eligibility). ADR-008: rank/gap NULL "
-        "on the market-signal path."
-    )
-    async with db.transaction():
-        await db.append_event(
-            type=PROPOSAL_EVENT,
-            source_uc=SOURCE_UC,
-            source_id=proposal_id,
-            payload={
-                "proposal_type": "reallocation",
-                "defender_id": defender_id,
-                "proposed_allocation": reallocation.proposed_allocation,
-            },
-            event_date=today,
-        )
-        await db.command(
-            "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
-            "recommendation, gap, market_context, reasoning, paper_started, citation_verdict, "
-            "trace, created_at) "
-            "VALUES (:id, :date, 'reallocation', :defender, :alloc, 'paper-test', :gap, :ctx, "
-            ":reason, :date, :verdict, :trace, :now)",
-            id=proposal_id,
-            date=today.isoformat(),
-            defender=defender_id,
-            alloc=json.dumps(reallocation.proposed_allocation),
-            gap=json.dumps({"allocation_diff": allocation_diff}),
-            ctx=json.dumps(market_context),
-            reason=reallocation.reasoning,
-            verdict=citation_verdict,
-            trace=trace,
-            # created_at is a TIMESTAMP, not the proposal's business date
-            # (CLAUDE.md: all persisted timestamps UTC).
-            now=datetime.now(UTC).isoformat(),
-        )
-        # The cited invariants as a RELATION (proposal_cites) — so outcomes.py
-        # can read the cited set back at +12w for the source='proposal'
-        # confrontations. Gate 6 already proved every one exists and is
-        # eligible, so these inserts cannot orphan.
-        for invariant_id in reallocation.supporting_invariants:
-            await db.command(
-                "INSERT OR IGNORE INTO proposal_cites (proposal_id, invariant_id) "
-                "VALUES (:pid, :iid)",
-                pid=proposal_id,
-                iid=invariant_id,
-            )
-        # Upgrade the target's latest snapshot recommendation so the digest
-        # reflects that a paper-test was emitted (no-op if no snapshot yet).
-        await db.command(
-            "UPDATE portfolio_weekly_snapshot SET recommendation = 'paper-test' "
-            "WHERE portfolio_id = :pid AND date = "
-            "(SELECT MAX(date) FROM portfolio_weekly_snapshot WHERE portfolio_id = :pid)",
-            pid=defender_id,
-        )
-        # THE BOOK ACTUALLY MOVES. Same treatment `dispose_market_signal` gives
-        # `ms-stack`, and for the same reason: the `allocation` column records
-        # what is HELD, so a passing proposal must move it or the row describes a
-        # book nobody holds. Without this the cognitive book would have no NAV of
-        # its own — every proposal would be recorded and none would ever change
-        # anything, which is precisely the state that left the Worker judged on
-        # five stitched-together 12-week windows.
-        #
-        # Inside the transaction, after the EventLog appends, and only on a
-        # proposal that passed every gate. Still paper: V1 executes nothing
-        # (ADR-006) and the owner alone places orders — this is what the book
-        # WOULD have held, priced like every other paper series in the ranking.
-        await db.command(
-            "UPDATE portfolio SET allocation = :alloc, updated_at = :now WHERE id = :id",
-            alloc=json.dumps(reallocation.proposed_allocation),
-            now=datetime.now(UTC).isoformat(),
-            id=defender_id,
-        )
-    return proposal_id
-
-
-async def dispose_reallocation(
-    db: InvestmentDB,
-    reallocation: ReallocationProposal,
-    defender_id: str,
-    current_allocation: dict[str, float],
-    user_profile: dict[str, Any],
-    thresholds: dict[str, float],
-    regime_type: str | None,
-    market_context: dict[str, Any],
-    *,
-    portfolio: dict[str, Any] | None = None,
-    today: date | None = None,
-) -> tuple[GateOutcome, str | None]:
-    """Run the anti-repetition pre-gate, the reallocation gates (UC8-B 1-5) and
-    gate 6 and, on pass, commit the Proposal. Returns `(outcome, proposal_id)` —
-    `proposal_id` is None on a block (no vertex; the caller sends the ⛔ Telegram
-    note with the failed gate). "Worker proposes, Writeback disposes" — nothing
-    is persisted until every gate passes.
-
-    Order: the PURE gates run before the two DB-backed ones (cooldown, gate 6),
-    so a malformed proposal costs no query. That ordering only decides WHICH gate
-    name the digest reports when several would refuse — except gate 0, which
-    runs FIRST because it is about jurisdiction, not merit: a proposal aimed at
-    a mechanically-allocated portfolio must be refused for THAT reason, not for
-    whichever cap it also happened to breach."""
-    today = today or date.today()
-    # GATE 0 — mechanical sovereignty (docs/DECISIONS.md ADR-011). A portfolio
-    # whose allocation is produced by a mechanical decision path does not take
-    # cognitive reallocations, full stop.
-    #
-    # WHY THIS IS A GATE AND NOT A PROMPT LINE. Until now the separation held by
-    # accident: the Worker's reallocation is applied to whatever carries the
-    # `defender` flag, and `ms-stack` happens to be seeded `defender: False`.
-    # Nothing checked WHICH portfolio — the caps, turnover and citation gates
-    # all look at the allocation and never at its owner. So a single flag flip
-    # would have let the 0.4/0.6 blend overwrite the adopted allocation and
-    # persist it as a `Proposal(reallocation)` with every gate green. That flip
-    # is not hypothetical: retiring the bridge (docs/V1_STRATEGY.md Step 6) is
-    # exactly the moment someone makes the stack the defender.
-    if defender_id in TIME_VARYING_PORTFOLIOS:
-        return GateOutcome.refused("mechanical_allocation"), None
-    caps = effective_caps(user_profile, portfolio)
-    thr = proposal_thresholds(thresholds)
-    allowed = await _allowed_reallocation_tickers(db)
-
-    outcome = reallocation_gates(
-        current_allocation,
-        reallocation.proposed_allocation,
-        caps,
-        thr,
-        allowed,
-        # The SAME haven-chain exemption the mechanical path has had since
-        # ADR-007's second addendum (owner, 2026-08-09). Without it this gate
-        # refused a de-concentration and left the breach it was refusing to
-        # reduce — see `reallocation_gates` for the 2008-10-01 measurement.
-        exempt=HAVEN_EXEMPT,
-    )
-    if not outcome.passed:
-        return outcome, None
-
-    cooldown = await cooldown_pre_gate(
-        db, defender_id, reallocation.proposed_allocation, thresholds, regime_type, today
-    )
-    if not cooldown.passed:
-        return cooldown, None
-
-    # GATE 6 RECORDS INSTEAD OF REFUSING, on the cognitive book (owner decision
-    # 2026-08-08: validate DOWNSTREAM, not upstream).
-    #
-    # Its principle was sound — a reallocation should lean on a claim already
-    # confronted over 35 years — and its arithmetic was not: 9 invariants of 673
-    # have reached `integrated`, so on most months nothing is citable whatever
-    # the Worker chooses. Across three M8b runs it refused five times and, in the
-    # 2008 episode, left the cognitive layer entirely mute.
-    #
-    # What made it unanswerable is that a refusal returned `None` — no proposal
-    # row, so no `paper_started`, so `outcomes.evaluate_proposals` never scored
-    # it at +12w. The gate destroyed the evidence that could contradict it. Now
-    # the verdict is WRITTEN and the proposal lives, so in twelve weeks the
-    # question has an answer: did the ones it would have blocked do worse?
-    #
-    # STILL BINDING ELSEWHERE. Only the cognitive book (`worker-book`) is a
-    # shadow the owner never holds — nothing is at risk there, so refusing
-    # protects nothing and only prevents learning (the ADR-009 argument: telling
-    # beats refusing when refusing cannot exit a position). On any other target
-    # a reallocation is a paper-test the owner may act on, and the gate binds.
-    gate6 = await gate6_cited_invariants(
-        db, reallocation.supporting_invariants, thresholds, regime_type
-    )
-    verdict = "passed" if gate6.passed else str(gate6.failed_gate)
-    if not gate6.passed and defender_id != COGNITIVE_BOOK_ID:
-        return gate6, None
-
-    proposal_id = await _commit_reallocation(
-        db,
-        defender_id,
-        reallocation,
-        current_allocation,
-        market_context,
-        today,
-        citation_verdict=verdict,
-    )
-    return GateOutcome(passed=True), proposal_id
-
-
-# -- ADR-007: the live monthly market-signal disposition --------------------
 
 
 def market_signal_gates(
@@ -628,7 +271,7 @@ async def dispose_market_signal(
     # `Caps`'s field names are exactly `effective_caps`'s user-profile shape, so
     # the result of one round feeds straight into the next.
     caps = effective_caps(dataclasses.asdict(stack_caps), await portfolio_caps(db, book_id))
-    allowed = await _allowed_reallocation_tickers(db)
+    allowed = await _allowed_sleeve_tickers(db)
     outcome = market_signal_gates(decision.target, held_allocation, caps, allowed)
 
     # A decision that lands on what is already held is not a refusal — it is the
@@ -1333,7 +976,7 @@ async def _commit_candidate_portfolio(
         logger.warning("strategy '%s': no user_profile, no candidate portfolio", strategy_id)
         return
     user = profile[0]
-    allowed = await _allowed_reallocation_tickers(db)
+    allowed = await _allowed_sleeve_tickers(db)
     unknown = sorted(set(allocation) - allowed)
     if unknown:
         logger.warning(

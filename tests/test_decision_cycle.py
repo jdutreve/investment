@@ -17,11 +17,9 @@ from pydantic_ai.models.test import TestModel
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import (
     WORKER_READING_EVENT,
-    UC8Result,
     render_context_for_worker,
     run_decision_cycle,
 )
-from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import build_worker_agent
@@ -50,7 +48,7 @@ _REALLOC = {
 }
 
 
-def _worker_output(reallocation: dict | None) -> dict:
+def _worker_output() -> dict:
     return {
         "regime_assessment": "stagflation deepening",
         "ranking_commentary": "defender leads on Sortino",
@@ -58,7 +56,6 @@ def _worker_output(reallocation: dict | None) -> dict:
         "but the signal cannot see the fiscal impulse building",
         "scenario_adjustments": [],
         "evaluations": [],
-        "reallocation_proposed": reallocation,
         "innovations_proposed": [],
         "reasoning": "tilt to gold as the storm builds",
     }
@@ -163,56 +160,17 @@ def _overrides(pre: PlannerPre, worker: object, post: PlannerPost, worker_out: d
     )
 
 
-async def test_bear_shift_reallocation_passes_gates_and_persists(rig) -> None:  # type: ignore[no-untyped-def]
+async def test_every_cycle_is_knowledge_only(rig) -> None:  # type: ignore[no-untyped-def]
+    """ADR-012: the Worker does not allocate, so EVERY cycle is knowledge-only.
+    This used to be the "no reallocation" branch of two; it is now the whole
+    behaviour, and what it must still prove is that a cycle proposing nothing
+    is not traceless."""
     db, pre, worker, post = rig
-    q, s, w, p = _overrides(pre, worker, post, _worker_output(_REALLOC))
-    with q, s, w, p:
-        result: UC8Result = await run_decision_cycle(
-            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
-        )
-    assert result.gate_outcome is not None and result.gate_outcome.passed is True
-    assert result.proposal_id is not None
-    # the cited invariant is shown to the Worker as ACTIVE
-    assert result.context.top_invariants[0]["active"] is True
-    # persisted, EventLog-first
-    prop = await db.query(
-        "SELECT proposal_type, recommendation FROM proposal WHERE id=:i", i=result.proposal_id
-    )
-    assert prop[0]["recommendation"] == "paper-test"
-    ev = await db.query("SELECT source_id FROM event_log WHERE type='ProposalEvent'")
-    assert [e["source_id"] for e in ev] == [result.proposal_id]
-
-
-async def test_defender_stricter_single_asset_cap_binds(rig) -> None:  # type: ignore[no-untyped-def]
-    """CLAUDE.md "Binding caps": the TARGET's own cap may be stricter than the
-    user's, and Writeback enforces the stricter of the two. The ranking snapshot
-    carries no cap columns, so the cycle must fetch the `portfolio` row and
-    thread it in — this proves that wiring. SPY 45 clears the user's 50 cap but
-    breaches the cognitive book's own 40, so the proposal must be blocked."""
-    db, pre, worker, post = rig
-    # the TARGET book with a STRICTER 40 single-asset cap
-    await db.command("UPDATE portfolio SET max_single_asset_pct = 40.0 WHERE id = 'worker-book'")
-    realloc = dict(_REALLOC, proposed_allocation={"SPY": 45.0, "GLD": 30.0, "IEF": 25.0})
-    q, s, w, p = _overrides(pre, worker, post, _worker_output(realloc))
-    with q, s, w, p:
-        result: UC8Result = await run_decision_cycle(
-            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
-        )
-    assert result.gate_outcome is not None
-    assert result.gate_outcome.failed_gate == "max_single_asset_pct"
-    assert result.proposal_id is None
-    assert await db.query("SELECT id FROM proposal") == []  # nothing persisted
-
-
-async def test_no_reallocation_is_a_knowledge_only_cycle(rig) -> None:  # type: ignore[no-untyped-def]
-    db, pre, worker, post = rig
-    q, s, w, p = _overrides(pre, worker, post, _worker_output(None))
+    q, s, w, p = _overrides(pre, worker, post, _worker_output())
     with q, s, w, p:
         result = await run_decision_cycle(
             db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
         )
-    assert result.gate_outcome is None
-    assert result.proposal_id is None
     assert result.post_result.regime_notes == "coherent"
     assert await db.query("SELECT id FROM proposal") == []  # nothing disposed
 
@@ -229,43 +187,6 @@ async def test_no_reallocation_is_a_knowledge_only_cycle(rig) -> None:  # type: 
     assert payload["market_signal_assessment"].startswith("the wide-spread book")
     assert payload["regime_assessment"] == "stagflation deepening"
     assert payload["trigger"] == "weekly"
-
-
-async def test_the_reading_is_journalled_even_when_the_allocation_is_refused(rig) -> None:  # type: ignore[no-untyped-def]
-    """ADR-011 end to end through the REAL cycle, not just the Writeback unit:
-    with the mechanically-allocated stack as defender, gate 0 refuses the
-    Worker's reallocation on jurisdiction — and its qualitative reading survives
-    anyway. That is the whole trade the ADR makes: the Worker cannot move the
-    allocation, and what it CAN contribute must not be thrown away with the
-    proposal that was refused.
-
-    Refused here on a CAP, not on gate 0. Since 2026-08-08 the Worker
-    reallocates its own book and nothing threads a portfolio id in from the
-    ranking, so ADR-011's mechanical sovereignty stopped being a gate the cycle
-    can reach and became structural: there is no input by which the Worker can
-    aim at `ms-stack`. Gate 0 stays as defence in depth and is exercised
-    directly in test_writeback.py."""
-    db, pre, worker, post = rig
-    await db.command("UPDATE portfolio SET max_single_asset_pct = 10.0 WHERE id = 'worker-book'")
-    q, s, w, p = _overrides(pre, worker, post, _worker_output(_REALLOC))
-    with q, s, w, p:
-        result = await run_decision_cycle(
-            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
-        )
-    assert result.gate_outcome is not None
-    assert result.gate_outcome.failed_gate == "max_single_asset_pct"
-    assert result.proposal_id is None
-    assert await db.query("SELECT id FROM proposal") == []
-    assert await db.query("SELECT id FROM event_log WHERE type = 'ProposalEvent'") == []
-
-    # ...and the reading survives the refusal, which is the point of the test.
-    ev = await db.query("SELECT payload FROM event_log WHERE type = :t", t=WORKER_READING_EVENT)
-    assert len(ev) == 1
-    assert json.loads(str(ev[0]["payload"]))["market_signal_assessment"]
-
-    # The stack is unreachable from this path by construction: the cycle names
-    # its target, and it is never a time-varying portfolio.
-    assert STACK_PORTFOLIO_ID not in {r["id"] for r in await db.query("SELECT id FROM proposal")}
 
 
 def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
@@ -355,33 +276,3 @@ def test_render_says_so_when_nothing_is_citable() -> None:
     text = render_context_for_worker(ctx)
     assert "NONE is citable this cycle" in text
     assert "a fact about the corpus" in text
-
-
-async def test_the_worker_moves_its_own_book_and_leaves_the_defender_alone(rig) -> None:  # type: ignore[no-untyped-def]
-    """The reason the cognitive book exists (owner decision 2026-08-08). While
-    the Worker reallocated the BRIDGE DEFENDER, the same portfolio was the canvas
-    for two policies — so M8b's "A' - A" compared them both at once and could
-    never isolate the cognitive one. And judging the Worker meant stitching
-    disjoint 12-week proposal outcomes: five observations across the whole
-    screen, which carry no signal.
-
-    An accepted proposal must therefore MOVE the book, exactly as
-    `dispose_market_signal` moves `ms-stack`: the `allocation` column records
-    what is HELD, and a row that never moves describes a book nobody holds."""
-    db, pre, worker, post = rig
-    before = await db.query("SELECT allocation FROM portfolio WHERE id = 'def-pf'")
-
-    q, s, w, p = _overrides(pre, worker, post, _worker_output(_REALLOC))
-    with q, s, w, p:
-        result = await run_decision_cycle(
-            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
-        )
-    assert result.proposal_id is not None
-
-    book = await db.query("SELECT allocation FROM portfolio WHERE id = 'worker-book'")
-    assert json.loads(str(book[0]["allocation"])) == _REALLOC["proposed_allocation"]
-    # ...and the bridge defender is untouched: it is the benchmark, not the canvas
-    assert await db.query("SELECT allocation FROM portfolio WHERE id = 'def-pf'") == before
-    # the proposal names the book it moved
-    prop = await db.query("SELECT defender_id FROM proposal WHERE id = :i", i=result.proposal_id)
-    assert prop[0]["defender_id"] == "worker-book"

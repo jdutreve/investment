@@ -545,11 +545,11 @@ async def test_decision_then_digest_through_the_chain_runner(db: InvestmentDB) -
     assert "Paper-tests in progress: 1" in text
 
 
-async def test_a_bridge_reallocation_the_same_monday_cannot_hide_the_decision(
+async def test_a_bridge_proposal_the_same_monday_cannot_hide_the_decision(
     db: InvestmentDB,
 ) -> None:
-    """The two paths write on the same Monday — the market-signal decision at
-    08:55, UC8's reallocation at 09:00 — with the same `Proposal.date`. Reading
+    """Two proposals can carry the same `Proposal.date` — the market-signal
+    decision at 08:55 and a bridge row written later the same morning. Reading
     the digest's single proposal slot by `date DESC, created_at DESC` therefore
     handed the slot to the BRIDGE and dropped the adopted strategy's decision,
     on precisely the months it moves money and the owner has an order to place.
@@ -557,11 +557,11 @@ async def test_a_bridge_reallocation_the_same_monday_cannot_hide_the_decision(
     await _market(db, spread=1.0, slope=2.0, spy_trend="down", spread_wide=True)
     await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
 
-    # The bridge's reallocation, committed later the same morning.
+    # A bridge proposal, committed later the same morning.
     await db.command(
         "INSERT INTO proposal (id, date, proposal_type, defender_id, proposed_allocation, "
         "recommendation, market_context, reasoning, paper_started, trace, created_at) VALUES "
-        "('realloc-1', '2025-11-03', 'reallocation', 'def-pf', '{\"SPY\": 100}', 'paper-test', "
+        "('bridge-1', '2025-11-03', 'switch', 'def-pf', '{\"SPY\": 100}', 'paper-test', "
         "'{}', 'bridge tilt', '2025-11-03', 't', '2999-01-01T09:00:00+00:00')"
     )
 
@@ -571,7 +571,7 @@ async def test_a_bridge_reallocation_the_same_monday_cannot_hide_the_decision(
     text = await build_digest(db, today=date(2025, 11, 3))
     assert "🧭 Market-signal decision (paper-test)" in text
     assert f"{MS.TREND_HAVEN} 0→50" in text
-    assert "🔧 Reallocation proposal" in text and "bridge tilt" in text
+    assert "🔀 Switch proposal" in text and "bridge tilt" in text
 
 
 async def test_the_digest_shows_the_decision_on_a_month_that_does_not_move(

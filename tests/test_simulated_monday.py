@@ -119,14 +119,6 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
             "market_signal_assessment": "right book for the spread, blind to the fiscal impulse",
             "scenario_adjustments": [],
             "evaluations": [],
-            "reallocation_proposed": {
-                "proposed_allocation": {"SPY": 40.0, "GLD": 35.0, "IEF": 25.0},
-                "scenario_delta": {},
-                "favors_delta": {},
-                "blend_note": "0.4/0.6",
-                "supporting_invariants": ["inv-gold"],
-                "reasoning": "gold above its 7y trend; tilt in",
-            },
             "innovations_proposed": [],
             "reasoning": "tilt to gold",
         },
@@ -167,18 +159,15 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
     assert result.ok is True
     assert result.completed == ["decision-cycle", "digest"]
 
-    # UC8 produced a passing reallocation, persisted EventLog-first
+    # The cycle produced a READING and no allocation (ADR-012): no Proposal is
+    # minted by the cognitive chain any more, and the reading is journalled.
     cycle: UC8Result = holder["cycle"]
-    assert cycle.proposal_id is not None
-    events = await db.query("SELECT type FROM event_log WHERE type = 'ProposalEvent'")
-    assert len(events) == 1
+    assert cycle.worker_result.market_signal_assessment.startswith("right book for the spread")
+    assert await db.query("SELECT type FROM event_log WHERE type = 'ProposalEvent'") == []
 
     # the digest is readable and complete
     digest = holder["digest"]
     assert "Regime: Stagflation (78.0% — stag)" in digest
     assert "def-pf: 1.18 ★ (defender)" in digest
     assert "GLD stagflation hedge" in digest
-    assert "GLD 25→35" in digest  # the tilt into gold
     assert "Proposals hit-rate: 0/0" in digest  # no decided proposals yet
-    # the passing proposal STARTED its paper-test (ADR-006: no accept step)
-    assert "Paper-tests in progress: 1" in digest
