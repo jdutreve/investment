@@ -1801,3 +1801,44 @@ carries every date's outcome, and the log carries the timings.
   are explicitly allowed, being user-triggered; the event-driven curation
   curator is also allowed because it only extracts knowledge into candidates
   that mature mechanically — it never decides anything).
+
+---
+
+## I-53 — The regime label disagrees with the raw tape 10.5% of the time, and nothing says whether that is the design or a defect
+
+**Raised by** the M8b Worker, twice independently: at 2008-12-01 — "the regime
+is labelled Stagflation at 87% on CPI LEVEL 3.74, but CPI speed is -1.31 with
+acceleration -1.00; this is a deflationary deleveraging" — and again as a `data`
+innovation ("regime label-tape divergence: deflationary bust classified as
+rising-inflation").
+
+**Measured 2026-08-09**, converting the anecdote into a rate: over the 418
+monthly prints of the 35-year history, **44 months (10.5%)** carry a
+`rising-inflation` label while the raw CPI speed is negative. It is not a
+one-off — the Worker's own window (2008-07 -> 2009-01) shows 3 of 6 months, and
+2009-11 -> 2010-07 shows 4 of 8.
+
+**Why this is NOT yet an actionable defect.** That divergence is what the
+anti-whipsaw design BUYS: `regime_speed_smoothing_months` = 4 and
+`regime_confirm_prints` = 3 exist precisely so one print does not flip the
+label. Some disagreement with the freshest raw print is intended, and 10.5% may
+well be its correct price.
+
+**What is missing to decide.** The other half of the trade-off — how many label
+flips a shorter smoothing or a shorter hysteresis would produce — and, harder,
+an objective function. Unlike a rule revision, the regime detector allocates
+nothing, so there is no NAV to compare and no equivalent of
+`rule_revision.measure_revision`. "Lower lag" and "fewer flips" pull against
+each other and nobody has said which the system prefers.
+
+**Deliberately not built.** Inventing an objective function to make this
+measurable would decide the question by choosing the metric, which is the same
+mistake as calibrating a tolerance to make one case pass (docs/V1_STRATEGY.md,
+the 1% band refused on 2026-08-09).
+
+**Trigger to revisit.** When the regime label next materially misleads something
+that acts on it — an invariant condition firing in the wrong regime, or a
+digest reading the owner disputes — that incident supplies the missing
+objective function, and the sweep becomes worth building. Note the knobs live in
+`system_thresholds`, not in `market_signal`, so they are outside
+`TESTABLE_PARAMETERS` and would need their own harness.
