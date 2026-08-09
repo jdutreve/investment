@@ -419,6 +419,12 @@ async def test_a_revision_naming_an_unusable_value_is_reported_not_crashed(
         await commit_innovations(db, result, today=date(2026, 8, 9), embedder=None)
 
     assert any("cannot apply" in r.getMessage() and "SHY" in r.getMessage() for r in caplog.records)
+    # `cash` is legal as the FALLBACK haven and nowhere else — the primary is
+    # trend-CHECKED, so it needs a price series. Caught by the measurement sweep
+    # the check exists to protect, an hour after the check shipped one notch too
+    # permissive: `trend_haven: cash` passed and raised KeyError in the frame.
+    assert rule_revision.untestable_values({"trend_haven": "cash"})
+    assert not rule_revision.untestable_values({"trend_fallback_haven": "cash"})
     # The strategy itself still landed: an unmeasurable revision is still a claim.
     assert (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]["status"] == (
         "proposed"

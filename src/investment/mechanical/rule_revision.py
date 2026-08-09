@@ -71,16 +71,19 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
     not reach that", an unusable value means "the proposal is not expressible".
     Both belong in the verdict; neither belongs in a traceback.
 
-    `cash` is legal as a haven and only as a haven: it has no price series (it
-    is the absence of a position, accrued at the risk-free rate), so it cannot
-    be a trend-checked sleeve."""
+    `cash` is legal as the FALLBACK haven and nowhere else, which is one notch
+    narrower than the first version of this check allowed — and the measurement
+    sweep it exists to protect caught it the same hour: `trend_haven: cash`
+    passed validation and then raised `KeyError: 'cash'` inside the price frame.
+    The primary haven is TREND-CHECKED, so it needs a series; the fallback is
+    where the overlay goes precisely because cash cannot fall."""
     bad: dict[str, str] = {}
     known = set(market_signal.STACK_TICKERS)
     for knob, value in overrides.items():
         if knob in _TICKER_KNOBS:
             names = list(value) if isinstance(value, list | tuple) else [value]
             allowed = known | (
-                {market_signal.TREND_FALLBACK_HAVEN} if knob != "trend_sleeves" else set()
+                {market_signal.TREND_FALLBACK_HAVEN} if knob == "trend_fallback_haven" else set()
             )
             unknown = [n for n in names if not isinstance(n, str) or n not in allowed]
             if unknown:
