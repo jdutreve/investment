@@ -49,7 +49,30 @@ owner-arbitrated:
   It also buys real headroom against the binding -25% cap the stack was sitting
   1.2 points inside.
 
-The pinned pair is therefore **10.71% / -20.61%**. The earlier figures are
+- 2026-08-11, THE TWO SPREAD-TRAJECTORY KNOBS turned on at 0.20 (owner
+  signature; ADR-007 is amended, not bypassed — this is the git gate ADR-006
+  explicitly does not reach): 10.72% -> **11.22%** CAGR, Sortino 1.17 ->
+  **1.27**, Calmar 0.52 -> 0.54, drawdown unchanged at -20.61%, turnover 61.1 ->
+  67.7.
+
+  Both came out of the Worker's most repeated critique — six wordings across
+  independent M8b dates saying the book is selected on the spread's LEVEL and
+  should read its TRAJECTORY. `SPREAD_SPEED_VETO` defers the risk-on book while
+  the spread is still widening; `SPREAD_STRESS_SLEEVE_GATE` empties that book's
+  equity sleeves on the same condition. Each adopts alone on the full sample AND
+  on both halves of it, and together they are additive (+0.098 Sortino against
+  +0.071 and +0.052 apart; on 1991-2008, +0.230 Sortino, +0.97pp CAGR and
+  +2.96pp of drawdown).
+
+  A THIRD mechanism from the same theme — enter the risk-on book on speed alone
+  — measured nil or unstable and is NOT on. It stays in the code as
+  `SPREAD_SPEED_WIDE_TRIGGER = None`, so its rejection is reproducible by a
+  command rather than by a rewrite.
+
+  25 of the 418 monthly decisions change, all in credit-stress years
+  (docs/V1_STRATEGY.md has two worked examples).
+
+The pinned pair is therefore **11.22% / -20.61%**. The earlier figures are
 history, not targets. Any OTHER divergence from 10.71% is drift and must be
 explained, which is what this module exists to guarantee.
 
@@ -387,7 +410,7 @@ class MarketSignalRun:
 #
 # Units are the spread's own (percentage points of BAA10Y) over
 # SPREAD_SPEED_LOOKBACK_DAYS.
-SPREAD_SPEED_VETO: float | None = None
+SPREAD_SPEED_VETO: float | None = 0.20
 
 # THE SAME THEME'S OTHER MECHANISM, and the two are not the same claim.
 #
@@ -432,7 +455,7 @@ SPREAD_SPEED_WIDE_TRIGGER: float | None = None
 #
 # Distinct from the veto, which defers the whole BOOK: this keeps the book and
 # empties its equity, so the two are separable hypotheses and are swept apart.
-SPREAD_STRESS_SLEEVE_GATE: float | None = None
+SPREAD_STRESS_SLEEVE_GATE: float | None = 0.20
 
 # Matches `system_thresholds.derivative_lookback_short`, and the speed itself is
 # computed by `market.derivatives.compute_derivatives` rather than differenced

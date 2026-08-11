@@ -296,14 +296,34 @@ def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
             assert ticker in text
 
 
-def test_the_spread_speed_veto_is_off_by_default() -> None:
-    """The knob exists to be MEASURED, not to change the adopted rule. ADR-007's
-    validated numbers must survive its arrival untouched, so the default is
-    None and `classify_regime` behaves exactly as before whatever speed it is
-    handed."""
-    assert market_signal.SPREAD_SPEED_VETO is None
-    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 99.0) == WIDE
+def test_the_spread_trajectory_knobs_are_on_at_the_measured_value() -> None:
+    """ON since 2026-08-11, at 0.20, by owner signature — the git gate ADR-006
+    does not reach. Both earned it the same way: adopted on the full 35 years
+    AND on each half, additive together, and worth +2.96pp of drawdown on
+    1991-2008.
+
+    0.20 is not a round number chosen for looking like one. Spread speed is
+    points of BAA10Y per 30 days, and over 8722 days 0.20 is essentially the
+    p90: the knobs bite on 8.7% of days and are idle otherwise, which is why
+    the sweep degrades at 0.00 where the stack would sit in the lighter books
+    permanently.
+
+    The value is asserted here because a silent edit of it is a silent edit of
+    the live allocation."""
+    assert market_signal.SPREAD_SPEED_VETO == 0.20
+    assert market_signal.SPREAD_STRESS_SLEEVE_GATE == 0.20
+    # ...and the third mechanism of the same theme measured nil or unstable, so
+    # it stays off — kept in the code so its rejection is a command, not a
+    # rewrite.
+    assert market_signal.SPREAD_SPEED_WIDE_TRIGGER is None
+
+    # A warm-up with no speed yet must never veto: the rule falls back to the
+    # level read it has always used.
     assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE
+    # Wide and calm -> still the risk-on book, exactly as before the knobs.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.05) == WIDE
+    # Wide and still widening fast -> deferred to the curve branch.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
 
 
 def test_the_spread_speed_veto_defers_the_risk_on_book_it_does_not_hasten_it(
@@ -394,9 +414,12 @@ def test_the_sleeve_gate_empties_equity_on_credit_stress_and_says_why(
     )
 
     monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", None)
+    monkeypatch.setattr(market_signal, "SPREAD_SPEED_VETO", None)
     off = market_signal.walk_decisions(**frame)[0]
     assert off.target == market_signal.BOOKS[WIDE]  # price says hold everything
 
+    # The gate alone, with the veto held off: the two are separable hypotheses
+    # and this test is about the sleeves, not about which book was selected.
     monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", 0.20)
     on = market_signal.walk_decisions(**frame)[0]
     assert on.target == {"IEF": 90.0, "GLD": 10.0}  # SPY+IWN emptied, GLD kept
@@ -415,6 +438,7 @@ def test_the_gate_is_idle_when_the_spread_is_wide_but_calm(
     rather than refine it."""
     idx = pd.to_datetime(["2009-06-01"])
     monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", 0.20)
+    monkeypatch.setattr(market_signal, "SPREAD_SPEED_VETO", None)
     decision = market_signal.walk_decisions(
         dates=idx,
         spread=pd.Series([3.0], index=idx),

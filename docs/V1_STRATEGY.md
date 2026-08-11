@@ -8,8 +8,13 @@
 > haven on CPI (refused: the stack reads prices only). Measured 4-way in one
 > process: 11.10% -> 10.71% CAGR, Sortino 1.09 -> 1.17, maxDD -23.78% ->
 > -20.61%. Neither change is worth much alone — the haven check does NOTHING on
-> its own — and together they cut the drawdown by 3.2 points. The pinned pair is
-> now **10.71% / -20.61%** (`mechanical/market_signal.py`).
+> its own — and together they cut the drawdown by 3.2 points.
+>
+> **Superseded again on 2026-08-11** (owner signature): the two spread-trajectory
+> knobs are ON at 0.20, taking the pinned pair to **11.22% / -20.61%**, Sortino
+> 1.17 -> 1.27. Same provenance — the Worker's most repeated critique, this time
+> measured out of sample as well as in. See "Mechanism (c)" below
+> (`mechanical/market_signal.py`).
 
 
 **Status: ADOPTED as the V1 candidate (owner decision, 2026-07-19).**
@@ -569,3 +574,21 @@ separately, as the +2.96pp of drawdown on 1991-2008.
 **Still off.** Both constants are None. Switching them changes ADR-007's live
 allocation in exactly the months that matter, and that gate is git and an owner
 signature — not ADR-006.
+
+### Switched on (2026-08-11, owner signature)
+
+    SPREAD_SPEED_VETO         = 0.20   defer the risk-on book while spreads widen
+    SPREAD_STRESS_SLEEVE_GATE = 0.20   empty that book's equity on the same signal
+    SPREAD_SPEED_WIDE_TRIGGER = None   measured nil or unstable — stays off
+
+                     CAGR     Sortino   Calmar   maxDD      turnover
+    before          10.72%    1.17      0.52     -20.61%    61.1
+    after           11.22%    1.27      0.54     -20.61%    67.7
+
+The pinned pair becomes **11.22% / -20.61%**. This is an amendment to ADR-007,
+not a bypass of it: ADR-006 matures invariants and strategies mechanically, and
+says so explicitly of the module constants — the gate there is git and an owner
+signature. The measurement earned the recommendation; the signature made it live.
+
+Reproducing the rejection of the third mechanism is a command, not a rewrite:
+`measure_revision(db, {"spread_speed_wide_trigger": 0.20})`.
