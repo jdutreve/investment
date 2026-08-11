@@ -23,6 +23,7 @@ import json
 from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
 # ≤20 after dedup"). Integrated-only — a proposal may cite only integrated
@@ -55,6 +56,11 @@ class Baseline:
     # no MACRO rows is a legitimate early state rather than an error.
     favors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # Knob changes already replayed over 35 years, with their verdicts. The
+    # Worker is told them so it stops re-proposing what the history refused —
+    # 'add VCIT to the overlay' arrived three times, each after a rejection
+    # nothing could show it (rule_revision `measured_verdicts`).
+    measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 # -- pure core --------------------------------------------------------------
@@ -324,4 +330,5 @@ async def gather_baseline(db: InvestmentDB) -> Baseline:
         market_signal=market_signal,
         favors=favors,
         macro=macro,
+        measured_revisions=await measured_verdicts(db),
     )

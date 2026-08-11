@@ -6,12 +6,23 @@ FAVORS, and probation closes them as unmeasurable. This is the path that gives a
 revision naming a KNOWN knob an answer in one pass instead of none ever.
 """
 
+from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import pytest
 
+from investment.db.sqlite import InvestmentDB
 from investment.mechanical import market_signal, rule_revision
 from investment.mechanical.replay import NavMetrics
+
+
+@pytest.fixture
+async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
+    conn = InvestmentDB(tmp_path / "rev.db")
+    yield conn
+    await conn.close()
 
 
 def _measurement(
@@ -199,3 +210,59 @@ def test_the_worker_is_told_the_current_vocabulary_not_a_frozen_copy() -> None:
     assert "{TESTABLE_PARAMETERS}" not in skills  # interpolated, not literal
     for name in rule_revision.TESTABLE_PARAMETERS:
         assert name in skills, f"{name} is testable but the Worker is never told about it"
+
+
+async def test_a_measurement_is_recorded_under_the_window_it_actually_priced(
+    db: InvestmentDB,
+) -> None:
+    """A measurement whose result is thrown away is measured again — the
+    rejection of "add VCIT to the trend overlay" was re-derived three times, and
+    the Worker went on proposing it because nothing could show it the question
+    was settled.
+
+    THE WINDOW COMES OFF THE PRICED NAV, never off the arguments, and that is
+    the load-bearing half. `measure_revision` runs against whatever database it
+    is handed, and on every replayed decision date that is a SNAPSHOT bounded at
+    t — so a call with no explicit window measures 1991..t. Measured 2026-08-11:
+    the Worker's "lower both knobs to 0.12" was ADOPTED in-cycle at 2008-09-02,
+    honest for the seventeen years knowable then and false on the full sample,
+    where it rejects on all three windows. Recorded under the default window it
+    would have written that falsehood into the ledger built to stop questions
+    being re-asked."""
+    priced = pd.Series([100.0, 101.0], index=pd.to_datetime(["1991-01-02", "2008-09-02"]))
+    measurement = rule_revision.RevisionMeasurement(
+        overrides={"spread_speed_veto": 0.12},
+        baseline=NavMetrics(cagr=0.10, sortino=1.0, calmar=0.5, max_drawdown=-0.20),
+        variant=NavMetrics(cagr=0.11, sortino=1.1, calmar=0.5, max_drawdown=-0.20),
+        baseline_turnover=60.0,
+        variant_turnover=62.0,
+    )
+
+    await rule_revision._record_measurement(db, measurement, priced=priced, title="worker said so")
+
+    row = (await db.query("SELECT * FROM revision_measurement"))[0]
+    assert row["window_start"] == "1991-01-02"
+    assert row["window_end"] == "2008-09-02"  # NOT the 2026 default
+    assert row["verdict"] == "adopt"
+    assert row["title"] == "worker said so"
+
+    # Re-measuring the same experiment over the same window UPDATES rather than
+    # duplicating; a different window is a different row, because the
+    # out-of-sample split depends on holding both.
+    await rule_revision._record_measurement(db, measurement, priced=priced, title=None)
+    halves = pd.Series([100.0, 101.0], index=pd.to_datetime(["1991-01-02", "2026-07-01"]))
+    await rule_revision._record_measurement(db, measurement, priced=halves, title=None)
+    assert len(await db.query("SELECT 1 FROM revision_measurement")) == 2
+    # the title survives an update that carries none
+    kept = await db.query("SELECT title FROM revision_measurement WHERE window_end='2008-09-02'")
+    assert kept[0]["title"] == "worker said so"
+
+
+def test_the_experiment_identity_is_its_override_set_not_its_wording() -> None:
+    """Five differently worded haven proposals resolving to the same constants
+    are ONE experiment — established when the M8b sweep was deduplicated on the
+    override set, which turned nine proposals into five measurements."""
+    a = rule_revision.overrides_key({"trend_haven": "GLD", "trend_fallback_haven": "IEF"})
+    b = rule_revision.overrides_key({"trend_fallback_haven": "IEF", "trend_haven": "GLD"})
+    assert a == b  # key order is not identity
+    assert a != rule_revision.overrides_key({"trend_haven": "GLD"})

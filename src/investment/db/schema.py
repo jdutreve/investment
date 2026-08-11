@@ -3,7 +3,8 @@ spec this maps physically: 13 entity tables ("vertices"), 5 M:N tables
 ("edges" — the other 5 relations are FK+property columns on the child, per
 DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 11 document
 tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
-+ `innovation`, the recurrence ledger).
++ `innovation`, the recurrence ledger, + `revision_measurement`,
+the measured-verdict ledger).
 Types: STRING->TEXT, FLOAT->REAL, BOOLEAN->BOOLEAN (SQLite: NUMERIC
 affinity, stored 0/1), MAP/STRING[]->TEXT (JSON1), DATE/DATETIME->TEXT
 (ISO-8601), FLOAT[384]->BLOB (float32, see docs/TASKS.md Phase 1bis).
@@ -592,6 +593,42 @@ CREATE TABLE IF NOT EXISTS innovation (
 );
 
 CREATE INDEX IF NOT EXISTS idx_innovation_theme ON innovation(theme_id);
+
+-- WHAT HAS ALREADY BEEN MEASURED, so nothing measures it twice and nobody
+-- proposes it a fourth time.
+--
+-- `rule_revision.measure_revision` replays 35 years to judge one knob change,
+-- and until 2026-08-11 it threw the answer away: the verdict reached a log
+-- line, an EventLog payload in whatever database happened to be open (a
+-- THROWAWAY snapshot, on every replayed date), and nothing else. The measured
+-- rejection of "add VCIT to the trend overlay" was re-derived three times, and
+-- the Worker went on proposing it because nothing could tell it the question
+-- was settled. Same family as CLAUDE.md's "a bound whose consumption is not
+-- logged cannot be re-derived": a measurement whose result is not stored cannot
+-- be re-used.
+--
+-- KEYED ON THE OVERRIDE SET, not on the proposal's title. Five differently
+-- worded haven proposals resolving to the same constants are ONE experiment —
+-- established when the M8b sweep was deduplicated — so the canonical JSON of
+-- the overrides is the identity, and the title is kept only to show a human
+-- what asked for it.
+--
+-- The WINDOW is part of the key: a verdict on 1991-2008 and one on the full
+-- sample answer different questions, and the out-of-sample split that killed
+-- two of three overlay candidates depends on holding both.
+CREATE TABLE IF NOT EXISTS revision_measurement (
+  overrides_key   TEXT NOT NULL,        -- canonical JSON of the override set
+  window_start    TEXT NOT NULL,
+  window_end      TEXT NOT NULL,
+  overrides       TEXT NOT NULL,        -- JSON map, as proposed
+  title           TEXT,                 -- the wording that last asked for it
+  verdict         TEXT NOT NULL,        -- 'adopt' | 'reject' | 'unmeasurable'
+  sortino_delta   REAL,
+  cagr_delta      REAL,
+  drawdown_delta  REAL,
+  measured_at     TEXT NOT NULL,
+  PRIMARY KEY (overrides_key, window_start, window_end)
+);
 
 CREATE TABLE IF NOT EXISTS replay_report (
   id                  TEXT PRIMARY KEY,

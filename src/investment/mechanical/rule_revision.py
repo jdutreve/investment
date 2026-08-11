@@ -29,9 +29,13 @@ Rule #1 is intact: nothing may get worse.
 """
 
 import dataclasses
+import json
 import math
-from datetime import date
+from collections.abc import Mapping
+from datetime import UTC, date, datetime
 from typing import Any
+
+import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import market_signal
@@ -160,6 +164,10 @@ _FLOAT_KNOBS = frozenset(
 #
 # Verified to change no verdict on the day it shipped: it only stops the system
 # ever calling a shift of the ground an improvement.
+# The window `run_market_signal` defaults to — named here so a stored verdict
+# can say which question it answered.
+FULL_WINDOW = (date(1991, 1, 1), date(2026, 7, 1))
+
 NOISE_REL_TOL = 0.0071
 NOISE_ABS_TOL = 1e-12
 
@@ -338,6 +346,7 @@ async def measure_revision(
     *,
     start: date | None = None,
     end: date | None = None,
+    title: str | None = None,
 ) -> RevisionMeasurement:
     """Run the stack twice — as it is, then with `overrides` — and return both.
 
@@ -379,13 +388,91 @@ async def measure_revision(
         for attr, value in saved.items():
             setattr(market_signal, attr, value)
 
-    return RevisionMeasurement(
+    measurement = RevisionMeasurement(
         overrides=dict(overrides),
         baseline=baseline,
         variant=variant,
         baseline_turnover=baseline_run.turnover,
         variant_turnover=variant_run.turnover,
     )
+    # RECORDED, because a measurement whose result is thrown away is measured
+    # again. See `revision_measurement` in the schema: the verdict used to reach
+    # a log line and an EventLog row in whatever database was open — a THROWAWAY
+    # snapshot on every replayed date — so "add VCIT to the overlay" was
+    # re-derived three times and the Worker kept proposing it.
+    await _record_measurement(db, measurement, priced=baseline_run.nav, title=title)
+    return measurement
+
+
+def overrides_key(overrides: Mapping[str, Any]) -> str:
+    """The identity of an EXPERIMENT: the canonical JSON of its override set.
+
+    Not the title. Five differently worded haven proposals resolving to the same
+    constants are one experiment — established when the M8b sweep was
+    deduplicated on the override set rather than on the wording, which turned
+    nine proposals into five measurements."""
+    return json.dumps({k: overrides[k] for k in sorted(overrides)}, sort_keys=True, default=str)
+
+
+async def _record_measurement(
+    db: InvestmentDB,
+    measurement: RevisionMeasurement,
+    *,
+    priced: pd.Series,
+    title: str | None,
+) -> None:
+    """UPSERT one verdict, keyed on (override set, window).
+
+    THE WINDOW IS READ OFF THE NAV THAT WAS PRICED, never off the arguments,
+    and the difference is not pedantic. `measure_revision` runs against whatever
+    database it is handed, and on every replayed decision date that database is
+    a SNAPSHOT bounded at t (db/as_of_snapshot.py) — so a call with no explicit
+    window measures 1991..t, not 1991..2026.
+
+    Measured 2026-08-11: the Worker proposed lowering both trajectory knobs to
+    0.12 at the 2008-09-02 date and the in-cycle verdict was ADOPT, which was
+    honest for the seventeen years knowable then and false for the full sample,
+    where the same change rejects on all three windows. Recording it under the
+    default full window would have written that falsehood into the one place
+    built to stop questions being re-asked."""
+    verdict = {True: "adopt", False: "reject", None: "unmeasurable"}[measurement.adopt]
+    deltas = measurement.deltas or {}
+    async with db.transaction() as tx:
+        await tx.command(
+            "INSERT INTO revision_measurement (overrides_key, window_start, window_end, "
+            "overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta, measured_at) "
+            "VALUES (:k, :ws, :we, :ov, :t, :v, :sd, :cd, :dd, :now) "
+            "ON CONFLICT(overrides_key, window_start, window_end) DO UPDATE SET "
+            "verdict=excluded.verdict, sortino_delta=excluded.sortino_delta, "
+            "cagr_delta=excluded.cagr_delta, drawdown_delta=excluded.drawdown_delta, "
+            "title=COALESCE(excluded.title, revision_measurement.title), "
+            "measured_at=excluded.measured_at",
+            k=overrides_key(measurement.overrides),
+            ws=str(priced.index[0].date()) if len(priced) else FULL_WINDOW[0].isoformat(),
+            we=str(priced.index[-1].date()) if len(priced) else FULL_WINDOW[1].isoformat(),
+            ov=json.dumps(measurement.overrides, default=str),
+            t=title,
+            v=verdict,
+            sd=deltas.get("sortino"),
+            cd=deltas.get("cagr"),
+            dd=deltas.get("max_drawdown"),
+            now=datetime.now(UTC).isoformat(),
+        )
+
+
+async def measured_verdicts(db: InvestmentDB) -> list[dict[str, Any]]:
+    """Every verdict on the FULL window, newest first — what the Worker is told
+    so it stops proposing what the history already refused."""
+    return [
+        dict(row)
+        for row in await db.query(
+            "SELECT overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta "
+            "FROM revision_measurement WHERE window_start = :ws AND window_end = :we "
+            "ORDER BY measured_at DESC LIMIT 20",
+            ws=FULL_WINDOW[0].isoformat(),
+            we=FULL_WINDOW[1].isoformat(),
+        )
+    ]
 
 
 def render(measurement: RevisionMeasurement) -> str:

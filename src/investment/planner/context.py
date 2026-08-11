@@ -79,6 +79,7 @@ class PlannerContext:
     market_signal: dict[str, Any] = dataclasses.field(default_factory=dict)
     favors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 # -- pure core: the pool the selection is validated against -----------------
@@ -225,6 +226,7 @@ def assemble_context(
         market_signal=baseline.market_signal,
         favors=baseline.favors,
         macro=baseline.macro,
+        measured_revisions=baseline.measured_revisions,
     )
 
 

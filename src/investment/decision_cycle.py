@@ -220,6 +220,21 @@ def render_context_for_worker(context: PlannerContext) -> str:
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
     ]
     lines.extend(_market_signal_lines(context.market_signal))
+    # WHAT HAS ALREADY BEEN TRIED, and this is the fifth time this week that a
+    # fact the system held was not reaching the only thing that could use it.
+    # "Add VCIT to the trend overlay" arrived three times across independent
+    # dates, each one after a measured rejection nothing could show it; the
+    # Worker was not being stubborn, it was being kept ignorant.
+    if context.measured_revisions:
+        lines += ["", "ALREADY MEASURED over the history (do not re-propose these settings):"]
+        for row in context.measured_revisions:
+            deltas = ", ".join(
+                f"{name} {row[key]:+.3f}"
+                for name, key in (("sortino", "sortino_delta"), ("cagr", "cagr_delta"))
+                if row.get(key) is not None
+            )
+            lines.append(f"  {row['verdict'].upper():12} {row['overrides']}  ({deltas})")
+
     lines += [
         "",
         "RANKED PORTFOLIOS (defender marked *):",
