@@ -79,6 +79,7 @@ from investment.writeback.knowledge import (
     find_duplicate,
     load_invariant_corpus,
 )
+from investment.writeback.recurrence import record_innovation
 
 logger = logging.getLogger(__name__)
 
@@ -683,9 +684,9 @@ async def _resolve_framework(db: InvestmentDB, spec_value: Any) -> str | None:
     return resolved
 
 
-async def _commit_innovation_safely(
-    commit: Coroutine[Any, Any, str | None], innovation: ImprovementProposal
-) -> str | None:
+async def _commit_innovation_safely[T](
+    commit: Coroutine[Any, Any, T], innovation: ImprovementProposal
+) -> T | None:
     """One innovation's commit, isolated so a malformed one cannot cost the
     others. Returns the new vertex id, or None when it was dropped.
 
@@ -1206,6 +1207,15 @@ async def commit_innovations(
     created_invariant = False
 
     for innovation in post_result.innovations:
+        # FILED BEFORE IT IS JUDGED, and on every path including the one that
+        # creates no vertex. Recurrence is the confidence measure the M8b runs
+        # had and the system could not read (writeback/recurrence.py), and a
+        # `process` innovation — which mints nothing — was exactly the kind that
+        # vanished into an event payload nobody counts.
+        if embedder is not None:
+            await _commit_innovation_safely(
+                record_innovation(db, innovation, embedder, today=today), innovation
+            )
         if innovation.type in _STRATEGY_INNOVATION_TYPES:
             strategy_id = await _commit_innovation_safely(
                 _commit_strategy_innovation(db, innovation, today), innovation

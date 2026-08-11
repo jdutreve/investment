@@ -19,6 +19,7 @@ from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
+from investment.writeback.recurrence import NOTABLE_RECURRENCE
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
@@ -286,6 +287,31 @@ def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
     ]
 
 
+def _recurring_block(recurring: list[dict[str, Any]]) -> list[str]:
+    """Critiques the Worker has now arrived at from several directions.
+
+    THIS BLOCK IS THE POINT OF THE LEDGER. A recurrence counter that only ever
+    wrote a log line would repeat the failure it fixes — the M8b signal existed
+    in the output and nobody read it, and "revisit when someone notices" is not
+    a mechanism (owner, 2026-08-09). The digest is where the owner actually
+    looks, so this is where a theme that keeps coming back has to appear.
+
+    Recurrence is not proof: two of the repeated M8b themes were measured and
+    rejected. It is a RANKING of where to look, which is why the line asks for a
+    measurement rather than announcing a finding."""
+    if not recurring:
+        return []
+    lines = ["", "🔁 Recurring critiques (distinct wordings, worth measuring):"]
+    for row in sorted(recurring, key=lambda r: -int(r["n"])):
+        lines.append(f"   {row['n']}x — theme {row['theme_id']}")
+        # THE MEMBERS, not just the count. Cosine over prose over-merges at the
+        # margin (writeback/recurrence.py measured it), and a grouping the owner
+        # can SEE is a visible annoyance rather than one critique silently
+        # buried inside another.
+        lines += [f"      · {title}" for title in row.get("titles", [])]
+    return lines
+
+
 def _alert_block(alerts: list[Alert]) -> list[str]:
     """Health alerts FIRST in the digest, before the regime header — the two
     freshness alarms mean the numbers below them may be describing a world that
@@ -363,6 +389,7 @@ def render_digest(
     stack: dict[str, Any] | None = None,
     market_signal: dict[str, Any] | None = None,
     worker_reading: dict[str, Any] | None = None,
+    recurring: list[dict[str, Any]] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -380,6 +407,7 @@ def render_digest(
         _market_signal_block(market_signal, worker_reading),
         _stack_block(stack),
         _proposal_block(proposal),
+        _recurring_block(recurring or []),
         _scoreboard_block(scoreboard),
         _defender_block(defender_metrics),
     ]
@@ -544,7 +572,32 @@ async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
         stack=await _stack_standing(db),
         market_signal=await _latest_market_signal_decision(db),
         worker_reading=await _latest_worker_reading(db),
+        recurring=await _recurring_themes(db),
     )
+
+
+async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:
+    """Themes that have arrived in `NOTABLE_RECURRENCE` or more distinct
+    wordings, newest wording first (writeback/recurrence.py).
+
+    DISTINCT TITLES, matching the ledger's own definition: two runs replaying
+    one date write the same sentence twice, which is a rerun and not a second
+    opinion. The title shown is the most recent wording — the earliest is often
+    the vaguest, since the Worker sharpens a critique as it meets it again."""
+    rows = await db.query(
+        "SELECT theme_id, COUNT(DISTINCT title) AS n, "
+        "       group_concat(DISTINCT title) AS wordings "
+        "FROM innovation GROUP BY theme_id HAVING n >= :min ORDER BY n DESC LIMIT 5",
+        min=NOTABLE_RECURRENCE,
+    )
+    return [
+        {
+            "theme_id": r["theme_id"],
+            "n": r["n"],
+            "titles": str(r["wordings"] or "").split(","),
+        }
+        for r in rows
+    ]
 
 
 async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:

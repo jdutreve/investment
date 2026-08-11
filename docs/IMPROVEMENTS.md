@@ -1842,3 +1842,11 @@ digest reading the owner disputes — that incident supplies the missing
 objective function, and the sweep becomes worth building. Note the knobs live in
 `system_thresholds`, not in `market_signal`, so they are outside
 `TESTABLE_PARAMETERS` and would need their own harness.
+
+**And the trigger is now WATCHED, which it was not when this was written.** The
+first version of this entry said "revisit when someone notices", and the owner's
+objection was immediate and correct: nothing was watching, so nobody would. The
+innovation ledger (`writeback/recurrence.py`, 2026-08-09) counts how many
+distinct wordings a critique has arrived in and surfaces it in the digest at
+three. The two complaints that produced this entry are one theme in that ledger,
+so the next one raises it to three and the system says so by itself.

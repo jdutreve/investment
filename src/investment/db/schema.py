@@ -2,7 +2,8 @@
 spec this maps physically: 13 entity tables ("vertices"), 5 M:N tables
 ("edges" — the other 5 relations are FK+property columns on the child, per
 DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 11 document
-tables (10 in the spec + `curated_passage`, the M7 curation checkpoint).
+tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
++ `innovation`, the recurrence ledger).
 Types: STRING->TEXT, FLOAT->REAL, BOOLEAN->BOOLEAN (SQLite: NUMERIC
 affinity, stored 0/1), MAP/STRING[]->TEXT (JSON1), DATE/DATETIME->TEXT
 (ISO-8601), FLOAT[384]->BLOB (float32, see docs/TASKS.md Phase 1bis).
@@ -553,6 +554,44 @@ CREATE TABLE IF NOT EXISTS curated_passage (
   candidate_count INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (passage_id, fingerprint)
 );
+
+-- EVERY INNOVATION THE WORKER EVER PROPOSED, and the THEME it belongs to.
+--
+-- Recurrence is the confidence measure this system had and could not read. Over
+-- the M8b runs of 2026-08-08/09 every finding that turned out to be real was
+-- proposed MORE THAN ONCE from independent dates: the credit-spread velocity
+-- critique six ways, the concentration cap freezing the stack twice, the regime
+-- label's divergence twice. Nothing counted them. Invariants are deduplicated
+-- (writeback/knowledge.py `find_duplicate`), innovations were not, so the
+-- signal existed in the output and nowhere in the system.
+--
+-- `theme_id` is the id of the FIRST innovation of its cluster, assigned by
+-- cosine distance on the same embedder the invariant corpus uses. Recurrence is
+-- then a COUNT over the theme rather than a stored integer that can go stale.
+--
+-- COUNT DISTINCT TITLES, not rows: two runs replaying the same date produce the
+-- same sentence twice and that is one observation repeated, while six different
+-- wordings of "read the spread's trajectory, not its level" is six independent
+-- arrivals at one idea. The second is evidence; the first is a rerun.
+--
+-- `source_id` points at the invariant or strategy the innovation became, when
+-- it became one — process/data innovations have none, which is exactly why they
+-- had no home before this table.
+CREATE TABLE IF NOT EXISTS innovation (
+  id          TEXT PRIMARY KEY,
+  type        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  rationale   TEXT NOT NULL,
+  spec        TEXT NOT NULL,          -- JSON map, as proposed
+  theme_id    TEXT NOT NULL,          -- the first innovation of this cluster
+  source_id   TEXT,                   -- the invariant/strategy it became, if any
+  embedding   BLOB,                   -- float32[384], for the theme match
+  date        TEXT NOT NULL,          -- the decision date it was proposed on
+  trace       TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_innovation_theme ON innovation(theme_id);
 
 CREATE TABLE IF NOT EXISTS replay_report (
   id                  TEXT PRIMARY KEY,
