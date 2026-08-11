@@ -456,3 +456,51 @@ def test_the_gate_is_idle_when_the_spread_is_wide_but_calm(
         spread_speed=pd.Series([-0.10], index=idx),  # wide, but tightening
     )[0]
     assert decision.target == market_signal.BOOKS[WIDE]
+
+
+def test_describe_rule_states_every_active_knob() -> None:
+    """FOURTH occurrence of one defect, and the third fix of this same function.
+
+    `describe_rule` promises text that cannot go stale. On 2026-08-08 the
+    promise was half kept — the sleeve list interpolated, the sentence around it
+    hand-written — and the Worker spent an innovation re-proposing a cash
+    fallback that already shipped. On 2026-08-11 it broke again, by my own hand:
+    two knobs went live and this text did not mention them. Five replayed dates
+    bought six innovations and FOUR re-proposed a running feature.
+
+    Pairing the text with the knob registry is what makes the next one
+    impossible: any knob that is ON must appear, with its value, in what the
+    Worker reads. Knobs that are OFF must NOT — describing an option the rule
+    does not use invites a proposal to switch on what is already off, which is
+    the same waste from the other side."""
+    from investment.mechanical.rule_revision import TESTABLE_PARAMETERS
+
+    text = market_signal.describe_rule()
+    for knob, attr in TESTABLE_PARAMETERS.items():
+        value = getattr(market_signal, attr)
+        if value is not None:
+            assert _stated(value, text), (
+                f"{knob} is ON at {value!r} and the rule text never says so"
+            )
+
+    # The off knob is absent, by name and by mechanism.
+    assert market_signal.SPREAD_SPEED_WIDE_TRIGGER is None
+    assert "whatever the level says" not in text
+
+
+def _stated(value: object, text: str) -> bool:
+    """Is this knob's value discoverable in the prose?
+
+    ARITHMETIC, not a hand-written map of knob -> expected phrasing: such a map
+    would be one more list that names what exists today, which is the defect
+    this whole test guards. A window of 2520 trading days is legitimately
+    rendered "10-year" and 200 stays "200-day", so a trading-year division is
+    accepted alongside the raw number."""
+    if isinstance(value, list | tuple):
+        return all(str(v) in text for v in value)
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        candidates = {f"{value:g}", str(value)}
+        if value >= 252:
+            candidates.add(str(int(value // 252)))
+        return any(c in text for c in candidates)
+    return str(value) in text

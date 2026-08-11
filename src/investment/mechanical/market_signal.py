@@ -300,10 +300,21 @@ def describe_rule() -> str:
     and said the overlay redirects below-trend sleeves to IEF, full stop — six
     hours after the haven itself became trend-checked with a cash fallback. The
     Worker read it, believed a 100% IEF book was still reachable, and spent an
-    innovation proposing the fallback that already existed. Every knob the rule
-    turns on is now interpolated: sleeves, haven, fallback, both windows and the
-    hysteresis count. Nothing about the mechanism is asserted in prose that a
-    constant could state instead — the test below asserts exactly that.
+    innovation proposing the fallback that already existed.
+
+    IT BROKE AGAIN ON 2026-08-11, the same way and by my own hand: the two
+    spread-trajectory knobs went live and this text did not mention them. Five
+    replayed dates bought six innovations and FOUR re-proposed a feature that
+    was already running — the veto twice, the sleeve gate once, both together at
+    absurd values once. The measurement machinery worked perfectly on all four
+    and rejected them, which is the loop doing its job on a question nobody
+    should have had to ask.
+
+    So the rule text now states EVERY knob that is on, including the ones added
+    last, and `test_describe_rule_states_every_active_knob` pairs it with
+    `rule_revision.TESTABLE_PARAMETERS` so the next knob cannot ship silent.
+    Knobs that are OFF are deliberately absent: this describes the rule that
+    decided, not the rule's option list.
 
     It does NOT breach the Worker's unawareness of Planner/Writeback/storage
     (worker/agent.py): the stack is an INVESTMENT instrument whose output the
@@ -318,6 +329,25 @@ def describe_rule() -> str:
     # selects TREND_FALLBACK_HAVEN. Deriving it here rather than naming the
     # sleeves alone is what keeps this text true when the overlay changes.
     checked = (*TREND_SLEEVES, TREND_HAVEN)
+    # The trajectory knobs, stated ONLY when they are on — an "off" line would
+    # invite the Worker to propose switching on what is already off, which is
+    # the mirror of the defect this repairs.
+    trajectory = ""
+    if SPREAD_SPEED_VETO is not None:
+        trajectory += (
+            f"  4. Spread TRAJECTORY veto: when the spread is above its median but still\n"
+            f"     widening faster than {SPREAD_SPEED_VETO:g} points per "
+            f"{SPREAD_SPEED_LOOKBACK_DAYS} days, the wide reading is\n"
+            "     DEFERRED and the slope decides the book instead.\n"
+        )
+    if SPREAD_STRESS_SLEEVE_GATE is not None:
+        trajectory += (
+            f"  5. Spread-stress sleeve gate: under those same conditions "
+            f"({SPREAD_STRESS_SLEEVE_GATE:g} per\n"
+            f"     {SPREAD_SPEED_LOOKBACK_DAYS} days), the EQUITY sleeves "
+            f"({', '.join(EQUITY_SLEEVES)}) are sent to the\n"
+            "     haven whatever their own 200d says.\n"
+        )
     return (
         "THE MECHANICAL RULE THAT DECIDED THIS MONTH (market-signal stack)\n"
         f"  1. Credit spread (BAA10Y) vs its {MEDIAN_WINDOW_DAYS // 252}-year trailing\n"
@@ -332,7 +362,8 @@ def describe_rule() -> str:
         f"     {TREND_FALLBACK_HAVEN} instead — including the {TREND_HAVEN} a book\n"
         "     already holds. Sleeves outside the checked set are held at book\n"
         "     weight whatever their own trend does.\n"
-        "  The rule reads PRICES only: no macro regime, no policy, no positioning."
+        + trajectory
+        + "  The rule reads PRICES only: no macro regime, no policy, no positioning."
     )
 
 
