@@ -53,6 +53,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "ma_window_days": "MA_WINDOW_DAYS",
     "median_window_days": "MEDIAN_WINDOW_DAYS",
     "spread_speed_veto": "SPREAD_SPEED_VETO",
+    "spread_speed_wide_trigger": "SPREAD_SPEED_WIDE_TRIGGER",
 }
 
 # What each knob MEANS, in the Worker's terms — the text it reads when deciding
@@ -70,6 +71,10 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     "spread_speed_veto": (
         "defer the risk-on wide-spread book while the spread is still widening faster "
         "than this, in spread points per 30 days (null = off, the current rule)"
+    ),
+    "spread_speed_wide_trigger": (
+        "enter the risk-on wide-spread book as soon as the spread widens faster than "
+        "this, whatever the level says, same units (null = off)"
     ),
 }
 
@@ -108,7 +113,7 @@ _COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_
 # A threshold in the spread's own units, so any finite number is expressible —
 # including a negative one, which vetoes only while spreads are TIGHTENING and
 # is a perfectly good thing to measure and reject.
-_FLOAT_KNOBS = frozenset({"spread_speed_veto"})
+_FLOAT_KNOBS = frozenset({"spread_speed_veto", "spread_speed_wide_trigger"})
 
 # WHAT COUNTS AS "UNCHANGED", and the number is MEASURED, not chosen.
 #

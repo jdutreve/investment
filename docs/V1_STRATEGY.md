@@ -471,3 +471,45 @@ So the Worker's most repeated critique is the one solid finding of the screen:
 proposed six ways from independent dates, mechanically measurable once given a
 knob, robust in and out of sample, and worth three points of drawdown in 2008.
 Still not switched on — that is git and an owner signature (ADR-007).
+
+### The velocity theme holds three mechanisms, not one (2026-08-11)
+
+Reading the six wordings rather than counting them: they are one INTUITION —
+the spread's trajectory carries information its level does not — proposed
+through at least three different mechanisms, which are not interchangeable.
+
+    (a) defer the risk-on wide book while the spread is still widening
+    (b) ENTER the wide book on speed alone, whatever the level says
+    (c) redirect the equity sleeves on spread direction, without waiting for
+        the 200d price trend
+
+`SPREAD_SPEED_VETO` expresses (a). `SPREAD_SPEED_WIDE_TRIGGER` expresses (b),
+using the Worker's own candidate value. (c) is sleeve-level and still not
+expressible.
+
+    mechanism                     full        1991-2008    2009-2026
+    (a) veto        0.10          ADOPT       ADOPT        ADOPT
+    (a) veto        0.20          ADOPT       ADOPT        ADOPT
+    (a) veto        0.40          ADOPT       ADOPT        ADOPT
+    (b) trigger     0.10          reject      reject       ADOPT
+    (b) trigger     0.20          reject      reject       reject
+    (b) trigger     0.40          reject      reject       reject
+
+(b) is dead: nil at 0.20 and 0.40 — by the time the spread widens that fast the
+level is already above its median, so entering on speed adds nothing the rule
+does not already do — and at 0.10 it contradicts itself across the halves, the
+same sample artefact the 175/225-day windows showed.
+
+**The intuition was right and one of its two directions was wrong**, which is
+the whole case for measuring rather than debating. The trajectory should DELAY
+taking risk, not anticipate it. Nobody could have called that from the prose:
+both readings are defensible, the Worker proposed both, and only the 35-year
+walk separates them.
+
+**What 0.20 means.** Spread speed is in points of BAA10Y per 30 days — 2.30% to
+2.50% in a month. Measured over the 8722 days of history it is essentially the
+p90: the veto bites on 8.7% of days (31.9% at 0.05, 20.9% at 0.10, 2.6% at
+0.40), and the extremes of the record are 2020-03-24 (+2.22), 2008-10-22
+(+1.83) and 2020-04-01 (+1.55). It isolates real credit events and is idle the
+rest of the time, which is why the sweep degrades at 0.00 — there the stack sits
+in the lighter books permanently.

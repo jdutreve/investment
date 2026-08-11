@@ -334,3 +334,27 @@ def test_the_spread_speed_veto_defers_the_risk_on_book_it_does_not_hasten_it(
     assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
     # Warm-up: no speed yet, so no veto and no crash.
     assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE
+
+
+def test_the_wide_trigger_enters_on_speed_and_is_off_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The velocity theme's OTHER mechanism (2026-08-11), and the mirror image
+    of the veto: the veto DEFERS the risk-on book while the spread widens, this
+    ENTERS it on speed alone whatever the level says. Both came from the same
+    six wordings; only measurement separates them, and it killed this one.
+
+    Kept implemented and off, because "measured and rejected" is a verdict worth
+    being able to reproduce — and the knob is what makes reproducing it a
+    command rather than a rewrite."""
+    assert market_signal.SPREAD_SPEED_WIDE_TRIGGER is None
+    # Off: a tight level stays tight however fast the spread moves.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 5.0) == TIGHT_FLAT
+
+    monkeypatch.setattr(market_signal, "SPREAD_SPEED_WIDE_TRIGGER", 0.20)
+    # Tight level, widening fast -> the risk-on book, entered on speed alone.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.30) == WIDE
+    # Tight and calm -> untouched.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.05) == TIGHT_FLAT
+    # Warm-up with no speed yet never triggers.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, None) == TIGHT_FLAT

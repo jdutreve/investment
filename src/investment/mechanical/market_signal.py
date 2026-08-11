@@ -373,6 +373,29 @@ class MarketSignalRun:
 # SPREAD_SPEED_LOOKBACK_DAYS.
 SPREAD_SPEED_VETO: float | None = None
 
+# THE SAME THEME'S OTHER MECHANISM, and the two are not the same claim.
+#
+# Reading the six wordings of the velocity critique showed at least three
+# distinct proposals inside one theme (2026-08-11): defer the wide book while
+# the spread widens (the veto above), ENTER it on speed regardless of level
+# (this), and redirect the equity sleeves on spread direction without waiting
+# for the 200d (not expressible yet). Grouping them was right; treating them as
+# interchangeable was not.
+#
+# This is the countercyclical bet taken EARLIER: "when BAA10Y speed and
+# acceleration are both strongly positive, treat the credit regime as
+# spread-wide regardless of the level-vs-median" (Worker, verbatim, with its own
+# candidate of +0.20). The premise is ADR-007's own — stress that is priced
+# precedes strong forward returns — so a spread gapping out is the signal
+# arriving before the level catches up, and the 200d overlay still guards the
+# downside.
+#
+# PRECEDENCE, since the two knobs pull opposite ways: the trigger is an ENTRY on
+# speed and is read first; the veto questions the LEVEL-based read and applies
+# only to it. Setting both is coherent but measures a rule nobody proposed, so
+# they are swept separately.
+SPREAD_SPEED_WIDE_TRIGGER: float | None = None
+
 # Matches `system_thresholds.derivative_lookback_short`, and the speed itself is
 # computed by `market.derivatives.compute_derivatives` rather than differenced
 # here — CLAUDE.md's "two implementations must produce the same numbers" applies
@@ -400,6 +423,14 @@ def classify_regime(
     A missing median (warm-up, before MEDIAN_MIN_DAYS of history) defaults to
     `credit-spread-wide` — the equity-tilted book — exactly as the backtest did
     rather than stalling; the trend overlay still guards its downside."""
+    fast = (
+        SPREAD_SPEED_WIDE_TRIGGER is not None
+        and spread_speed is not None
+        and not pd.isna(spread_speed)
+        and spread_speed > SPREAD_SPEED_WIDE_TRIGGER
+    )
+    if fast:
+        return "credit-spread-wide"
     wide = spread_median is None or pd.isna(spread_median) or spread > spread_median
     # See SPREAD_SPEED_VETO: defer the risk-on book while the crack is still
     # opening. A missing speed (warm-up) never vetoes — the rule falls back to
