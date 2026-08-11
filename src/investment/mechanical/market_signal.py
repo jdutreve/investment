@@ -944,11 +944,27 @@ async def persist_stack_nav(
     return await ratios.persist_nav(db, STACK_PORTFOLIO_ID, run.nav.dropna(), window)
 
 
-async def stack_metrics(db: InvestmentDB, run: MarketSignalRun) -> NavMetrics:
+async def stack_metrics(
+    db: InvestmentDB, run: MarketSignalRun, *, until: date | None = None
+) -> NavMetrics:
     """Daily NAV metrics of the run (CAGR, Sortino, max drawdown) — the numbers
-    the DoV checks against the pinned pair **11.14% / -23.8%** (see the module's
-    ANTI-DRIFT note). 11.26% was the pre-ADR-010 figure and 9.85% the
-    pre-hysteresis one; both are history, and naming a superseded target here is
-    how a drift check comes to certify the wrong number."""
+    the DoV checks against the pinned pair (see the module's ANTI-DRIFT note).
+    Earlier figures are history, and naming a superseded target here is how a
+    drift check comes to certify the wrong number.
+
+    `until` BOUNDS THE MEASUREMENT, and its absence was a methodology error
+    found on 2026-08-11. `run_market_signal(start=, end=)` bounds the DECISION
+    dates and not the pricing: a run asked for 1991-2008 takes its 207 decisions
+    and then holds the last book FROZEN to the end of the calendar, so its NAV
+    covers 8674 days exactly like the full run. Every "first half" verdict
+    measured that day was therefore measuring "trade through 2008, then sit
+    still for eighteen years" — including the out-of-sample checks that
+    justified switching two knobs into the live rule.
+
+    The second-half verdicts were never affected (a walk starting in 2009 prices
+    from 2009), nor were the full-sample ones."""
     rf = await ratios.load_rf_daily(db)
-    return nav_metrics(run.nav.dropna(), rf)
+    nav = run.nav.dropna()
+    if until is not None:
+        nav = nav.loc[: pd.Timestamp(until)]
+    return nav_metrics(nav, rf)

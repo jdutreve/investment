@@ -381,7 +381,7 @@ async def measure_revision(
     if end is not None:
         window["end"] = end
     baseline_run = await market_signal.run_market_signal(db, **window)  # type: ignore[arg-type]  # date kwargs
-    baseline = await market_signal.stack_metrics(db, baseline_run)
+    baseline = await market_signal.stack_metrics(db, baseline_run, until=end)
 
     saved = {attr: getattr(market_signal, attr) for attr in TESTABLE_PARAMETERS.values()}
     try:
@@ -390,7 +390,7 @@ async def measure_revision(
             current = saved[attr]
             setattr(market_signal, attr, tuple(value) if isinstance(current, tuple) else value)
         variant_run = await market_signal.run_market_signal(db, **window)  # type: ignore[arg-type]  # date kwargs
-        variant = await market_signal.stack_metrics(db, variant_run)
+        variant = await market_signal.stack_metrics(db, variant_run, until=end)
     finally:
         for attr, value in saved.items():
             setattr(market_signal, attr, value)
@@ -407,7 +407,12 @@ async def measure_revision(
     # a log line and an EventLog row in whatever database was open — a THROWAWAY
     # snapshot on every replayed date — so "add VCIT to the overlay" was
     # re-derived three times and the Worker kept proposing it.
-    await _record_measurement(db, measurement, priced=baseline_run.nav, title=title)
+    await _record_measurement(
+        db,
+        measurement,
+        priced=baseline_run.nav.dropna().loc[: pd.Timestamp(end)] if end else baseline_run.nav,
+        title=title,
+    )
     return measurement
 
 
@@ -468,18 +473,53 @@ async def _record_measurement(
 
 
 async def measured_verdicts(db: InvestmentDB) -> list[dict[str, Any]]:
-    """Every verdict on the FULL window, newest first — what the Worker is told
-    so it stops proposing what the history already refused."""
-    return [
-        dict(row)
-        for row in await db.query(
-            "SELECT overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta "
-            "FROM revision_measurement WHERE window_start = :ws AND window_end = :we "
-            "ORDER BY measured_at DESC LIMIT 20",
-            ws=FULL_WINDOW[0].isoformat(),
-            we=FULL_WINDOW[1].isoformat(),
+    """One verdict per experiment — the WIDEST window measured for it — with
+    that window, so the Worker is told what the answer covers.
+
+    NOT a filter on the full-window constants, which is what the first version
+    did and why it surfaced one verdict of seven. The recorded window is read
+    off the priced NAV, so it is the data's real first and last day
+    (1991-10-29, not 1991-01-01), and an equality test against a constant
+    matches almost nothing. Same defect as everything else this week: the
+    identity written and the identity queried were not the same identity.
+
+    Widest rather than newest: a half-sample verdict and a full-sample verdict
+    answer different questions, and the broader one is the one a proposer needs
+    to hear first."""
+    rows = await db.query(
+        "SELECT overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta, "
+        "       window_start, window_end, "
+        "       julianday(window_end) - julianday(window_start) AS span "
+        "FROM revision_measurement ORDER BY span DESC, measured_at DESC"
+    )
+    # AGGREGATED ACROSS WINDOWS, because a full-sample verdict alone is the
+    # trap this project keeps walking into: TLT-as-haven adopts over 35 years
+    # and fails BOTH halves, the 175- and 225-day windows each fail the half
+    # they are not fitted to. Reporting "ADOPT" for those would hand the Worker
+    # three sample artefacts to propose.
+    #
+    # So an experiment is ADOPT only if every window measured for it adopts;
+    # disagreement is reported as MIXED, which is the sample-artefact signal
+    # itself and more useful than either verdict alone. An experiment measured
+    # on one window says so — no out-of-sample evidence is not the same as
+    # out-of-sample agreement.
+    by_experiment: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_experiment.setdefault(str(row["overrides"]), []).append(dict(row))
+
+    out: list[dict[str, Any]] = []
+    for overrides, measured in by_experiment.items():
+        verdicts = {str(m["verdict"]) for m in measured}
+        widest = measured[0]  # rows arrive span DESC
+        out.append(
+            {
+                **widest,
+                "overrides": overrides,
+                "verdict": verdicts.pop() if len(verdicts) == 1 else "mixed",
+                "windows": len(measured),
+            }
         )
-    ]
+    return out[:20]
 
 
 def render(measurement: RevisionMeasurement) -> str:

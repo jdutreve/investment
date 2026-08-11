@@ -233,7 +233,13 @@ def render_context_for_worker(context: PlannerContext) -> str:
                 for name, key in (("sortino", "sortino_delta"), ("cagr", "cagr_delta"))
                 if row.get(key) is not None
             )
-            lines.append(f"  {row['verdict'].upper():12} {row['overrides']}  ({deltas})")
+            window = f"{str(row.get('window_start'))[:4]}-{str(row.get('window_end'))[:4]}"
+            n = row.get("windows", 1)
+            # MIXED is the loudest of the three: it means the change adopts on
+            # one window and fails another, which is a fitted result and not a
+            # finding.
+            scope = f"{n} windows" if n > 1 else f"{window} only"
+            lines.append(f"  {row['verdict'].upper():7} {row['overrides']}  [{scope}: {deltas}]")
 
     lines += [
         "",

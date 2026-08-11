@@ -659,3 +659,50 @@ implausibility is what exposed it. The gate rewrote entries of the trend-read
 map, built only for the 200d-checked set, so gating VCIT did nothing; and
 `apply_trend_overlay` separately ignored any sleeve outside that set. One
 implausible number, two layers of the same constraint.
+
+---
+
+## CORRECTION (2026-08-11): the out-of-sample first halves were mismeasured
+
+`run_market_signal(start=, end=)` bounds the DECISION dates and not the pricing.
+A run asked for 1991-2008 takes its 207 decisions and then holds the last book
+FROZEN to the end of the calendar, so its NAV spans 8674 days exactly like a
+full run. Every "first half" figure above was therefore measuring "trade through
+2008, then sit still for eighteen years": **8.09% CAGR and -20.97% drawdown for a
+window that actually contains 13.05% and -13.32%**.
+
+Second halves were never affected — a walk starting in 2009 prices from 2009 —
+nor were the full-sample numbers.
+
+**What changes in the conclusions: nothing, and that was luck.** Re-measured
+with the pricing bounded to its window, 2 of 12 first-half verdicts flip (TLT as
+haven, and the speed-only entry trigger, both reject -> ADOPT), and neither
+changes an outcome: both still fail the second half, so both remain MIXED and
+unadopted. The 300-day overlay window still adopts on all three windows. The two
+live knobs still adopt on all three.
+
+**One published number was wrong and is withdrawn.** "+2.96pp of drawdown on
+1991-2008", stated repeatedly for the veto and used to argue that the pair buys
+"return and safety together", is an artefact of the frozen tail. Correctly
+measured the drawdown is UNCHANGED on every window, for every arm:
+
+    window            arm             CAGR      sortino   maxDD
+    full 1991-2026    off             10.75%    +1.176    -20.61%
+                      both (live)     11.26%    +1.274    -20.61%
+    first 1991-2008   off             12.66%    +1.343    -13.32%
+                      both (live)     13.05%    +1.464    -13.32%
+    second 2009-2026  off              9.03%    +1.051    -20.61%
+                      both (live)      9.62%    +1.136    -20.61%
+
+The activation still holds under Pareto — Sortino and CAGR improve on all three
+windows, nothing degrades — but on RETURN at unchanged risk, which is precisely
+the trade the acceptance test was widened to express on 2026-08-09. It was never
+a drawdown improvement.
+
+**And a better argument appears that the contaminated measurement hid**: the two
+mechanisms carry different eras. The sleeve gate dominates the first half
+(+0.113 Sortino against the veto's +0.031) and the veto dominates the second
+(+0.106 against +0.010). Each covers where the other is weak, which is a
+robustness claim the pair could not make before.
+
+`stack_metrics(..., until=)` now bounds the measurement, with a test.

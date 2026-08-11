@@ -720,3 +720,28 @@ def test_a_malformed_held_book_is_refused_loudly_not_read_as_no_change() -> None
     )
     # the OPENING entry holds nothing, and that is not malformed
     assert W.market_signal_gates(target, {}, caps, allowed).passed
+
+
+async def test_a_bounded_measurement_stops_at_its_window(db: InvestmentDB) -> None:
+    """METHODOLOGY ERROR of 2026-08-11, and the costliest of the week.
+
+    `run_market_signal(start=, end=)` bounds the DECISION dates, not the
+    pricing: a run asked for a first half takes its decisions and then holds the
+    last book FROZEN to the end of the calendar, so its NAV spans the whole
+    history exactly like a full run. Measured on the real database that day:
+    8.09% CAGR and -20.97% drawdown for a window that actually contains 13.05%
+    and -13.32%.
+
+    Those were the out-of-sample verdicts behind switching two knobs into the
+    live rule. Re-measured correctly the conclusion held — which was luck, not
+    diligence, and is why the bound is now a parameter with a test rather than
+    an assumption."""
+    await _market(db, spread=1.0, slope=2.0, spread_wide=True)
+    cut = START + timedelta(days=DAYS - 200)
+
+    run = await MS.run_market_signal(db, start=START, end=cut)
+    assert run.nav.dropna().index[-1] > pd.Timestamp(cut)  # the freeze is real
+
+    bounded = await MS.stack_metrics(db, run, until=cut)
+    unbounded = await MS.stack_metrics(db, run)
+    assert bounded.cagr != unbounded.cagr
