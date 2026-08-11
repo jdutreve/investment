@@ -276,7 +276,7 @@ COST_BPS = ratios.TRADING_COST_BPS
 CONFIRM_DECISIONS = 3
 
 
-def describe_rule() -> str:
+def describe_rule(caps: Caps | None = None) -> str:
     """The stack's rule as prompt text, GENERATED FROM THE CONSTANTS ABOVE.
 
     The Worker is asked to challenge this rule, which means it has to know what
@@ -320,6 +320,7 @@ def describe_rule() -> str:
     (worker/agent.py): the stack is an INVESTMENT instrument whose output the
     Worker already reads and is invited to challenge. Telling it how the
     instrument works is telling it about the market, not about the plumbing."""
+    caps = caps or Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
     books = "\n".join(
         f"    {name}: " + ", ".join(f"{t} {w:.0f}" for t, w in holdings.items())
         for name, holdings in BOOKS.items()
@@ -363,6 +364,20 @@ def describe_rule() -> str:
         "     already holds. Sleeves outside the checked set are held at book\n"
         "     weight whatever their own trend does.\n"
         + trajectory
+        # THE CAPS ARE PART OF WHAT DECIDED THE MONTH, so a text that omits them
+        # describes a rule the stack does not follow. Raised THREE times across
+        # independent runs — "ms-stack carries max_single_asset_pct=50, yet the
+        # overlay produces a 90% IEF sleeve" — and every time it was a correct
+        # reading of a contradiction that only looked like one, because the
+        # haven exemption (ADR-007 second addendum, extended 2026-08-08) lives
+        # in code the Worker cannot see. Three innovations spent on a question
+        # one sentence answers.
+        + (
+            f"  Binding caps: no sleeve above {int(caps.max_single_asset_pct)}% EXCEPT the haven "
+            f"chain ({', '.join(sorted(HAVEN_EXEMPT))}),\n"
+            "     which is a flight to safety and not a conviction bet, so a 90-100% haven\n"
+            "     book is legal by design.\n"
+        )
         + "  The rule reads PRICES only: no macro regime, no policy, no positioning."
     )
 

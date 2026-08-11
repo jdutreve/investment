@@ -488,6 +488,23 @@ def test_describe_rule_states_every_active_knob() -> None:
     assert "whatever the level says" not in text
 
 
+def test_describe_rule_states_the_caps_and_the_haven_exemption() -> None:
+    """Raised THREE times across independent runs: "ms-stack carries
+    max_single_asset_pct = 50, yet this month's overlay produces a 90% IEF
+    sleeve". Every time it was a correct reading of a contradiction that only
+    looked like one — the haven exemption lives in code the Worker cannot see,
+    so three innovations were spent on a question one sentence answers.
+
+    The caps are part of what DECIDED the month, so a rule text that omits them
+    describes a rule the stack does not follow."""
+    text = market_signal.describe_rule()
+
+    assert "50%" in text
+    for sleeve in market_signal.HAVEN_EXEMPT:
+        assert sleeve in text, f"{sleeve} is cap-exempt and the rule text never says so"
+    assert "legal by design" in text  # the reading it must prevent
+
+
 def _stated(value: object, text: str) -> bool:
     """Is this knob's value discoverable in the prose?
 
