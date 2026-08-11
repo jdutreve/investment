@@ -513,3 +513,59 @@ p90: the veto bites on 8.7% of days (31.9% at 0.05, 20.9% at 0.10, 2.6% at
 (+1.83) and 2020-04-01 (+1.55). It isolates real credit events and is idle the
 rest of the time, which is why the sweep degrades at 0.00 — there the stack sits
 in the lighter books permanently.
+
+### Mechanism (c), built and measured — and what switching it on would change
+
+`SPREAD_STRESS_SLEEVE_GATE` expresses what four separate critiques asked for:
+the book is SELECTED because credit is impaired and then holds 90% equities,
+with nothing but each sleeve's own price trend between the stack and that bet.
+When the spread is wide AND widening faster than the threshold, the equity
+sleeves go to the haven without waiting for their own 200d.
+
+    gate    full                1991-2008           2009-2026
+    0.00    reject (turn 99)    reject              reject
+    0.05    reject              reject              reject
+    0.10    reject              ADOPT               reject
+    0.20    ADOPT +0.052        ADOPT +0.054        ADOPT +0.010
+    0.40    ADOPT               reject (nil)        ADOPT
+
+0.20 again — the same p90 the veto settled on, which is coherent: both fire on
+genuine credit events and are idle otherwise. Below it the gate is too eager
+(turnover 61 -> 99); above it, nothing in the first half.
+
+**The two robust mechanisms are largely additive** (sortino delta):
+
+                        full      1991-2008   2009-2026
+    (a) veto only       +0.071    +0.180      +0.105
+    (c) sleeve only     +0.052    +0.054      +0.010
+    (a) + (c)           +0.098    +0.230      +0.085
+
+On the first half the pair is +0.230 Sortino, +0.97pp CAGR AND +2.96pp of
+drawdown — return and safety together, not a trade-off. On the second half the
+sum is sub-additive (+0.085 against +0.115 expected), which is what two
+mechanisms reading one signal should do.
+
+So the Worker's most repeated critique was right on TWO of its three
+mechanisms, and wrong on the third. No reading of the prose could have
+separated them.
+
+**What switching both on would change**, measured decision by decision: 25 of
+418 monthly decisions (6.0%), all in credit-stress years — 1998, 2000-01,
+2008-10, 2012, 2020. Two of them:
+
+    2008-02 .. 2008-06   now IEF 90 / GLD 10      on: IEF 50 / VCIT 50
+    2020-06-01           now SPY 50 / IEF 40 / GLD 10
+                         on: SPY 50 / GLD 40 / IEF 10
+
+94% of months are untouched, so the validated rule is intact almost everywhere;
+the 6% that move are the months that decide a decade.
+
+**One thing not to over-read.** In 2008 the change goes from 90% Treasuries to
+50% investment-grade credit — LESS defensive inside a credit crisis. It measures
+better because VCIT was on the floor in late 2008 and rallied hard, so that leg
+is one more countercyclical bet, not added protection. The safety shows up
+separately, as the +2.96pp of drawdown on 1991-2008.
+
+**Still off.** Both constants are None. Switching them changes ADR-007's live
+allocation in exactly the months that matter, and that gate is git and an owner
+signature — not ADR-006.

@@ -120,6 +120,15 @@ BOOKS: dict[str, dict[str, float]] = {
 # the haven is handled separately below.
 TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD", "IWN")
 
+# The EQUITY members of the checked set — the sleeves credit stress transmits to
+# first. GLD is trend-checked but is not equity, and the distinction is what the
+# sleeve gate below acts on.
+#
+# Listed rather than read from `allowed_tickers.asset_class` because this module
+# is pure decision logic with no DB (the same reason `TREND_SLEEVES` is a
+# constant), and pinned to the catalog by a test so the two cannot drift.
+EQUITY_SLEEVES: tuple[str, ...] = ("SPY", "IWN")
+
 # THE HAVEN IS TREND-CHECKED TOO, and that is the other half of the same fix.
 #
 # The Worker's sharpest line of the 21 M8b readings, 2022-02-01, raised in BOTH
@@ -289,6 +298,13 @@ class TrendRead:
     price: float
     moving_average: float | None  # None before MA_WINDOW_DAYS of history
     below: bool
+    # WHY it is below, when the price alone does not say so. A sleeve redirected
+    # by `SPREAD_STRESS_SLEEVE_GATE` reads `below=True` with a price ABOVE its
+    # moving average, and a reader comparing the two numbers would call that a
+    # bug. Recording the cause is the same discipline as the digest line that
+    # said "redirected to IEF" while the target was cash (fixed 2026-08-08): a
+    # journal that contradicts the decision is worse than no journal.
+    credit_gated: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -395,6 +411,28 @@ SPREAD_SPEED_VETO: float | None = None
 # only to it. Setting both is coherent but measures a rule nobody proposed, so
 # they are swept separately.
 SPREAD_SPEED_WIDE_TRIGGER: float | None = None
+
+# MECHANISM (c) OF THE VELOCITY THEME, and the one four separate critiques asked
+# for: "gate the credit-spread-wide book's equity sleeves on spread DIRECTION,
+# not only on the 200d price trend", "credit-regime gate on the IWN sleeve",
+# "credit-contagion gate on the small-cap sleeve".
+#
+# The complaint underneath all four: the book is SELECTED because credit is
+# impaired, and it then holds 90% equities — the most credit-sensitive exposure
+# there is — with nothing but each sleeve's own price trend between the stack
+# and that bet. The 200d reads one price at a time and cannot carry the
+# cross-signal that chose the book.
+#
+# Verbatim (Worker, 2026-08): "When BAA10Y is above its trailing median AND its
+# trailing speed is positive, treat the selected book's equity sleeves as
+# below-trend — redirect them to the haven — regardless of price vs the 200d."
+# Both conditions, as proposed: a wide LEVEL and a widening TRAJECTORY. The
+# proposal said a 3-month speed and this uses the 30-day series the rule already
+# computes, which is a deviation worth knowing when reading the verdict.
+#
+# Distinct from the veto, which defers the whole BOOK: this keeps the book and
+# empties its equity, so the two are separable hypotheses and are swept apart.
+SPREAD_STRESS_SLEEVE_GATE: float | None = None
 
 # Matches `system_thresholds.derivative_lookback_short`, and the speed itself is
 # computed by `market.derivatives.compute_derivatives` rather than differenced
@@ -527,6 +565,26 @@ def walk_decisions(
             for ticker in (*TREND_SLEEVES, TREND_HAVEN)
             if ticker in prices and ticker in moving_averages
         }
+        # THE CREDIT GATE, applied to the READS rather than beside them, so the
+        # journalled trend and the book that follows from it cannot disagree.
+        if SPREAD_STRESS_SLEEVE_GATE is not None and spread_speed is not None:
+            median = _at(spread_median, t)
+            speed = _at(spread_speed, t)
+            stressed = (
+                not pd.isna(median)
+                and _at(spread, t) > median
+                and not pd.isna(speed)
+                and speed > SPREAD_STRESS_SLEEVE_GATE
+            )
+            if stressed:
+                trend = {
+                    ticker: (
+                        dataclasses.replace(read, below=True, credit_gated=not read.below)
+                        if ticker in EQUITY_SLEEVES
+                        else read
+                    )
+                    for ticker, read in trend.items()
+                }
         # `ticker`, not `t` — `t` is the decision date in this scope, and while
         # a generator expression has its own, reusing the name here reads as a
         # shadow to anyone auditing the walk.

@@ -358,3 +358,77 @@ def test_the_wide_trigger_enters_on_speed_and_is_off_by_default(
     assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.05) == TIGHT_FLAT
     # Warm-up with no speed yet never triggers.
     assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, None) == TIGHT_FLAT
+
+
+def test_the_sleeve_gate_empties_equity_on_credit_stress_and_says_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mechanism (c), asked for by four separate critiques: the book is SELECTED
+    because credit is impaired and then holds 90% equities, with nothing but
+    each sleeve's own price trend between the stack and that bet.
+
+    Two properties, and the second is the one that rots quietly. The gate must
+    empty the EQUITY sleeves only — GLD is trend-checked but is not equity — and
+    a sleeve it redirects must SAY it was gated: `below=True` with a price above
+    its moving average is a contradiction to anyone auditing the journal, which
+    is the defect that had the digest announcing IEF while the target was
+    cash."""
+    idx = pd.to_datetime(["2020-03-02"])
+    wide, widening = 3.0, 0.30
+    frame = dict(
+        dates=idx,
+        spread=pd.Series([wide], index=idx),
+        slope=pd.Series([1.0], index=idx),
+        spread_median=pd.Series([2.0], index=idx),
+        slope_median=pd.Series([1.0], index=idx),
+        # every sleeve comfortably ABOVE its 200d, so nothing is redirected by price
+        moving_averages={
+            t: pd.Series([100.0], index=idx)
+            for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+        },
+        prices={
+            t: pd.Series([200.0], index=idx)
+            for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+        },
+        spread_speed=pd.Series([widening], index=idx),
+    )
+
+    monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", None)
+    off = market_signal.walk_decisions(**frame)[0]
+    assert off.target == market_signal.BOOKS[WIDE]  # price says hold everything
+
+    monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", 0.20)
+    on = market_signal.walk_decisions(**frame)[0]
+    assert on.target == {"IEF": 90.0, "GLD": 10.0}  # SPY+IWN emptied, GLD kept
+    assert all(on.trend[t].credit_gated for t in market_signal.EQUITY_SLEEVES)
+    assert not on.trend["GLD"].credit_gated  # not equity, not gated
+    # the audit trail explains itself: below, yet priced above its own average
+    assert on.trend["SPY"].below and on.trend["SPY"].price > (on.trend["SPY"].moving_average or 0)
+
+
+def test_the_gate_is_idle_when_the_spread_is_wide_but_calm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BOTH conditions, as proposed: a wide LEVEL and a widening TRAJECTORY. A
+    wide spread that has stopped moving is the state the countercyclical premise
+    is built for — stress already priced — and gating there would fight ADR-007
+    rather than refine it."""
+    idx = pd.to_datetime(["2009-06-01"])
+    monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", 0.20)
+    decision = market_signal.walk_decisions(
+        dates=idx,
+        spread=pd.Series([3.0], index=idx),
+        slope=pd.Series([1.0], index=idx),
+        spread_median=pd.Series([2.0], index=idx),
+        slope_median=pd.Series([1.0], index=idx),
+        moving_averages={
+            t: pd.Series([100.0], index=idx)
+            for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+        },
+        prices={
+            t: pd.Series([200.0], index=idx)
+            for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+        },
+        spread_speed=pd.Series([-0.10], index=idx),  # wide, but tightening
+    )[0]
+    assert decision.target == market_signal.BOOKS[WIDE]
