@@ -55,6 +55,46 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "spread_speed_veto": "SPREAD_SPEED_VETO",
 }
 
+# What each knob MEANS, in the Worker's terms — the text it reads when deciding
+# whether its critique is expressible. Separate from the attribute map because
+# they answer different questions, and paired with it by a test: a knob added
+# without a description fails, rather than existing in the registry and being
+# invisible to the only thing that can name it.
+PARAMETER_DESCRIPTIONS: dict[str, str] = {
+    "trend_sleeves": "which sleeves the 200d overlay checks",
+    "trend_haven": "where a below-trend sleeve is redirected",
+    "trend_fallback_haven": "where it goes when the haven is itself below trend",
+    "confirm_decisions": "consecutive agreeing decisions before a book change",
+    "ma_window_days": "the trend overlay's moving-average window",
+    "median_window_days": "the trailing window the signal's medians use",
+    "spread_speed_veto": (
+        "defer the risk-on wide-spread book while the spread is still widening faster "
+        "than this, in spread points per 30 days (null = off, the current rule)"
+    ),
+}
+
+
+def describe_testable_parameters() -> str:
+    """The knob vocabulary as prompt text, GENERATED from the registry.
+
+    The same promise `market_signal.describe_rule` makes, for the same reason
+    and after the same failure. This list was hand-written in
+    `skill-read-market-signal.md`, and on 2026-08-09 a knob was added
+    (`spread_speed_veto`) that the list did not mention — so the Worker could not
+    name the one parameter built specifically to express its most repeated
+    critique, and would have gone on filing that critique as unmeasurable prose.
+
+    THIS IS THE LOOP CLOSING, and it is why the list must not be typed by hand:
+    a knob added here becomes nameable by the Worker on the very next cycle, the
+    revision naming it is measured over 35 years on the spot, and ADR-006 issues
+    a verdict — with no human noticing anything. A hand-written list breaks that
+    chain at its first link, silently, and the break looks exactly like a Worker
+    with nothing to say."""
+    width = max(len(name) for name in TESTABLE_PARAMETERS)
+    return "\n".join(
+        f"    {name:<{width}}  {PARAMETER_DESCRIPTIONS[name]}" for name in TESTABLE_PARAMETERS
+    )
+
 
 # The knobs whose VALUE must name a tradable sleeve, and the ones that must be a
 # positive whole number. A model writes these, and until 2026-08-09 nothing

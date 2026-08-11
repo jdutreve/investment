@@ -54,16 +54,12 @@ revisions only move a knob the rule already has. If yours is one of them, put
 the proposed values in `spec.parameters` as well as describing them in prose,
 using these names:
 
-    trend_sleeves          which sleeves the 200d overlay checks
-    trend_haven            where a below-trend sleeve is redirected
-    trend_fallback_haven   where it goes when the haven is itself below trend
-    confirm_decisions      consecutive agreeing decisions before a book change
-    ma_window_days         the trend overlay's moving-average window
-    median_window_days     the trailing window the signal's medians use
+{TESTABLE_PARAMETERS}
 
 A revision naming these is re-run over the full 35 years immediately, against a
-baseline measured in the same pass, and gets a verdict on the spot: adopted only
-if Sortino does not degrade AND max drawdown improves. A revision that needs
+baseline measured in the same pass, and gets a verdict on the spot: adopted iff
+at least one indicator (CAGR, Sortino, Calmar, max drawdown) improves and NONE
+degrades. A revision that needs
 anything else still goes through probation on the slow path — say so plainly
 rather than forcing your claim into a knob that does not fit it. A measured
 answer to the wrong question is worse than an honest wait.

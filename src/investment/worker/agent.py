@@ -46,6 +46,7 @@ from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.rule_revision import describe_testable_parameters
 from investment.openrouter_client import build_openrouter_client
 from investment.worker.result import WorkerResult
 from investment.worker.tools import WorkerTools, describe_schema
@@ -255,7 +256,14 @@ def load_skills(directory: Path = SKILLS_DIR) -> str:
         logger.warning("worker skill %s is not in SKILL_ORDER, appended last", name)
         ordered.append(found[name])
     parts = [path.read_text(encoding="utf-8").strip() for path in ordered]
-    return "\n\n---\n\n".join(part for part in parts if part)
+    # `{TESTABLE_PARAMETERS}` IS GENERATED, never typed into the markdown — the
+    # same contract `describe_rule` holds for the allocation rule, and after the
+    # same failure: a hand-written knob list went stale the day a knob was added
+    # (2026-08-09, `spread_speed_veto`), leaving the Worker unable to name the
+    # one parameter built to express its most repeated critique. That break is
+    # silent and looks exactly like a Worker with nothing to propose.
+    body = "\n\n---\n\n".join(part for part in parts if part)
+    return body.replace("{TESTABLE_PARAMETERS}", describe_testable_parameters())
 
 
 def build_system_prompt(skills: str | None = None) -> str:

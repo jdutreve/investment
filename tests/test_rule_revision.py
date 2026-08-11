@@ -170,3 +170,32 @@ def test_every_registered_knob_exists_on_the_module_it_overrides() -> None:
     backtest — and read as a broken revision rather than a broken registry."""
     for attr in rule_revision.TESTABLE_PARAMETERS.values():
         assert hasattr(market_signal, attr), attr
+
+
+def test_every_knob_is_described_to_the_only_thing_that_can_name_it() -> None:
+    """A knob in the registry and absent from the vocabulary is invisible: the
+    Worker cannot name what it is not told exists, so the revision arrives as
+    unmeasurable prose and the 35-year verdict never happens.
+
+    That is not hypothetical — `spread_speed_veto` shipped on 2026-08-09 into a
+    hand-written list that did not mention it, one day after the same defect was
+    fixed in `describe_rule`. Pairing the two dicts by test is what makes the
+    next knob impossible to add halfway."""
+    assert set(rule_revision.PARAMETER_DESCRIPTIONS) == set(rule_revision.TESTABLE_PARAMETERS)
+    assert all(d.strip() for d in rule_revision.PARAMETER_DESCRIPTIONS.values())
+
+
+def test_the_worker_is_told_the_current_vocabulary_not_a_frozen_copy() -> None:
+    """THE LOOP THIS CLOSES (owner, 2026-08-11): a knob added here must become
+    nameable by the Worker on the next cycle, so a recurring critique gets
+    measured with no human noticing anything. A markdown file listing the knobs
+    by hand breaks that chain at its first link.
+
+    Asserted through `load_skills`, the real path, so a placeholder that stops
+    being interpolated fails here rather than in a paid run."""
+    from investment.worker.agent import load_skills
+
+    skills = load_skills()
+    assert "{TESTABLE_PARAMETERS}" not in skills  # interpolated, not literal
+    for name in rule_revision.TESTABLE_PARAMETERS:
+        assert name in skills, f"{name} is testable but the Worker is never told about it"
