@@ -353,3 +353,33 @@ async def _snapshot(db: InvestmentDB) -> None:
         "trace) VALUES ('2026-07-20', 'def-pf', 1, '4s', '{\"SPY\": 50, \"GLD\": 50}', 1, "
         "1.18, 1.9, '{}', 'maintain', 't')"
     )
+
+
+async def test_recurring_critiques_survive_commas_in_their_titles(db: InvestmentDB) -> None:
+    """Caught on the real corpus the hour the ledger was first filled: the block
+    joined a theme's wordings with `group_concat`, whose separator is a comma —
+    and these titles contain commas, so "Gate the book on spread trajectory, not
+    only spread level" printed as two entries.
+
+    A fixture of comma-free titles would have passed. This one carries the
+    verbatim wording that broke it."""
+    titles = [
+        "Gate the credit-spread-wide book on spread trajectory, not only spread level",
+        "Market-signal book selection should read credit-spread VELOCITY, not only level",
+        "Credit-regime gate on the IWN sleeve of the credit-spread-wide book",
+    ]
+    for n, title in enumerate(titles):
+        await db.command(
+            "INSERT INTO innovation (id, type, title, rationale, spec, theme_id, date, trace, "
+            "created_at) VALUES (:id, 'strategy_revision', :t, 'r', '{}', 'thm-1', '2026-08-09', "
+            "'tr', :now)",
+            id=f"inn-{n}",
+            t=title,
+            now=f"2026-08-09T09:0{n}:00+00:00",
+        )
+
+    block = D._recurring_block(await D._recurring_themes(db))
+
+    assert any("3x" in line for line in block)
+    for title in titles:
+        assert any(title in line for line in block), f"{title!r} was split or dropped"

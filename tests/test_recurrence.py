@@ -7,6 +7,7 @@ threshold that groups a hand-written pair proves nothing about the corpus it
 will meet.
 """
 
+import json
 from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
@@ -201,3 +202,43 @@ async def test_the_embedding_round_trips_so_later_themes_can_match(
     assert len(ids) == 1
     assert matrix.shape == (1, embedder.dims)
     assert np.isclose(float(np.linalg.norm(matrix[0])), 1.0, atol=1e-5)  # still normalized
+
+
+async def test_importing_a_run_is_idempotent_and_finds_the_themes(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """The replay commits to THROWAWAY snapshots, so the live ledger sees none
+    of it — verified 2026-08-11: after two full runs and 25 innovations, the
+    live database held zero. This importer is the only path from a run to the
+    ledger, and it will be needed again after the next one.
+
+    Idempotent on `(title, date)`: re-importing a directory that grew by one
+    episode costs one embed, not twenty-five."""
+    journal = tmp_path / "gfc.dates.jsonl"
+    rows = [
+        {
+            "as_of": "2008-07-01",
+            "innovation_proposals": [
+                {
+                    "type": "strategy_revision",
+                    "title": title,
+                    "rationale": rationale,
+                    "spec": {},
+                    "trace": "t",
+                }
+            ],
+        }
+        for title, rationale in VELOCITY_CRITIQUE[1:]
+    ]
+    journal.write_text("\n".join(json.dumps(r) for r in rows) + "\n{ torn line")
+
+    imported, skipped = await recurrence.import_run_innovations(db, tmp_path, embedder)
+    assert (imported, skipped) == (3, 0)  # the torn last line costs nothing
+
+    again = await recurrence.import_run_innovations(db, tmp_path, embedder)
+    assert again == (0, 3)
+
+    # ...and the three wordings arrived as ONE theme, loudly
+    themes = await db.query("SELECT DISTINCT theme_id FROM innovation")
+    assert len(themes) == 1
+    assert await recurrence.theme_recurrence(db, str(themes[0]["theme_id"])) == 3

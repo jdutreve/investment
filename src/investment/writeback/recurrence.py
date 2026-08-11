@@ -27,6 +27,7 @@ that can drift apart.
 import json
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -159,3 +160,56 @@ async def record_innovation(
             proposal.title,
         )
     return theme_id, recurrence
+
+
+async def import_run_innovations(
+    db: InvestmentDB, journals: Path, embedder: Embedder
+) -> tuple[int, int]:
+    """File an archived agentic-replay run's innovations into the ledger.
+    Returns `(imported, skipped)`.
+
+    NOT A ONE-OFF MIGRATION, which is why it lives here rather than in a
+    scratchpad. The agentic replay runs every date against a THROWAWAY SNAPSHOT
+    — that isolation is the whole point of `db/as_of_snapshot.py` — so
+    everything the Worker proposes is committed to a database that is then
+    deleted. Verified on 2026-08-11: after two full runs and 25 distinct
+    innovations, the live database held zero of them, and the recurrence ledger
+    would have started blind on a corpus that was sitting on disk.
+
+    So this is the ONLY path from a run to the ledger, and it will be needed
+    again after the next one.
+
+    IDEMPOTENT on `(title, date)`: a re-import adds nothing, and re-running it
+    over a directory that grew by one episode costs one embed per new
+    innovation. Recurrence counts distinct titles anyway, so a duplicated row
+    could not inflate a count — the skip is about not paying twice, and about a
+    ledger that reads as a record rather than as an accumulation of re-runs."""
+    proposals: list[tuple[str, ImprovementProposal]] = []
+    for path in sorted(journals.rglob("*.dates.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                # The same tolerance `_read_journal` applies: a run killed
+                # mid-write leaves one torn line, and it must not cost the file.
+                logger.warning("skipping an unreadable journal line in %s", path)
+                continue
+            for raw in row.get("innovation_proposals") or []:
+                proposals.append((str(row.get("as_of", "")), ImprovementProposal(**raw)))
+
+    imported = skipped = 0
+    for as_of, proposal in proposals:
+        existing = await db.query(
+            "SELECT 1 FROM innovation WHERE title = :t AND date = :d LIMIT 1",
+            t=proposal.title,
+            d=as_of,
+        )
+        if existing:
+            skipped += 1
+            continue
+        await record_innovation(db, proposal, embedder, today=as_of)
+        imported += 1
+    logger.info("imported %d innovations from %s (%d already present)", imported, journals, skipped)
+    return imported, skipped

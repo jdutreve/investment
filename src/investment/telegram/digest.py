@@ -584,20 +584,31 @@ async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:
     one date write the same sentence twice, which is a rerun and not a second
     opinion. The title shown is the most recent wording — the earliest is often
     the vaguest, since the Worker sharpens a critique as it meets it again."""
-    rows = await db.query(
-        "SELECT theme_id, COUNT(DISTINCT title) AS n, "
-        "       group_concat(DISTINCT title) AS wordings "
-        "FROM innovation GROUP BY theme_id HAVING n >= :min ORDER BY n DESC LIMIT 5",
+    # TWO QUERIES, NOT `group_concat`. The first version joined the wordings
+    # into one string, and SQLite's separator is a comma — which these titles
+    # contain ("Gate the book on spread trajectory, not only spread level"), so
+    # the digest printed each one as two entries. Caught on the real corpus the
+    # hour the ledger was first filled; a fixture of comma-free titles would
+    # have missed it.
+    themes = await db.query(
+        "SELECT theme_id, COUNT(DISTINCT title) AS n FROM innovation "
+        "GROUP BY theme_id HAVING n >= :min ORDER BY n DESC LIMIT 5",
         min=NOTABLE_RECURRENCE,
     )
-    return [
-        {
-            "theme_id": r["theme_id"],
-            "n": r["n"],
-            "titles": str(r["wordings"] or "").split(","),
-        }
-        for r in rows
-    ]
+    out: list[dict[str, Any]] = []
+    for theme in themes:
+        titles = await db.query(
+            "SELECT DISTINCT title FROM innovation WHERE theme_id = :t ORDER BY created_at",
+            t=theme["theme_id"],
+        )
+        out.append(
+            {
+                "theme_id": theme["theme_id"],
+                "n": theme["n"],
+                "titles": [str(row["title"]) for row in titles],
+            }
+        )
+    return out
 
 
 async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:
