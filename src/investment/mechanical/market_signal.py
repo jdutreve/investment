@@ -72,7 +72,15 @@ owner-arbitrated:
   25 of the 418 monthly decisions change, all in credit-stress years
   (docs/V1_STRATEGY.md has two worked examples).
 
-The pinned pair is therefore **11.22% / -20.61%**. The earlier figures are
+- 2026-08-11, THE TREND WINDOW 200 -> 300 (owner signature): 11.22% ->
+  **11.57%** CAGR, Sortino 1.27 -> **1.30**, drawdown unchanged at -20.61%,
+  turnover 67.7 -> **53.7**. The window had never been measured — 200 came from
+  the scratchpad backtest by convention and survived the whole ADR-007
+  validation unexamined. Adopts on the full sample and on BOTH halves, with the
+  pricing bounded to each; 175 and 225 also adopted on the full sample and were
+  refused, each failing the half it was not fitted to.
+
+The pinned pair is therefore **11.57% / -20.61%**. The earlier figures are
 history, not targets. Any OTHER divergence from 10.71% is drift and must be
 explained, which is what this module exists to guarantee.
 
@@ -217,7 +225,31 @@ CREDIT_SPREAD = "BAA10Y"
 YIELD_SLOPE = "T10Y2Y"
 MEDIAN_WINDOW_DAYS = 2520
 MEDIAN_MIN_DAYS = 252
-MA_WINDOW_DAYS = 200
+# THE TREND WINDOW, 300 since 2026-08-11 (owner signature) and 200 before it.
+#
+# 200 was never measured — it was inherited from the scratchpad backtest, where
+# it is the convention every trend-following study uses, and it went unexamined
+# through the whole ADR-007 validation. Swept for the first time on 2026-08-09
+# because that day's finding said the drawdown belongs to the OVERLAY, so the
+# overlay's own parameters are where an improvement could come from.
+#
+# Re-measured against the CURRENT rule (both trajectory knobs live) with the
+# pricing bounded to each window — the correction of the same day:
+#
+#     window            sortino   cagr     turnover
+#     full 1991-2026     +0.027   +0.36pp    68 -> 54
+#     first 1991-2008    +0.011   +0.18pp    28 -> 22
+#     second 2009-2026   +0.042   +0.53pp    39 -> 31
+#
+# Adopts on all three, drawdown unchanged everywhere, and turnover falls 21%.
+# The turnover is not a side benefit: 14 fewer round trips a year at ADR-010's
+# 23 bps is the cheapest part of the CAGR gain, and a slower signal is a less
+# fitted one.
+#
+# 175 and 225 also adopted on the full sample and were REFUSED, each failing the
+# half it was not fitted to — the out-of-sample split earning its keep on its
+# first outing.
+MA_WINDOW_DAYS = 300
 
 # Every ticker any book can hold — what `run_market_signal` must load prices for. The
 # bug that once crippled this stack (docs/STRATEGY_COMPARISON.md correction note)

@@ -11,10 +11,11 @@
 > its own — and together they cut the drawdown by 3.2 points.
 >
 > **Superseded again on 2026-08-11** (owner signature): the two spread-trajectory
-> knobs are ON at 0.20, taking the pinned pair to **11.22% / -20.61%**, Sortino
-> 1.17 -> 1.27. Same provenance — the Worker's most repeated critique, this time
-> measured out of sample as well as in. See "Mechanism (c)" below
-> (`mechanical/market_signal.py`).
+> knobs are ON at 0.20, and the trend window moved 200 -> 300 the same day,
+> taking the pinned pair to **11.57% / -20.61%**, Sortino 1.17 -> 1.30, turnover
+> 61.1 -> 53.7. Same provenance for the knobs — the Worker's most repeated
+> critique, measured out of sample as well as in; the window came from asking
+> what had never been measured (`mechanical/market_signal.py`).
 
 
 **Status: ADOPTED as the V1 candidate (owner decision, 2026-07-19).**
@@ -706,3 +707,31 @@ mechanisms carry different eras. The sleeve gate dominates the first half
 robustness claim the pair could not make before.
 
 `stack_metrics(..., until=)` now bounds the measurement, with a test.
+
+### The trend window, switched to 300 days (2026-08-11, owner signature)
+
+200 was never measured. It came from the scratchpad backtest, where it is the
+convention every trend-following study uses, and it survived the whole ADR-007
+validation unexamined — swept for the first time on 2026-08-09, and only because
+that day's finding said the drawdown belongs to the OVERLAY, so the overlay's
+own parameters are where an improvement could come from.
+
+Re-measured against the CURRENT rule (both trajectory knobs live) with the
+pricing bounded to each window:
+
+    window            sortino   cagr      calmar   maxDD       turnover
+    full 1991-2026     +0.027   +0.36pp   +0.017   unchanged   68 -> 54
+    first 1991-2008    +0.011   +0.18pp   +0.013   unchanged   28 -> 22
+    second 2009-2026   +0.042   +0.53pp   +0.026   unchanged   39 -> 31
+
+Adopts on all three. The turnover fall of 21% is not a side benefit: fourteen
+fewer round trips a year at ADR-010's 23 bps is the cheapest part of the CAGR
+gain, and a slower signal is a less fitted one.
+
+    pinned pair    11.22% / -20.61%   ->   11.57% / -20.61%
+    sortino        1.27               ->   1.30
+    turnover       67.7               ->   53.7
+
+175 and 225 days also adopted on the full sample and were REFUSED, each failing
+the half it was not fitted to. The out-of-sample split earned its keep on its
+first outing, and would have let two fitted windows through without it.
