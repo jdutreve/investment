@@ -592,3 +592,32 @@ signature. The measurement earned the recommendation; the signature made it live
 
 Reproducing the rejection of the third mechanism is a command, not a rewrite:
 `measure_revision(db, {"spread_speed_wide_trigger": 0.20})`.
+
+### The haven family, closed (2026-08-11)
+
+Every alternative haven the Worker proposed is now measured. Two of them had
+been refused by a validation message that was simply WRONG — "not a tradable
+sleeve with a price series" — when SHY is active in the catalog with 8755 points
+back to 1991. The real constraint was that `run_market_signal` loaded prices for
+the five book sleeves only, so a haven outside that set had no series at
+runtime. One `LOADABLE_TICKERS` set now serves both the loader and the knob
+validation, so "the knob accepts it" and "the run has prices for it" cannot
+disagree.
+
+    proposal                          full        1991-2008   2009-2026
+    haven = GLD, fallback IEF         reject      —           —
+    haven = GLD, fallback cash        reject      —           —
+    haven = SHY                       reject      reject      reject
+    haven = TLT                       ADOPT       reject      reject
+    fallback = SHY                    reject      reject      reject
+    haven = cash                      not expressible (the primary haven is
+                                      trend-CHECKED, so it needs a series)
+    fallback = TIP                    not expressible (series starts 2003)
+
+**TLT is the cleanest out-of-sample kill yet**: it adopts on the full 35 years
+and fails BOTH halves — better evidence than the 175/225-day windows, which
+each failed only one. Without the split it would have been switched on.
+
+The haven stays IEF, with the cash fallback. The family is closed: the Worker
+proposed five alternatives across independent dates, and the history refused all
+five.

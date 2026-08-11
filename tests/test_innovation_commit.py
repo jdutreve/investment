@@ -406,7 +406,16 @@ async def test_a_revision_naming_an_unusable_value_is_reported_not_crashed(
     anything notices.
 
     A value the walk cannot apply is now an ANSWER, reported like an unknown
-    parameter, and the walk is never started."""
+    parameter, and the walk is never started.
+
+    THE EXAMPLE MOVED FROM SHY TO TIP, and the move is the point: SHY was
+    refused for being "not a tradable sleeve with a price series", which was
+    simply false — it is active with 8755 points back to 1991, and the real
+    constraint was that the run loaded prices for the five book sleeves only.
+    Fixed 2026-08-11, measured, rejected on its merits. TIP is the honest
+    example: its series starts 2003-12-05, so a verdict on it could only ever
+    cover two thirds of the sample and would not be comparable to the baseline
+    it is judged against (docs/IMPROVEMENTS.md I-48)."""
 
     def _fail(_db: object, _o: object) -> None:
         raise AssertionError("started a 35y walk on a value it cannot apply")
@@ -415,10 +424,10 @@ async def test_a_revision_naming_an_unusable_value_is_reported_not_crashed(
     await _framework(db)
 
     with caplog.at_level(logging.INFO, logger="investment.writeback.writeback"):
-        result = PostPlannerResult(innovations=[_revision({"trend_haven": "SHY"})])
+        result = PostPlannerResult(innovations=[_revision({"trend_haven": "TIP"})])
         await commit_innovations(db, result, today=date(2026, 8, 9), embedder=None)
 
-    assert any("cannot apply" in r.getMessage() and "SHY" in r.getMessage() for r in caplog.records)
+    assert any("cannot apply" in r.getMessage() and "TIP" in r.getMessage() for r in caplog.records)
     # `cash` is legal as the FALLBACK haven and nowhere else — the primary is
     # trend-CHECKED, so it needs a price series. Caught by the measurement sweep
     # the check exists to protect, an hour after the check shipped one notch too

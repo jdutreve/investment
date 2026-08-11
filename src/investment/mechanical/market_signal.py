@@ -225,6 +225,30 @@ MA_WINDOW_DAYS = 200
 # the set here makes that omission impossible to repeat silently.
 STACK_TICKERS: tuple[str, ...] = ("SPY", "IWN", "GLD", "VCIT", "IEF")
 
+# Instruments a HAVEN knob may name beyond the books' own five. Not the same
+# question as "what the books hold": a haven is where the overlay flees to, and
+# nothing says the best destination is already a sleeve.
+#
+# The M8b Worker proposed SHY and TIP as havens, and both were refused with the
+# message "not a tradable sleeve with a price series" — which was FALSE and
+# worth catching: SHY is active in the catalog with 8755 points back to
+# 1991-10-29, exactly the history the 35-year walk needs. The real constraint
+# was never data, it was that `run_market_signal` only loaded the five tickers
+# the books use, so a haven outside that set had no series AT RUNTIME.
+#
+# SHY and TLT qualify (full history from 1991 and 1986). TIP does NOT and is
+# deliberately absent: its series starts 2003-12-05, so a revision naming it
+# could only ever be measured on two thirds of the sample, and a verdict from a
+# different window is not comparable to the baseline it is judged against
+# (docs/IMPROVEMENTS.md I-48).
+HAVEN_CANDIDATES: tuple[str, ...] = ("SHY", "TLT")
+
+# What the price loader must serve: the books' sleeves plus every instrument a
+# haven knob is allowed to name. ONE set, so "the knob accepts it" and "the run
+# has prices for it" cannot disagree — which is precisely how SHY came back as
+# `KeyError: 'SHY'` from deep inside a pandas frame on 2026-08-09.
+LOADABLE_TICKERS: tuple[str, ...] = (*STACK_TICKERS, *HAVEN_CANDIDATES)
+
 # The stack is charged at the SAME per-order rate as every other NAV in the
 # system (ADR-010): Saxo's real 23 bps. Was 20 here — which happened to be
 # double `replay_cost_bps` AND double the "20 bps/rotation" the spec claimed,
@@ -724,7 +748,7 @@ async def run_market_signal(
     calendar = replay._book_calendar(inputs)
     rf = await ratios.load_rf_daily(db)
 
-    prices = {t: await ratios.load_price(db, t) for t in STACK_TICKERS}
+    prices = {t: await ratios.load_price(db, t) for t in LOADABLE_TICKERS}
     prices = {t: p for t, p in prices.items() if not p.empty}
     missing = set(STACK_TICKERS) - set(prices)
     if missing:

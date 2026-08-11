@@ -180,7 +180,11 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
     The primary haven is TREND-CHECKED, so it needs a series; the fallback is
     where the overlay goes precisely because cash cannot fall."""
     bad: dict[str, str] = {}
-    known = set(market_signal.STACK_TICKERS)
+    # What the RUN can serve, not what the books happen to hold — a haven is
+    # where the overlay flees to and need not be a sleeve. The two were the same
+    # set until 2026-08-11, which is why SHY (active, full 1991 history) came
+    # back as "not a tradable sleeve with a price series".
+    known = set(market_signal.LOADABLE_TICKERS)
     for knob, value in overrides.items():
         if knob in _TICKER_KNOBS:
             names = list(value) if isinstance(value, list | tuple) else [value]
@@ -189,7 +193,10 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
             )
             unknown = [n for n in names if not isinstance(n, str) or n not in allowed]
             if unknown:
-                bad[knob] = f"not a tradable sleeve with a price series: {unknown}"
+                bad[knob] = (
+                    f"outside the instruments this run loads prices for "
+                    f"({', '.join(sorted(known))}): {unknown}"
+                )
         elif knob in _FLOAT_KNOBS and not (
             isinstance(value, int | float) and not isinstance(value, bool)
         ):
