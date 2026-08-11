@@ -345,8 +345,8 @@ def describe_rule(caps: Caps | None = None) -> str:
         trajectory += (
             f"  5. Spread-stress sleeve gate: under those same conditions "
             f"({SPREAD_STRESS_SLEEVE_GATE:g} per\n"
-            f"     {SPREAD_SPEED_LOOKBACK_DAYS} days), the EQUITY sleeves "
-            f"({', '.join(EQUITY_SLEEVES)}) are sent to the\n"
+            f"     {SPREAD_SPEED_LOOKBACK_DAYS} days), these sleeves "
+            f"({', '.join(STRESS_GATED_SLEEVES)}) are sent to the\n"
             "     haven whatever their own 200d says.\n"
         )
     return (
@@ -527,6 +527,25 @@ SPREAD_SPEED_WIDE_TRIGGER: float | None = None
 # empties its equity, so the two are separable hypotheses and are swept apart.
 SPREAD_STRESS_SLEEVE_GATE: float | None = 0.20
 
+# WHICH sleeves that gate empties. A knob since 2026-08-11, and the Worker found
+# the reason four wordings in: the veto's escape route is the slope-decided
+# tight-steep book, which holds VCIT 50 — investment-grade CREDIT — and the gate
+# was emptying the equities beside it while leaving the sleeve most directly
+# exposed to the very spread that triggered the gate.
+#
+# Verbatim: "On 2008-11-03 BAA10Y is 5.53 vs median 2.33 with speed 1.43; that
+# is exactly the condition under which investment-grade credit should not be
+# treated as a tight-spread carry sleeve."
+#
+# A HOLE THE VETO ITSELF OPENED. Before the veto shipped the day before, the
+# stack rarely reached the tight-steep book during credit stress; deferring the
+# wide reading is what routes it there. The critique could not have existed
+# earlier, which is the clearest evidence yet that the Worker reads the rule it
+# is actually given rather than a memorised one.
+#
+# Defaults to the equities, i.e. to the behaviour that was measured and adopted.
+STRESS_GATED_SLEEVES: tuple[str, ...] = EQUITY_SLEEVES
+
 # Matches `system_thresholds.derivative_lookback_short`, and the speed itself is
 # computed by `market.derivatives.compute_derivatives` rather than differenced
 # here — CLAUDE.md's "two implementations must produce the same numbers" applies
@@ -594,7 +613,16 @@ def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) 
     haven = TREND_FALLBACK_HAVEN if TREND_HAVEN in below_trend else TREND_HAVEN
     adjusted: dict[str, float] = {}
     for ticker, weight in book.items():
-        redirected = ticker in below_trend and ticker in (*TREND_SLEEVES, TREND_HAVEN)
+        # REDIRECTABLE = trend-checked OR stress-gated. The second half was
+        # missing and is the other layer of one constraint: `walk_decisions`
+        # could mark VCIT below, and this loop then ignored it because VCIT is
+        # not in the checked set, so the gate measured as exactly zero. One
+        # implausible number, two places to fix.
+        redirected = ticker in below_trend and ticker in (
+            *TREND_SLEEVES,
+            TREND_HAVEN,
+            *STRESS_GATED_SLEEVES,
+        )
         destination = haven if redirected else ticker
         adjusted[destination] = adjusted.get(destination, 0.0) + float(weight)
     return adjusted
@@ -660,6 +688,21 @@ def walk_decisions(
         }
         # THE CREDIT GATE, applied to the READS rather than beside them, so the
         # journalled trend and the book that follows from it cannot disagree.
+        #
+        # IT MUST REACH SLEEVES THE 200d DOES NOT CHECK, and the first version
+        # could not — it rewrote entries of `trend`, which is built only for
+        # `TREND_SLEEVES + TREND_HAVEN`, so gating VCIT did literally nothing
+        # and measured as EXACTLY zero on all three windows. That zero read like
+        # a finding about the market ("the veto path never holds VCIT") and was
+        # a bug in this loop; the implausibility of three identical zeros is
+        # what exposed it.
+        #
+        # A gated sleeve outside the checked set gets a read of its own, marked
+        # `credit_gated`, so the journal explains a redirect the 200d never
+        # ordered. It does NOT become trend-checked: only the stress condition
+        # can move it, never its own price against its average — which is the
+        # distinction the measurement says matters, since adding VCIT to the
+        # 200d overlay was rejected on every window.
         if SPREAD_STRESS_SLEEVE_GATE is not None and spread_speed is not None:
             median = _at(spread_median, t)
             speed = _at(spread_speed, t)
@@ -670,14 +713,21 @@ def walk_decisions(
                 and speed > SPREAD_STRESS_SLEEVE_GATE
             )
             if stressed:
-                trend = {
-                    ticker: (
-                        dataclasses.replace(read, below=True, credit_gated=not read.below)
-                        if ticker in EQUITY_SLEEVES
-                        else read
-                    )
-                    for ticker, read in trend.items()
-                }
+                for ticker in STRESS_GATED_SLEEVES:
+                    read = trend.get(ticker)
+                    if read is not None:
+                        trend[ticker] = dataclasses.replace(
+                            read, below=True, credit_gated=not read.below
+                        )
+                    elif ticker in prices:
+                        trend[ticker] = TrendRead(
+                            price=_at(prices[ticker], t),
+                            moving_average=_at(moving_averages[ticker], t)
+                            if ticker in moving_averages
+                            else None,
+                            below=True,
+                            credit_gated=True,
+                        )
         # `ticker`, not `t` — `t` is the decision date in this scope, and while
         # a generator expression has its own, reusing the name here reads as a
         # shadow to anyone auditing the walk.

@@ -59,6 +59,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "spread_speed_veto": "SPREAD_SPEED_VETO",
     "spread_speed_wide_trigger": "SPREAD_SPEED_WIDE_TRIGGER",
     "spread_stress_sleeve_gate": "SPREAD_STRESS_SLEEVE_GATE",
+    "stress_gated_sleeves": "STRESS_GATED_SLEEVES",
 }
 
 # What each knob MEANS, in the Worker's terms — the text it reads when deciding
@@ -82,8 +83,12 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "this, whatever the level says, same units (null = off)"
     ),
     "spread_stress_sleeve_gate": (
-        "send the EQUITY sleeves to the haven whenever the spread is wide and widening "
+        "send the gated sleeves to the haven whenever the spread is wide and widening "
         "faster than this, without waiting for their own 200d, same units (null = off)"
+    ),
+    "stress_gated_sleeves": (
+        "which sleeves that stress gate empties — equities by default, and credit "
+        "sleeves are the obvious candidate to add"
     ),
 }
 
@@ -117,7 +122,9 @@ def describe_testable_parameters() -> str:
 # (`dynamic_best_of(GLD,IEF)` on 08-08, `SHY` on 08-09). Both degraded cleanly —
 # the caller catches and logs "could not be measured" — but the revision then
 # carries a traceback instead of a verdict, and the owner reads neither.
-_TICKER_KNOBS = frozenset({"trend_haven", "trend_fallback_haven", "trend_sleeves"})
+_TICKER_KNOBS = frozenset(
+    {"trend_haven", "trend_fallback_haven", "trend_sleeves", "stress_gated_sleeves"}
+)
 _COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_days"})
 # A threshold in the spread's own units, so any finite number is expressible —
 # including a negative one, which vetoes only while spreads are TIGHTENING and

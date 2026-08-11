@@ -521,3 +521,63 @@ def _stated(value: object, text: str) -> bool:
             candidates.add(str(int(value // 252)))
         return any(c in text for c in candidates)
     return str(value) in text
+
+
+def test_the_stress_gate_reaches_sleeves_the_200d_does_not_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Worker's fourth wording, and the bug it exposed in the first fix.
+
+    Its critique: the veto's escape route is the slope-decided tight-steep book,
+    which holds VCIT 50 — investment-grade CREDIT — while the gate emptied the
+    equities beside it and left the sleeve most exposed to the spread that
+    triggered the gate.
+
+    The first implementation rewrote entries of `trend`, which exists only for
+    the 200d-checked set, so gating VCIT did NOTHING and measured as exactly
+    zero on all three windows. Three identical zeros are not a market fact, and
+    that implausibility is what exposed it.
+
+    A gated sleeve outside the checked set must be redirected AND explain
+    itself — and must not become trend-checked, since adding VCIT to the 200d
+    overlay was measured and rejected on every window."""
+    idx = pd.to_datetime(["2008-11-03"])
+    # THE VETO MUST BE ON: it is what routes a wide-spread month to the
+    # slope-decided book in the first place. With it off a wide spread selects
+    # the wide book, which holds no VCIT — the first version of this test set it
+    # to None and measured the wrong chain entirely.
+    monkeypatch.setattr(market_signal, "SPREAD_SPEED_VETO", 0.20)
+    monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", 0.20)
+    monkeypatch.setattr(market_signal, "STRESS_GATED_SLEEVES", ("SPY", "IWN", "VCIT"))
+
+    tickers = (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN, "VCIT")
+    decision = market_signal.walk_decisions(
+        dates=idx,
+        spread=pd.Series([5.5], index=idx),  # wide
+        slope=pd.Series([2.0], index=idx),  # steep -> the VCIT-holding book
+        spread_median=pd.Series([2.3], index=idx),
+        slope_median=pd.Series([1.0], index=idx),
+        moving_averages={t: pd.Series([100.0], index=idx) for t in tickers},
+        prices={t: pd.Series([200.0], index=idx) for t in tickers},  # all ABOVE their 200d
+        spread_speed=pd.Series([1.43], index=idx),  # widening hard
+    )[0]
+
+    # tight-steep is VCIT 50 / IEF 40 / IWN 10; the gate empties IWN and VCIT.
+    assert decision.target == {"IEF": 100.0}
+    assert decision.trend["VCIT"].credit_gated  # it explains itself
+    assert decision.trend["VCIT"].price > (decision.trend["VCIT"].moving_average or 0)
+
+    # ...and with the gate off (veto still on, so the book is the same), VCIT is
+    # held at book weight: it is NOT trend-checked, only stress-gated.
+    monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", None)
+    ungated = market_signal.walk_decisions(
+        dates=idx,
+        spread=pd.Series([5.5], index=idx),
+        slope=pd.Series([2.0], index=idx),
+        spread_median=pd.Series([2.3], index=idx),
+        slope_median=pd.Series([1.0], index=idx),
+        moving_averages={t: pd.Series([100.0], index=idx) for t in tickers},
+        prices={t: pd.Series([200.0], index=idx) for t in tickers},
+        spread_speed=pd.Series([1.43], index=idx),
+    )[0]
+    assert ungated.target["VCIT"] == 50.0

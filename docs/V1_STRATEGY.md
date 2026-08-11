@@ -621,3 +621,41 @@ each failed only one. Without the split it would have been switched on.
 The haven stays IEF, with the cash fallback. The family is closed: the Worker
 proposed five alternatives across independent dates, and the history refused all
 five.
+
+### The credit-sleeve gate: right premise, wrong conclusion (2026-08-11)
+
+The Worker's fourth and fifth wordings of one theme found a hole the veto ITSELF
+opened: deferring the wide reading routes the stack to the slope-decided
+tight-steep book, which holds VCIT 50 — investment-grade CREDIT — while the
+stress gate emptied the equities beside it. Verbatim: "On 2008-11-03 BAA10Y is
+5.53 vs median 2.33 with speed 1.43; that is exactly the condition under which
+investment-grade credit should not be treated as a tight-spread carry sleeve."
+
+The critique could not have existed two days earlier: before the veto shipped,
+the stack rarely reached that book during credit stress. It reads the rule it is
+given, not a memorised one.
+
+`STRESS_GATED_SLEEVES` makes the gated set a knob. Measured:
+
+    gated set              full      1991-2008              2009-2026
+    SPY IWN VCIT           reject    reject -0.177 sortino  reject
+                                     drawdown 2.96pp DEEPER
+    SPY IWN VCIT GLD       ADOPT     reject                 reject
+
+**Gating the credit sleeve destroys exactly the gain the veto bought** — the
+same 2.96pp of drawdown, with the sign flipped. The reason is the stack's own
+doctrine: the veto's escape route holds investment-grade credit at the bottom of
+2008, and the 2009 recovery in that sleeve is what pays. Stress that is PRICED
+precedes strong forward returns, and that premise covers credit as much as
+equities.
+
+So the premise was right and the conclusion inverted. Nothing to adopt, and the
+knob stays at its default (equities only) with the verdict recorded so the
+question is not re-opened a sixth time.
+
+**A measurement bug this exposed, worth recording.** The first implementation
+measured EXACTLY zero on all three windows — which is not a market fact, and the
+implausibility is what exposed it. The gate rewrote entries of the trend-read
+map, built only for the 200d-checked set, so gating VCIT did nothing; and
+`apply_trend_overlay` separately ignored any sleeve outside that set. One
+implausible number, two layers of the same constraint.
