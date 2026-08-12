@@ -40,7 +40,7 @@ from typing import Any, cast
 import pandas as pd
 
 from investment.config import Settings
-from investment.corpus import embedding
+from investment.corpus import curation_sweep, embedding
 from investment.corpus import ingester as corpus_ingester
 from investment.db.seed_data import (
     ALL_WEATHER_BENCHMARK,
@@ -70,8 +70,6 @@ from investment.mechanical import (
     scenarios,
     snapshots,
 )
-from investment.worker import curator as curator_mod
-from investment.writeback import knowledge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -800,40 +798,14 @@ async def _seed_curation(db: InvestmentDB, settings: Settings) -> dict[str, Any]
     the same fingerprint, so this is expensive EXACTLY ONCE. Re-running the
     seed — which the module docstring promises is safe — then costs nothing.
 
-    A document that fails does not abort the seed: its passages stay unmarked
-    and the next run retries precisely those. Same policy as the watcher and
-    the curator's own batch loop, for the same reason — a long job must not
-    lose hours of work to one bad response."""
-    embedder = embedding.InProcessEmbedder(settings.embedding_model)
-    writer = knowledge.KnowledgeWriteback(db, embedder)
-    curator = curator_mod.KnowledgeCurator(
-        db,
-        model_name=settings.planner_model,
-        api_key=settings.openrouter_api_key,
-        reasoning_effort=settings.curator_reasoning_effort,
-    )
-    documents = await db.query("SELECT id, title FROM document ORDER BY id")
-    results: dict[str, Any] = {"documents": 0, "candidates": 0, "failed": []}
-    for row in documents:
-        document_id = str(row["id"])
-        try:
-            scored = await curator.curate_document(document_id, writer)
-        except Exception as exc:  # one bad document must not cost the others
-            logger.warning("UC0 step 6b: %s FAILED — %s: %s", row["title"], type(exc).__name__, exc)
-            results["failed"].append(document_id)
-            continue
-        results["documents"] += 1
-        results["candidates"] += len(scored)
-    # The same rule as the batch loop one level down, for the same reason: a
-    # per-document `except` that never escalates turns a total outage into a
-    # tidy inventory line. If nothing at all got through, the seed must say so.
-    if results["failed"] and results["documents"] == 0:
-        raise RuntimeError(
-            f"UC0 step 6b: every document failed curation ({len(results['failed'])}) — "
-            "see the warnings above; nothing was persisted"
-        )
-    logger.info("UC0 step 6b: %s", results)
-    return results
+    THE LOOP ITSELF MOVED OUT (`corpus/curation_sweep.py`) when the Monday chain
+    became its second caller. Same pass, same per-document failure policy, one
+    implementation: the seed's initial read of the corpus and the weekly sweep
+    over what is still unread differ only in when they run."""
+    sweep = await curation_sweep.sweep_corpus(db, settings)
+    result = dataclasses.asdict(sweep)
+    logger.info("UC0 step 6b: %s", result)
+    return result
 
 
 async def run_seed(

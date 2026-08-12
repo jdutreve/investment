@@ -25,6 +25,13 @@ ZURICH = timezone(timedelta(hours=2))
 MONDAY_0900 = datetime(2026, 8, 10, 9, 0, tzinfo=ZURICH)
 
 
+class _Settings:
+    """Only what `monday_steps` reads off settings while BUILDING the list —
+    the thunks are never awaited here."""
+
+    inbox_path = Path("/nonexistent-inbox")
+
+
 @pytest.fixture
 async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     conn = InvestmentDB(tmp_path / "main.db")
@@ -128,7 +135,10 @@ def _steps(db: InvestmentDB) -> list[str]:
         name
         for name, _ in M.monday_steps(
             db,
-            settings=cast(Any, object()),
+            settings=cast(Any, _Settings()),
+            embedder=cast(Any, object()),
+            ingester=cast(Any, object()),
+            triage_agent=cast(Any, object()),
             thresholds={"rolling_window_days": 756.0, "ranking_tiebreak_window": 0.02},
             user_profile={"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0},
             planner_pre=cast(PlannerPre, object()),
@@ -148,6 +158,8 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
     which is the order ADR-011 requires."""
     assert _steps(db) == [
         "catch-up",
+        "event-watch",
+        "curation",
         "backtests",
         "scenarios",
         "invariant-weights",
@@ -160,13 +172,14 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
     ]
 
 
-def test_the_two_missing_steps_are_absent_rather_than_stubbed(db: InvestmentDB) -> None:
-    """UC3 event watch and the UC4 sweep have no job yet. They are NAMED in
-    main.py's docstring and absent from the list — a stub that did nothing would
-    report a chain step as run every Monday (CLAUDE.md: "no dead code, no
-    speculative stubs"). The catch-up landed and is now first."""
-    assert {"event-watch", "curation"}.isdisjoint(_steps(db))
-    assert _steps(db)[0] == "catch-up"
+def test_the_chain_covers_the_whole_timeline(db: InvestmentDB) -> None:
+    """Every slot CLAUDE.md's timeline names now has a job behind it. The two
+    remaining absences are INSIDE steps and written down where they bite: the
+    expiry sweep (ADR-006 emptied it) and UC3's bounded-domain fetch (no text
+    extractor yet)."""
+    steps = _steps(db)
+    assert steps[:3] == ["catch-up", "event-watch", "curation"]
+    assert "market-signal" in steps and "uc8" in steps
 
 
 def test_the_digest_is_last_so_nothing_renders_on_half_computed_state(db: InvestmentDB) -> None:

@@ -36,18 +36,15 @@ never covered by it. Forward paper-mode is the go-live gate (ADR-007 §5); the
 binding caps, ADR-009's alerts and the anti-drift check are what watch the
 allocator.
 
-TWO CHAIN STEPS ARE STILL MISSING and are named rather than stubbed (CLAUDE.md
-"no dead code, no speculative stubs"):
+THE CHAIN IS COMPLETE. Every step CLAUDE.md's timeline names now has a job:
+08:00 catch-up (`mechanical/catchup.py`), 08:05 UC3 event watch
+(`watch/event_watch.py`), 08:10 UC4 curation sweep (`corpus/curation_sweep.py`),
+then the mechanical block, the monthly allocation decision, UC8 and the digest.
 
-  - 08:05 UC3 EVENT WATCH (`watch/event_watch.py`, Task 3.2).
-  - 08:10 UC4 CURATION SWEEP. Per-document curation exists and the watcher calls
-    it on ingest; the corpus-wide Monday sweep over `curated_passage` does not.
-
-They insert into `monday_steps` in timeline order when they land, and nothing
-else changes — which is the point of the chain being a step list. The 08:00
-catch-up landed with `mechanical/catchup.py`; its docstring records why the
-expiry sweep CLAUDE.md lists beside it stays unwired (ADR-006 removed the user
-response that 'expired' described).
+Two absences are deliberate and written down where they bite: the expiry sweep
+CLAUDE.md lists beside the catch-up stays unwired (ADR-006 removed the user
+response 'expired' described — `catchup.py`), and UC3's bounded-domain fetch
+waits for a text extractor this project does not have (`event_watch.py`).
 """
 
 import asyncio
@@ -65,6 +62,7 @@ from ulid import ULID
 
 from investment.chain import CHAIN_START_HOUR, ChainResult, ChainStep, is_chain_due, run_chain
 from investment.config import Settings
+from investment.corpus.curation_sweep import sweep_corpus
 from investment.corpus.embedding import InProcessEmbedder
 from investment.corpus.ingester import CorpusIngester
 from investment.corpus.watcher import InboxWatcher
@@ -84,6 +82,12 @@ from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.telegram.digest import build_digest
 from investment.telegram.notify import notify
+from investment.watch.event_watch import (
+    EventTriage,
+    build_triage_agent,
+    flagged_message,
+    run_event_watch,
+)
 from investment.worker.agent import build_worker_agent
 from investment.worker.result import WorkerResult
 
@@ -148,6 +152,9 @@ def monday_steps(
     today: date,
     send: Callable[[str], Awaitable[bool]],
     settings: Settings,
+    embedder: InProcessEmbedder,
+    ingester: CorpusIngester,
+    triage_agent: Agent[None, EventTriage],
 ) -> list[ChainStep]:
     """The Monday chain, in the timeline CLAUDE.md pins (08:30 → 09:30).
 
@@ -163,6 +170,16 @@ def monday_steps(
     ErrorEvent alert instead, which is the correct substitution — a digest
     rendered on half-computed state would be worse than none."""
     window = int(thresholds["rolling_window_days"])
+
+    async def event_watch() -> None:
+        """08:05. The flagged items are pushed to Telegram HERE rather than
+        waiting for the digest: `needs-user-input` is a question to the owner,
+        and a question that arrives four hours later inside a weekly report is
+        not a question (UC3: "flagged and pushed to Telegram instead of being
+        hallucinated")."""
+        report = await run_event_watch(db, ingester, triage_agent)
+        if report.flagged:
+            await send(flagged_message(report.flagged))
 
     async def outcomes() -> None:
         """The 08:52 slot is TWO jobs (CLAUDE.md: "verdicts +12w, calibration,
@@ -195,6 +212,11 @@ def monday_steps(
         # FIRST, and everything after it reads what it leaves: a chain that
         # ranked before refreshing would rank last week's world (UC1).
         ("catch-up", lambda: run_catchup(db, settings)),
+        ("event-watch", event_watch),
+        # 08:10. Free on a stable corpus — the checkpoint answers "already
+        # curated" without an LLM call — and the retry path for an ingestion
+        # whose curation failed during the week.
+        ("curation", lambda: sweep_corpus(db, settings, embedder=embedder)),
         ("backtests", lambda: run_backtests_and_favors(db, window, today=today)),
         ("scenarios", lambda: warm_start_scenario_probabilities(db, today=today)),
         ("invariant-weights", lambda: reweigh_invariants_asof(db, today, thresholds)),
@@ -215,6 +237,9 @@ async def run_monday_chain(
     worker_agent: Agent[None, WorkerResult],
     planner_post: PlannerPost,
     lock: RunLock,
+    embedder: InProcessEmbedder,
+    ingester: CorpusIngester,
+    triage_agent: Agent[None, EventTriage],
     today: date | None = None,
 ) -> ChainResult | None:
     """One full Monday chain, under the run-lock. `None` when the lock refused.
@@ -256,6 +281,9 @@ async def run_monday_chain(
                 today=today,
                 send=send,
                 settings=settings,
+                embedder=embedder,
+                ingester=ingester,
+                triage_agent=triage_agent,
             )
             result = await run_chain(db, steps, run_id)
     except AlreadyRunning as exc:
@@ -288,6 +316,9 @@ async def chain_if_due(
     worker_agent: Agent[None, WorkerResult],
     planner_post: PlannerPost,
     lock: RunLock,
+    embedder: InProcessEmbedder,
+    ingester: CorpusIngester,
+    triage_agent: Agent[None, EventTriage],
     now: datetime | None = None,
 ) -> ChainResult | None:
     """DUE-ON-START: run the chain iff its last success predates the most recent
@@ -310,6 +341,9 @@ async def chain_if_due(
         worker_agent=worker_agent,
         planner_post=planner_post,
         lock=lock,
+        embedder=embedder,
+        ingester=ingester,
+        triage_agent=triage_agent,
         today=now.date(),
     )
 
@@ -347,6 +381,15 @@ async def run_agent(settings: Settings) -> None:
     planner_pre = PlannerPre(db, embedder, settings.planner_model, settings.openrouter_api_key)
     planner_post = PlannerPost(settings.planner_model, settings.openrouter_api_key)
     worker_agent = build_worker_agent(db, settings.worker_model, settings.openrouter_api_key)
+    # The UC3 triage runs on the PLANNER model at the curator's effort: it is a
+    # short structured judgement over one press item, the same shape of task the
+    # curator does, and not the Worker's deliberation.
+    triage_agent = build_triage_agent(
+        settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
+    )
+    # ONE ingester, shared by the inbox watcher and the event watch: both turn
+    # text into Documents, and `from_db` reads the calibrated chunking once.
+    ingester = await CorpusIngester.from_db(db, embedder)
     lock = RunLock()
 
     async def tick() -> None:
@@ -357,6 +400,9 @@ async def run_agent(settings: Settings) -> None:
             worker_agent=worker_agent,
             planner_post=planner_post,
             lock=lock,
+            embedder=embedder,
+            ingester=ingester,
+            triage_agent=triage_agent,
         )
 
     stop = asyncio.Event()
@@ -368,15 +414,7 @@ async def run_agent(settings: Settings) -> None:
         # is ordinary async code below, where a transaction can finish.
         loop.add_signal_handler(sig, stop.set)
 
-    # `from_db`, not the bare constructor: it reads the CALIBRATED chunking and
-    # similarity thresholds out of `system_thresholds` instead of the class
-    # defaults, so the live ingester matches the one the corpus was built with.
-    watcher = InboxWatcher(
-        db,
-        await CorpusIngester.from_db(db, embedder),
-        settings.inbox_path,
-        settings.sources_path,
-    )
+    watcher = InboxWatcher(db, ingester, settings.inbox_path, settings.sources_path)
     scheduler = AsyncIOScheduler(timezone=settings.tz)
     # The punctual path. Its target is the same `tick` the heartbeat calls, so
     # whichever arrives first runs the chain and the other finds it not due.

@@ -31,8 +31,13 @@ cannot be opened fails in seconds instead of pretending to work for minutes.
 Read stays long, because a model IS allowed to think.
 """
 
+from typing import cast
+
 import httpx
 from openai import AsyncOpenAI
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 # Shorter than the shortest NAT/idle reaping we should assume, so WE close the
 # connection first. A cycle's calls are seconds apart when the model is working;
@@ -78,3 +83,46 @@ def build_openrouter_client(
             ),
         ),
     )
+
+
+def build_native_output_model(
+    model_name: str,
+    api_key: str,
+    *,
+    read_timeout: float,
+    base_url: str = "https://openrouter.ai/api/v1",
+    max_retries: int = 2,
+) -> OpenAIChatModel:
+    """An OpenRouter model configured for NATIVE structured output
+    (`response_format: json_schema`) instead of PydanticAI's default
+    tool-calling path.
+
+    FOR ROLES THAT NEED A FINAL OBJECT AND NO FUNCTION TOOLS — the curator and
+    the UC3 event triage. The Worker deliberately does NOT use this: it must
+    call its three bridged tools mid-reasoning, so it keeps the bundled
+    profile's tool-mode path (worker/agent.py states that requirement).
+
+    WHY THE OVERRIDE. PydanticAI's bundled profile for these routes declares
+    `supports_json_schema_output=False` and defaults to `tool`. It is stale, and
+    trusting it produced real failures: reasoning models reject or mangle forced
+    tool calls — Qwen errors outright ("tool_choice does not support being set
+    to required in thinking mode") and DeepSeek silently emits an unparseable
+    call, which surfaced as 3 of 10 ice-core batches exhausting their retries
+    (2026-07-21). The same schema over the native path answered in 0.85s in a
+    direct HTTP check. That measurement is provenance for the override, not a
+    claim about whatever `.env` names today — a model that genuinely lacks the
+    capability errors loudly rather than degrading silently, which is the
+    failure mode to prefer on a swap.
+
+    Lifted out of `curator.build_agent` when the event triage became the second
+    role needing exactly this model (CLAUDE.md: "WHEN A SECOND ONE ARRIVES").
+    """
+    provider = OpenRouterProvider(
+        openai_client=build_openrouter_client(
+            api_key, read_timeout=read_timeout, base_url=base_url, max_retries=max_retries
+        )
+    )
+    # The profile is a TypedDict at runtime: copy it and flip the two flags.
+    base = dict(OpenAIChatModel(model_name, provider=provider).profile)
+    base.update(supports_json_schema_output=True, default_structured_output_mode="native")
+    return OpenAIChatModel(model_name, provider=provider, profile=cast(OpenAIModelProfile, base))

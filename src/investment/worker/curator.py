@@ -35,18 +35,16 @@ what makes a candidate reach the 35y sweep at all.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput
-from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
-from pydantic_ai.profiles.openai import OpenAIModelProfile
-from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.models.openai import OpenAIChatModelSettings
 
 from investment.db.seed_data import BENCHMARK_CLASSES, SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.invariants import Registries, validate_invariant
-from investment.openrouter_client import build_openrouter_client
+from investment.openrouter_client import build_native_output_model
 
 if TYPE_CHECKING:  # import-time cycle: writeback consumes this module's types
     from investment.writeback.knowledge import KnowledgeWriteback
@@ -379,36 +377,11 @@ def build_agent(
     # backoff (the CLAUDE.md requirement); PydanticAI's `retries` below covers
     # schema-validation failures. Two different faults, two different knobs —
     # conflating them is what left the stall unprotected.
-    provider = OpenRouterProvider(
-        # Shared transport (investment/openrouter_client.py): the split
-        # timeouts and the bounded keepalive live in ONE place, because a
-        # bare float here silently set the connect and pool budgets to the
-        # read budget, and a reused dead connection then cost minutes.
-        openai_client=build_openrouter_client(
-            api_key,
-            read_timeout=BATCH_TIMEOUT_SECONDS,
-            base_url="https://openrouter.ai/api/v1",
-            max_retries=TRANSPORT_RETRIES,
-        )
-    )
-    # PydanticAI's bundled profile for these OpenRouter routes declares
-    # `supports_json_schema_output=False` and defaults to the `tool` mode. It is
-    # stale, and trusting it is what forced the tool path and produced the
-    # retry-exhaustion failures.
-    #
-    # What this role NEEDS is native structured output; it needs no function
-    # tools at all, which is what lets it override the mode outright. Measured
-    # on the planner model of the day (2026-07-21): a direct HTTP check returned
-    # a valid object from `response_format: {type: json_schema, strict: true}`
-    # in 0.85s. That measurement is provenance for the override, not a claim
-    # about whatever `.env` names today — if a model genuinely lacks the
-    # capability the request errors loudly rather than silently degrading, which
-    # is the failure mode to prefer on a swap.
-    # The profile is a TypedDict at runtime: copy it and flip the two flags.
-    base = dict(OpenAIChatModel(model_name, provider=provider).profile)
-    base.update(supports_json_schema_output=True, default_structured_output_mode="native")
-    profile = cast(OpenAIModelProfile, base)
-    model = OpenAIChatModel(model_name, provider=provider, profile=profile)
+    # The transport, the profile override and their provenance live in
+    # `openrouter_client.build_native_output_model` — this role and the UC3
+    # event triage need exactly the same model, and one of them arriving second
+    # is what made the shared builder.
+    model = build_native_output_model(model_name, api_key, read_timeout=BATCH_TIMEOUT_SECONDS)
     agent: Agent[None, CurationResult] = Agent(
         model,
         # NATIVE structured output (`response_format: json_schema`), not the

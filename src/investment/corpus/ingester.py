@@ -280,11 +280,24 @@ class CorpusIngester:
         return chunks
 
     async def ingest_file(
-        self, path: Path, *, kind: str = "book", author: str | None = None
+        self,
+        path: Path,
+        *,
+        kind: str = "book",
+        author: str | None = None,
+        source: str | None = None,
     ) -> IngestResult:
         """Extract -> normalize -> chunk -> embed -> persist, then link
         SUPPORTS. Idempotent: re-ingesting the same title overwrites the same
-        document and passage ids."""
+        document and passage ids.
+
+        `source` OVERRIDES `source_path` when the file is not the provenance.
+        A book's provenance IS the file on disk; a UC3 event's is the press
+        release URL, and the file is only how the text reaches this method.
+        That distinction is load-bearing rather than cosmetic: `event_watch`
+        dedupes by URL against `document.source_path` and has no state table of
+        its own, so a document that recorded the temp file it was written to
+        would be re-triaged and re-ingested every Monday."""
         title = title_from(path)
         document_id = document_id_for(path, title)
         pages, pages_skipped = extract_pages(path)
@@ -320,8 +333,10 @@ class CorpusIngester:
                     "title": title,
                     "author": author,
                     "kind": kind,
-                    "source_type": "pdf" if path.suffix.lower() == ".pdf" else "text",
-                    "source_path": str(path),
+                    "source_type": ("url" if source else "pdf")
+                    if source or path.suffix.lower() == ".pdf"
+                    else "text",
+                    "source_path": source or str(path),
                     "ingested_at": now,
                     "chunk_count": len(chunks),
                     "trace": f"Ingested from {path.name} ({len(chunks)} passages, "
