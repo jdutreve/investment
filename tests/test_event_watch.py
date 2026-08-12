@@ -6,8 +6,10 @@ run unattended every Monday: routine items leave NO trace, an item the model
 cannot describe is NOT written, and nothing is ever triaged twice.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pydantic_ai import Agent
@@ -271,3 +273,38 @@ async def test_one_unreachable_source_does_not_cost_the_others(
 
     assert "dead" in report.failed and "connection reset" in report.failed["dead"]
     assert report.fetched == 1 and report.routine == 1
+
+
+async def test_a_triage_that_stops_answering_is_bounded_and_costs_only_itself(
+    db: InvestmentDB, ingester: CorpusIngester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE BOUND THAT WAS MISSING, and the defect is one this project has already
+    paid for once. httpx's read timeout re-arms on every chunk, so a response
+    that dribbles never trips it (`openrouter_client.py`), and
+    `worker/agent.py` carries the same fix after a call burned 497 seconds
+    against a dead socket. The first live run made it visible here: one ECB item
+    took 3m38s while its siblings took 3-10s, and nothing bounded it.
+
+    With 54 items and no deadline on the chain itself, one stalled socket hangs
+    the Monday. So the call has a wall clock, and an item that runs out of it is
+    recorded and skipped — the other fifty-three still get their turn."""
+    monkeypatch.setattr(EW, "TRIAGE_CALL_BUDGET_SECONDS", 0.05)
+
+    class _Stalled:
+        async def run(self, prompt: str) -> object:
+            await asyncio.sleep(30)  # never answers within the budget
+            raise AssertionError("the budget should have fired")
+
+    async def two_items(session: object, source: object) -> list[FeedItem]:
+        return [FED, ORDER]
+
+    monkeypatch.setattr(EW, "fetch_feed", two_items)
+    monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "Fed", "url": "u", "domain": "d"},))
+
+    report = await EW.run_event_watch(db, ingester, cast(Any, _Stalled()))
+
+    assert set(report.failed) == {FED.url, ORDER.url}
+    assert all("TimeoutError" in reason for reason in report.failed.values())
+    # Nothing ingested, so next Monday sees both as new and retries them.
+    assert report.ingested == []
+    assert await EW.unseen(db, [FED, ORDER]) == [FED, ORDER]

@@ -27,6 +27,7 @@ from investment.corpus.curation_sweep import sweep_corpus
 from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import run_decision_cycle
+from investment.delivery import deliver, outbox_path
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
 from investment.mechanical.backtests import run_backtests_and_favors
@@ -38,7 +39,6 @@ from investment.mechanical.snapshots import build_snapshot
 from investment.ops.run_lock import AlreadyRunning
 from investment.runtime import AgentRuntime
 from investment.telegram.digest import build_digest
-from investment.telegram.notify import notify
 from investment.watch.event_watch import flagged_message, run_event_watch
 
 logger = logging.getLogger(__name__)
@@ -186,7 +186,14 @@ async def run_monday_chain(
     token, chat = settings.telegram_bot_token, settings.telegram_chat_id
 
     async def send(text: str) -> bool:
-        return await notify(token, chat, text)
+        """Deliver to the owner, Telegram first and a local file if that fails
+        (`delivery.py`). Returns whether it went out over Telegram — the chain
+        does not act on it either way, because a message written to the outbox
+        has still been delivered."""
+        channel = await deliver(
+            text, token=token, chat_id=chat, outbox=outbox_path(settings.db_path)
+        )
+        return channel == "telegram"
 
     try:
         async with runtime.lock.hold(CHAIN_LOCK):

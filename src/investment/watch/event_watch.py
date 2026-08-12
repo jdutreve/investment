@@ -46,6 +46,7 @@ finds there — a file dropped in it would silently join the Worker's system
 prompt with nothing but a log line to say so.
 """
 
+import asyncio
 import dataclasses
 import hashlib
 import logging
@@ -111,6 +112,23 @@ MAX_ITEMS_PER_SOURCE = 20
 TRIAGE_TIMEOUT_SECONDS = 120.0
 TRIAGE_RETRIES = 2
 FEED_TIMEOUT_SECONDS = 30.0
+
+# A WALL CLOCK ON ONE TRIAGE, which is the only bound that sees a stalling
+# stream — and the reason it exists is written in `openrouter_client.py`:
+# httpx's read timeout re-arms on every chunk, so a response that dribbles
+# never trips it. `worker/agent.py` already carries this exact fix
+# (`WORKER_CALL_BUDGET_SECONDS`) after a call once burned 497 seconds against a
+# dead socket.
+#
+# Measured on the first live run (2026-08-12): one ECB item took 3m38s while
+# its siblings took 3-10s, and neither the model setting nor the read timeout
+# noticed — the call completed, so it was slow rather than hung, but nothing
+# BOUNDED it. With 54 items a stalled socket hangs the whole Monday chain, and
+# the chain has no deadline of its own.
+#
+# Generous against the 3m38s that was real work: this refuses a call that has
+# stopped being work, not one that is thinking.
+TRIAGE_CALL_BUDGET_SECONDS = 300.0
 
 # How much of the headline reaches the filename. Long enough to be the
 # Document's title in the corpus, short enough to stay under every filesystem's
@@ -342,8 +360,13 @@ async def run_event_watch(
 
     for item in fresh:
         try:
-            triage = (await triage_agent.run(render_item(item))).output
+            async with asyncio.timeout(TRIAGE_CALL_BUDGET_SECONDS):
+                triage = (await triage_agent.run(render_item(item))).output
         except Exception as exc:
+            # TimeoutError included, deliberately: an item whose call ran out of
+            # wall clock is recorded and skipped like any other failure, stays
+            # un-ingested, and is seen as new again next Monday. One item must
+            # never cost the other fifty-three.
             logger.warning("event watch: triage failed for %s — %s", item.url, exc)
             failed[item.url] = f"{type(exc).__name__}: {exc}"
             continue
