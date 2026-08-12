@@ -1,4 +1,5 @@
-"""The agent process (`main.py`, docs/TASKS.md Phase 7; docs/MILESTONES.md M9).
+"""The Monday chain and the process that triggers it (`monday.py`, `main.py`;
+docs/TASKS.md Phase 7; docs/MILESTONES.md M9).
 
 What is testable here without a network, an LLM or a week of wall clock: the
 DUE-ON-START arithmetic and its marker, the fact that the marker and the regime
@@ -10,15 +11,15 @@ drives the same steps through the same runner on TestModel.
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from investment import main as M
+from investment import main as MAIN
+from investment import monday as M
 from investment.db.sqlite import InvestmentDB
 from investment.market.regime import DetectorState, _load_state, _persist_state
-from investment.planner.post import PlannerPost
-from investment.planner.pre import PlannerPre
 
 # A Monday, and the hour the chain is anchored to (chain.CHAIN_START_HOUR = 8).
 ZURICH = timezone(timedelta(hours=2))
@@ -30,6 +31,13 @@ class _Settings:
     the thunks are never awaited here."""
 
     inbox_path = Path("/nonexistent-inbox")
+
+
+def _runtime(db: InvestmentDB) -> Any:
+    """A runtime whose components are never touched: `monday_steps` closes over
+    them and the thunks are not awaited, so building two OpenRouter agents and
+    loading a 90MB embedder to look at a list of names would buy nothing."""
+    return SimpleNamespace(db=db, settings=_Settings())
 
 
 @pytest.fixture
@@ -134,16 +142,9 @@ def _steps(db: InvestmentDB) -> list[str]:
     return [
         name
         for name, _ in M.monday_steps(
-            db,
-            settings=cast(Any, _Settings()),
-            embedder=cast(Any, object()),
-            ingester=cast(Any, object()),
-            triage_agent=cast(Any, object()),
+            _runtime(db),
             thresholds={"rolling_window_days": 756.0, "ranking_tiebreak_window": 0.02},
             user_profile={"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0},
-            planner_pre=cast(PlannerPre, object()),
-            worker_agent=cast(Any, object()),
-            planner_post=cast(PlannerPost, object()),
             run_id="run-1",
             today=MONDAY_0900.date(),
             send=send,
@@ -204,7 +205,7 @@ async def test_the_heartbeat_stops_immediately_on_the_stop_event() -> None:
         ticks += 1
 
     stop.set()
-    await asyncio.wait_for(M.heartbeat(stop, tick), timeout=1.0)
+    await asyncio.wait_for(MAIN.heartbeat(stop, tick), timeout=1.0)
     assert ticks == 0
 
 
@@ -216,7 +217,7 @@ async def test_a_failing_tick_does_not_kill_the_heartbeat(
     milestone is built against."""
     import asyncio
 
-    monkeypatch.setattr(M, "HEARTBEAT_SECONDS", 0.01)
+    monkeypatch.setattr(MAIN, "HEARTBEAT_SECONDS", 0.01)
     stop = asyncio.Event()
     calls = 0
 
@@ -227,5 +228,5 @@ async def test_a_failing_tick_does_not_kill_the_heartbeat(
             stop.set()
         raise RuntimeError("boom")
 
-    await asyncio.wait_for(M.heartbeat(stop, tick), timeout=2.0)
+    await asyncio.wait_for(MAIN.heartbeat(stop, tick), timeout=2.0)
     assert calls >= 3

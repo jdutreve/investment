@@ -12,6 +12,9 @@ connection, one writer):
 
   1. the INBOX WATCHER  — 60s poll, 5-minute quiet period, then an ingestion
      batch (corpus/watcher.py). Event-driven, not scheduled.
+  1b. the TELEGRAM BOT   — the owner's front, polling for updates. Every handler
+     dispatches to `ops/commands.py`, which is also what the CLI and the
+     dashboard will call (ADR-005): one command layer, three fronts.
   2. the MONDAY CRON    — 08:00 Europe/Zurich, the normal path.
   3. the HEARTBEAT      — every 5 minutes, asks whether the chain is DUE. This
      is the wake path (ADR-002: the laptop sleeps, so a cron that fires at 08:00
@@ -52,44 +55,25 @@ import contextlib
 import logging
 import signal
 from collections.abc import Awaitable, Callable
-from datetime import UTC, date, datetime
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from pydantic_ai import Agent
-from ulid import ULID
 
-from investment.chain import CHAIN_START_HOUR, ChainResult, ChainStep, is_chain_due, run_chain
+from investment.chain import CHAIN_START_HOUR
 from investment.config import Settings
-from investment.corpus.curation_sweep import sweep_corpus
 from investment.corpus.embedding import InProcessEmbedder
 from investment.corpus.ingester import CorpusIngester
 from investment.corpus.watcher import InboxWatcher
-from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import run_decision_cycle
-from investment.market_signal_cycle import run_market_signal_cycle
-from investment.mechanical.as_of_cycle import reweigh_invariants_asof
-from investment.mechanical.backtests import run_backtests_and_favors
-from investment.mechanical.catchup import run_catchup
-from investment.mechanical.outcomes import evaluate_proposals, strategy_probation_check
-from investment.mechanical.ratios import value_portfolios
-from investment.mechanical.scenarios import warm_start_scenario_probabilities
-from investment.mechanical.snapshots import build_snapshot
-from investment.ops.run_lock import AlreadyRunning, RunLock
+from investment.monday import chain_if_due
+from investment.ops.run_lock import RunLock
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
-from investment.telegram.digest import build_digest
-from investment.telegram.notify import notify
-from investment.watch.event_watch import (
-    EventTriage,
-    build_triage_agent,
-    flagged_message,
-    run_event_watch,
-)
+from investment.runtime import AgentRuntime
+from investment.telegram.bot import build_application
+from investment.watch.event_watch import build_triage_agent
 from investment.worker.agent import build_worker_agent
-from investment.worker.result import WorkerResult
 
 logger = logging.getLogger(__name__)
 
@@ -103,249 +87,6 @@ HEARTBEAT_SECONDS = 300.0
 # The chain's own name in the run-lock. The other holders arrive with the
 # command layer ({catchup, uc8, replay} — Task 6ter.1).
 CHAIN_LOCK = "monday-chain"
-
-
-async def last_chain_success(db: InvestmentDB) -> datetime | None:
-    """When the Monday chain last completed, or None if it never has.
-
-    `detector_state.last_chain_success` (docs/DATA_MODELS.md: "ISO-8601, drives
-    DUE-ON-START, a timestamp, NOT a FLOAT config threshold, so it lives here
-    and not in system_thresholds"). A marker rather than a scan of the EventLog:
-    the chain appends an ErrorEvent when it FAILS and nothing at all when it
-    succeeds, so "the last success" is not derivable from the log."""
-    rows = await db.query("SELECT last_chain_success FROM detector_state WHERE id = 'singleton'")
-    if not rows or not rows[0]["last_chain_success"]:
-        return None
-    return datetime.fromisoformat(str(rows[0]["last_chain_success"]))
-
-
-async def record_chain_success(db: InvestmentDB, when: datetime) -> None:
-    """Stamp the marker `is_chain_due` reads.
-
-    The UPSERT touches `last_chain_success` AND NOTHING ELSE, exactly as
-    `regime._persist_state` touches the detector's columns and not this one.
-    The two writers share one row and must not clobber each other: a chain that
-    reset the hysteresis streak would silently re-arm a regime change, and a
-    detector step that cleared this marker would re-run the whole chain on the
-    next heartbeat."""
-    async with db.transaction():
-        await db.command(
-            "INSERT INTO detector_state (id, consecutive_prints, last_chain_success, updated_at) "
-            "VALUES ('singleton', 0, :when, :now) "
-            "ON CONFLICT(id) DO UPDATE SET "
-            " last_chain_success = excluded.last_chain_success, "
-            " updated_at = excluded.updated_at",
-            when=when.isoformat(),
-            now=datetime.now(UTC).isoformat(),
-        )
-
-
-def monday_steps(
-    db: InvestmentDB,
-    *,
-    thresholds: dict[str, float],
-    user_profile: dict[str, Any],
-    planner_pre: PlannerPre,
-    worker_agent: Agent[None, WorkerResult],
-    planner_post: PlannerPost,
-    run_id: str,
-    today: date,
-    send: Callable[[str], Awaitable[bool]],
-    settings: Settings,
-    embedder: InProcessEmbedder,
-    ingester: CorpusIngester,
-    triage_agent: Agent[None, EventTriage],
-) -> list[ChainStep]:
-    """The Monday chain, in the timeline CLAUDE.md pins (08:30 → 09:30).
-
-    THE SAME FUNCTIONS `as_of_cycle.run_as_of_cycle` CALLS, in the same order,
-    and that is not a coincidence to preserve by hand: the agentic replay
-    hydrates its snapshots by running the live jobs, precisely so replay logic
-    cannot drift from live logic (Task 9.4). If a step is added here it belongs
-    there too, and the reverse.
-
-    Each step is a THUNK so `run_chain` can sequence jobs with different
-    signatures without knowing any of them (chain.py). The digest is the last
-    step rather than a separate concern: a chain that aborts sends the owner an
-    ErrorEvent alert instead, which is the correct substitution — a digest
-    rendered on half-computed state would be worse than none."""
-    window = int(thresholds["rolling_window_days"])
-
-    async def event_watch() -> None:
-        """08:05. The flagged items are pushed to Telegram HERE rather than
-        waiting for the digest: `needs-user-input` is a question to the owner,
-        and a question that arrives four hours later inside a weekly report is
-        not a question (UC3: "flagged and pushed to Telegram instead of being
-        hallucinated")."""
-        report = await run_event_watch(db, ingester, triage_agent)
-        if report.flagged:
-            await send(flagged_message(report.flagged))
-
-    async def outcomes() -> None:
-        """The 08:52 slot is TWO jobs (CLAUDE.md: "verdicts +12w, calibration,
-        probation"). Scenario calibration is not among them: ADR-007 superseded
-        it and `score_scenarios` was removed, which `digest.build_scoreboard`
-        records by keeping `calibration_flags` empty."""
-        await evaluate_proposals(db, today)
-        await strategy_probation_check(db, today)
-
-    async def cognitive_cycle() -> None:
-        await run_decision_cycle(
-            db,
-            planner_pre,
-            worker_agent,
-            planner_post,
-            trigger="monday-chain",
-            user_profile=user_profile,
-            thresholds=thresholds,
-            today=today,
-            run_id=run_id,
-        )
-
-    async def digest() -> None:
-        """Render and SEND. Rendering without sending would leave the week's
-        report in a log nobody reads, and the send is what the whole chain is
-        for — the owner places the month's orders from it."""
-        await send(await build_digest(db, today))
-
-    return [
-        # FIRST, and everything after it reads what it leaves: a chain that
-        # ranked before refreshing would rank last week's world (UC1).
-        ("catch-up", lambda: run_catchup(db, settings)),
-        ("event-watch", event_watch),
-        # 08:10. Free on a stable corpus — the checkpoint answers "already
-        # curated" without an LLM call — and the retry path for an ingestion
-        # whose curation failed during the week.
-        ("curation", lambda: sweep_corpus(db, settings, embedder=embedder)),
-        ("backtests", lambda: run_backtests_and_favors(db, window, today=today)),
-        ("scenarios", lambda: warm_start_scenario_probabilities(db, today=today)),
-        ("invariant-weights", lambda: reweigh_invariants_asof(db, today, thresholds)),
-        ("valuations", lambda: value_portfolios(db, window)),
-        ("ranking", lambda: build_snapshot(db, thresholds["ranking_tiebreak_window"], today)),
-        ("outcomes", outcomes),
-        ("market-signal", lambda: run_market_signal_cycle(db, user_profile, today=today)),
-        ("uc8", cognitive_cycle),
-        ("digest", digest),
-    ]
-
-
-async def run_monday_chain(
-    db: InvestmentDB,
-    settings: Settings,
-    *,
-    planner_pre: PlannerPre,
-    worker_agent: Agent[None, WorkerResult],
-    planner_post: PlannerPost,
-    lock: RunLock,
-    embedder: InProcessEmbedder,
-    ingester: CorpusIngester,
-    triage_agent: Agent[None, EventTriage],
-    today: date | None = None,
-) -> ChainResult | None:
-    """One full Monday chain, under the run-lock. `None` when the lock refused.
-
-    On SUCCESS: stamp `last_chain_success`, then back up. On FAILURE: alert the
-    owner with the step that broke — `run_chain` already appended the ErrorEvent
-    and never re-raises, so this function's job is to say it out loud.
-
-    THE MARKER IS STAMPED ONLY ON A COMPLETE CHAIN. A partial run leaves the
-    chain DUE, so the next heartbeat retries it — which is right: the steps that
-    completed are idempotent (UPSERTs and check-before-append, CLAUDE.md), and
-    the alternative is a week with no ranking because one fetch failed at 08:31.
-    """
-    today = today or date.today()
-    run_id = str(ULID())
-    token, chat = settings.telegram_bot_token, settings.telegram_chat_id
-
-    async def send(text: str) -> bool:
-        return await notify(token, chat, text)
-
-    try:
-        async with lock.hold(CHAIN_LOCK):
-            thresholds = {
-                str(r["key"]): float(r["value"])
-                for r in await db.query("SELECT key, value FROM system_thresholds")
-            }
-            profile_rows = await db.query("SELECT * FROM user_profile LIMIT 1")
-            if not profile_rows:
-                raise RuntimeError("no user_profile row — run the seed first")
-
-            steps = monday_steps(
-                db,
-                thresholds=thresholds,
-                user_profile=dict(profile_rows[0]),
-                planner_pre=planner_pre,
-                worker_agent=worker_agent,
-                planner_post=planner_post,
-                run_id=run_id,
-                today=today,
-                send=send,
-                settings=settings,
-                embedder=embedder,
-                ingester=ingester,
-                triage_agent=triage_agent,
-            )
-            result = await run_chain(db, steps, run_id)
-    except AlreadyRunning as exc:
-        logger.info("monday chain skipped: %s", exc)
-        return None
-
-    if result.ok:
-        await record_chain_success(db, datetime.now(UTC))
-        # AFTER the marker, so a backup that fails cannot make the chain look
-        # unfinished and re-run the whole week on the next heartbeat.
-        await asyncio.to_thread(
-            backup_database, settings.db_path, settings.db_path.parent / "backups", today=today
-        )
-        logger.info("monday chain %s complete: %s", run_id, result.completed)
-    else:
-        await send(
-            f"🚨 Monday chain ABORTED at step '{result.failed_step}': {result.error}\n\n"
-            f"Completed before it: {', '.join(result.completed) or 'nothing'}.\n"
-            "The steps that ran stand; the chain stays DUE and will retry on the next "
-            "heartbeat. Nothing was ranked or proposed on half-computed state."
-        )
-    return result
-
-
-async def chain_if_due(
-    db: InvestmentDB,
-    settings: Settings,
-    *,
-    planner_pre: PlannerPre,
-    worker_agent: Agent[None, WorkerResult],
-    planner_post: PlannerPost,
-    lock: RunLock,
-    embedder: InProcessEmbedder,
-    ingester: CorpusIngester,
-    triage_agent: Agent[None, EventTriage],
-    now: datetime | None = None,
-) -> ChainResult | None:
-    """DUE-ON-START: run the chain iff its last success predates the most recent
-    Monday 08:00 (chain.py `is_chain_due`). `None` when it is not due.
-
-    The naive-vs-aware comparison is settled HERE: the marker is written in UTC
-    and `is_chain_due` compares against a local Monday 08:00, so `now` must be
-    local wall-clock and the marker is converted to it. Europe/Zurich lives at
-    the presentation edge (CLAUDE.md), and "the most recent Monday 08:00" is a
-    statement about the owner's calendar, not about UTC."""
-    now = now or datetime.now().astimezone()
-    last = await last_chain_success(db)
-    if not is_chain_due(last.astimezone(now.tzinfo) if last else None, now, CHAIN_START_HOUR):
-        return None
-    logger.info("monday chain is DUE (last success: %s)", last)
-    return await run_monday_chain(
-        db,
-        settings,
-        planner_pre=planner_pre,
-        worker_agent=worker_agent,
-        planner_post=planner_post,
-        lock=lock,
-        embedder=embedder,
-        ingester=ingester,
-        triage_agent=triage_agent,
-        today=now.date(),
-    )
 
 
 async def heartbeat(stop: asyncio.Event, tick: Callable[[], Awaitable[Any]]) -> None:
@@ -378,32 +119,28 @@ async def run_agent(settings: Settings) -> None:
         raise RuntimeError("seed not run — execute `uv run python -m investment.seed` first")
 
     embedder = InProcessEmbedder(settings.embedding_model)
-    planner_pre = PlannerPre(db, embedder, settings.planner_model, settings.openrouter_api_key)
-    planner_post = PlannerPost(settings.planner_model, settings.openrouter_api_key)
-    worker_agent = build_worker_agent(db, settings.worker_model, settings.openrouter_api_key)
-    # The UC3 triage runs on the PLANNER model at the curator's effort: it is a
-    # short structured judgement over one press item, the same shape of task the
-    # curator does, and not the Worker's deliberation.
-    triage_agent = build_triage_agent(
-        settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
+    runtime = AgentRuntime(
+        db=db,
+        settings=settings,
+        lock=RunLock(),
+        planner_pre=PlannerPre(db, embedder, settings.planner_model, settings.openrouter_api_key),
+        worker_agent=build_worker_agent(db, settings.worker_model, settings.openrouter_api_key),
+        planner_post=PlannerPost(settings.planner_model, settings.openrouter_api_key),
+        embedder=embedder,
+        # ONE ingester, shared by the inbox watcher and the event watch: both
+        # turn text into Documents, and `from_db` reads the calibrated chunking
+        # and similarity thresholds out of `system_thresholds` once.
+        ingester=await CorpusIngester.from_db(db, embedder),
+        # The UC3 triage runs on the PLANNER model at the curator's effort: a
+        # short structured judgement over one press item, the same shape of task
+        # the curator does, and not the Worker's deliberation.
+        triage_agent=build_triage_agent(
+            settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
+        ),
     )
-    # ONE ingester, shared by the inbox watcher and the event watch: both turn
-    # text into Documents, and `from_db` reads the calibrated chunking once.
-    ingester = await CorpusIngester.from_db(db, embedder)
-    lock = RunLock()
 
     async def tick() -> None:
-        await chain_if_due(
-            db,
-            settings,
-            planner_pre=planner_pre,
-            worker_agent=worker_agent,
-            planner_post=planner_post,
-            lock=lock,
-            embedder=embedder,
-            ingester=ingester,
-            triage_agent=triage_agent,
-        )
+        await chain_if_due(runtime)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -414,7 +151,12 @@ async def run_agent(settings: Settings) -> None:
         # is ordinary async code below, where a transaction can finish.
         loop.add_signal_handler(sig, stop.set)
 
-    watcher = InboxWatcher(db, ingester, settings.inbox_path, settings.sources_path)
+    watcher = InboxWatcher(db, runtime.ingester, settings.inbox_path, settings.sources_path)
+    # The bot runs INSIDE this process and shares the runtime — the same
+    # connection (ADR-004), the same lock, the same agents. A separate bot
+    # process would be a second writer on one SQLite file and a second run-lock
+    # that knows nothing about the first.
+    bot = build_application(runtime)
     scheduler = AsyncIOScheduler(timezone=settings.tz)
     # The punctual path. Its target is the same `tick` the heartbeat calls, so
     # whichever arrives first runs the chain and the other finds it not due.
@@ -425,6 +167,10 @@ async def run_agent(settings: Settings) -> None:
         asyncio.create_task(heartbeat(stop, tick), name="heartbeat"),
     ]
     scheduler.start()
+    await bot.initialize()
+    await bot.start()
+    if bot.updater is not None:
+        await bot.updater.start_polling()
     logger.info(
         "agent up: db=%s tz=%s inbox=%s (chain due-on-start check running)",
         settings.db_path,
@@ -438,6 +184,10 @@ async def run_agent(settings: Settings) -> None:
         await stop.wait()
     finally:
         logger.info("shutting down")
+        if bot.updater is not None:
+            await bot.updater.stop()
+        await bot.stop()
+        await bot.shutdown()
         scheduler.shutdown(wait=False)
         stop.set()
         for task in tasks:
