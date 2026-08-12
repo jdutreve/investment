@@ -2103,7 +2103,17 @@ spliced portion is lower-quality (more splice joins) so it is CALIBRATION
 only; the held-out ~10y runs on clean native-ETF data. Winning set written to
 `system_thresholds` only after user confirmation via Telegram.
 
-### Task 9.3 — Go-live gate in `main.py`
+### Task 9.3 — Go-live gate in `main.py` — RETIRED as a runtime switch (ADR-013)
+
+> **The startup gate below is NOT built.** Its predicate — "do the agent's
+> proposed ALLOCATIONS destroy value?" — lost its object when ADR-012 stopped
+> UC8 allocating, and the path that does move money (the market-signal stack)
+> was never covered by it. `main.py` runs the full chain; forward paper-mode is
+> the go-live gate (ADR-007 §5), and the anti-drift check plus the binding caps
+> are what watch the allocator. The rest of this task — `replay_cost_bps`,
+> `ReplayEvent`, the `replay_report` table, and the mechanical replay itself as
+> M6's STOP point — stands unchanged. Read docs/DECISIONS.md ADR-013.
+
 
 At startup, `main.py` refuses to enable the weekly proposal cycle unless the
 latest `replay_report` **with kind='mechanical'** (Task 9.1 — the agentic

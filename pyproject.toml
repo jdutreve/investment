@@ -80,3 +80,10 @@ strict = true
 [[tool.mypy.overrides]]
 module = "yfinance"
 ignore_missing_imports = true
+
+# APScheduler 3.x ships neither stubs nor a py.typed marker (a 4.x concern, not
+# ours — CLAUDE.md pins 3.x). Only main.py touches it, for two calls: build the
+# scheduler and add one cron job.
+[[tool.mypy.overrides]]
+module = "apscheduler.*"
+ignore_missing_imports = true

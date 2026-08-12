@@ -1013,3 +1013,79 @@ for that reason and are untouched by this ADR.
 **What this does not touch.** The market-signal stack and every gate on it
 (ADR-007, ADR-009), the invariant maturation and its verdicts (ADR-006), the
 curator, the corpus, the digest's reading of the monthly decision.
+
+---
+
+## ADR-013 — The Task 9.3 go-live gate no longer gates UC8; forward paper-mode is the gate
+
+**Status:** accepted 2026-08-12 (owner decision, at the start of M9).
+
+**Context.** Task 9.3 gives `main.py` a startup gate: refuse to enable "the
+weekly proposal cycle" unless the latest `replay_report` with kind='mechanical'
+shows agent-follow ≥ hold-initial-defender over the validation window, net of
+costs (override `--force-live`). Gate closed did not mean idle — the chain still
+ran and only UC8 was skipped, with the digest saying "proposal cycle disabled
+(replay gate)".
+
+The gate's PREDICATE is "do the allocations this agent proposes destroy value
+over 35 years?". When it was written that question described UC8 exactly: UC8-A
+proposed a defender switch, UC8-B proposed a reallocation of the defender's
+book, and both moved money.
+
+ADR-012 removed that object. UC8 allocates nothing: `WorkerResult` carries no
+allocation, `dispose_reallocation` is gone, and what the cycle produces is a
+journalled reading of the mechanical decision plus knowledge — confrontations,
+conviction nudges, scenario probabilities, innovations, and the rule revisions
+ADR-006 matures. Meanwhile the path that actually moves money, the market-signal
+monthly stack, was never covered by this gate at all: it runs at 08:55, before
+UC8, and would decide whether the gate were open or shut.
+
+So the gate as specified would, on the first real Monday, switch off the
+knowledge factory while leaving the allocator untouched. On the live database
+the point is not hypothetical: `replay_report` holds ZERO rows (verified
+2026-08-12), so the gate is CLOSED by default and would stay closed until a
+35-year mechanical replay were run into that database — a run whose verdict
+concerns a decision path that no longer exists.
+
+**Decision.** The Task 9.3 gate is retired as a runtime switch. `main.py` runs
+the full Monday chain including UC8, and neither reads `replay_report` at
+startup nor accepts `--force-live`.
+
+**What actually guards go-live**, and it is not weaker — it is aimed at the
+thing that moves:
+
+- **ADR-007 §5 already says so**: "forward paper-mode (M9) is the go-live gate
+  for this strategy". The gate is a period of real operation where the agent
+  proposes and the owner places the orders by hand, not a boolean read at
+  startup.
+- **The caps** bind every market-signal decision (`writeback.market_signal_gates`),
+  and M6-bis's DoV asserted zero violations over the whole 35-year backtest.
+- **ADR-009's alerts** report the drawdown, the two freshness failures and a
+  stuck cycle, and never block — because a refusal cannot exit a position.
+- **The anti-drift check** (2026-08-12) confronts the wired stack against its
+  pinned pair every Monday and puts a divergence in the digest. That is the
+  guarantee the mechanical replay was standing in for, measured continuously
+  instead of once.
+
+**Consequences.**
+
+- The mechanical replay keeps its full value as EVIDENCE and keeps its STOP
+  point (M6): it is what the pivot was argued on and what a future retirement of
+  the bridge would have to re-run. It stops being a runtime switch.
+- The digest line "proposal cycle disabled (replay gate)" never renders; nothing
+  else in the digest changes.
+- Task 9.3's remaining halves are unaffected: `replay_cost_bps` (now 23.0 per
+  ADR-010), the `ReplayEvent` type and the `replay_report` document table all
+  stay.
+- **What is deliberately NOT replaced.** Nothing now blocks a Monday because the
+  KNOWLEDGE the Worker produces is poor, and nothing should: ADR-006 judges
+  knowledge by maturation — measure, propose, window, adopt or reject — and a
+  boolean at startup was never that mechanism.
+- Reversible: reopening means giving UC8 an allocation again, at which point the
+  gate's predicate would describe something once more. ADR-012 records the way
+  back.
+
+**What this does not touch.** ADR-006's maturation, ADR-007's stack and its
+addenda, ADR-009's alert-never-block scope, ADR-010's single cost rate,
+ADR-011/012's mechanical sovereignty, and the M6 mechanical premise gate as a
+STOP point in MILESTONES.

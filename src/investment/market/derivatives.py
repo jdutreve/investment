@@ -7,6 +7,9 @@ one OBSERVATION for monthly macro series (a calendar lookback would be
 trivially satisfied every day), a number of CALENDAR DAYS for daily series.
 """
 
+from datetime import date
+from typing import Any, cast
+
 import numpy as np
 import pandas as pd
 
@@ -64,3 +67,36 @@ def compute_derivatives(level: pd.Series, ticker: str, default_lookback_days: in
         speed = level - _asof_lag(level, days)
         acceleration = speed - _asof_lag(speed, days)
     return pd.DataFrame({"level": level, "speed": speed, "acceleration": acceleration})
+
+
+def market_data_rows(
+    ticker: str, asset_class: str, currency: str, deriv: pd.DataFrame, start: date | None
+) -> list[dict[str, Any]]:
+    """A `compute_derivatives` frame as `market_data` rows, optionally truncated
+    to `start`.
+
+    Lives HERE rather than beside either producer, because there are two and they
+    must write the same shape: the UC0 seed's 35-year backfill and the Monday
+    catch-up's bounded refresh (mechanical/catchup.py). It was a private helper
+    in `seed.py` until the catch-up needed it — the moment a second caller
+    arrives is the moment a private helper becomes a contract (CLAUDE.md: "WHEN A
+    SECOND ONE ARRIVES").
+
+    NaN -> None so the columns arrive as SQL NULL: `speed`/`acceleration` are NaN
+    over the warm-up of every series, and a stored NaN reads back as a float that
+    every comparison silently fails."""
+    df = deriv if start is None else deriv[deriv.index >= pd.Timestamp(start)]
+    df = df.astype(object).where(pd.notna(df), None)
+    # pandas-stubs types to_dict("records") keys as Hashable (the general
+    # case); every column here is a plain string (level/speed/acceleration).
+    records = cast("list[dict[str, Any]]", df.to_dict("records"))
+    return [
+        {
+            "ticker": ticker,
+            "asset_class": asset_class,
+            "currency": currency,
+            "ts": ts.date().isoformat(),
+            **record,
+        }
+        for ts, record in zip(df.index, records, strict=True)
+    ]

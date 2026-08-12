@@ -455,26 +455,6 @@ async def _held_allocation(db: InvestmentDB, portfolio_id: str) -> dict[str, flo
     return {str(k): float(v) for k, v in parsed.items()}
 
 
-def _rows_from_derivatives(
-    ticker: str, asset_class: str, currency: str, deriv: pd.DataFrame, start: date | None
-) -> list[dict[str, Any]]:
-    df = deriv if start is None else deriv[deriv.index >= pd.Timestamp(start)]
-    df = df.astype(object).where(pd.notna(df), None)
-    # pandas-stubs types to_dict("records") keys as Hashable (the general
-    # case); every column here is a plain string (level/speed/acceleration).
-    records = cast("list[dict[str, Any]]", df.to_dict("records"))
-    return [
-        {
-            "ticker": ticker,
-            "asset_class": asset_class,
-            "currency": currency,
-            "ts": ts.date().isoformat(),
-            **record,
-        }
-        for ts, record in zip(df.index, records, strict=True)
-    ]
-
-
 async def _seed_market_data(
     db: InvestmentDB,
     settings: Settings,
@@ -562,7 +542,7 @@ async def _seed_market_data(
         deriv = derivatives.compute_derivatives(transformed_level, ticker, default_lookback)
         persist_start = target_start if source == "fred" else None
         asset_class, currency = str(ticker_row["asset_class"]), str(ticker_row["currency"])
-        rows = _rows_from_derivatives(ticker, asset_class, currency, deriv, persist_start)
+        rows = derivatives.market_data_rows(ticker, asset_class, currency, deriv, persist_start)
         replaced = await _write_series_authoritatively(db, ticker, rows)
         if replaced is not None:
             shortfalls[ticker] = replaced
@@ -573,7 +553,7 @@ async def _seed_market_data(
     if "INDPRO" in transformed and "UNRATE" in transformed:
         gc = growth.compute_growth_composite(transformed["INDPRO"], transformed["UNRATE"])
         deriv = derivatives.compute_derivatives(gc, "GROWTH_COMPOSITE", default_lookback)
-        rows = _rows_from_derivatives("GROWTH_COMPOSITE", "MACRO", "USD", deriv, target_start)
+        rows = derivatives.market_data_rows("GROWTH_COMPOSITE", "MACRO", "USD", deriv, target_start)
         await db.append_ts_batch("market_data", rows)
         row_count += len(rows)
     else:
@@ -587,7 +567,7 @@ async def _seed_market_data(
         }
         gl = liquidity.compute_global_liquidity(usd_components)
         deriv = derivatives.compute_derivatives(gl, "GLOBAL_LIQUIDITY", default_lookback)
-        rows = _rows_from_derivatives(
+        rows = derivatives.market_data_rows(
             "GLOBAL_LIQUIDITY", "GLOBAL_LIQUIDITY", "USD", deriv, target_start
         )
         await db.append_ts_batch("market_data", rows)
