@@ -122,3 +122,82 @@ def test_the_outbox_sits_beside_the_database(tmp_path: Path) -> None:
     """Derived from `db_path` like `backups/`, so it needs no configuration and
     cannot drift from where the owner already looks."""
     assert delivery.outbox_path(tmp_path / "investment.db") == tmp_path / "outbox"
+
+
+# -- a message that outgrows the channel ------------------------------------
+
+
+def test_a_message_that_fits_is_left_alone() -> None:
+    assert delivery.split_message("short") == ["short"]
+
+
+def test_a_long_message_is_split_on_BLANK_LINES_not_mid_sentence() -> None:
+    """THE DEFECT THIS FIXES, measured 2026-08-12: the digest had grown to 7639
+    characters against Telegram's 4096, so `clip` was dropping 46% of it — the
+    stack's standing, the recurring critiques, the scoreboard, the defender
+    block, and the Worker's reading cut in the middle of a sentence."""
+    blocks = [f"BLOCK{n} " + "x" * 300 for n in range(10)]
+    parts = delivery.split_message("\n\n".join(blocks), limit=1000)
+
+    assert len(parts) > 1
+    rebuilt = "\n\n".join(p.split(") ", 1)[1] for p in parts)
+    for n in range(10):
+        assert f"BLOCK{n}" in rebuilt  # nothing lost
+    assert all(len(p) <= 1000 for p in parts)
+
+
+def test_every_part_is_numbered_so_a_missing_one_is_visible() -> None:
+    """A message that never arrives must read as a hole, not as an ending."""
+    parts = delivery.split_message("\n\n".join("y" * 400 for _ in range(6)), limit=1000)
+    assert parts[0].startswith(f"(1/{len(parts)}) ")
+    assert parts[-1].startswith(f"({len(parts)}/{len(parts)}) ")
+
+
+def test_one_oversized_paragraph_is_clipped_rather_than_costing_the_others() -> None:
+    """The Worker's prose is the one block that can exceed a whole message on
+    its own. Cutting it is strictly better than losing the six sections behind
+    it."""
+    parts = delivery.split_message("A" * 3000 + "\n\nTAIL BLOCK", limit=1000)
+    assert "truncated" in parts[0]
+    assert "TAIL BLOCK" in parts[-1]  # the sections behind it survive
+
+
+async def test_a_split_digest_goes_out_as_several_messages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[str] = []
+
+    async def ok(token: str, chat_id: str, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr(delivery, "send_message", ok)
+    long_digest = "\n\n".join(f"section {n} " + "z" * 900 for n in range(8))
+
+    assert (
+        await delivery.deliver(long_digest, token="t", chat_id="c", outbox=tmp_path) == "telegram"
+    )
+    assert len(sent) > 1
+    assert all(len(m) <= 4096 for m in sent)
+
+
+async def test_a_failure_partway_through_puts_the_WHOLE_text_in_the_outbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Half a digest on the phone and all of it in the outbox beats a phone
+    holding parts 1 and 3."""
+    calls = 0
+
+    async def flaky(token: str, chat_id: str, text: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise TimedOut()
+
+    monkeypatch.setattr(delivery, "send_message", flaky)
+    long_digest = "\n\n".join(f"section {n} " + "z" * 900 for n in range(8))
+    outbox = tmp_path / "outbox"
+
+    assert await delivery.deliver(long_digest, token="t", chat_id="c", outbox=outbox) == "file"
+    written = next(iter(outbox.glob("*.txt"))).read_text()
+    for n in range(8):
+        assert f"section {n}" in written

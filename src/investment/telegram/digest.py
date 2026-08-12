@@ -63,7 +63,7 @@ def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[st
     return lines
 
 
-def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
+def _ranking_block(ranking: list[dict[str, Any]], *, row_returns: bool = False) -> list[str]:
     """The ranked table, with the two markers of CLAUDE.md's "Ranking rule" —
     which are SEPARATE rules and must not be conflated into one warning:
     `calmar_rolling < 1.0` MOVES the row to the bottom, while a drawdown breach
@@ -107,6 +107,28 @@ def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
             measured = f" (drawdown {pct(dd)})" if isinstance(dd, int | float) else ""
             line += f" ⛔ excluded from defender role and proposal candidacy{measured}"
         lines.append(line)
+        if not row_returns:
+            continue
+        # THE RETURNS ARE MAIL-ONLY (owner, 2026-08-12), and the reason is a
+        # measured one: with them the digest renders at 7639 characters against
+        # Telegram's 4096-per-message limit, so on the phone they cost a second
+        # message to say what the Sortino/Sharpe/Calmar row already ranks on.
+        # The mail has no such budget, and is where a per-horizon read belongs.
+        #
+        # On their own line, not appended above: the row already carries four
+        # indicators, and six figures on one line runs past 130 characters and
+        # wraps unpredictably. The defender block has always done it this way.
+        #
+        # Only the windows asked for (6m, 1y, 3y): 3m is noise at this cadence,
+        # and 5y stays on the defender line — the one row where a five-year
+        # record exists for every portfolio it is compared against.
+        horizons = [
+            f"{label} {pct(row.get(key), signed=True)}"
+            for label, key in (("6m", "return_6m"), ("1y", "return_1y"), ("3y", "return_3y"))
+            if row.get(key) is not None
+        ]
+        if horizons:
+            lines.append("        " + " · ".join(horizons))
     return lines
 
 
@@ -415,6 +437,7 @@ def render_digest(
     market_signal: dict[str, Any] | None = None,
     worker_reading: dict[str, Any] | None = None,
     recurring: list[dict[str, Any]] | None = None,
+    row_returns: bool = False,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -423,11 +446,16 @@ def render_digest(
     `market_signal` (the ADOPTED path's latest journalled decision) and
     `proposal` (the RETAINED BRIDGE's latest switch/reallocation) are separate
     inputs on purpose — see `_market_signal_block`. The adopted path is rendered
-    FIRST, above the bridge's slot, because it is the one the owner acts on."""
+    FIRST, above the bridge's slot, because it is the one the owner acts on.
+
+    `row_returns` is the ONE difference between the two channels the digest goes
+    out on: the mail carries each row's 6m/1y/3y, Telegram does not (owner,
+    2026-08-12 — see `_ranking_block`). Everything else is identical by
+    construction, so the two can never drift into telling different stories."""
     blocks = [
         _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
-        _ranking_block(ranking),
+        _ranking_block(ranking, row_returns=row_returns),
         _invariant_block(invariants),
         _market_signal_block(market_signal, worker_reading),
         _stack_block(stack),
@@ -555,7 +583,9 @@ async def _latest_proposal(
     return proposal
 
 
-async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
+async def build_digest(
+    db: InvestmentDB, today: date | None = None, *, row_returns: bool = False
+) -> str:
     """The weekly digest rendered from the DB alone (docs/MILESTONES.md M8:
     "digest rendered in terminal"). Mechanical and read-only — every input is a
     committed row, so the digest can be re-rendered for any past Monday's state
@@ -598,6 +628,7 @@ async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
         market_signal=await _latest_market_signal_decision(db),
         worker_reading=await _latest_worker_reading(db),
         recurring=await _recurring_themes(db),
+        row_returns=row_returns,
     )
 
 

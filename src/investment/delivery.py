@@ -34,16 +34,68 @@ from typing import Literal
 
 from telegram.error import TelegramError
 
-from investment.telegram.notify import send_message
+from investment.telegram.notify import MAX_MESSAGE_CHARS, send_message
 
 logger = logging.getLogger(__name__)
 
 Channel = Literal["telegram", "file"]
 
+# What the "(n/m) " prefix can cost a part, at the sizes this ever reaches.
+_PREFIX_ROOM = 12
+_TRUNCATION_MARK = "\n\n… (truncated — the full text is in the outbox)"
+
 
 def outbox_path(db_path: Path) -> Path:
     """`outbox/` beside the database, like `backups/` — derived, not configured."""
     return db_path.parent / "outbox"
+
+
+def split_message(text: str, limit: int = MAX_MESSAGE_CHARS) -> list[str]:
+    """`text` as messages that fit, split on BLANK LINES and never mid-sentence.
+
+    THE DIGEST OUTGREW THE CHANNEL and nobody noticed until it was measured
+    (2026-08-12): 7639 characters against Telegram's 4096, so `clip` was
+    dropping 46% of it — the stack's standing, the recurring critiques, the
+    scoreboard, the defender block, and the Worker's reading cut in the middle
+    of a sentence. A truncation marker is honest about the loss but does not
+    prevent it, and the lost half is not decoration.
+
+    Blank lines are where the digest's own blocks meet (`render_digest` joins
+    them with an empty line between), so packing whole paragraphs keeps every
+    section intact. A single paragraph longer than the limit is clipped — the
+    Worker's prose is the one thing that can reach that size, and cutting it is
+    strictly better than losing the six sections behind it.
+
+    Numbered when there is more than one part, so a message that never arrives
+    is visible as a hole rather than as an ending."""
+    if len(text) <= limit:
+        return [text]
+    blocks = text.split("\n\n")
+    parts: list[str] = []
+    current = ""
+    # Room for the "(n/m) " prefix added below — counted BEFORE packing, because
+    # a part packed to exactly the limit would overflow the moment it is
+    # numbered.
+    room = limit - _PREFIX_ROOM
+    for block in blocks:
+        block = block if len(block) <= room else clip_to(block, room)
+        if not current:
+            current = block
+        elif len(current) + 2 + len(block) <= room:
+            current = f"{current}\n\n{block}"
+        else:
+            parts.append(current)
+            current = block
+    if current:
+        parts.append(current)
+    return [f"({n}/{len(parts)}) {p}" for n, p in enumerate(parts, 1)]
+
+
+def clip_to(text: str, limit: int) -> str:
+    """One block cut to `limit`, with the loss visible."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - len(_TRUNCATION_MARK)] + _TRUNCATION_MARK
 
 
 async def deliver(text: str, *, token: str, chat_id: str, outbox: Path) -> Channel:
@@ -55,7 +107,11 @@ async def deliver(text: str, *, token: str, chat_id: str, outbox: Path) -> Chann
     there is no failure mode left to report anyway: the worst case is that the
     message is on disk instead of on a phone."""
     try:
-        await send_message(token, chat_id, text)
+        # Several messages when the text outgrows the channel, in order. Any
+        # failure aborts the rest: half a digest on the phone and the whole of
+        # it in the outbox is better than a phone holding parts 1 and 3.
+        for part in split_message(text):
+            await send_message(token, chat_id, part)
     except TelegramError as exc:
         path = write_locally(text, outbox)
         # WARNING, not ERROR: the message was delivered, just not where it was
