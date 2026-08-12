@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The agent as a user LaunchAgent (docs/TASKS.md Task 0.7; ADR-002).
+
+  ABSOLUTE PATHS EVERYWHERE, and not by preference: launchd expands no `~`, runs
+  no shell and inherits no login environment. A `~` here does not fail loudly —
+  it fails as "file not found" in a log the owner is not yet watching.
+
+  See deploy/README.md for install, inspect and uninstall.
+-->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.jp.investment-agent</string>
+
+  <!-- The VENV's interpreter, not the system one: `.venv/bin/python` is what
+       makes the process find `investment` and its dependencies. -->
+  <key>ProgramArguments</key><array>
+    <string>/Users/jdutreve/projects/investment/.venv/bin/python</string>
+    <string>-m</string><string>investment.main</string>
+  </array>
+
+  <!-- Not needed to find `.env` — `config.ENV_FILE` is anchored to the source
+       tree precisely so the configuration does not depend on who started the
+       process or from where. Set anyway so relative paths in a traceback read
+       against the repo. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/jdutreve/projects/investment</string>
+
+  <key>RunAtLoad</key><true/>
+
+  <!-- Restart on a CRASH, stay down on a clean exit. `SuccessfulExit false`
+       means "keep alive unless it exited 0", so SIGTERM — which the agent
+       handles by finishing its transaction, checkpointing the WAL and closing
+       (main.py) — does not fight a relaunch. -->
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+
+  <!-- Ten seconds between restarts. Without it a startup failure (a missing
+       key, an unseeded database) spins launchd as fast as the process can
+       die. -->
+  <key>ThrottleInterval</key><integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/jdutreve/data/investment/logs/agent.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/jdutreve/data/investment/logs/agent.error.log</string>
+</dict></plist>

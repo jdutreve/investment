@@ -86,6 +86,18 @@ semantic search).
 | `docs/IMPROVEMENTS.md` | Deferred features (I-N), triggers to revisit |
 | `docs/EXAMPLE.md` | One full cycle traced end-to-end (stagflation 2026) |
 
+## Running it
+
+```bash
+uv run python -m investment.seed     # UC0, safe to re-run
+uv run python -m investment.main     # the agent, in the foreground
+```
+
+`deploy/` carries the LaunchAgent and the install/inspect/uninstall commands.
+**The first start is not a dry run** — the weekly chain is due on a database
+that has never run one, so it decides the month's allocation and emits the
+stack's opening entry. Watch it once in the foreground first.
+
 ## Getting started
 
 Follow `docs/MILESTONES.md`: M0 (smoke test) → M6 delivers the whole mechanical
@@ -100,6 +112,12 @@ The **mechanical half runs**: seed, market backfill, regime materialization
 (35y), NAV + indicators, ranking, backtests → FAVORS, the 35y replay, the
 market-signal stack, outcomes, alerts and the digest. `docs/MILESTONES.md`
 carries the per-increment record.
+
+The **agent now runs itself**: one process holds the inbox watcher, the Monday
+cron, the wake heartbeat and the Telegram bot; the weekly chain is complete
+(catch-up → event watch → curation → the mechanical block → the monthly
+allocation decision → UC8 → digest); every front dispatches to one command
+layer.
 
 The **cognitive half is built but has never run on real data**: the live
 EventLog holds no `ProposalEvent`, `EvaluationEvent`, `InnovationEvent` or

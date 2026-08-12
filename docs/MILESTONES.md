@@ -955,6 +955,37 @@ idempotency/async-jobs hardening.
 - [ ] a Fed press item → triaged event document (or discarded as routine)
 - [x] **re-seed first** — done, see the closed item below
 
+**BUILD COMPLETE 2026-08-12. Every DoV item above is a fact about a week of
+wall clock, not about code**, so they stay open until the agent has run one.
+What exists now:
+
+- `main.py` — the process: inbox watcher, Monday 08:00 cron, 5-minute
+  heartbeat, due-on-start, graceful shutdown. Cron AND heartbeat, deliberately:
+  ADR-002's laptop sleeps, so a cron on a closed lid never fires; both go
+  through `chain_if_due`, guarded by `detector_state.last_chain_success` and
+  the run-lock.
+- `monday.py` — the chain, 10 steps, complete: catch-up → UC3 event watch →
+  UC4 curation sweep → backtests → scenarios → invariant weights → valuations →
+  ranking → outcomes → market-signal decision → UC8 → digest.
+- `mechanical/catchup.py` (UC1), `watch/event_watch.py` (UC3),
+  `corpus/curation_sweep.py` (UC4's weekly pass) — the three jobs the chain
+  needed and did not have.
+- `ops/commands.py` + `ops/run_lock.py` — ADR-005's one command layer and the
+  single-flight lock; `telegram/bot.py` is its first front.
+- `telegram/notify.py`, `db/backup.py`, `runtime.py`,
+  `deploy/com.jp.investment-agent.plist` + `deploy/README.md`.
+
+Not built, each with the reason written where it would have gone: the ACCEPT/
+REJECT proposal buttons and `proposal_expiry_days` (ADR-006 removed the user
+gate they belong to), the conversational chat (the note-vs-question
+disambiguation is an owner decision; the note channel works meanwhile), and
+UC3's bounded-domain fetch (it needs an HTML-to-text extractor the project does
+not have). The go-live gate of Task 9.3 was retired by ADR-013.
+
+**THE FIRST START IS A SUPERVISED ACT.** The chain is DUE on a database that
+has never run one, so it emits the stack's opening entry — a real order — spends
+a cognitive cycle and sends the digest. `deploy/README.md` says so at the top.
+
 **✅ CLOSED 2026-08-03 — the live DB's strategy prose is current.** The
 carried-over item (deferred 2026-08-01) warned that three Worker-visible fields
 on `market-signal-stack` held superseded text: `description` naming the books
