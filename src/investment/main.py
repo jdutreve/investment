@@ -59,6 +59,8 @@ from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from telegram.error import TelegramError
+from telegram.ext import Application
 
 from investment.chain import CHAIN_START_HOUR
 from investment.config import Settings
@@ -111,6 +113,32 @@ async def heartbeat(stop: asyncio.Event, tick: Callable[[], Awaitable[Any]]) -> 
             logger.exception("heartbeat tick failed; continuing")
 
 
+async def _start_bot(bot: Application) -> bool:  # type: ignore[type-arg]
+    """Start the Telegram front. Returns whether it is running.
+
+    A bad or placeholder token is a CONFIGURATION problem with one front, and
+    the agent's own work — decide, record, measure — does not depend on it. So
+    it is logged with what to fix and the process carries on: the chain still
+    runs, everything still lands in the database, and `invest status` still
+    answers. What the owner loses until the token is set is delivery — the
+    digest and the alerts — which is exactly what the log line says."""
+    try:
+        await bot.initialize()
+        await bot.start()
+        if bot.updater is not None:
+            await bot.updater.start_polling()
+    except TelegramError as exc:
+        logger.error(
+            "TELEGRAM FRONT DISABLED (%s: %s). The agent runs and records normally; "
+            "the digest and the alerts have nowhere to go until TELEGRAM_BOT_TOKEN and "
+            "TELEGRAM_CHAT_ID are set in .env.",
+            type(exc).__name__,
+            exc,
+        )
+        return False
+    return True
+
+
 async def run_agent(settings: Settings) -> None:
     """Wire everything and run until a signal arrives."""
     db = InvestmentDB(settings.db_path)
@@ -156,6 +184,17 @@ async def run_agent(settings: Settings) -> None:
     # connection (ADR-004), the same lock, the same agents. A separate bot
     # process would be a second writer on one SQLite file and a second run-lock
     # that knows nothing about the first.
+    #
+    # A FRONT THAT CANNOT START MUST NOT TAKE THE AGENT DOWN. Measured on the
+    # first real launch (2026-08-12): `.env` still carried the placeholder
+    # token, `bot.initialize()` raised `InvalidToken`, and the process died
+    # before the chain had refreshed a single price. The market data, the regime
+    # detection, the allocation decision and the outcome scoring do not depend
+    # on Telegram, and `telegram/notify.py` already states the principle for the
+    # other half of this channel — "failing to notify must not fail the caller",
+    # because a raise there replaces a reported failure with an unreported one.
+    # The receive half had the opposite behaviour, which was an inconsistency
+    # rather than a decision.
     bot = build_application(runtime)
     scheduler = AsyncIOScheduler(timezone=settings.tz)
     # The punctual path. Its target is the same `tick` the heartbeat calls, so
@@ -167,10 +206,7 @@ async def run_agent(settings: Settings) -> None:
         asyncio.create_task(heartbeat(stop, tick), name="heartbeat"),
     ]
     scheduler.start()
-    await bot.initialize()
-    await bot.start()
-    if bot.updater is not None:
-        await bot.updater.start_polling()
+    bot_running = await _start_bot(bot)
     logger.info(
         "agent up: db=%s tz=%s inbox=%s (chain due-on-start check running)",
         settings.db_path,
@@ -184,10 +220,11 @@ async def run_agent(settings: Settings) -> None:
         await stop.wait()
     finally:
         logger.info("shutting down")
-        if bot.updater is not None:
-            await bot.updater.stop()
-        await bot.stop()
-        await bot.shutdown()
+        if bot_running:
+            if bot.updater is not None:
+                await bot.updater.stop()
+            await bot.stop()
+            await bot.shutdown()
         scheduler.shutdown(wait=False)
         stop.set()
         for task in tasks:

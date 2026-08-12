@@ -5,6 +5,39 @@ installed by the test suite or by any command in the repo: putting a file in
 `~/Library/LaunchAgents` and bootstrapping it is a change to the machine, so it
 is a deliberate act with the commands written out.
 
+## Telegram — the one thing that is not code
+
+The agent runs, decides and records without Telegram; what it cannot do without
+it is DELIVER. The digest, the alerts and the `needs-user-input` questions all
+go through it, so an unset token means the week's work lands in the database
+and nowhere else. Measured on the first real launch (2026-08-12): `.env` still
+carried `REPLACE_ME`, the front logged itself disabled, and the chain ran to
+completion regardless — which is the intended behaviour, not a workaround.
+
+Two values, both in `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+```
+
+- **token** — talk to [@BotFather](https://t.me/BotFather) on Telegram,
+  `/newbot`, answer two questions, copy the `123456:ABC-...` line it gives back.
+- **chat id** — send any message to your new bot, then read it back:
+
+  ```bash
+  curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id":[-0-9]*'
+  ```
+
+  The number is your chat id. It is also the ONLY chat the bot answers
+  (`telegram/bot.py`): a token is a bearer credential and Telegram delivers
+  anyone's message, so an unfiltered bot is the command layer — `/drawdown`
+  included — exposed to whoever finds it.
+
+Nothing is lost by setting it late: the digest renders the market-signal block
+from the JOURNAL, so a decision taken while delivery was down still appears in
+the next digest that gets through.
+
 ## Before the first start
 
 The agent refuses to start on an unseeded database (`main.run_agent`), so:

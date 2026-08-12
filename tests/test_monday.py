@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -230,3 +230,46 @@ async def test_a_failing_tick_does_not_kill_the_heartbeat(
 
     await asyncio.wait_for(MAIN.heartbeat(stop, tick), timeout=2.0)
     assert calls >= 3
+
+
+# -- the fronts must not take the agent down --------------------------------
+
+
+async def test_a_telegram_front_that_cannot_start_leaves_the_agent_running() -> None:
+    """Measured on the first real launch (2026-08-12): `.env` still carried the
+    placeholder token, `bot.initialize()` raised `InvalidToken`, and the process
+    died before the chain had refreshed a single price.
+
+    Nothing the agent DOES depends on Telegram — it decides, records and
+    measures into SQLite — and `telegram/notify.py` already states the rule for
+    the other half of this channel: failing to notify must not fail the caller,
+    because a raise there replaces a reported failure with an unreported one.
+    The receive half having the opposite behaviour was an inconsistency, not a
+    decision."""
+    from telegram.error import InvalidToken
+
+    class _DeadBot:
+        async def initialize(self) -> None:
+            raise InvalidToken("The token `REPLACE_ME` was rejected by the server.")
+
+    assert await MAIN._start_bot(cast(Any, _DeadBot())) is False
+
+
+async def test_a_healthy_front_reports_itself_started() -> None:
+    class _LiveBot:
+        def __init__(self) -> None:
+            self.updater = SimpleNamespace(start_polling=self._noop)
+            self.started = False
+
+        async def _noop(self) -> None:
+            return None
+
+        async def initialize(self) -> None:
+            return None
+
+        async def start(self) -> None:
+            self.started = True
+
+    bot = _LiveBot()
+    assert await MAIN._start_bot(cast(Any, bot)) is True
+    assert bot.started
