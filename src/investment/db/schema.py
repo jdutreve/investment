@@ -497,6 +497,14 @@ CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (
   sortino_rolling         REAL,
   calmar_rolling          REAL,
   max_drawdown            REAL,
+  -- The paper series' level on this date, base 100 at each portfolio's OWN
+  -- inception. Snapshotted like every other indicator beside it, so the digest
+  -- stays a single-row read and any past week re-renders with the number that
+  -- was true then. NOT comparable across rows: the series start at different
+  -- dates (permanent-balanced 1986, ms-slowdown-book 1993), so a NAV of 1511
+  -- over forty years and one of 1533 over thirty-five are not the same
+  -- performance — the digest's header says so where it is rendered.
+  nav                     REAL,
   volatility              REAL,
   return_3m               REAL,
   return_6m               REAL,
@@ -741,4 +749,7 @@ DOCUMENT_TABLES = {
 # and V1 is still pre-go-live. It is the smallest thing that keeps an existing
 # database in step with the DDL, and every entry should be deleted the day the
 # real migrations begin.
-ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (("proposal", "citation_verdict", "TEXT"),)
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("proposal", "citation_verdict", "TEXT"),
+    ("portfolio_weekly_snapshot", "nav", "REAL"),
+)

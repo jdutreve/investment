@@ -50,6 +50,10 @@ class ValuationRow:
     return_1y: float | None
     return_3y: float | None
     return_5y: float | None
+    # The paper series' latest level. Read from `portfolio_nav` rather than from
+    # the `portfolio` row, which carries the rolling INDICATORS but no level —
+    # UC6 writes the ratios there, the NAV stays in its time series.
+    nav: float | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -294,6 +298,9 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
         "portfolio.sharpe_rolling, portfolio.sortino_rolling, portfolio.calmar_rolling, "
         "portfolio.max_drawdown, portfolio.volatility, portfolio.return_3m, portfolio.return_6m, "
         "portfolio.return_1y, portfolio.return_3y, portfolio.return_5y, "
+        "(SELECT nav FROM portfolio_nav "
+        " WHERE portfolio_nav.portfolio_id = portfolio.id "
+        " ORDER BY ts DESC LIMIT 1) AS nav, "
         "(SELECT regime_type_id FROM designed_for "
         " WHERE designed_for.portfolio_id = portfolio.id LIMIT 1) AS designed_regime_type_id, "
         "(SELECT strategy_id FROM holds "
@@ -321,6 +328,7 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
             return_1y=r["return_1y"],
             return_3y=r["return_3y"],
             return_5y=r["return_5y"],
+            nav=r["nav"],
         )
         for r in rows
     ]
@@ -407,13 +415,13 @@ async def build_snapshot(
                 "INSERT OR REPLACE INTO portfolio_weekly_snapshot "
                 "(date, portfolio_id, defender, framework_id, designed_regime_type_id, "
                 " primary_strategy_id, allocation, rank, sharpe_rolling, sortino_rolling, "
-                " calmar_rolling, max_drawdown, volatility, return_3m, return_6m, return_1y, "
-                " return_3y, return_5y, gap_to_defender, market_context, recommendation, "
-                " excluded_from_candidacy, trace) "
+                " calmar_rolling, max_drawdown, nav, volatility, return_3m, return_6m, "
+                " return_1y, return_3y, return_5y, gap_to_defender, market_context, "
+                " recommendation, excluded_from_candidacy, trace) "
                 "VALUES (:date, :portfolio_id, :defender, :framework_id, "
                 " :designed_regime_type_id, :primary_strategy_id, :allocation, :rank, :sharpe, "
-                " :sortino, :calmar, :mdd, :vol, :r3m, :r6m, :r1y, :r3y, :r5y, :gap, :context, "
-                " :recommendation, :excluded, :trace)",
+                " :sortino, :calmar, :mdd, :nav, :vol, :r3m, :r6m, :r1y, :r3y, :r5y, :gap, "
+                " :context, :recommendation, :excluded, :trace)",
                 date=snapshot_date.isoformat(),
                 portfolio_id=row.portfolio_id,
                 defender=row.defender,
@@ -426,6 +434,7 @@ async def build_snapshot(
                 sortino=row.sortino_rolling,
                 calmar=row.calmar_rolling,
                 mdd=row.max_drawdown,
+                nav=row.nav,
                 vol=row.volatility,
                 r3m=row.return_3m,
                 r6m=row.return_6m,

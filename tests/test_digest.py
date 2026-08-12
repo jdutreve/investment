@@ -97,7 +97,8 @@ def test_render_is_complete_and_readable() -> None:
     # regime header with percent-formatted confidence
     assert "Regime: Stagflation (78.0% — stag)" in text
     # ranking with defender star and a demoted warning
-    assert "1. 4S Balanced: 1.18 ★ (defender)  Calmar 1.9" in text
+    assert "1. 4S Balanced: Sortino 1.18 ★ (defender)" in text
+    assert "Calmar 1.9" in text and "NAV n/a" in text  # no nav on this fixture row
     assert "⚠️ (demoted: Calmar 0.6 below 1.0)" in text
     # ... and the eligible row above it carries no warning at all
     assert "1.9 ⚠️" not in text
@@ -231,7 +232,7 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
     # proposal from 2026-07-20 rather than reprint it as this week's.
     text = await D.build_digest(db, today=date(2026, 7, 20))
     assert "Regime: Stagflation (78.0% — stag)" in text
-    assert "def-pf: 1.18 ★ (defender)" in text
+    assert "def-pf: Sortino 1.18 ★ (defender)" in text
     assert "GLD stagflation hedge: 0.756 (8/9 confirmed) [dalio]" in text
     # the bridge's switch slot; ADR-012 removed the reallocation branch that
     # used to render an old->new move here
@@ -383,3 +384,66 @@ async def test_recurring_critiques_survive_commas_in_their_titles(db: Investment
     assert any("3x" in line for line in block)
     for title in titles:
         assert any(title in line for line in block), f"{title!r} was split or dropped"
+
+
+def test_the_ranking_shows_sharpe_and_nav_beside_sortino_and_calmar() -> None:
+    """Owner request 2026-08-12. Four indicators per row: the two the ranking
+    RULE uses (Sortino then Calmar) plus Sharpe and the paper series' level."""
+    text = _digest(
+        ranking=[
+            {
+                "rank": 1,
+                "portfolio_id": "ms-stack",
+                "defender": 0,
+                "sortino_rolling": 1.49,
+                "sharpe_rolling": 0.98,
+                "calmar_rolling": 2.03,
+                "nav": 4304.51,
+            }
+        ]
+    )
+    assert "Sortino 1.49" in text
+    assert "Sharpe 0.98" in text
+    assert "Calmar 2.0" in text
+    assert "NAV 4,305" in text  # whole units: two decimals on a 4-digit index is noise
+
+
+def test_the_nav_column_says_it_cannot_be_compared_across_rows() -> None:
+    """Every series is base 100 at its OWN inception, and those differ by years
+    (permanent-balanced 1986, ms-slowdown-book 1993). Printed in a ranked column
+    the number invites exactly the comparison it cannot support, so the header
+    where it is rendered says what it is."""
+    text = _digest(
+        ranking=[
+            {
+                "rank": 1,
+                "portfolio_id": "a",
+                "defender": 0,
+                "sortino_rolling": 1.0,
+                "calmar_rolling": 1.5,
+                "nav": 1511.0,
+            }
+        ]
+    )
+    assert "own inception" in text
+    assert "never to another row" in text
+
+
+def test_a_snapshot_written_before_the_nav_column_reads_n_a() -> None:
+    """`ADDED_COLUMNS` adds `nav` to a live database, so every row written before
+    today has NULL there. 'n/a' is the honest render; 0 would be a NAV that
+    lost everything."""
+    text = _digest(
+        ranking=[
+            {
+                "rank": 1,
+                "portfolio_id": "a",
+                "defender": 0,
+                "sortino_rolling": 1.0,
+                "calmar_rolling": 1.5,
+                "nav": None,
+                "sharpe_rolling": None,
+            }
+        ]
+    )
+    assert "NAV n/a" in text and "Sharpe n/a" in text

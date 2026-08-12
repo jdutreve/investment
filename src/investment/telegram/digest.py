@@ -75,14 +75,26 @@ def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
     job stamped — it was judged against the cap in force on that date, and
     re-deriving it would re-judge a past snapshot under today's cap
     (db/schema.py)."""
-    lines = ["", "🏆 Portfolio ranking (Sortino USD, rolling 36M):"]
+    # THE NAV CARRIES A WARNING IN THE HEADER, not per row, and it is not
+    # decoration: every series is base 100 at its OWN inception, and those differ
+    # by years (permanent-balanced 1986, ms-slowdown-book 1993). Printed in a
+    # ranked column the number invites exactly the comparison it cannot support,
+    # so the one place it is rendered says what it is. It is the right number for
+    # watching ONE portfolio compound over time, which is why it is here at all.
+    lines = [
+        "",
+        "🏆 Portfolio ranking (Sortino USD, rolling 36M):",
+        "   (NAV = base 100 at each portfolio's own inception — compare a row to "
+        "itself over time, never to another row)",
+    ]
     for row in ranking:
         star = " ★ (defender)" if row.get("defender") else ""
         sortino = row.get("sortino_rolling")
         calmar = row.get("calmar_rolling")
         line = (
             f"   {row.get('rank')}. {row.get('portfolio_id')}: "
-            f"{sortino:.2f}{star}  Calmar {calmar:.1f}"
+            f"Sortino {sortino:.2f}{star}  Sharpe {_num(row.get('sharpe_rolling'))}  "
+            f"Calmar {calmar:.1f}  NAV {_nav(row.get('nav'))}"
             if isinstance(sortino, int | float) and isinstance(calmar, int | float)
             else f"   {row.get('rank')}. {row.get('portfolio_id')}{star}"
         )
@@ -262,6 +274,13 @@ def _stack_block(stack: dict[str, Any] | None) -> list[str]:
 
 def _num(value: Any) -> str:
     return f"{value:.2f}" if isinstance(value, int | float) else "n/a"
+
+
+def _nav(value: Any) -> str:
+    """A NAV level, whole units. Two decimals on a four-digit index is noise the
+    eye has to step over on every row; NULL on a snapshot written before the
+    column existed reads 'n/a' rather than 0."""
+    return f"{value:,.0f}" if isinstance(value, int | float) else "n/a"
 
 
 def _g(value: Any) -> str:

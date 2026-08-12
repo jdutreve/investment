@@ -168,6 +168,6 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
     # the digest is readable and complete
     digest = holder["digest"]
     assert "Regime: Stagflation (78.0% — stag)" in digest
-    assert "def-pf: 1.18 ★ (defender)" in digest
+    assert "def-pf: Sortino 1.18 ★ (defender)" in digest
     assert "GLD stagflation hedge" in digest
     assert "Proposals hit-rate: 0/0" in digest  # no decided proposals yet
