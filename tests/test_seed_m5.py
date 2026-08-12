@@ -760,3 +760,79 @@ async def test_an_effect_missing_metric_demotes_instead_of_crashing_the_sweep(
         assert "metric" in str(row["trace"])
     finally:
         await db.close()
+
+
+async def _throwaway(tmp_path: Path) -> InvestmentDB:
+    """A bare database for the retirement tests. This module drives the whole
+    seed elsewhere and has no shared `db` fixture; three tests about one UPSERT
+    do not justify adding one to it."""
+    return InvestmentDB(tmp_path / "retire.db")
+
+
+async def test_a_portfolio_the_seed_no_longer_defines_is_disabled(tmp_path: Path) -> None:
+    """ADR-012 removed the two measurement books; the live database kept them,
+    enabled, and `worker-book` was ranked SIXTH in the first real digest
+    (2026-08-12). The seed only UPSERTs, so a deletion from `PORTFOLIOS` never
+    reached the world.
+
+    It is not inert: `build_snapshot` ranks every ENABLED portfolio, so a book
+    an ADR deleted keeps competing for rank — and rank 1 is what
+    `outcomes._best_ranked_allocation` hands the stack's opening entry as the
+    baseline it must beat."""
+    db = await _throwaway(tmp_path)
+    await db.command(
+        "INSERT INTO framework (id, name, enabled, trace, created_at) "
+        "VALUES ('4seasons', 'F', 1, 't', '2026-01-01')"
+    )
+    for portfolio_id in ("4s-balanced-defender", "worker-book"):
+        await db.command(
+            "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, "
+            "benchmark, allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, "
+            "updated_at) VALUES (:id, :id, '4seasons', 0, 1, 'USD', 'b', '{}', -25.0, 50.0, "
+            "'accumulation', 't', '2026-01-01')",
+            id=portfolio_id,
+        )
+
+    result = await seed._retire_removed_portfolios(db)
+
+    assert result["retired"] == ["worker-book"]
+    rows = {str(r["id"]): r["enabled"] for r in await db.query("SELECT id, enabled FROM portfolio")}
+    assert not rows["worker-book"]
+    assert rows["4s-balanced-defender"]  # still seeded, untouched
+    await db.close()
+
+
+async def test_retiring_is_idempotent_and_says_when_it_did_nothing(tmp_path: Path) -> None:
+    """A run that disables nothing returns an empty list rather than a silent
+    success — the difference between "checked, clean" and "never looked"."""
+    db = await _throwaway(tmp_path)
+    assert (await seed._retire_removed_portfolios(db))["retired"] == []
+    await db.close()
+
+
+async def test_a_retired_portfolio_keeps_its_history(tmp_path: Path) -> None:
+    """DISABLED, not deleted. `portfolio_nav`, the weekly snapshots, `holds` and
+    a Proposal's `defender_id` all reference these rows; deleting would either
+    break those references or rewrite history that was true when it was
+    written."""
+    db = await _throwaway(tmp_path)
+    await db.command(
+        "INSERT INTO framework (id, name, enabled, trace, created_at) "
+        "VALUES ('4seasons', 'F', 1, 't', '2026-01-01')"
+    )
+    await db.command(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
+        "('worker-book', 'w', '4seasons', 0, 1, 'USD', 'b', '{}', -25.0, 50.0, 'accumulation', "
+        "'t', '2026-01-01')"
+    )
+    await db.append_ts_batch(
+        "portfolio_nav",
+        [{"portfolio_id": "worker-book", "currency": "USD", "ts": "2026-08-01", "nav": 100.0}],
+    )
+
+    await seed._retire_removed_portfolios(db)
+
+    assert await db.query("SELECT id FROM portfolio WHERE id = 'worker-book'")
+    assert await db.query("SELECT ts FROM portfolio_nav WHERE portfolio_id = 'worker-book'")
+    await db.close()

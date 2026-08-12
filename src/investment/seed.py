@@ -303,6 +303,44 @@ async def _prune_retired_series(db: InvestmentDB) -> dict[str, Any]:
     return {"retired_tickers": retired, "market_data_rows_pruned": stale_rows}
 
 
+async def _retire_removed_portfolios(db: InvestmentDB) -> dict[str, Any]:
+    """Step 8b (2026-08-12): DISABLE portfolios the seed no longer defines.
+
+    The seed only ever UPSERTs, so a portfolio deleted from `PORTFOLIOS`
+    survives every later run — the same defect `_prune_retired_series` fixes for
+    market series (I-30), one table over. It is not inert: `snapshots
+    .build_snapshot` ranks every ENABLED Portfolio, so a book an ADR deleted
+    keeps competing for rank, keeps appearing in the Worker's context, and can
+    become rank 1 — which is what `outcomes._best_ranked_allocation` reads as
+    the baseline the market-signal stack's opening entry is scored against.
+
+    Found on the live database 2026-08-12, in the first real digest: ADR-012
+    removed the two measurement books ("the two measurement books are removed")
+    and `worker-book` was still there, enabled, ranked SIXTH. It was not rank 1
+    that day; nothing had made sure it could not be.
+
+    DISABLED, NOT DELETED, and the distinction is deliberate. `portfolio_nav`,
+    `portfolio_weekly_snapshot`, `holds` and `designed_for` all reference these
+    rows, and a Proposal may name one as its `defender_id`; deleting would
+    either break those references or silently rewrite history that was true when
+    it was written. Disabling removes it from every forward-looking read — the
+    ranking, the valuation, the Worker's context — and leaves the record intact.
+
+    Idempotent, and it says what it did: a run that disables nothing returns an
+    empty list rather than a silent success."""
+    seeded = {_vertex_id(p) for p in PORTFOLIOS}
+    rows = await db.query("SELECT id FROM portfolio WHERE enabled = 1")
+    retired = sorted({str(r["id"]) for r in rows} - seeded)
+    for portfolio_id in retired:
+        logger.warning("step 8b: %s is no longer seeded — disabling", portfolio_id)
+        await db.command(
+            "UPDATE portfolio SET enabled = 0, updated_at = :now WHERE id = :id",
+            now=datetime.now(UTC).isoformat(),
+            id=portfolio_id,
+        )
+    return {"retired": retired}
+
+
 async def _seed_frameworks(db: InvestmentDB) -> int:
     """Step 2."""
     for fw in FRAMEWORKS:
@@ -828,6 +866,7 @@ async def run_seed(
         inventory["strategy"] = await _seed_strategies(db)
         inventory["scenario"] = await _seed_scenarios(db)
         inventory["portfolio"] = await _seed_portfolios(db)
+        inventory["portfolios_retired"] = await _retire_removed_portfolios(db)
         inventory["market_data"] = await _seed_market_data(
             db, settings, fetch_raw=fetch_raw, yahoo_rate_limit_seconds=yahoo_rate_limit_seconds
         )
