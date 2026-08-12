@@ -15,15 +15,17 @@ connection, one writer):
   1b. the TELEGRAM BOT   — the owner's front, polling for updates. Every handler
      dispatches to `ops/commands.py`, which is also what the CLI and the
      dashboard will call (ADR-005): one command layer, three fronts.
-  2. the MONDAY CRON    — 08:00 Europe/Zurich, the normal path.
+  2. the WEEKLY CRON    — Sunday 08:00 Europe/Zurich, the normal path
+     (`chain.CHAIN_START_WEEKDAY`; moved from Monday by owner decision
+     2026-08-12 so the digest lands before the week opens).
   3. the HEARTBEAT      — every 5 minutes, asks whether the chain is DUE. This
      is the wake path (ADR-002: the laptop sleeps, so a cron that fires at 08:00
      on a closed lid never fires at all), and also the launch path.
   4. SHUTDOWN           — SIGTERM/SIGINT finish the current transaction,
      checkpoint the WAL and close (CLAUDE.md "Dev standards").
 
-WHY THE CRON AND THE HEARTBEAT ARE BOTH HERE, given they can both fire on a
-Monday morning: they answer different questions. The cron is punctual and the
+WHY THE CRON AND THE HEARTBEAT ARE BOTH HERE, given they can both fire on the
+same morning: they answer different questions. The cron is punctual and the
 heartbeat is a catch-up, and neither can know whether the other ran. What makes
 the redundancy safe is that BOTH go through `chain_if_due`, which is guarded
 twice over — by `detector_state.last_chain_success` (a chain that already
@@ -54,6 +56,7 @@ import asyncio
 import contextlib
 import logging
 import signal
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -62,19 +65,19 @@ from apscheduler.triggers.cron import CronTrigger
 from telegram.error import TelegramError
 from telegram.ext import Application
 
-from investment.chain import CHAIN_START_HOUR
+from investment.chain import CHAIN_START_HOUR, CHAIN_START_WEEKDAY
 from investment.config import Settings
 from investment.corpus.embedding import InProcessEmbedder
 from investment.corpus.ingester import CorpusIngester
 from investment.corpus.watcher import InboxWatcher
 from investment.db.sqlite import InvestmentDB
-from investment.monday import chain_if_due
 from investment.ops.run_lock import RunLock
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.runtime import AgentRuntime
 from investment.telegram.bot import build_application
 from investment.watch.event_watch import build_triage_agent
+from investment.weekly import chain_if_due
 from investment.worker.agent import build_worker_agent
 
 logger = logging.getLogger(__name__)
@@ -83,12 +86,12 @@ logger = logging.getLogger(__name__)
 # the spec's own figure (Phase 7) and the reasoning is asymmetric: a late chain
 # costs the owner a few minutes of a weekly report, while a tight loop costs a
 # wakeup on a laptop that is asleep most of the time. It is also short enough
-# that "I opened the lid on Tuesday" produces the Monday chain before coffee.
+# that "I opened the lid on Tuesday" produces the weekly chain before coffee.
 HEARTBEAT_SECONDS = 300.0
 
 # The chain's own name in the run-lock. The other holders arrive with the
 # command layer ({catchup, uc8, replay} — Task 6ter.1).
-CHAIN_LOCK = "monday-chain"
+CHAIN_LOCK = "weekly-chain"
 
 
 async def heartbeat(stop: asyncio.Event, tick: Callable[[], Awaitable[Any]]) -> None:
@@ -100,7 +103,7 @@ async def heartbeat(stop: asyncio.Event, tick: Callable[[], Awaitable[Any]]) -> 
 
     A tick that RAISES must not kill the heartbeat: it is the wake path, and a
     process that stops asking whether the chain is due looks exactly like a week
-    with nothing to do. `run_monday_chain` already absorbs chain failures, so
+    with nothing to do. `run_weekly_chain` already absorbs chain failures, so
     anything arriving here is unexpected — logged with its traceback, then the
     loop continues."""
     while not stop.is_set():
@@ -199,7 +202,16 @@ async def run_agent(settings: Settings) -> None:
     scheduler = AsyncIOScheduler(timezone=settings.tz)
     # The punctual path. Its target is the same `tick` the heartbeat calls, so
     # whichever arrives first runs the chain and the other finds it not due.
-    scheduler.add_job(tick, CronTrigger(day_of_week="mon", hour=CHAIN_START_HOUR, minute=0))
+    # The day comes from `chain.CHAIN_START_WEEKDAY` rather than a literal, so
+    # the cron and `is_chain_due` cannot disagree about which day the week turns
+    # on — a cron firing on a day the due-check does not recognise would run
+    # nothing, silently, for as long as nobody looked. APScheduler's
+    # `day_of_week` counts Monday as 0 like `date.weekday()`, so the constant
+    # passes straight through.
+    scheduler.add_job(
+        tick,
+        CronTrigger(day_of_week=CHAIN_START_WEEKDAY, hour=CHAIN_START_HOUR, minute=0),
+    )
 
     tasks = [
         asyncio.create_task(watcher.run(stop), name="inbox-watcher"),
@@ -215,7 +227,7 @@ async def run_agent(settings: Settings) -> None:
     )
     try:
         # DUE-ON-START, before waiting: a laptop opened on Tuesday must not wait
-        # five minutes for the heartbeat to notice that Monday came and went.
+        # five minutes for the heartbeat to notice that the anchor came and went.
         await tick()
         await stop.wait()
     finally:
@@ -233,11 +245,43 @@ async def run_agent(settings: Settings) -> None:
         await db.close()
 
 
+class _BelowWarning(logging.Filter):
+    """Lets INFO and DEBUG through, stops WARNING and above."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno < logging.WARNING
+
+
+def configure_logging() -> None:
+    """INFO to stdout, WARNING and above to stderr.
+
+    `basicConfig` sends EVERYTHING to stderr, and under launchd that means the
+    whole journal lands in `agent.error.log` while `agent.log` stays empty — a
+    file named "error" holding a normal Sunday, and a file named for the log
+    holding nothing. Both names then lie, and the one an owner opens first is
+    the wrong one.
+
+    The stdout handler needs the FILTER as well as its level: a level admits
+    everything above it, so without the filter every warning would appear in
+    both files and the split would only be a duplication."""
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    out = logging.StreamHandler(sys.stdout)
+    out.setLevel(logging.INFO)
+    out.addFilter(_BelowWarning())
+    out.setFormatter(fmt)
+
+    err = logging.StreamHandler(sys.stderr)
+    err.setLevel(logging.WARNING)
+    err.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers = [out, err]
+
+
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    configure_logging()
     # pydantic-settings populates required fields from .env at runtime; mypy
     # cannot see that (CLAUDE.md "Dev standards" mypy rule), as in seed.main.
     asyncio.run(run_agent(Settings()))  # type: ignore[call-arg]

@@ -651,7 +651,7 @@ async def _commit_scenario_updates(
 def _safe_float(value: Any, default: float) -> float:
     """A spec number as a float, `default` when the model put prose in the field.
     Every `spec` value is LLM-authored, so a bare `float()` here would raise and
-    abort the whole Monday chain over one malformed innovation."""
+    abort the whole weekly chain over one malformed innovation."""
     try:
         return float(value)
     except (TypeError, ValueError):

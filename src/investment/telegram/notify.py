@@ -1,5 +1,5 @@
 """Send a message to the owner (docs/TASKS.md Phase 6bis; CLAUDE.md
-"Scheduling": the Monday chain is "abort + Telegram alert on failure").
+"Scheduling": the weekly chain is "abort + Telegram alert on failure").
 
 THE SEND HALF ONLY. `telegram/bot.py` (Task 6bis.2, UC9) is the receive half —
 handlers, buttons, the chat — and it is a much bigger thing that pulls in

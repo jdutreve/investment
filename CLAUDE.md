@@ -98,13 +98,16 @@ requires; a swap is a `.env` edit plus a smoke test, never a code change.
 Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
 - **Event-driven**: inbox watcher (60s poll, 5-min quiet) → ingestion batch →
   curator (LLM, knowledge extraction only); backup after every chain/batch.
-- **Monday chain** (ADR-007: the ALLOCATION DECISION runs MONTHLY, not weekly —
+- **Weekly chain, SUNDAY 08:00** (moved from Monday, owner 2026-08-12: the
+  digest carries an order placed by hand, and Sunday morning is before the week
+  opens. `chain.CHAIN_START_WEEKDAY` is the single anchor the cron and the
+  due-check both read.) (ADR-007: the ALLOCATION DECISION runs MONTHLY, not weekly —
   the market-signal regime and market-signal books move slowly by design; the catch-up
-  /NAV/regime-step/curation jobs below keep their natural per-Monday frequency,
+  /NAV/regime-step/curation jobs below keep their natural weekly frequency,
   only the UC8 decision + digest gate on the monthly cadence. Indicative times,
   strictly sequential, abort +
   Telegram alert on failure; DUE-ON-START at launch/wake if the last success
-  predates the most recent Monday 08:00): 08:00 catch-up (market TS, regime
+  predates the most recent Sunday 08:00): 08:00 catch-up (market TS, regime
   step per new monthly print, NAV, expiry sweep) → 08:05 UC3 event watch →
   08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
   probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
@@ -112,7 +115,7 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   **market-signal monthly decision** (`market_signal_cycle.py` — ADR-007's LIVE
   allocation: PIT inputs → credit-spread/slope signal → book → trend overlay →
   binding caps → EventLog → `Proposal(proposal_type='market-signal')`; runs on
-  every Monday but is a no-op unless the month's decision date is new, so the
+  every week but is a no-op unless the month's decision date is new, so the
   monthly cadence needs no separate schedule. It refreshes the stack's
   `portfolio_nav` on EVERY run, before that monthly check — the NAV is a weekly
   artefact feeding the ranking and the drawdown alert, only the DECISION is

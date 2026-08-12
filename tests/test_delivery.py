@@ -59,7 +59,7 @@ async def test_a_rejected_token_falls_back_to_a_file(
 async def test_a_network_failure_falls_back_the_same_way(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Not only a bad token: a timeout on a Monday morning loses the same
+    """Not only a bad token: a timeout on a chain morning loses the same
     digest, and the owner is no less entitled to read it."""
 
     async def timed_out(token: str, chat_id: str, text: str) -> None:
@@ -104,7 +104,7 @@ async def test_the_full_text_reaches_the_log_as_well(
 
 def test_two_messages_in_one_morning_do_not_overwrite_each_other(tmp_path: Path) -> None:
     """The digest and an event watch flagging something it refused to guess at
-    can both land on a Monday, microseconds apart when Telegram is down: both
+    can both land on a weekly run, microseconds apart when Telegram is down: both
     fail fast on the same rejected token. A second-resolution name loses the
     first, which is the exact loss this fallback exists to prevent — the first
     version of this test tolerated it and was wrong to."""

@@ -1,5 +1,5 @@
 """Weekly digest render (docs/TASKS.md Task 6bis.1; template in docs/EXAMPLE.md
-Steps 8A/8B). Renders the Monday 09:30 digest as text — regime header, ranked
+Steps 8A/8B). Renders the weekly digest as text — regime header, ranked
 table with the defender starred, key invariants, the proposal block
 (reallocation old->new or switch), the scoreboard, and the defender's returns.
 
@@ -137,7 +137,7 @@ def _market_signal_block(
     Shows the two signal comparisons and the overlay reads, not just the
     resulting book: the owner places these orders by hand and is entitled to see
     what moved the money. Falls back gracefully on a thin payload — a digest must
-    never be the thing that fails on Monday morning."""
+    never be the thing that fails on the morning it runs."""
     if not decision:
         return []
     signals = decision.get("signals") or {}
@@ -250,7 +250,7 @@ def _stack_block(stack: dict[str, Any] | None) -> list[str]:
     # Every indicator is formatted defensively, as everywhere else in this file:
     # `calmar_rolling` is cagr/|max_drawdown| and goes NULL when the window holds
     # no drawdown at all, and the rolling indicators are NULL for the first rows
-    # of any series. A digest that raises on Monday morning is worse than one
+    # of any series. A digest that raises on the morning it runs is worse than one
     # that prints 'n/a'.
     return [
         "",
@@ -517,7 +517,7 @@ async def _latest_proposal(
         None,
     )
     proposal["current_allocation"] = _json_map(current.get("allocation")) if current else {}
-    # PREFER THE PROPOSAL'S OWN DIFF. The ranking lookup above is a Monday
+    # PREFER THE PROPOSAL'S OWN DIFF. The ranking lookup above is a weekly run
     # photograph and misses the target entirely once it is not a ranked
     # defender — and worse, since 2026-08-08 an accepted reallocation MOVES the
     # book it targets (`writeback._commit_reallocation`), so by digest time the

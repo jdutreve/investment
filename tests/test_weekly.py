@@ -1,10 +1,10 @@
-"""The Monday chain and the process that triggers it (`monday.py`, `main.py`;
+"""The weekly chain and the process that triggers it (`weekly.py`, `main.py`;
 docs/TASKS.md Phase 7; docs/MILESTONES.md M9).
 
 What is testable here without a network, an LLM or a week of wall clock: the
 DUE-ON-START arithmetic and its marker, the fact that the marker and the regime
 detector share one row without clobbering each other, and the shape of the
-Monday chain. The chain RUNNING end to end is `test_simulated_monday.py`, which
+weekly chain. The chain RUNNING end to end is `test_simulated_weekly.py`, which
 drives the same steps through the same runner on TestModel.
 """
 
@@ -17,7 +17,7 @@ from typing import Any, cast
 import pytest
 
 from investment import main as MAIN
-from investment import monday as M
+from investment import weekly as M
 from investment.db.sqlite import InvestmentDB
 from investment.market.regime import DetectorState, _load_state, _persist_state
 
@@ -27,14 +27,14 @@ MONDAY_0900 = datetime(2026, 8, 10, 9, 0, tzinfo=ZURICH)
 
 
 class _Settings:
-    """Only what `monday_steps` reads off settings while BUILDING the list —
+    """Only what `weekly_steps` reads off settings while BUILDING the list —
     the thunks are never awaited here."""
 
     inbox_path = Path("/nonexistent-inbox")
 
 
 def _runtime(db: InvestmentDB) -> Any:
-    """A runtime whose components are never touched: `monday_steps` closes over
+    """A runtime whose components are never touched: `weekly_steps` closes over
     them and the thunks are not awaited, so building two OpenRouter agents and
     loading a 90MB embedder to look at a list of names would buy nothing."""
     return SimpleNamespace(db=db, settings=_Settings())
@@ -103,7 +103,7 @@ async def _due(db: InvestmentDB, now: datetime) -> bool:
     last = await M.last_chain_success(db)
     from investment.chain import is_chain_due
 
-    return is_chain_due(last.astimezone(now.tzinfo) if last else None, now, M.CHAIN_START_HOUR)
+    return is_chain_due(last.astimezone(now.tzinfo) if last else None, now, hour=M.CHAIN_START_HOUR)
 
 
 async def test_a_chain_that_ran_this_morning_is_not_due_again(db: InvestmentDB) -> None:
@@ -141,7 +141,7 @@ def _steps(db: InvestmentDB) -> list[str]:
 
     return [
         name
-        for name, _ in M.monday_steps(
+        for name, _ in M.weekly_steps(
             _runtime(db),
             thresholds={"rolling_window_days": 756.0, "ranking_tiebreak_window": 0.02},
             user_profile={"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0},
@@ -273,3 +273,70 @@ async def test_a_healthy_front_reports_itself_started() -> None:
     bot = _LiveBot()
     assert await MAIN._start_bot(cast(Any, bot)) is True
     assert bot.started
+
+
+# -- the weekly anchor ------------------------------------------------------
+
+
+def test_the_anchor_is_sunday_and_the_cron_reads_the_same_constant() -> None:
+    """The cron and the due-check must agree about which day the week turns on.
+    A cron firing on a day `is_chain_due` does not recognise would run nothing,
+    silently, for as long as nobody looked — so both read one constant."""
+    from investment.chain import CHAIN_START_WEEKDAY
+
+    assert CHAIN_START_WEEKDAY == 6  # date.weekday(): Monday 0 … Sunday 6
+    assert datetime(2026, 8, 9).weekday() == CHAIN_START_WEEKDAY  # a Sunday
+
+
+def test_the_anchor_is_found_from_any_day_of_the_week() -> None:
+    """Written for any weekday rather than Monday's `now.weekday()` shortcut:
+    the anchor moved once, and a formula that only works for one day has to be
+    rewritten the next time."""
+    from investment.chain import most_recent_chain_start
+
+    sunday_0800 = datetime(2026, 8, 9, 8, 0, tzinfo=ZURICH)
+    for day, hour in ((9, 7), (9, 8), (9, 23), (10, 0), (15, 12)):  # Sun→Sat
+        now = datetime(2026, 8, day, hour, tzinfo=ZURICH)
+        expected = sunday_0800 if (day, hour) != (9, 7) else sunday_0800 - timedelta(days=7)
+        assert most_recent_chain_start(now) == expected, f"{day}/{hour}"
+
+
+async def test_a_chain_that_ran_on_sunday_is_not_due_on_monday(db: InvestmentDB) -> None:
+    """The case the move is FOR: the digest lands before the week opens, and
+    Monday must not re-run it."""
+    await M.record_chain_success(db, datetime(2026, 8, 9, 8, 30, tzinfo=ZURICH))
+    assert not await _due(db, datetime(2026, 8, 10, 9, 0, tzinfo=ZURICH))
+
+
+async def test_a_chain_that_last_ran_before_sunday_is_due(db: InvestmentDB) -> None:
+    await M.record_chain_success(db, datetime(2026, 8, 7, 8, 30, tzinfo=ZURICH))  # Friday
+    assert await _due(db, datetime(2026, 8, 10, 9, 0, tzinfo=ZURICH))  # Monday
+
+
+# -- the log split ----------------------------------------------------------
+
+
+def test_info_goes_to_stdout_and_warnings_to_stderr() -> None:
+    """Under launchd these are two FILES. `basicConfig` sent everything to
+    stderr, so `agent.error.log` held a normal Sunday and `agent.log` held
+    nothing — both names lying, and the one opened first the wrong one."""
+    import logging as _logging
+    import sys
+
+    MAIN.configure_logging()
+    handlers = _logging.getLogger().handlers
+    streams = {h.stream: h for h in handlers if isinstance(h, _logging.StreamHandler)}  # type: ignore[attr-defined]
+
+    assert sys.stdout in streams and sys.stderr in streams
+    info = _logging.LogRecord("x", _logging.INFO, "f", 1, "m", None, None)
+    warn = _logging.LogRecord("x", _logging.WARNING, "f", 1, "m", None, None)
+
+    out, err = streams[sys.stdout], streams[sys.stderr]
+    # The stdout handler needs the FILTER as well as the level: a level admits
+    # everything above it, so without it a warning would land in both files.
+    assert out.filter(info) and not out.filter(warn)
+    # The LOGGER applies a handler's level (`Logger.callHandlers`), not
+    # `Handler.handle` — so this asserts the level itself rather than a call
+    # that would happily emit an INFO record straight into stderr.
+    assert err.level == _logging.WARNING
+    assert info.levelno < err.level <= warn.levelno

@@ -15,7 +15,7 @@ THREE INVARIANTS, and each is a failure this layer exists to prevent:
      the phone; the second one must read as "already disabled", not write a
      second decision into the audit trail as though they had decided twice.
   2. SINGLE-FLIGHT. The heavy operations share ONE lock (`ops/run_lock.py`), so
-     a manual chain during the Monday chain is refused with what is running
+     a manual chain during the weekly chain is refused with what is running
      rather than queued behind it — two chains in sequence would run the second
      on the artefacts of the first.
   3. EVENTLOG FIRST. The `UserDecisionEvent` is appended before the row it
@@ -43,9 +43,9 @@ from typing import Any
 
 from investment.decision_cycle import run_decision_cycle
 from investment.mechanical.catchup import run_catchup
-from investment.monday import run_monday_chain
 from investment.ops.run_lock import AlreadyRunning
 from investment.runtime import AgentRuntime
+from investment.weekly import run_weekly_chain
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ SOURCE_UC = "UC9"
 
 # Lock names for the heavy operations, alongside `monday.CHAIN_LOCK`. Distinct
 # strings because the refusal message names the holder, and "already running:
-# catch-up" and "already running: monday-chain" send the owner to different
+# catch-up" and "already running: weekly-chain" send the owner to different
 # places.
 CATCHUP_LOCK = "catch-up"
 CYCLE_LOCK = "uc9-cycle"
@@ -261,11 +261,11 @@ async def refresh(runtime: AgentRuntime) -> CommandResult:
 
 
 async def run_chain(runtime: AgentRuntime) -> CommandResult:
-    """The whole Monday chain, on demand. The same function the cron and the
+    """The whole weekly chain, on demand. The same function the cron and the
     heartbeat call — not a second assembly of the same steps."""
     try:
-        result = await run_monday_chain(runtime)
-    except AlreadyRunning as exc:  # pragma: no cover - raised inside run_monday_chain
+        result = await run_weekly_chain(runtime)
+    except AlreadyRunning as exc:  # pragma: no cover - raised inside run_weekly_chain
         return CommandResult.refused(str(exc))
     if result is None:
         holder = runtime.lock.holder
@@ -305,14 +305,14 @@ async def run_cycle(runtime: AgentRuntime, *, today: date | None = None) -> Comm
     rewrite — so the cycle nuances the same standings the digest showed.
 
     Both steps hold ONE lock for the whole operation rather than one each: a
-    Monday chain starting between the prelude and the cycle would rewrite the
+    weekly chain starting between the prelude and the cycle would rewrite the
     ground under it."""
     today = today or date.today()
     used = await adhoc_cycles_today(runtime, today)
     if used >= MAX_ADHOC_CYCLES_PER_DAY:
         return CommandResult.refused(
             f"Already ran {used} ad-hoc cycle today (limit {MAX_ADHOC_CYCLES_PER_DAY}). "
-            "The Monday chain runs one anyway."
+            "The weekly chain runs one anyway."
         )
     thresholds = {
         str(r["key"]): float(r["value"])

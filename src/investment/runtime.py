@@ -1,8 +1,8 @@
 """The wired agent — everything the live process holds, in one object.
 
 WHY THIS EXISTS, and it is a dependency direction rather than a convenience.
-Three things need the same set of built components: the Monday chain
-(`monday.py`), the command layer every front dispatches to
+Three things need the same set of built components: the weekly chain
+(`weekly.py`), the command layer every front dispatches to
 (`ops/commands.py`), and the process that owns them (`main.py`). Without a
 shared type they would have to import each other — `commands` needs to run the
 chain, the chain needs the same runtime the bot hands it — and the cycle has no

@@ -272,7 +272,7 @@ async def test_new_strategy_innovation_is_born_proposed_and_disabled(db: Investm
 
 async def test_strategy_innovation_survives_an_invented_fk(db: InvestmentDB) -> None:
     """`INSERT OR IGNORE` does NOT absorb foreign-key violations in SQLite, so an
-    id the model invented would raise IntegrityError and abort the Monday chain.
+    id the model invented would raise IntegrityError and abort the weekly chain.
     The unresolvable reference is dropped; the innovation still lands."""
     result = PostPlannerResult(
         innovations=[

@@ -263,7 +263,7 @@ def test_admissibility_is_decided_without_caps_or_thresholds() -> None:
     and `max_turnover_pct` cannot. Passing junk for both proves the split is
     real: if a merit gate ever drifts into that function, this raises or
     returns the wrong name, instead of the mistake surfacing six months later
-    as a slightly misleading line in a Monday digest."""
+    as a slightly misleading line in a weekly run digest."""
     junk_caps = Caps(max_single_asset_pct=float("nan"), max_drawdown_pct=float("nan"))
     junk_thresholds = replace(
         THRESHOLDS,

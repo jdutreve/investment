@@ -123,7 +123,7 @@ FEED_TIMEOUT_SECONDS = 30.0
 # Measured on the first live run (2026-08-12): one ECB item took 3m38s while
 # its siblings took 3-10s, and neither the model setting nor the read timeout
 # noticed — the call completed, so it was slow rather than hung, but nothing
-# BOUNDED it. With 54 items a stalled socket hangs the whole Monday chain, and
+# BOUNDED it. With 54 items a stalled socket hangs the whole weekly chain, and
 # the chain has no deadline of its own.
 #
 # Generous against the 3m38s that was real work: this refuses a call that has
@@ -323,7 +323,7 @@ async def run_event_watch(
     is read off the filename — overwriting `kind='event'` with `'book'` and,
     fatally, `source_path` with the file path. The URL would be gone, the dedupe
     would never match it again, and the item would be re-triaged and re-ingested
-    every Monday, paying a model call each time.
+    every week, paying a model call each time.
 
     The file is a handoff format, not an artefact: `CorpusIngester` consumes a
     path, the event's provenance is its URL, and the text itself survives as
@@ -335,7 +335,7 @@ async def run_event_watch(
     hence the map and the log line.
 
     An item that fails TRIAGE is likewise recorded and skipped: it stays
-    un-ingested, so the next Monday sees it as new again and retries it."""
+    un-ingested, so the next week sees it as new again and retries it."""
     fetched = new_items = major = routine = 0
     ingested: list[str] = []
     flagged: list[FeedItem] = []
@@ -365,7 +365,7 @@ async def run_event_watch(
         except Exception as exc:
             # TimeoutError included, deliberately: an item whose call ran out of
             # wall clock is recorded and skipped like any other failure, stays
-            # un-ingested, and is seen as new again next Monday. One item must
+            # un-ingested, and is seen as new again next week. One item must
             # never cost the other fifty-three.
             logger.warning("event watch: triage failed for %s — %s", item.url, exc)
             failed[item.url] = f"{type(exc).__name__}: {exc}"

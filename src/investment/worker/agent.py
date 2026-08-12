@@ -368,7 +368,7 @@ async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerRe
     (CLAUDE.md: "unhandled errors surface"). Deliberately NOT caught into a
     degraded result: a Worker that burned 12 tool calls without answering has
     not produced a weaker opinion, it has failed, and a half-cycle silently
-    written to the graph is worse than a Monday with no cognitive read."""
+    written to the graph is worse than a weekly run with no cognitive read."""
     limits = UsageLimits(
         request_limit=WORKER_REQUEST_LIMIT,
         tool_calls_limit=WORKER_TOOL_CALLS_LIMIT,

@@ -47,7 +47,7 @@ HELP = """Commands:
 /status — is it alive, and how current
 /ranking — the latest ranked portfolios
 /refresh — catch-up now (market data, regime, NAV)
-/chain — run the whole Monday chain now
+/chain — run the whole weekly chain now
 /cycle — one ad-hoc cognitive cycle (max 1/day)
 /enable <strategy_id> · /disable <strategy_id>
 /drawdown <pct> — your binding drawdown rule, e.g. -20

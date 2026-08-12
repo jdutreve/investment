@@ -2,7 +2,7 @@
 
 Real throwaway SQLite, a `TestModel`-driven triage agent, no network. The three
 properties worth pinning are the ones that decide whether this job is safe to
-run unattended every Monday: routine items leave NO trace, an item the model
+run unattended every week: routine items leave NO trace, an item the model
 cannot describe is NOT written, and nothing is ever triaged twice.
 """
 
@@ -216,7 +216,7 @@ async def test_a_major_item_is_ingested_under_its_url(
 ) -> None:
     """Ingested SYNCHRONOUSLY so the 08:10 sweep sees it, and recorded under the
     press-release URL rather than the temp file it was written to — otherwise
-    the dedupe never matches and the event is re-triaged every Monday."""
+    the dedupe never matches and the event is re-triaged every week."""
     inbox = tmp_path / "inbox"
     agent = _agent(
         EventTriage(
@@ -305,6 +305,6 @@ async def test_a_triage_that_stops_answering_is_bounded_and_costs_only_itself(
 
     assert set(report.failed) == {FED.url, ORDER.url}
     assert all("TimeoutError" in reason for reason in report.failed.values())
-    # Nothing ingested, so next Monday sees both as new and retries them.
+    # Nothing ingested, so next week sees both as new and retries them.
     assert report.ingested == []
     assert await EW.unseen(db, [FED, ORDER]) == [FED, ORDER]

@@ -3,7 +3,7 @@
 
 ONE lock shared by every heavy operation — {catchup, chain, uc8, replay} — so a
 second request is REFUSED with what is already running rather than queued behind
-it. The spec's own reason: "Covers the Monday chain vs manual runs vs the ad-hoc
+it. The spec's own reason: "Covers the weekly chain vs manual runs vs the ad-hoc
 UC9 UC8."
 
 WHY REFUSE RATHER THAN WAIT. These operations are not independent units of work
@@ -78,7 +78,7 @@ class RunLock:
     async def hold(self, name: str) -> AsyncIterator[Holder]:
         """Hold the lock for `name`, or raise `AlreadyRunning`.
 
-        NOT re-entrant, and that is deliberate: the Monday chain calls UC8 as a
+        NOT re-entrant, and that is deliberate: the weekly chain calls UC8 as a
         step, so a re-entrant lock would let an ad-hoc UC8 slip in beside the
         chain's own and both would run. Compose by holding ONCE at the outermost
         operation — `run_chain` holds, its steps do not."""

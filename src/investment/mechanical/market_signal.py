@@ -95,7 +95,7 @@ are ONE fact, and an edit that moves one moves both.
 AND IT IS NOW ENFORCED RATHER THAN NARRATED (2026-08-12). `PINNED_CAGR` /
 `PINNED_MAX_DRAWDOWN` below hold the pair as CONSTANTS, `drift_violations`
 confronts them, `market_signal_cycle.journal_drift` runs that confrontation
-every Monday and `alerts.stack_drift_alert` puts a divergence in the digest;
+every week and `alerts.stack_drift_alert` puts a divergence in the digest;
 `tests/test_anti_drift.py` runs the same check against the live database. Read
 those constants' own comment before restating any figure here: the machine
 checks the pair measured with the pricing BOUNDED to the window, which is

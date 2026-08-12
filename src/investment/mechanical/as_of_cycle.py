@@ -1,4 +1,4 @@
-"""Run the mechanical Monday chain against an as-of-t snapshot (M8b —
+"""Run the mechanical weekly chain against an as-of-t snapshot (M8b —
 docs/TASKS.md Task 9.4).
 
 `db/as_of_snapshot.py` guarantees that nothing from after t can be READ. It does
@@ -70,7 +70,7 @@ async def run_as_of_cycle(db: InvestmentDB, as_of: date) -> AsOfCycle:
     """Bring `db` (an as-of-t snapshot) to the state the live chain would have
     left it in at `as_of`, ready for the Planner/Worker to read.
 
-    The order is the Monday chain's own and each step feeds the next: FAVORS are
+    The order is the weekly chain's own and each step feeds the next: FAVORS are
     re-aggregated from the surviving backtests, scenario probabilities from the
     surviving signals, UC6 refills the Portfolio indicators the snapshot blanked,
     and UC7 ranks on those indicators. Running UC7 first would rank on NULLs.

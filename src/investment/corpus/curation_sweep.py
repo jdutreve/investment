@@ -1,10 +1,10 @@
 """UC4's weekly sweep — curate whatever the corpus has not curated yet
-(docs/USE_CASES.md UC4 trigger 2: "Weekly cron (Monday, after UC3): sweep over
+(docs/USE_CASES.md UC4 trigger 2: "Weekly cron (…, after UC3): sweep over
 anything not yet curated"; CLAUDE.md "Scheduling", 08:10).
 
 ONE PASS, TWO CALLERS. This is the loop `seed._seed_curation` has run since M7
 — every document, one call each, one bad document never costing the others —
-lifted out the moment the Monday chain became its second caller. A private
+lifted out the moment the weekly chain became its second caller. A private
 helper with two callers is a contract (CLAUDE.md: "WHEN A SECOND ONE ARRIVES"),
 and the two must not drift: the seed's initial pass and the weekly sweep differ
 only in when they run, never in what they do.
@@ -13,7 +13,7 @@ RE-RUNNING IS FREE, which is the property that makes a weekly sweep sane at all.
 `curate_document` asks the checkpoint (`curated_passage`) which passages this
 FINGERPRINT — prompt version + model + reasoning effort — has already seen, and
 returns without an LLM call when the answer is "all of them". So on a stable
-corpus the Monday sweep costs one query per document and nothing else; it earns
+corpus the weekly sweep costs one query per document and nothing else; it earns
 its place on exactly two occasions:
 
   - an ingestion whose curation FAILED (the watcher quarantines the file or the
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass(frozen=True)
 class CurationSweep:
     """What the sweep got through. `failed` lists document ids rather than
-    counting them: a document that keeps failing every Monday is a fact about
+    counting them: a document that keeps failing every week is a fact about
     that document, and a number would never lead anyone to it."""
 
     documents: int

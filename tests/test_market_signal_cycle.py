@@ -455,7 +455,7 @@ async def test_second_run_in_the_same_month_is_a_no_op(db: InvestmentDB) -> None
     assert len(decisions) == 2
     # THE ANTI-DRIFT VERDICT IS NOT PART OF THAT IDEMPOTENCY, deliberately: like
     # the NAV refresh above it, the check is a WEEKLY artefact and the decision
-    # is monthly, so it runs — and journals — on both Mondays. A check that only
+    # is monthly, so it runs — and journals — on both weekly runs. A check that only
     # looked on deciding months would go three weeks in four without looking.
     drift = await db.query("SELECT id FROM event_log WHERE type = :t", t=MSC.DRIFT_EVENT)
     assert len(drift) == 2

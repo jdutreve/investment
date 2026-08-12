@@ -155,10 +155,10 @@ async def test_a_command_is_refused_while_something_heavy_runs(
     sequence would run the second on the artefacts of the first."""
     lock = RunLock()
     runtime = _runtime(db, tmp_path, lock)
-    async with lock.hold("monday-chain"):
+    async with lock.hold("weekly-chain"):
         result = await C.refresh(runtime)
     assert not result.ok
-    assert "monday-chain" in result.message
+    assert "weekly-chain" in result.message
 
 
 async def test_the_ad_hoc_cycle_is_capped_per_day(db: InvestmentDB, tmp_path: Path) -> None:
@@ -182,7 +182,7 @@ async def test_the_ad_hoc_cycle_is_capped_per_day(db: InvestmentDB, tmp_path: Pa
 async def test_the_monday_chains_own_cycle_does_not_use_up_the_allowance(
     db: InvestmentDB, tmp_path: Path
 ) -> None:
-    """The chain journals its cycle under a different trigger, so a Monday does
+    """The chain journals its cycle under a different trigger, so a weekly run does
     not silently spend the day's ad-hoc budget."""
     runtime = _runtime(db, tmp_path)
     async with db.transaction():
@@ -190,7 +190,7 @@ async def test_the_monday_chains_own_cycle_does_not_use_up_the_allowance(
             type="WorkerReadingEvent",
             source_uc="UC8",
             source_id=None,
-            payload={"trigger": "monday-chain"},
+            payload={"trigger": "weekly-chain"},
             event_date=TODAY,
         )
     assert await C.adhoc_cycles_today(runtime, TODAY) == 0
@@ -211,9 +211,9 @@ async def test_status_reads_as_never_run_on_a_fresh_database(
 async def test_status_names_what_is_running(db: InvestmentDB, tmp_path: Path) -> None:
     lock = RunLock()
     runtime = _runtime(db, tmp_path, lock)
-    async with lock.hold("monday-chain"):
+    async with lock.hold("weekly-chain"):
         result = await C.status(runtime)
-    assert "monday-chain since" in result.message
+    assert "weekly-chain since" in result.message
 
 
 async def test_ranking_says_so_when_the_chain_has_not_run(db: InvestmentDB, tmp_path: Path) -> None:

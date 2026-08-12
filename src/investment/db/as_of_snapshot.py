@@ -94,7 +94,7 @@ _PRUNE: tuple[tuple[str, str], ...] = (
     # FAVORS edges carry NO date and aggregate the WHOLE 35y — replay.py refuses
     # to read them for exactly that reason ("reading them would leak the future
     # into every decision") and re-aggregates as-of t instead. They are a DERIVED
-    # artefact the live chain rebuilds every Monday from `backtest`, so the
+    # artefact the live chain rebuilds every week from `backtest`, so the
     # snapshot drops them wholesale and hydration recomputes them from the rows
     # that survived. Deleting rather than recomputing here is what makes the leak
     # impossible: `run_backtests_and_favors` SKIPS a (regime type, strategy) pair

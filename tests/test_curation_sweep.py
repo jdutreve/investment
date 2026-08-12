@@ -124,7 +124,7 @@ async def test_one_failing_document_does_not_cost_the_others(
 ) -> None:
     """A long job must not lose the rest of the corpus to one bad response. The
     failed document is named — a count would never lead anyone to it — and its
-    passages stay unmarked, so the next Monday retries precisely those."""
+    passages stay unmarked, so the next week retries precisely those."""
     settings = _settings(tmp_path)
     fingerprint = curation_fingerprint(settings.planner_model, settings.curator_reasoning_effort)
     await _checkpoint(db, await _document(db, "doc-ok", passages=2), fingerprint)

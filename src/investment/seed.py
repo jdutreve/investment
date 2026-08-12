@@ -587,7 +587,7 @@ async def _seed_market_data(
 async def _materialize_regimes(db: InvestmentDB) -> dict[str, Any]:
     """Step 10: historical Regime materialization — `market/regime.py`'s
     `detect()` is ONE code path shared by UC0 (this call, over the full 35y
-    backfill step 9 just persisted), the Phase 9 replay, the Monday catch-up,
+    backfill step 9 just persisted), the Phase 9 replay, the weekly catch-up,
     and the on-demand UC9 prelude (docs/DATA_MODELS.md Regime entity)."""
     commits = await regime.detect(db)
     return {"regime_episodes": len(commits)}
@@ -798,7 +798,7 @@ async def _seed_curation(db: InvestmentDB, settings: Settings) -> dict[str, Any]
     the same fingerprint, so this is expensive EXACTLY ONCE. Re-running the
     seed — which the module docstring promises is safe — then costs nothing.
 
-    THE LOOP ITSELF MOVED OUT (`corpus/curation_sweep.py`) when the Monday chain
+    THE LOOP ITSELF MOVED OUT (`corpus/curation_sweep.py`) when the weekly chain
     became its second caller. Same pass, same per-document failure policy, one
     implementation: the seed's initial read of the corpus and the weekly sweep
     over what is still unread differ only in when they run."""

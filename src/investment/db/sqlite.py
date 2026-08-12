@@ -369,7 +369,7 @@ class InvestmentDB:
         Holds `_tx_lock` for the WHOLE unit, not per statement: the atomicity
         this exists for is only real if no other task can write into the open
         BEGIN or issue its own (see module docstring). Concurrency is real here
-        — the inbox watcher's ingestion batch and the Monday chain are separate
+        — the inbox watcher's ingestion batch and the weekly chain are separate
         tasks on one connection, and UC9 can trigger an ad-hoc UC8 re-run
         alongside either.
 

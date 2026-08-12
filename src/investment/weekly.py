@@ -1,4 +1,4 @@
-"""The Monday chain — what runs, in what order, and when it is DUE
+"""The weekly chain — what runs, in what order, and when it is DUE
 (docs/TASKS.md Phase 7; CLAUDE.md "Scheduling").
 
 Split from `main.py` when the command layer became the chain's second caller:
@@ -45,11 +45,11 @@ logger = logging.getLogger(__name__)
 
 # The chain's own name in the run-lock. The other holders are the command
 # layer's ({catchup, uc8} — ops/commands.py).
-CHAIN_LOCK = "monday-chain"
+CHAIN_LOCK = "weekly-chain"
 
 
 async def last_chain_success(db: InvestmentDB) -> datetime | None:
-    """When the Monday chain last completed, or None if it never has.
+    """When the weekly chain last completed, or None if it never has.
 
     `detector_state.last_chain_success` (docs/DATA_MODELS.md: "ISO-8601, drives
     DUE-ON-START, a timestamp, NOT a FLOAT config threshold, so it lives here
@@ -83,7 +83,7 @@ async def record_chain_success(db: InvestmentDB, when: datetime) -> None:
         )
 
 
-def monday_steps(
+def weekly_steps(
     runtime: AgentRuntime,
     *,
     thresholds: dict[str, float],
@@ -92,7 +92,7 @@ def monday_steps(
     today: date,
     send: Callable[[str], Awaitable[bool]],
 ) -> list[ChainStep]:
-    """The Monday chain, in the timeline CLAUDE.md pins (08:30 → 09:30).
+    """The weekly chain, in the timeline CLAUDE.md pins (08:30 → 09:30).
 
     THE SAME FUNCTIONS `as_of_cycle.run_as_of_cycle` CALLS, in the same order,
     and that is not a coincidence to preserve by hand: the agentic replay
@@ -132,7 +132,7 @@ def monday_steps(
             runtime.planner_pre,
             runtime.worker_agent,
             runtime.planner_post,
-            trigger="monday-chain",
+            trigger="weekly-chain",
             user_profile=user_profile,
             thresholds=thresholds,
             today=today,
@@ -166,10 +166,10 @@ def monday_steps(
     ]
 
 
-async def run_monday_chain(
+async def run_weekly_chain(
     runtime: AgentRuntime, *, today: date | None = None
 ) -> ChainResult | None:
-    """One full Monday chain, under the run-lock. `None` when the lock refused.
+    """One full weekly chain, under the run-lock. `None` when the lock refused.
 
     On SUCCESS: stamp `last_chain_success`, then back up. On FAILURE: alert the
     owner with the step that broke — `run_chain` already appended the ErrorEvent
@@ -205,7 +205,7 @@ async def run_monday_chain(
             if not profile_rows:
                 raise RuntimeError("no user_profile row — run the seed first")
 
-            steps = monday_steps(
+            steps = weekly_steps(
                 runtime,
                 thresholds=thresholds,
                 user_profile=dict(profile_rows[0]),
@@ -228,7 +228,7 @@ async def run_monday_chain(
         logger.info("monday chain %s complete: %s", run_id, result.completed)
     else:
         await send(
-            f"🚨 Monday chain ABORTED at step '{result.failed_step}': {result.error}\n\n"
+            f"🚨 weekly chain ABORTED at step '{result.failed_step}': {result.error}\n\n"
             f"Completed before it: {', '.join(result.completed) or 'nothing'}.\n"
             "The steps that ran stand; the chain stays DUE and will retry on the next "
             "heartbeat. Nothing was ranked or proposed on half-computed state."
@@ -238,16 +238,16 @@ async def run_monday_chain(
 
 async def chain_if_due(runtime: AgentRuntime, *, now: datetime | None = None) -> ChainResult | None:
     """DUE-ON-START: run the chain iff its last success predates the most recent
-    Monday 08:00 (chain.py `is_chain_due`). `None` when it is not due.
+    anchor, Sunday 08:00 (chain.py `is_chain_due`). `None` when it is not due.
 
     The naive-vs-aware comparison is settled HERE: the marker is written in UTC
-    and `is_chain_due` compares against a local Monday 08:00, so `now` must be
+    and `is_chain_due` compares against a local Sunday 08:00, so `now` must be
     local wall-clock and the marker is converted to it. Europe/Zurich lives at
-    the presentation edge (CLAUDE.md), and "the most recent Monday 08:00" is a
+    the presentation edge (CLAUDE.md), and "the most recent Sunday 08:00" is a
     statement about the owner's calendar, not about UTC."""
     now = now or datetime.now().astimezone()
     last = await last_chain_success(runtime.db)
-    if not is_chain_due(last.astimezone(now.tzinfo) if last else None, now, CHAIN_START_HOUR):
+    if not is_chain_due(last.astimezone(now.tzinfo) if last else None, now, hour=CHAIN_START_HOUR):
         return None
     logger.info("monday chain is DUE (last success: %s)", last)
-    return await run_monday_chain(runtime, today=now.date())
+    return await run_weekly_chain(runtime, today=now.date())

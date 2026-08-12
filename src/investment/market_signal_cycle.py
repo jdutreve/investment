@@ -14,7 +14,7 @@ WHAT IS AND IS NOT ATOMIC, stated because the arrow chain above invites the
 wrong reading. The DISPOSITION — journal event, proposal event, Proposal vertex,
 `ms-stack.allocation` — is one transaction, in `writeback.dispose_market_signal`.
 The NAV refresh below it is NOT in that transaction and deliberately runs before
-it (see `run_market_signal_cycle` on why it must happen on non-deciding Mondays
+it (see `run_market_signal_cycle` on why it must happen on non-deciding weeks
 too), so a disposition that then fails leaves the paper NAV a step ahead of the
 position. That self-heals: the NAV is wholly DERIVED from market data and the
 pure walk, and `persist_stack_nav` rebuilds it in full (INSERT OR REPLACE) on
@@ -56,7 +56,7 @@ the same clock the backtest stepped on — NOT "whenever the chain happens to
 run". A chain that first runs mid-month therefore decides on that month's
 anchor date, with the data knowable then; a second run in the same month is a
 no-op (idempotent on the journalled decision date), which is what lets this sit
-in the weekly Monday chain unguarded.
+in the weekly weekly chain unguarded.
 """
 
 import dataclasses
@@ -297,7 +297,7 @@ async def journal_drift(db: InvestmentDB, today: date) -> DriftCheck:
     was signed on, and until 2026-08-12 nothing enforced it: the pair lived in a
     docstring, no test read it, and the paragraph stating the rule had itself
     drifted two supersessions behind without anything noticing. This is that
-    guarantee given a mechanism — measured every Monday, journalled whatever it
+    guarantee given a mechanism — measured every week, journalled whatever it
     says, surfaced by `alerts.stack_drift_alert`.
 
     AN ALERT AND NEVER A BLOCK, like every other check on this path (ADR-009).
@@ -307,7 +307,7 @@ async def journal_drift(db: InvestmentDB, today: date) -> DriftCheck:
     would also cost the owner the digest that carries the explanation.
 
     Returns the verdict so a caller can act on it; the live cycle only journals
-    it and lets Monday's digest do the telling."""
+    it and lets the week's digest do the telling."""
     check = await check_drift(db)
     async with db.transaction():
         await db.append_event(
@@ -347,14 +347,14 @@ async def run_market_signal_cycle(
     # order is load-bearing. The stack's NAV is a WEEKLY artefact like every
     # other portfolio's — it is what the ranking and the -25% drawdown alert
     # read — while the DECISION is monthly. Refreshing it after the early return
-    # would leave it untouched on the ~3 Mondays a month that decide nothing, so
+    # would leave it untouched on the ~3 weekly runs a month that decide nothing, so
     # the alert built to catch stale data would itself have gone stale.
     await persist_stack_nav(db, run, window)
     # The anti-drift check, on the SAME weekly footing and BEFORE the monthly
     # early return, for the same reason the NAV refresh is: the question "does
     # the wired stack still reproduce the pair it was signed on" has nothing to
     # do with whether this month has already decided, and a check that only ran
-    # on deciding Mondays would go three weeks out of four without looking.
+    # on deciding weeks would go three weeks out of four without looking.
     await journal_drift(db, today)
 
     decision = run.decisions[-1]

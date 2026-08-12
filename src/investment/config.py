@@ -2,7 +2,7 @@
 
 Fails at import time (pydantic-settings) if a required key is missing,
 per CLAUDE.md "Dev standards": before the scheduler starts, not
-mid-way through the Monday chain.
+mid-way through the weekly chain.
 
 `.env` IS THE CONFIGURATION — see `settings_customise_sources` and `ENV_FILE`
 below for the two ways that is enforced, and why.

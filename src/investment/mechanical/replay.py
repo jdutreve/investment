@@ -440,7 +440,7 @@ def decision_dates(
 ) -> list[pd.Timestamp]:
     """The simulated clock (docs/TASKS.md Task 9.4 "(a) a SIMULATED clock
     stepping `cadence` over [start,end]"). Anchored on the trading calendar:
-    every Monday that is a trading day, or the first trading day of the week
+    every week that is a trading day, or the first trading day of the week
     when Monday is a holiday — the live chain's Monday cadence, which is what
     the replay accelerates.
 
@@ -1300,7 +1300,7 @@ async def replay(
     cadence: str = "weekly",
     persist: bool = True,
 ) -> ReplayResult:
-    """Task 9.1 — the mechanical live chain, accelerated, for every Monday in
+    """Task 9.1 — the mechanical live chain, accelerated, for every week in
     [start, end], persisted as a `replay_report` row + a ReplayEvent.
 
     M8b (Task 9.4) adds `include_worker: bool` to THIS function — the agentic

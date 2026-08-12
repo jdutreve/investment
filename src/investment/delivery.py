@@ -9,7 +9,7 @@ dropped — the owner losing the whole week's output to a credential.
 TWO CHANNELS, TRIED IN ORDER:
 
   1. TELEGRAM — the intended one. It reaches a phone, which is where the owner
-     actually is on a Monday morning.
+     actually is on a chain morning.
   2. A LOCAL FILE, plus the full text in the log. Not a queue and not a retry:
      the message is written down where it can be read, and that is the whole
      promise. `~/data/investment/outbox/` sits beside `backups/`, derived from
@@ -59,7 +59,7 @@ async def deliver(text: str, *, token: str, chat_id: str, outbox: Path) -> Chann
     except TelegramError as exc:
         path = write_locally(text, outbox)
         # WARNING, not ERROR: the message was delivered, just not where it was
-        # meant to go. An ERROR here would cry wolf every Monday on a machine
+        # meant to go. An ERROR here would cry wolf every week on a machine
         # whose owner has decided not to use Telegram at all.
         logger.warning(
             "TELEGRAM UNAVAILABLE (%s: %s) — written to %s instead:\n%s",

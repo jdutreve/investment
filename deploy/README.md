@@ -95,7 +95,7 @@ not, and the chain stays DUE so the next start redoes it.
 
 - **inbox watcher** — polls `~/data/investment/inbox` every 60s, waits for a
   5-minute quiet period, then ingests the batch and curates it.
-- **Monday cron** — 08:00 Europe/Zurich.
+- **weekly cron** — Sunday 08:00 Europe/Zurich (`chain.CHAIN_START_WEEKDAY`).
 - **heartbeat** — every 5 minutes, asks whether the chain is DUE. This is the
   path that matters on a laptop: a cron set for 08:00 on a closed lid never
   fires, so the chain runs on the first heartbeat after wake instead. Both

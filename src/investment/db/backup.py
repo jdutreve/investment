@@ -1,9 +1,9 @@
 """Online backup of the live database (docs/TASKS.md Phase 7: "`sqlite3
 .backup` (online, WAL-safe) → `~/data/investment/backups/investment-<date>.db`
-after every successful Monday chain and every ingestion batch; keep 14 files").
+after every successful weekly chain and every ingestion batch; keep 14 files").
 
 NO CLOCK-BASED BACKUP, and the spec is explicit about why: the data changes
-through exactly two paths — the Monday chain and an ingestion batch — plus UC9
+through exactly two paths — the weekly chain and an ingestion batch — plus UC9
 decisions, which ride the next one. A nightly timer would fire on a sleeping
 laptop (ADR-002) and, on the nights it did run, copy a database nothing had
 touched.
@@ -28,7 +28,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# How many backups survive a prune. 14 = two weeks of Mondays plus the ingestion
+# How many backups survive a prune. 14 = two weeks of weekly runs plus the ingestion
 # batches in between, which is the horizon over which "something went wrong last
 # week" is still actionable — beyond it, a stale copy of a derived database is
 # worth less than the disk it sits on (every artefact in here is recomputable

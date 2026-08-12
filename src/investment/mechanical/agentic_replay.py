@@ -254,7 +254,7 @@ async def run_agentic_episode(
             # ONE DATE MAY FAIL WITHOUT ENDING THE EPISODE.
             #
             # This inverts CLAUDE.md's "unhandled errors surface", and the scope
-            # of that rule is why: it governs the LIVE Monday chain, where
+            # of that rule is why: it governs the LIVE weekly chain, where
             # aborting is right because a half-run cycle would be written to the
             # graph and acted on. Nothing here is live — this is an offline
             # research harness whose output is a report, and its expensive part

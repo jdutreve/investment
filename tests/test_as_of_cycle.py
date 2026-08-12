@@ -1,4 +1,4 @@
-"""The mechanical Monday chain run against an as-of-t snapshot (M8b —
+"""The mechanical weekly chain run against an as-of-t snapshot (M8b —
 docs/TASKS.md Task 9.4; src/investment/mechanical/as_of_cycle.py).
 
 The four jobs each have their own tests. What is new here is the composition:

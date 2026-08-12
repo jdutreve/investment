@@ -170,7 +170,7 @@ async def _book_row(db: InvestmentDB, portfolio_id: str) -> dict[str, float] | N
     """The book's CURRENT allocation, or None if the row is absent.
 
     Read from `portfolio` rather than from the weekly snapshot: the snapshot is
-    a Monday photograph, and this row moves the moment a reallocation passes
+    a weekly run photograph, and this row moves the moment a reallocation passes
     (`writeback._commit_reallocation`). Comparing a new proposal against a stale
     incumbent would let the min-change and turnover gates judge against a book
     that is no longer held — the same error `outcomes._incumbent_allocation`
@@ -427,7 +427,7 @@ async def run_decision_cycle(
 
     `run_id` is the scheduled run's id (CLAUDE.md "Dev standards": one per
     scheduled run) and is stamped on the journalled reading. Optional because
-    nothing assembles the Monday chain yet (M9) — an ad-hoc UC9 re-run has no
+    nothing assembles the weekly chain yet (M9) — an ad-hoc UC9 re-run has no
     run id to give.
 
     `context` SKIPS the Planner's pre-phase when the caller already holds one.
@@ -437,7 +437,7 @@ async def run_decision_cycle(
     budget the first attempt just proved too short (agentic_replay
     `_cycle_with_retry`). The parameter exists so the harness can re-run only
     what failed WITHOUT reimplementing the cycle, which Task 9.4 forbids.
-    Default `None` keeps the live Monday chain exactly as it was.
+    Default `None` keeps the live weekly chain exactly as it was.
 
     NOTHING IS DISPOSED HERE since ADR-012. The cycle runs the three roles,
     journals the reading and commits the guardrailed knowledge; there is no

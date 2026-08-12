@@ -1,7 +1,7 @@
 """Health alerts on the live allocation path — what the owner must be TOLD,
 never what the system refuses to do (docs/DECISIONS.md ADR-009).
 
-Five checks, all read-only, all rendered into the Monday digest:
+Five checks, all read-only, all rendered into the weekly digest:
 
 - **drawdown** — the stack's 36M rolling drawdown against
   `user_profile.max_drawdown_pct`. This is the -25% rule of ADR-007, and it is
@@ -57,7 +57,7 @@ from investment.mechanical.market_signal import (
     YIELD_SLOPE,
 )
 
-# The weekly chain refreshes market data every Monday, so anything past a week
+# The weekly chain refreshes market data every week, so anything past a week
 # means at least one chain run did not happen or did not fetch. The same figure
 # fits both watched groups: the sleeves are daily exchange prices and the two
 # FRED signals are daily business-day series with a ~1-day publication lag.
@@ -93,7 +93,7 @@ async def stack_drawdown_alert(db: InvestmentDB) -> Alert | None:
     today still reports -30% if it fell that far two years ago, so the message
     must not say "is X% below": it says what was measured, and over what window.
     A consequence ADR-009 does not address: once breached, this alert keeps
-    firing every Monday until the episode ages out of the window (up to 3
+    firing every week until the episode ages out of the window (up to 3
     years), even after a full recovery."""
     rows = await db.query(
         "SELECT ts, drawdown FROM portfolio_nav WHERE portfolio_id = :p AND drawdown IS NOT NULL "
@@ -158,7 +158,7 @@ async def market_data_freshness_alert(db: InvestmentDB, today: date | None = Non
     reading stale prices while every other part of the chain reports success.
 
     `run_market_signal` refuses to run on a missing sleeve, but it raises inside
-    the chain; this is the alert that says WHY on a Monday morning."""
+    the chain; this is the alert that says WHY on a chain morning."""
     today = today or date.today()
     absent, latest, age = await _oldest_series(db, STACK_TICKERS, today)
     if absent:

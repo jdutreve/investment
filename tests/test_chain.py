@@ -1,4 +1,4 @@
-"""Monday chain orchestration (docs/ARCHITECTURE.md / CLAUDE.md "Scheduling";
+"""weekly chain orchestration (docs/ARCHITECTURE.md / CLAUDE.md "Scheduling";
 src/investment/chain.py). The sequential/abort/ErrorEvent contract with stub
 steps against a real throwaway SQLite, and the DUE-ON-START arithmetic."""
 
@@ -22,22 +22,22 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 # -- DUE-ON-START ------------------------------------------------------------
 
 
-def test_most_recent_monday_start() -> None:
-    # Wed 2026-07-22 14:00 -> Monday 2026-07-20 08:00
-    assert chain.most_recent_monday_start(datetime(2026, 7, 22, 14, 0)) == datetime(
-        2026, 7, 20, 8, 0
+def test_most_recent_chain_start() -> None:
+    """The anchor is SUNDAY 08:00 since 2026-08-12 (`CHAIN_START_WEEKDAY`), so
+    the week's work lands before the week opens."""
+    # Wed 2026-07-22 14:00 -> Sunday 2026-07-19 08:00
+    assert chain.most_recent_chain_start(datetime(2026, 7, 22, 14, 0)) == datetime(
+        2026, 7, 19, 8, 0
     )
-    # Monday 07-20 07:00 (before 08:00) -> the PREVIOUS Monday 07-13 08:00
-    assert chain.most_recent_monday_start(datetime(2026, 7, 20, 7, 0)) == datetime(
-        2026, 7, 13, 8, 0
-    )
+    # Sunday 07-19 07:00 (before 08:00) -> the PREVIOUS Sunday 07-12 08:00
+    assert chain.most_recent_chain_start(datetime(2026, 7, 19, 7, 0)) == datetime(2026, 7, 12, 8, 0)
 
 
 def test_is_chain_due() -> None:
     now = datetime(2026, 7, 22, 9, 0)  # Wednesday
     assert chain.is_chain_due(None, now) is True  # never run
-    assert chain.is_chain_due(datetime(2026, 7, 20, 9, 0), now) is False  # ran this Monday
-    assert chain.is_chain_due(datetime(2026, 7, 13, 9, 0), now) is True  # a Monday was missed
+    assert chain.is_chain_due(datetime(2026, 7, 19, 9, 0), now) is False  # ran this Sunday
+    assert chain.is_chain_due(datetime(2026, 7, 12, 9, 0), now) is True  # a Sunday was missed
 
 
 # -- the sequential runner ---------------------------------------------------

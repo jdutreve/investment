@@ -179,7 +179,7 @@ async def test_a_runaway_tool_loop_is_stopped_by_the_budget(db: InvestmentDB) ->
     """The one unbounded cost in the system: the tools are ROW-capped but were
     not CALL-capped, so a Worker that kept calling `db_query` ran until the 300s
     timeout, billing every turn. It must FAIL, not degrade — a half-cycle
-    silently written to the graph is worse than a Monday with no cognitive read.
+    silently written to the graph is worse than a weekly run with no cognitive read.
     """
     agent = build_worker_agent(db, "test/worker", "sk-test")
     # TestModel(call_tools='all') calls every registered tool, then answers; the

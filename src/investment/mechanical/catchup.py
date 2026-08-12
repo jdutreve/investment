@@ -11,7 +11,7 @@ a chain without it ranks last week's world.
 WHY THIS IS NOT A RE-SEED, and why it had to be written rather than reused. The
 seed's step 9 (`seed._seed_market_data`) fetches each series from ITS BEGINNING
 — 35 years, every ticker, every run — splices the history proxies and rewrites
-the series authoritatively. That is right for a backfill and wrong for a Monday:
+the series authoritatively. That is right for a backfill and wrong for a weekly run:
 it re-downloads ~35 years to learn five new closes, and it pays Yahoo's rate
 limit on every one of seventeen tickers.
 
@@ -28,7 +28,7 @@ is the part that took a live check to get right. A spliced ticker's stored level
 is not its price: `splice._construct_spliced_level` ratio-chains the proxy's
 returns onto the ETF's and re-bases the result, so SPY reads ~16150 in
 `market_data` while Yahoo quotes ~773 — a factor of 21. Merging the raw quote in
-would have written a -95% single-day return into the series every Monday.
+would have written a -95% single-day return into the series every week.
 
 That exact defect has already cost this project an investigation: the same
 docstring records a raw ETF price surviving in a one-row hole of a spliced
@@ -48,7 +48,7 @@ WHAT THE MERGE DELIBERATELY DOES NOT DO: re-splice. `HISTORY_PROXIES` exists to
 extend a tradable ETF backwards into a proxy's history, and the stored level
 already carries that splice. New data is never in the proxy era, so the splice
 has nothing to say about it — and re-running it weekly would re-litigate a
-35-year decision on every Monday.
+35-year decision on every week.
 
 VINTAGE DISCIPLINE HOLDS (ADR-003). The FRED path fetches ALFRED first releases,
 so re-reading an overlapping window returns the same values it returned before.
@@ -335,7 +335,7 @@ async def refresh_nav(db: InvestmentDB, window: int) -> int:
 
     THE MARKET-SIGNAL STACK IS NOT HERE. Its NAV comes from a change-point walk
     rather than from constant weights, and `market_signal_cycle` already rebuilds
-    it on EVERY run — at 08:55, after this job and on the ~3 Mondays a month
+    it on EVERY run — at 08:55, after this job and on the ~3 weekly runs a month
     that decide nothing (the NAV is weekly, only the decision is monthly).
     Rebuilding it here as well would be a second producer of one series."""
     cost = ratios.TRADING_COST_BPS  # ADR-010: every NAV pays the same rate

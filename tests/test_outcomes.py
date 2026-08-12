@@ -14,7 +14,7 @@ import pytest
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import outcomes
 
-START = date(2026, 1, 5)  # a Monday
+START = date(2026, 1, 5)  # a weekly run
 WINDOW = timedelta(weeks=12)
 END = START + WINDOW
 TODAY = END + timedelta(days=1)  # window complete

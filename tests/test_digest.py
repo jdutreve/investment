@@ -309,7 +309,7 @@ async def test_a_proposal_from_a_past_week_is_not_reprinted_as_this_weeks(
     db: InvestmentDB,
 ) -> None:
     """The slot took the latest bridge proposal in the WHOLE ledger, undated, so
-    once any had ever been emitted the digest reprinted it every Monday under
+    once any had ever been emitted the digest reprinted it every week under
     "🔧 Reallocation proposal (paper-test)" — indistinguishable from one decided
     that morning, on the page the owner places orders from. Under ADR-007 the
     bridge proposes rarely, so this was the common case, not the corner one."""

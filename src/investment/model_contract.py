@@ -4,7 +4,7 @@
 are required, nothing in the source names one, and each role states the
 CAPABILITIES it requires rather than a name. That freedom has a price — a model
 that cannot meet a role's contract fails at the first real cycle, not at
-startup, and on the UC8 path "the first real cycle" is a Monday morning with the
+startup, and on the UC8 path "the first real cycle" is a chain morning with the
 whole chain behind it.
 
 This is the cheap check that closes that gap, and the one `.env.example` tells
@@ -13,7 +13,7 @@ you to run after a swap:
     uv run python -m investment.model_contract
 
 Two calls, cents, ~1-2 minutes. It exercises the PRODUCTION builders — the same
-`build_query_agent` and `build_worker_agent` the Monday chain uses — so what
+`build_query_agent` and `build_worker_agent` the weekly chain uses — so what
 passes here is the path that will run, not a simplification of it.
 
 THE CONTRACTS, one requirement per reported line:
