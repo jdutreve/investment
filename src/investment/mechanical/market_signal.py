@@ -5,9 +5,11 @@ the approach; docs/V1_STRATEGY.md carries the attribution). Named neutrally here
 
 The strategy the pivot adopted (docs/V1_STRATEGY.md): a market-priced,
 CONTEMPORANEOUS regime read (credit spread + yield slope, no CPI/GDP lag) picks
-one of three CONCENTRATED books, and a 200-day trend-following overlay redirects
-the equity/gold sleeves to intermediate Treasuries when they are below trend.
-Decision cadence is MONTHLY (docs/V1_STRATEGY.md "Why monthly").
+one of three CONCENTRATED books, and a trend-following overlay
+(`MA_WINDOW_DAYS`) redirects every checked sleeve — and the haven itself — to
+intermediate Treasuries when it falls below its own moving average, or to cash
+when the haven is the one that fell. Decision cadence is MONTHLY
+(docs/V1_STRATEGY.md "Why monthly").
 
 ANTI-DRIFT (the point of this module): the numbers that earned the pivot — 9.85%
 CAGR / -24% daily max drawdown, +2.5 vs B, robust in AND out of sample — came
@@ -81,8 +83,24 @@ owner-arbitrated:
   refused, each failing the half it was not fitted to.
 
 The pinned pair is therefore **11.57% / -20.61%**. The earlier figures are
-history, not targets. Any OTHER divergence from 10.71% is drift and must be
+history, not targets. Any OTHER divergence from 11.57% is drift and must be
 explained, which is what this module exists to guarantee.
+
+That sentence named 10.71% for two supersessions after 10.71% stopped being the
+pinned figure — the anti-drift reference itself drifting, in the one paragraph
+whose whole job is to hold still. It is the same defect as every stale rule text
+this module has fixed, so: the number here and the number in the bold pair above
+are ONE fact, and an edit that moves one moves both.
+
+AND IT IS NOW ENFORCED RATHER THAN NARRATED (2026-08-12). `PINNED_CAGR` /
+`PINNED_MAX_DRAWDOWN` below hold the pair as CONSTANTS, `drift_violations`
+confronts them, `market_signal_cycle.journal_drift` runs that confrontation
+every Monday and `alerts.stack_drift_alert` puts a divergence in the digest;
+`tests/test_anti_drift.py` runs the same check against the live database. Read
+those constants' own comment before restating any figure here: the machine
+checks the pair measured with the pricing BOUNDED to the window, which is
+0.05pp away from the free-tail figure this paragraph quotes, and it explains
+why a reference has to be measured that way.
 
 ONE STANDING EXPLANATION IS ALREADY KNOWN, and naming it here is what keeps the
 sentence above honest (docs/IMPROVEMENTS.md I-48): the guarantee assumes
@@ -110,7 +128,7 @@ decision that disagreed with the backtest would have to disagree with itself.
 
 import dataclasses
 from collections.abc import Mapping, Sequence
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -139,9 +157,9 @@ BOOKS: dict[str, dict[str, float]] = {
     "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
 }
 
-# The 200d trend overlay: these sleeves are redirected to the haven when their
-# own price is below their 200-day moving average. This is the drawdown control
-# (-24% with it, -50% without — docs/V1_STRATEGY.md).
+# The trend overlay: these sleeves are redirected to the haven when their own
+# price is below their `MA_WINDOW_DAYS` moving average. This is the drawdown
+# control (-24% with it, -50% without — docs/V1_STRATEGY.md).
 #
 # IWN JOINED 2026-08-07. It is 40% of the credit-spread-wide book and was held
 # at full weight whatever its own trend did — the M8b Worker found this in both
@@ -307,6 +325,78 @@ COST_BPS = ratios.TRADING_COST_BPS
 # proposal) measured WORSE than simply waiting, and raised turnover.
 CONFIRM_DECISIONS = 3
 
+# THE PINNED WINDOW — every figure in the ANTI-DRIFT note above was measured
+# over it, and it is what `run_market_signal` defaults to.
+#
+# ONE constant because it was THREE literals: this function's own `start=`/`end=`
+# defaults and `rule_revision.FULL_WINDOW`, which existed precisely to name "the
+# window `run_market_signal` defaults to" and could only do so by copying it.
+# Same shape as every other defect this module has fixed — a fact stated in
+# several places, with nothing making them agree.
+PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
+
+# THE PINNED PAIR, AS CONSTANTS AND NO LONGER AS PROSE.
+#
+# Until 2026-08-12 these numbers existed only in the ANTI-DRIFT paragraph above,
+# and NOTHING read them: no test, no CLI command, no chain step. The whole
+# guarantee — "any OTHER divergence is drift and must be explained" — rested on
+# a human remembering to run a REPL and compare against a docstring.
+#
+# It failed exactly as an unread number does. That paragraph told the reader to
+# explain any divergence from 10.71% while the bold pair two lines up said
+# 11.57%: the anti-drift REFERENCE had itself drifted, two supersessions behind,
+# and no mechanism could notice because no mechanism looked.
+#
+# So the pair is a constant, `drift_violations` compares against it, and two
+# callers run that comparison (a live-DB test and the Monday drift check whose
+# verdict the digest renders). A deliberate supersession now moves this constant
+# in the same commit or turns the check red — which is the git gate ADR-006 does
+# not reach, held by a machine instead of by a memory.
+#
+# THE CAGR HERE IS 11.616% AND THE NOTE ABOVE SAYS 11.57%. That is not a third
+# stale copy — it is the same run measured the only way a REFERENCE can be, and
+# building this check is what exposed the difference.
+#
+# `run_market_signal(end=)` bounds the DECISION dates and not the pricing (the
+# methodology error of 2026-08-11, fixed for the half-sample sweeps and never
+# noticed for the headline). So the signed 11.57% is "decide to 2026-07-01, then
+# hold the last book to the end of whatever data exists today" — a figure that
+# MOVES every time a new price lands. Measured on the live DB, 2026-08-12:
+#
+#     priced to 2026-08-07 (free tail)  11.5690%   <- the signed figure
+#     priced to 2026-07-01 (bounded)    11.6161%
+#     priced to 2026-01-01              11.7198%
+#     max drawdown, every one of them  -20.6125%
+#
+# A reference that drifts with the calendar cannot detect drift: pinned at the
+# free-tail value, this check would have cried wolf within about three months on
+# the passage of time alone. So `check_drift` bounds the pricing at the window's
+# end and this constant is that bounded number. Same strategy, same window, same
+# data — only the measurement is made repeatable. The drawdown is untouched by
+# the tail (identical to six digits across every cut), which is why -20.61%
+# needs no such restatement.
+#
+# OWNER CALL, stated rather than assumed: the prose figure stays as signed, and
+# if you prefer the machine to check the free-tail number instead, this is the
+# line to change — but it will then need re-pinning every quarter.
+PINNED_CAGR = 0.11616
+PINNED_MAX_DRAWDOWN = -0.20612
+
+# WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
+#
+# Not zero, and the reason is measured rather than chosen (I-48, restated in the
+# note above): the seed's backfill start is `today - 35y` and therefore ROLLING,
+# while the walk's start is fixed, and Yahoo restates adjusted closes
+# retroactively. The 2026-08-03 re-seed moved CAGR by 0.04pp with 418 IDENTICAL
+# decisions — the ground moving under a fixed marker. The module's own standing
+# instruction is "treat a divergence under ~0.1pp as that; anything larger still
+# has to be explained", and this is that sentence made executable.
+#
+# The drawdown gets the same band and will not need it: across twelve replay
+# start dates its spread was 0.00% (mechanical/rule_revision.py), so it moves
+# when the STRATEGY moves and essentially never otherwise.
+DRIFT_TOLERANCE_PP = 0.1
+
 
 def describe_rule(caps: Caps | None = None) -> str:
     """The stack's rule as prompt text, GENERATED FROM THE CONSTANTS ABOVE.
@@ -379,7 +469,7 @@ def describe_rule(caps: Caps | None = None) -> str:
             f"({SPREAD_STRESS_SLEEVE_GATE:g} per\n"
             f"     {SPREAD_SPEED_LOOKBACK_DAYS} days), these sleeves "
             f"({', '.join(STRESS_GATED_SLEEVES)}) are sent to the\n"
-            "     haven whatever their own 200d says.\n"
+            f"     haven whatever their own {MA_WINDOW_DAYS}d says.\n"
         )
     return (
         "THE MECHANICAL RULE THAT DECIDED THIS MONTH (market-signal stack)\n"
@@ -416,9 +506,9 @@ def describe_rule(caps: Caps | None = None) -> str:
 
 @dataclasses.dataclass(frozen=True)
 class TrendRead:
-    """One trend sleeve's 200d overlay read at a decision date. Carries the two
+    """One trend sleeve's overlay read at a decision date. Carries the two
     numbers the comparison was made on, not just its boolean answer: "SPY is
-    below trend" is unauditable, "SPY 512.40 vs MA200 548.10" is."""
+    below trend" is unauditable, "SPY 512.40 vs MA 548.10" is."""
 
     price: float
     moving_average: float | None  # None before MA_WINDOW_DAYS of history
@@ -438,8 +528,9 @@ class Decision:
 
     This is the audit record the live path persists (and the replay could): the
     raw signal state, the book actually HELD after hysteresis, the sleeves below
-    their 200d MA, and the post-overlay target. `changed` is True iff the target
-    differs from the previous decision's — i.e. iff this decision moves money.
+    their moving average, and the post-overlay target. `changed` is True iff
+    the target differs from the previous decision's — i.e. iff this decision
+    moves money.
 
     Medians are `None` during warm-up (before MEDIAN_MIN_DAYS of history), which
     is the state `classify_regime` answers with the credit-spread-wide default;
@@ -628,9 +719,9 @@ def classify_regime(
 
 def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) -> dict[str, float]:
     """Redirect each TREND_SLEEVES weight to the haven when that sleeve is below
-    its 200d MA. Weights merge additively — if a book already holds the haven
-    (the credit-spread-tight-yield-curve-steep book holds IEF), a redirected
-    sleeve adds to it.
+    its moving average. Weights merge additively — if a book already holds the
+    haven (the credit-spread-tight-yield-curve-steep book holds IEF), a
+    redirected sleeve adds to it.
 
     THE HAVEN IS CHOSEN BY THE SAME TEST it applies to everything else: when
     TREND_HAVEN is itself in `below_trend`, the destination becomes
@@ -692,9 +783,9 @@ def walk_decisions(
 ) -> list[Decision]:
     """Walk the decision clock and record EVERY decision — the full journal.
 
-    The trend overlay is NOT damped: it re-reads the 200d MA on every decision,
-    so the drawdown control keeps reacting while a book switch waits out its
-    confirmation window."""
+    The trend overlay is NOT damped: it re-reads the moving average on every
+    decision, so the drawdown control keeps reacting while a book switch waits
+    out its confirmation window."""
     decisions: list[Decision] = []
     previous: dict[str, float] | None = None
     held: str | None = None
@@ -721,7 +812,7 @@ def walk_decisions(
         # THE CREDIT GATE, applied to the READS rather than beside them, so the
         # journalled trend and the book that follows from it cannot disagree.
         #
-        # IT MUST REACH SLEEVES THE 200d DOES NOT CHECK, and the first version
+        # IT MUST REACH SLEEVES THE OVERLAY DOES NOT CHECK, and the first version
         # could not — it rewrote entries of `trend`, which is built only for
         # `TREND_SLEEVES + TREND_HAVEN`, so gating VCIT did literally nothing
         # and measured as EXACTLY zero on all three windows. That zero read like
@@ -730,11 +821,11 @@ def walk_decisions(
         # what exposed it.
         #
         # A gated sleeve outside the checked set gets a read of its own, marked
-        # `credit_gated`, so the journal explains a redirect the 200d never
+        # `credit_gated`, so the journal explains a redirect the overlay never
         # ordered. It does NOT become trend-checked: only the stress condition
         # can move it, never its own price against its average — which is the
         # distinction the measurement says matters, since adding VCIT to the
-        # 200d overlay was rejected on every window.
+        # trend overlay was rejected on every window.
         if SPREAD_STRESS_SLEEVE_GATE is not None and spread_speed is not None:
             median = _at(spread_median, t)
             speed = _at(spread_speed, t)
@@ -794,13 +885,21 @@ def build_targets(
     slope_median: pd.Series,
     moving_averages: Mapping[str, pd.Series],
     prices: Mapping[str, pd.Series],
+    spread_speed: pd.Series | None = None,
 ) -> dict[pd.Timestamp, dict[str, float]]:
     """The change-point map `shadow_book_nav` consumes: a target ONLY on the
     dates the book actually changes (a monthly re-evaluation that lands on the
     same book pays no turnover). A pure projection of `walk_decisions` — the
-    replay and the live path cannot drift because there is only one walk."""
+    replay and the live path cannot drift because there is only one walk.
+
+    `spread_speed` IS FORWARDED, and its absence here was a trap rather than a
+    live bug: both trajectory knobs read that series, so a caller that omitted it
+    got a projection of a DIFFERENT rule — the pre-2026-08-11 one — under a
+    docstring promising it could not drift. `run_market_signal` builds its own
+    change-point map inline and passes the speed, which is why nothing measured
+    wrong; this signature is what keeps that true for the next caller."""
     decisions = walk_decisions(
-        dates, spread, slope, spread_median, slope_median, moving_averages, prices
+        dates, spread, slope, spread_median, slope_median, moving_averages, prices, spread_speed
     )
     return {d.date: d.target for d in decisions if d.changed}
 
@@ -814,7 +913,7 @@ def _at(series: pd.Series, t: pd.Timestamp) -> float:
 
 def _trend_read(price: float, moving_average: float) -> TrendRead:
     """One sleeve's overlay read. A missing MA (warm-up) is NOT below trend —
-    the overlay stays out of the way until it has 200 days to speak with, the
+    the overlay stays out of the way until it has MA_WINDOW_DAYS to speak with, the
     same "unmeasured is not bad" rule `gates.drawdown_ok` applies."""
     ma = _opt(moving_average)
     return TrendRead(price=price, moving_average=ma, below=ma is not None and price < ma)
@@ -859,14 +958,131 @@ def cap_violations(run: MarketSignalRun, caps: Caps, stack_drawdown: float | Non
     return violations
 
 
+def drift_violations(metrics: NavMetrics) -> list[str]:
+    """The ANTI-DRIFT check, made executable: how the freshly measured stack
+    differs from the pinned pair, [] when it does not. One string per diverging
+    indicator, carrying both numbers and the gap — "cagr" alone would send the
+    reader back to the REPL this check exists to replace.
+
+    PURE, over an already-measured `NavMetrics`, for the same reason
+    `cap_violations` is pure over an already-walked run: the rule is testable on
+    synthetic numbers without a 35-year database, and the two callers that DO
+    need one (the live-DB test, the Monday check the digest renders) share this
+    one comparison rather than each writing their own.
+
+    A MISSING indicator is not drift — it is a window too short to measure, the
+    same "unmeasured is not bad" rule `gates.drawdown_ok` applies. The caller is
+    what must decide whether an unmeasurable window is itself worth reporting;
+    here it simply cannot be a violation."""
+    checks = (
+        ("cagr", metrics.cagr, PINNED_CAGR),
+        ("max_drawdown", metrics.max_drawdown, PINNED_MAX_DRAWDOWN),
+    )
+    violations = []
+    for name, measured, pinned in checks:
+        if measured is None:
+            continue
+        gap_pp = (measured - pinned) * 100.0
+        if abs(gap_pp) > DRIFT_TOLERANCE_PP:
+            violations.append(
+                f"{name} {measured * 100:.2f}% vs pinned {pinned * 100:.2f}% "
+                f"({gap_pp:+.2f}pp, tolerance {DRIFT_TOLERANCE_PP:.2f}pp)"
+            )
+    return violations
+
+
+@dataclasses.dataclass(frozen=True)
+class DriftCheck:
+    """One anti-drift verdict — what was measured, over what, and whether it
+    still matches the pinned pair.
+
+    `measurable` is False when the database cannot answer the question at all,
+    which is NOT a pass and must never render as one: an as-of snapshot bounded
+    at 2008 (db/as_of_snapshot.py) prices seventeen years and would report a
+    catastrophic 'drift' against a 35-year figure. The verdict says so instead,
+    with the reason, so a silent skip cannot be mistaken for a clean run."""
+
+    measurable: bool
+    cagr: float | None
+    max_drawdown: float | None
+    violations: list[str]
+    reason: str | None = None
+
+    @property
+    def drifted(self) -> bool:
+        return self.measurable and bool(self.violations)
+
+    def as_payload(self) -> dict[str, object]:
+        """The journal shape (`market_signal_cycle.DRIFT_EVENT`) — and what the
+        digest alert reads back. Both numbers are recorded even when they pass:
+        a check whose passes leave no trace cannot answer "did it run", which is
+        the failure mode mechanical/alerts.py exists to name."""
+        return {
+            "window": [PINNED_WINDOW[0].isoformat(), PINNED_WINDOW[1].isoformat()],
+            "measurable": self.measurable,
+            "reason": self.reason,
+            "cagr": self.cagr,
+            "max_drawdown": self.max_drawdown,
+            "pinned_cagr": PINNED_CAGR,
+            "pinned_max_drawdown": PINNED_MAX_DRAWDOWN,
+            "tolerance_pp": DRIFT_TOLERANCE_PP,
+            "violations": self.violations,
+        }
+
+
+async def check_drift(db: InvestmentDB) -> DriftCheck:
+    """Re-measure the stack over `PINNED_WINDOW` and confront the pinned pair.
+
+    A SECOND walk, deliberately, and not a reuse of the live cycle's: that one
+    runs to `today` and this one must run to the window the pair was measured
+    over, or the comparison degrades a little more every week that passes and
+    the check ends up reporting the calendar. It costs ~0.5s on the live DB
+    against a monthly decision — the entire reason this was never automated was
+    assumed rather than measured.
+
+    UNMEASURABLE rather than drifted when the priced NAV stops short of the
+    window's end. `run_market_signal(end=)` bounds the DECISION dates and not
+    the pricing, so `stack_metrics(until=)` is what actually bounds the
+    measurement (the methodology error of 2026-08-11) — and a database that
+    simply has no data past 2008 produces a genuine, correctly measured
+    seventeen-year figure that is not comparable to the pinned one."""
+    try:
+        run = await run_market_signal(db, start=PINNED_WINDOW[0], end=PINNED_WINDOW[1])
+    except ValueError as exc:
+        # The refusals `run_market_signal` raises on a missing sleeve or signal
+        # series. A real failure, but freshness has its own louder alert and
+        # this check must not be what turns a data outage into a drift alarm.
+        return DriftCheck(False, None, None, [], f"the stack could not be run ({exc})")
+    nav = run.nav.dropna()
+    if nav.empty:
+        return DriftCheck(False, None, None, [], "the stack priced no NAV over the window")
+    last = nav.index[-1].date()
+    if last < PINNED_WINDOW[1] - timedelta(days=_PINNED_WINDOW_GRACE_DAYS):
+        return DriftCheck(
+            False,
+            None,
+            None,
+            [],
+            f"priced data stops at {last}, short of the pinned window's {PINNED_WINDOW[1]}",
+        )
+    metrics = await stack_metrics(db, run, until=PINNED_WINDOW[1])
+    return DriftCheck(True, metrics.cagr, metrics.max_drawdown, drift_violations(metrics))
+
+
+# How far short of the pinned window's end the priced NAV may stop and still be
+# measured: the window ends on a fixed calendar date, and the last trading day
+# at or before it can fall a few days earlier over a holiday or a weekend.
+_PINNED_WINDOW_GRACE_DAYS = 7
+
+
 # -- I/O driver -------------------------------------------------------------
 
 
 async def run_market_signal(
     db: InvestmentDB,
     *,
-    start: date = date(1991, 1, 1),
-    end: date = date(2026, 7, 1),
+    start: date = PINNED_WINDOW[0],
+    end: date = PINNED_WINDOW[1],
     cadence: str = "monthly",
     cost_bps: float = COST_BPS,
 ) -> MarketSignalRun:

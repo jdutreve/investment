@@ -679,7 +679,7 @@ FRAMEWORKS: list[dict[str, object]] = [
         "id": "market-signal",
         "name": "Market-Signal Countercyclical",
         "description": "Market-priced credit-spread + yield-slope regime selecting "
-        "concentrated books, with a 200d trend overlay (after "
+        "concentrated books, with a trend-following overlay (after "
         "Verdad/Rasmussen).",
         "enabled": True,
         "accuracy": None,
@@ -1251,8 +1251,8 @@ STRATEGIES: list[dict[str, object]] = [
     },
     # ADR-007 — the ADOPTED V1 strategy (docs/V1_STRATEGY.md). One Strategy;
     # its 3 concentrated books are Portfolios below. The book<->regime map, the
-    # 200d trend overlay and the switch hysteresis live in
-    # mechanical/market_signal.py (validated 11.26%/yr, Sortino 1.11, -23.8%,
+    # trend overlay and the switch hysteresis live in
+    # mechanical/market_signal.py (pinned 11.57%/yr, Sortino 1.30, -20.61%,
     # 1991-2026 backtest), NOT in a static regime_type_id: the market-signal
     # regimes are a different axis from the 5 macro RegimeTypes, so this
     # Strategy carries none.
@@ -1267,22 +1267,26 @@ STRATEGIES: list[dict[str, object]] = [
         "description": "Market-priced credit-spread(BAA10Y)/slope(T10Y2Y) regime "
         "selects one of three concentrated books (credit-spread-wide / "
         "credit-spread-tight-yield-curve-flat / credit-spread-tight-yield-curve-steep); "
-        "a 200-day trend overlay redirects the equity/gold sleeves to "
-        "intermediate Treasuries below trend. A book switch waits for 3 "
-        "confirming monthly decisions; the overlay does not wait. MONTHLY.",
+        "a trend overlay redirects every checked sleeve — and the haven itself — "
+        "to intermediate Treasuries, or to cash when the haven is also below "
+        "trend. A book switch waits for 3 confirming monthly decisions; the "
+        "overlay does not wait. MONTHLY. The windows, the checked set and the "
+        "thresholds live in mechanical/market_signal.py and are stated to the "
+        "Worker from the constants — this prose deliberately names none of them.",
         "regime_type_id": None,
         "framework_id": "market-signal",
         "status": "active",
         "enabled": True,
         "conviction": 70,
         "conditions": "market-signal regime (BAA10Y/T10Y2Y vs 10y trailing medians), "
-        "switch confirmed over 3 monthly decisions; trend overlay on SPY/GLD "
-        "200d MA, unconfirmed — see mechanical/market_signal.py",
+        "switch confirmed over 3 monthly decisions; trend overlay on the checked "
+        "sleeves and the haven, unconfirmed — see mechanical/market_signal.py",
         "source": "corpus",
-        "trace": "ADR-007 adopted V1 strategy; backtest 11.26%/yr, Sortino 1.11, "
-        "maxDD -23.8% (1991-2026, post-hysteresis fourth addendum; 9.85% was the "
-        "un-damped pair the pivot was signed on). Forward paper-mode (M9) is the "
-        "go-live gate.",
+        "trace": "ADR-007 adopted V1 strategy; backtest 11.57%/yr, Sortino 1.30, "
+        "maxDD -20.61% (1991-2026, the pinned pair as of 2026-08-11 — 11.26% was "
+        "the post-hysteresis pair and 9.85% the un-damped one the pivot was signed "
+        "on; mechanical/market_signal.py holds the full supersession history and "
+        "is the authority). Forward paper-mode (M9) is the go-live gate.",
     },
 ]
 
@@ -1569,7 +1573,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "trace": "Dynamic; current allocation reflects last regime.",
     },
     # ADR-007 — the 3 market-signal books (docs/V1_STRATEGY.md). These are the
-    # BASE above-trend allocations; the 200d trend overlay (which redirects
+    # BASE above-trend allocations; the trend overlay (which redirects
     # SPY/GLD to IEF below trend, and can concentrate IEF to ~90% in risk-off)
     # is applied at DECISION time by mechanical/market_signal.py and is NOT
     # reflected in these static rows.
@@ -1652,7 +1656,7 @@ PORTFOLIOS: list[dict[str, object]] = [
     {
         # THE STACK — the only market-signal object anyone actually holds. The 3
         # books above are held CONDITIONALLY (when the signal selects them) and
-        # never as written (the 200d overlay rewrites them), so ranking a book
+        # never as written (the trend overlay rewrites them), so ranking a book
         # standalone measures a portfolio with no owner. This row is the whole
         # strategy as one continuous series, and it is what belongs in the
         # ranking, in the digest, and under the -25% drawdown rule.
@@ -1695,7 +1699,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
         "trace": "The market-signal monthly stack as ONE holdable series: signal "
-        "-> book -> 200d overlay, priced on shadow_book_nav. ADR-007. The 3 "
+        "-> book -> trend overlay, priced on shadow_book_nav. ADR-007. The 3 "
         "ms-*-book rows are its components, not its competitors — they are never "
         "held as written, so only this row carries the strategy's realized "
         "drawdown, which is what the -25% cap binds.",

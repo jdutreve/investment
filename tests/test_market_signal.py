@@ -511,13 +511,21 @@ def _stated(value: object, text: str) -> bool:
     ARITHMETIC, not a hand-written map of knob -> expected phrasing: such a map
     would be one more list that names what exists today, which is the defect
     this whole test guards. A window of 2520 trading days is legitimately
-    rendered "10-year" and 200 stays "200-day", so a trading-year division is
-    accepted alongside the raw number."""
+    rendered "10-year" and 300 stays "300-day", so a trading-year division is
+    accepted alongside the raw number.
+
+    THE DIVISION MUST BE EXACT, and it was not — `value // 252` accepted the
+    QUOTIENT of any window, so `MA_WINDOW_DAYS = 300` was satisfied by the digit
+    "1" appearing anywhere in the prose, which it always does (the rule text is
+    numbered "1."). The one knob whose staleness this test exists to catch was
+    therefore unguarded on the very day the window moved, and the stale "200d"
+    left in the sleeve-gate sentence passed it. A year-rendering is only a
+    year-rendering when the window IS whole years."""
     if isinstance(value, list | tuple):
         return all(str(v) in text for v in value)
     if isinstance(value, int | float) and not isinstance(value, bool):
         candidates = {f"{value:g}", str(value)}
-        if value >= 252:
+        if value >= 252 and value % 252 == 0:
             candidates.add(str(int(value // 252)))
         return any(c in text for c in candidates)
     return str(value) in text

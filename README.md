@@ -14,7 +14,7 @@ and improves — application is always the owner's manual decision.
 
 V1 pivoted on 2026-07-20. The allocation decision is the **market-signal
 monthly countercyclical stack**: a market-priced credit-spread/slope regime
-picks one of 3 concentrated books, a 200-day trend overlay guards the downside,
+picks one of 3 concentrated books, a trend-following overlay guards the downside,
 and the binding caps dispose. It decides **monthly**, not weekly.
 
 The **Dalio 4-quadrant portfolio ranking** — the defender/challenger duel, the

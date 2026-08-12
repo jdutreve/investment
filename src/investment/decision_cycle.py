@@ -33,7 +33,7 @@ from typing import Any
 from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.market_signal import describe_rule
+from investment.mechanical.market_signal import MA_WINDOW_DAYS, describe_rule
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
@@ -138,10 +138,17 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
             f"{read.get('trailing_median')} (knowable {read.get('knowable_at')})"
         )
     below = overlay.get("below_trend") or []
+    # The window comes off the DECISION's own payload (`trend_overlay.window_days`,
+    # stamped by `market_signal_cycle.build_market_context`), never typed here:
+    # this line said "200d" for a day after the window moved to 300, so the
+    # Worker read one number in the state block and another in the generated rule
+    # text below — the fourth stale-rule-text defect, this time contradicting
+    # `describe_rule` inside a single prompt.
+    window = overlay.get("window_days") or MA_WINDOW_DAYS
     lines.append(
-        f"  200d trend overlay: {', '.join(below)} below trend, redirected to the haven"
+        f"  {window}d trend overlay: {', '.join(below)} below trend, redirected to the haven"
         if below
-        else "  200d trend overlay: no sleeve below trend"
+        else f"  {window}d trend overlay: no sleeve below trend"
     )
     if hysteresis.get("pending_book"):
         lines.append(

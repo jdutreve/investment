@@ -65,7 +65,7 @@ scenarios, 7 portfolios) + **minimal `invest sql` / `invest status`**.
 - [ ] `invest sql "SELECT id, weight_initial, floor_weight FROM invariant"`
 - [ ] re-run seed → zero duplicates, 2 SeedEvents (partial inventory —
       static steps only at this stage)
-- [ ] counts: 13 entity / 5 M:N / 3 TS / 10 doc tables
+- [ ] counts: 13 entity / 6 M:N / 3 TS / 13 doc tables
 
 **⚔️ Challenge point:** the seeds ARE your investment philosophy encoded —
 reread the 6 invariants (each now a `condition` → `effect`/method, machine-
@@ -515,12 +515,21 @@ positive lead is the market-signal stack, not momentum (8.1% / Sharpe 0.46 / -37
    caps (now -25% per ADR-007).
 
 **Definition of Verified:** replay-validate the wired stack reproduces the
-pinned numbers (**11.14% CAGR / -23.8% daily maxDD** since ADR-010 put every
-NAV on Saxo's real 23 bps/order; **11.26%** was the same strategy at the old
-double-charged rate, and
-**9.85% / -24%** the pre-hysteresis pair the pivot was signed on)
-— the anti-drift check that caught the M6 rebalance-order bug — and it runs
-monthly end-to-end through the caps. The OLD design stays wired as fallback + benchmark; forward
+pinned numbers — the anti-drift check that caught the M6 rebalance-order bug —
+and it runs monthly end-to-end through the caps.
+
+**AUTOMATED 2026-08-12, and no longer restated here.** This DoV named
+`11.14% / -23.8%` for two supersessions after the pair had moved, which is the
+defect it exists to catch happening to its own statement of the target. The pair
+now lives as `market_signal.PINNED_CAGR` / `PINNED_MAX_DRAWDOWN` — the single
+authority — and three things read it: `tests/test_anti_drift.py` (the DoV,
+executed against the live database, skipped with a reason where the 35 years are
+absent), `market_signal_cycle.journal_drift` (every Monday, verdict appended to
+the EventLog) and `alerts.stack_drift_alert` (a divergence in the digest, never
+a block — ADR-009). Superseding the pair now means moving that constant in the
+same commit or watching the check go red, which is the git gate ADR-006 does not
+reach. The historical pairs (11.14% at ADR-010's rate, 11.26% double-charged,
+9.85% / -24% pre-hysteresis) are narrated in `mechanical/market_signal.py`. The OLD design stays wired as fallback + benchmark; forward
 paper-mode (M9), not this milestone, is what earns the full switch.
 
 **Status (2026-07-20): core DoV MET — anti-drift PASSES, caps clean.**

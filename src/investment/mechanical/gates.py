@@ -152,8 +152,11 @@ def concentration_ok(
     trend-haven exception (docs/V1_STRATEGY.md, docs/DECISIONS.md). The market-signal
     overlay redirects the SPY/GLD sleeves into IEF below trend, which can
     concentrate the HAVEN to ~90% during risk-off; that is the deliberate flight
-    to safety (the drawdown control), not a conviction bet, so the market-signal path
-    passes `exempt={IEF}`. Empty by default, so the seeded-portfolio callers
+    to safety (the drawdown control), not a conviction bet, so the market-signal
+    path passes `exempt=HAVEN_EXEMPT` — the whole haven CHAIN, IEF and the cash
+    fallback it goes to when IEF is itself below trend (owner, 2026-08-08; it
+    named IEF alone until the cap froze the stack in its stale book on four 2022
+    dates). Empty by default, so the seeded-portfolio callers
     (switch/reallocation gates) are unchanged and still bind every sleeve."""
     considered = [w for t, w in allocation.items() if t not in exempt]
     return not considered or max(considered) <= caps.max_single_asset_pct

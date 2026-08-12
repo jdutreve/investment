@@ -114,9 +114,9 @@ def normalize(allocation: Mapping[str, float]) -> dict[str, float]:
 
 def turnover(incumbent_frac: Mapping[str, float], proposed_frac: Mapping[str, float]) -> float:
     """`Σ|Δweight|` over the union of tickers, in fractions — the UN-halved
-    per-side sum the cost model charges (mechanical/replay.py `shadow_book_nav`:
-    "cost = Σ|Δweight| x bps", a full switch Σ|Δ|=2.0 costs 20 bps at 10 bps/
-    side). Cash counts like any other sleeve."""
+    per-order sum the cost model charges (mechanical/replay.py `shadow_book_nav`:
+    "cost = Σ|Δweight| x bps", so a full switch Σ|Δ|=2.0 costs twice the rate —
+    46 bps at ADR-010's 23 bps/order). Cash counts like any other sleeve."""
     keys = set(incumbent_frac) | set(proposed_frac)
     return sum(abs(proposed_frac.get(k, 0.0) - incumbent_frac.get(k, 0.0)) for k in keys)
 
@@ -193,7 +193,7 @@ async def _incumbent_allocation(db: InvestmentDB, proposal: dict[str, Any]) -> d
     Ranking-path proposals read the defender's weekly snapshot. A MARKET-SIGNAL
     proposal cannot: `defender_id` names the book Portfolio, whose snapshot
     carries the BASE allocation, while what the stack actually held is that book
-    AFTER the 200d overlay (db/seed_data.py: the overlay "is applied at DECISION
+    AFTER the trend overlay (db/seed_data.py: the overlay "is applied at DECISION
     time and is NOT reflected in these static rows"). Scoring against the base
     book would credit or blame the overlay for a position it had already moved
     out of — measuring a portfolio nobody held. The held allocation is therefore

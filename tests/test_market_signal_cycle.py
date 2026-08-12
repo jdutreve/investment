@@ -344,7 +344,18 @@ async def test_first_decision_emits_a_market_signal_proposal_eventlog_first(
     assert proposal["gap"] is None
 
     # EventLog-first, and BOTH events land: the decision journal and the proposal.
-    events = await db.query("SELECT id, type, source_id FROM event_log ORDER BY id")
+    #
+    # FILTERED TO THE DISPOSITION'S OWN TWO TYPES, because the property under
+    # test is their ORDER and not the log's total contents: the cycle also
+    # journals the anti-drift verdict on every run (`MSC.DRIFT_EVENT`), which is
+    # a weekly artefact like the NAV refresh and has nothing to do with this
+    # disposition. Asserting the whole log made an unrelated journal entry look
+    # like a broken ordering guarantee.
+    events = await db.query(
+        "SELECT id, type, source_id FROM event_log WHERE type IN (:d, :p) ORDER BY id",
+        d=W.MARKET_SIGNAL_EVENT,
+        p=W.PROPOSAL_EVENT,
+    )
     types = [e["type"] for e in events]
     assert types == [W.MARKET_SIGNAL_EVENT, W.PROPOSAL_EVENT]
     assert events[-1]["source_id"] == proposal["id"]
@@ -431,12 +442,23 @@ async def test_second_run_in_the_same_month_is_a_no_op(db: InvestmentDB) -> None
     first = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
     assert first.emitted
 
-    # A week later, same monthly anchor: nothing is written a second time.
+    # A week later, same monthly anchor: no second DECISION is written.
     again = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 10))
     assert again.skipped_reason is not None
     assert again.proposal_id is None
     assert len(await db.query("SELECT id FROM proposal")) == 1
-    assert len(await db.query("SELECT id FROM event_log")) == 2
+    decisions = await db.query(
+        "SELECT id FROM event_log WHERE type IN (:d, :p)",
+        d=W.MARKET_SIGNAL_EVENT,
+        p=W.PROPOSAL_EVENT,
+    )
+    assert len(decisions) == 2
+    # THE ANTI-DRIFT VERDICT IS NOT PART OF THAT IDEMPOTENCY, deliberately: like
+    # the NAV refresh above it, the check is a WEEKLY artefact and the decision
+    # is monthly, so it runs — and journals — on both Mondays. A check that only
+    # looked on deciding months would go three weeks in four without looking.
+    drift = await db.query("SELECT id FROM event_log WHERE type = :t", t=MSC.DRIFT_EVENT)
+    assert len(drift) == 2
 
 
 async def test_unchanged_month_journals_the_decision_without_a_proposal(
@@ -540,7 +562,10 @@ async def test_decision_then_digest_through_the_chain_runner(db: InvestmentDB) -
     assert "credit-spread-wide" in text
     assert f"{MS.CREDIT_SPREAD} " in text and "vs 10y median" in text
     assert "knowable 2025-11-01" in text
-    assert "200d overlay: SPY below trend" in text
+    # The WINDOW comes from the constant, not from a literal: this line asserted
+    # "200d overlay" and went on passing for a day after the window moved to 300,
+    # because it was pinning the same stale string the digest was printing.
+    assert f"{MS.MA_WINDOW_DAYS}d overlay: SPY below trend" in text
     assert f"{MS.TREND_HAVEN} 0→50" in text  # the overlay's redirect, in the move line
     assert "Paper-tests in progress: 1" in text
 

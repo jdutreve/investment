@@ -58,6 +58,7 @@ from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
     CONFIRM_DECISIONS,
     HAVEN_EXEMPT,
+    MA_WINDOW_DAYS,
     STACK_PORTFOLIO_ID,
     TREND_FALLBACK_HAVEN,
     TREND_HAVEN,
@@ -86,7 +87,7 @@ logger = logging.getLogger(__name__)
 PROPOSAL_EVENT = "ProposalEvent"
 # ADR-007's live monthly allocation decision, journalled on EVERY decision date
 # — including the ones that change nothing. A decision that lands on the held
-# book still advanced the hysteresis counter and still read the 200d overlay;
+# book still advanced the hysteresis counter and still read the trend overlay;
 # without that row the record would show only the months the stack moved, which
 # is precisely the evidence forward paper-mode is NOT allowed to lose.
 MARKET_SIGNAL_EVENT = "MarketSignalDecisionEvent"
@@ -180,7 +181,7 @@ def market_signal_gates(
     a proposal cannot protect anything: a refusal writes no Proposal, so no
     order is put in front of the owner and the stack stays exactly where it is.
     It can only FREEZE a position, never exit one — and during a drawdown the
-    proposal being blocked is precisely the 200d overlay's flight into IEF.
+    proposal being blocked is precisely the trend overlay's flight into IEF.
     Measured over the three historical episodes (2008/2020/2022), a -25%
     trigger would have fired on 2020-03-20, the exact bottom, selling into the
     trough and missing the 185-day recovery. The rule now surfaces as an ALERT
@@ -401,10 +402,13 @@ def _market_signal_reasoning(decision: Decision, held_allocation: dict[str, floa
     # IEF was itself below its line. Same defect as `describe_rule()` the same
     # week (93e7abd), in the text the OWNER reads to place the order.
     haven = TREND_FALLBACK_HAVEN if TREND_HAVEN in below else TREND_HAVEN
+    # AND THE WINDOW IS INTERPOLATED, for the same reason one clause up: "200d"
+    # was typed here and outlived the window by a day (2026-08-11, 200 -> 300),
+    # putting a false number in the sentence the owner reads to place the order.
     parts.append(
-        f"200d overlay: {', '.join(below)} below trend -> redirected to {haven}."
+        f"{MA_WINDOW_DAYS}d overlay: {', '.join(below)} below trend -> redirected to {haven}."
         if below
-        else "200d overlay: no sleeve below trend, the book is held as designed."
+        else f"{MA_WINDOW_DAYS}d overlay: no sleeve below trend, the book is held as designed."
     )
     parts.append(f"Held {held_allocation or '(nothing yet)'} -> target {decision.target}.")
     return " ".join(parts)
@@ -526,7 +530,7 @@ async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, 
     events, the reasoning and the delta that moved it were all discarded the
     moment they were applied — a strategy's conviction could drift 40 points
     across a quarter with nothing on record saying why. Evaluation is one of
-    the 13 entities and UPDATES one of the 10 relations; both were dead.
+    the 13 entities and UPDATES one of the relations; both were dead.
 
     The row is written for EVERY evaluation including `conviction_delta == 0`
     (a 'neutral' verdict is evidence that was weighed and found not to move

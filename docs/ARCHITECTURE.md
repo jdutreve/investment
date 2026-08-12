@@ -108,7 +108,7 @@ WORKER system prompt:
    The ADOPTED allocation is the market-signal monthly stack: the book named
    in your context was ALREADY CHOSEN, mechanically, from market-priced
    credit-spread and yield-slope signals confronted over those same 35 years,
-   with a 200-day trend overlay on top. Read it, challenge it, say plainly
+   with a trend-following overlay on top. Read it, challenge it, say plainly
    where it looks wrong and what it cannot see — that reading is your
    contribution. Do not re-pick the book: that decision is not yours, and a
    course set by a proven instrument is not improved by overruling it on
@@ -189,7 +189,7 @@ GRAPH VERTICES (13 in V1 — V2 adds Adaptation)
   EventLog        append-only audit log (no edges) — APPEND BEFORE any
                   vertex/edge commit
 
-GRAPH RELATIONS (10 conceptual — physically 5 M:N tables + 5 FK
+GRAPH RELATIONS (11 conceptual — physically 6 M:N tables + 5 FK
              columns on the child; V2 adds Adaptation → MODIFIES → Portfolio)
   Evaluation → UPDATES       → Strategy
   RegimeType → FAVORS        → Strategy (strategy-level rolling indicators,

@@ -374,7 +374,7 @@ async def persist_nav(
     Split out of `backfill_nav` because a NAV can be built two ways and only one
     of them fits constant weights. `synthesize_nav` rebalances to a FIXED target
     every month, which cannot represent the market-signal stack: the stack's
-    target changes with the signal and with the 200d overlay, so its series comes
+    target changes with the signal and with the trend overlay, so its series comes
     from `replay.shadow_book_nav` (a change-point map) instead. Everything AFTER
     the series is built must stay identical for both, or the stack would be
     ranked on indicators computed differently from every row it is ranked

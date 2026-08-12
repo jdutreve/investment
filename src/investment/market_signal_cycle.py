@@ -4,7 +4,7 @@ monthly decision path").
 
 The monthly decision, end to end:
 
-    PIT inputs -> credit-spread/slope signal -> target book -> 200d overlay
+    PIT inputs -> credit-spread/slope signal -> target book -> trend overlay
     -> binding caps -> EventLog -> Proposal(proposal_type='market-signal')
 
 and from there the existing machinery takes over unchanged: the digest renders
@@ -78,17 +78,33 @@ from investment.mechanical.market_signal import (
     MEDIAN_WINDOW_DAYS,
     YIELD_SLOPE,
     Decision,
+    DriftCheck,
+    check_drift,
     persist_stack_nav,
     run_market_signal,
     stack_metrics,
 )
-from investment.writeback.writeback import MARKET_SIGNAL_EVENT, dispose_market_signal
+from investment.writeback.writeback import (
+    MARKET_SIGNAL_EVENT,
+    SOURCE_UC,
+    dispose_market_signal,
+)
 
 logger = logging.getLogger(__name__)
 
 # The stack's own strategy vertex (db/seed_data.py) — stamped on every decision
 # so the journal says which strategy is speaking, not just which book won.
 STRATEGY_ID = "market-signal-stack"
+
+# The ANTI-DRIFT verdict, journalled on every cycle run — declared here beside
+# the only thing that appends it, as `decision_cycle.WORKER_READING_EVENT` is.
+#
+# APPENDED EVEN WHEN IT PASSES, and that is the point rather than noise: a check
+# whose passes leave no trace cannot answer "did it run", which is exactly the
+# silent-failure shape mechanical/alerts.py exists to name. The row is what lets
+# the digest alert be a pure READ — build_digest renders committed rows and must
+# never itself run a 35-year backtest (telegram/digest.py).
+DRIFT_EVENT = "MarketSignalDriftEvent"
 
 # 1991 is the backtest's start (35y of ALFRED first-release vintages via the
 # HISTORY_PROXIES splice). The live walk starts there too: the hysteresis state
@@ -167,7 +183,7 @@ async def held_allocation(db: InvestmentDB) -> dict[str, float]:
     entire deliverable of a paper-mode V1, would never reach the digest.
 
     Nor the BOOK Portfolios' `allocation` rows, for a third reason: those are the
-    base books before the 200d overlay (db/seed_data.py says so explicitly), so
+    base books before the trend overlay (db/seed_data.py says so explicitly), so
     holding SPY 50 when the overlay redirected that sleeve into IEF would
     misprice the incumbent leg of the +12w verdict.
 
@@ -209,9 +225,9 @@ def build_market_context(
     """The full decision record stamped on the Proposal (`market_context`) and
     on the journal event. This is the audit surface: every input, the date each
     became knowable, the signal state, the hysteresis position, the sleeves
-    below their 200d MA, what was held and what is targeted. A reader six months
-    from now must be able to reconstruct WHY this book, from this row alone,
-    without re-running anything."""
+    below their moving average, what was held and what is targeted. A reader
+    six months from now must be able to reconstruct WHY this book, from this row
+    alone, without re-running anything."""
     return {
         "strategy": STRATEGY_ID,
         "framework": "market-signal",
@@ -247,6 +263,15 @@ def build_market_context(
                     "price": read.price,
                     "moving_average": read.moving_average,
                     "below": read.below,
+                    # WHY it is below, when the two numbers beside it do not say
+                    # so. `SPREAD_STRESS_SLEEVE_GATE` marks a sleeve below with a
+                    # price ABOVE its average, and this record is the audit
+                    # surface — a reader six months out comparing price to MA
+                    # would read that as a bug. `TrendRead` has carried the flag
+                    # since the gate shipped; it reached no reader until now,
+                    # which is the same defect as a journal that contradicts the
+                    # decision it journals.
+                    "credit_gated": read.credit_gated,
                     "knowable_at": _knowable_at(raw_series.get(ticker, _EMPTY), decision.date),
                 }
                 for ticker, read in decision.trend.items()
@@ -263,6 +288,42 @@ def build_market_context(
         # the one that describes today.
         "stack_max_drawdown_full_window": stack_drawdown,
     }
+
+
+async def journal_drift(db: InvestmentDB, today: date) -> DriftCheck:
+    """Run the anti-drift check and append its verdict (`DRIFT_EVENT`).
+
+    ADR-007's whole guarantee is that the wired stack reproduces the numbers it
+    was signed on, and until 2026-08-12 nothing enforced it: the pair lived in a
+    docstring, no test read it, and the paragraph stating the rule had itself
+    drifted two supersessions behind without anything noticing. This is that
+    guarantee given a mechanism — measured every Monday, journalled whatever it
+    says, surfaced by `alerts.stack_drift_alert`.
+
+    AN ALERT AND NEVER A BLOCK, like every other check on this path (ADR-009).
+    Drift means one of two things — a rule changed without its pair being
+    re-signed, or the data moved under a fixed marker (I-48) — and neither is
+    something the cycle can resolve by refusing to decide. Aborting the chain
+    would also cost the owner the digest that carries the explanation.
+
+    Returns the verdict so a caller can act on it; the live cycle only journals
+    it and lets Monday's digest do the telling."""
+    check = await check_drift(db)
+    async with db.transaction():
+        await db.append_event(
+            type=DRIFT_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=STRATEGY_ID,
+            payload=check.as_payload(),
+            event_date=today,
+        )
+    if check.drifted:
+        # WARNING and not info: this is the one log line that says a validated
+        # instrument no longer reproduces its validation.
+        logger.warning("market-signal ANTI-DRIFT: %s", "; ".join(check.violations))
+    elif not check.measurable:
+        logger.info("market-signal anti-drift not measurable: %s", check.reason)
+    return check
 
 
 async def run_market_signal_cycle(
@@ -289,6 +350,12 @@ async def run_market_signal_cycle(
     # would leave it untouched on the ~3 Mondays a month that decide nothing, so
     # the alert built to catch stale data would itself have gone stale.
     await persist_stack_nav(db, run, window)
+    # The anti-drift check, on the SAME weekly footing and BEFORE the monthly
+    # early return, for the same reason the NAV refresh is: the question "does
+    # the wired stack still reproduce the pair it was signed on" has nothing to
+    # do with whether this month has already decided, and a check that only ran
+    # on deciding Mondays would go three weeks out of four without looking.
+    await journal_drift(db, today)
 
     decision = run.decisions[-1]
     decision_date = str(decision.date.date())

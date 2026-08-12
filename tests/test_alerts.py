@@ -2,7 +2,8 @@
 
 WHY THIS FILE EXISTS. ADR-009 removed the drawdown GATE and replaced it with an
 alert, which makes this module the whole of what the system does when the -25%
-rule is breached or when the data feeding the 200d overlay dies. It shipped
+rule is breached, when the data feeding the trend overlay dies, or when the
+stack stops reproducing the pair ADR-007 was signed on. It shipped
 untested. Every assertion below is about a failure that is SILENT by
 construction — a dead feed and a stuck cycle both look exactly like a normal
 holding month — so an alert that does not fire is indistinguishable from
@@ -17,8 +18,10 @@ from pathlib import Path
 
 import pytest
 
+from investment import market_signal_cycle as MSC
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import alerts as A
+from investment.mechanical import market_signal as MS
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS
 
 TODAY = date(2026, 8, 3)
@@ -242,6 +245,86 @@ async def test_no_decision_yet_is_not_an_alert(db: InvestmentDB) -> None:
     assert await A.decision_freshness_alert(db, TODAY) is None
 
 
+async def _drift_event(
+    db: InvestmentDB,
+    *,
+    measurable: bool = True,
+    violations: list[str] | None = None,
+    reason: str | None = None,
+) -> None:
+    """One journalled anti-drift verdict (`market_signal_cycle.DRIFT_EVENT`).
+
+    Written by hand rather than by running `check_drift`: the alert's job is to
+    READ the verdict, and a fixture that had to price 35 years to test a message
+    would be testing the wrong module — and could not express the unmeasurable
+    case at all."""
+    check = MS.DriftCheck(
+        measurable=measurable,
+        cagr=MS.PINNED_CAGR if measurable else None,
+        max_drawdown=MS.PINNED_MAX_DRAWDOWN if measurable else None,
+        violations=violations or [],
+        reason=reason,
+    )
+    async with db.transaction():
+        await db.append_event(
+            type=MSC.DRIFT_EVENT,
+            source_uc="UC8",
+            source_id=MSC.STRATEGY_ID,
+            payload=check.as_payload(),
+            event_date=TODAY,
+        )
+
+
+# -- anti-drift -------------------------------------------------------------
+
+
+async def test_no_drift_verdict_yet_says_nothing(db: InvestmentDB) -> None:
+    """A database whose cycle has never run has nothing to report — distinct
+    from one that ran and passed, and both are silent."""
+    assert await A.stack_drift_alert(db) is None
+
+
+async def test_a_passing_verdict_says_nothing(db: InvestmentDB) -> None:
+    await _drift_event(db)
+    assert await A.stack_drift_alert(db) is None
+
+
+async def test_drift_is_critical_and_carries_both_arms(db: InvestmentDB) -> None:
+    """The message must let the owner act without opening a REPL: what diverged,
+    by how much, and the two readings it could be (a rule changed unsigned, or
+    the ground moved under a fixed marker)."""
+    await _drift_event(db, violations=["cagr 11.20% vs pinned 11.62% (-0.42pp, tolerance 0.10pp)"])
+    alert = await A.stack_drift_alert(db)
+    assert alert is not None
+    assert alert.level == "critical" and alert.code == "stack_drift"
+    assert "11.20%" in alert.message and "11.62%" in alert.message
+    assert "re-signed" in alert.message  # the first of the two readings
+    assert "Nothing has been blocked" in alert.message  # ADR-009: tell, never refuse
+
+
+async def test_an_unmeasurable_verdict_is_not_drift(db: InvestmentDB) -> None:
+    """An as-of snapshot bounded at 2008 prices seventeen years and cannot
+    answer a 35-year question. Shouting drift at a window that is merely short
+    would teach the owner to skip this line — which is the only way an alert
+    can fail completely."""
+    await _drift_event(
+        db,
+        measurable=False,
+        violations=["cagr 8.09% vs pinned 11.62% (-3.53pp, tolerance 0.10pp)"],
+        reason="priced data stops at 2008-12-31",
+    )
+    assert await A.stack_drift_alert(db) is None
+
+
+async def test_the_latest_verdict_wins(db: InvestmentDB) -> None:
+    """Read by descending ULID, like every other journal read: the id IS the
+    append order (CLAUDE.md "EventLog"). A drift that has since been resolved —
+    by re-signing the pair or by a re-seed — must stop firing on the next run."""
+    await _drift_event(db, violations=["cagr 11.20% vs pinned 11.62% (-0.42pp, tolerance 0.10pp)"])
+    await _drift_event(db)
+    assert await A.stack_drift_alert(db) is None
+
+
 # -- collection -------------------------------------------------------------
 
 
@@ -250,14 +333,16 @@ async def test_collect_orders_critical_before_warn(db: InvestmentDB) -> None:
     await _prices(db, TODAY - timedelta(days=20))
     await _prices(db, TODAY - timedelta(days=20), tickers=A.SIGNAL_TICKERS)
     await _decision_event(db, TODAY - timedelta(days=70))
+    await _drift_event(db, violations=["cagr 11.20% vs pinned 11.62% (-0.42pp, tolerance 0.10pp)"])
     found = await A.collect_alerts(db, TODAY)
     assert [a.code for a in found] == [
         "stack_drawdown",
+        "stack_drift",
         "market_data_stale",
         "signal_data_stale",
         "decision_stale",
     ]
-    assert [a.level for a in found] == ["critical", "critical", "critical", "warn"]
+    assert [a.level for a in found] == ["critical"] * 4 + ["warn"]
 
 
 async def test_a_healthy_db_collects_nothing(db: InvestmentDB) -> None:
@@ -265,4 +350,5 @@ async def test_a_healthy_db_collects_nothing(db: InvestmentDB) -> None:
     await _prices(db, TODAY - timedelta(days=1))
     await _prices(db, TODAY - timedelta(days=1), tickers=A.SIGNAL_TICKERS)
     await _decision_event(db, TODAY - timedelta(days=5))
+    await _drift_event(db)
     assert await A.collect_alerts(db, TODAY) == []

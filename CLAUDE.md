@@ -9,7 +9,7 @@ V2 adds auto-execution and learning from real performance.
 > **ADR-007 pivot (accepted 2026-07-20) — read `docs/V1_STRATEGY.md`.** V1's
 > ADOPTED allocation strategy is now the **market-signal monthly countercyclical
 > stack** (market-priced credit-spread/slope regime → 3 concentrated books +
-> 200d trend overlay, MONTHLY cadence), not the seeded Dalio 4-quadrant
+> trend overlay, MONTHLY cadence), not the seeded Dalio 4-quadrant
 > portfolio rotation. **The non-negotiables below that describe the weekly
 > chain, FAVORS, the ranking rule, scenario-driven UC8 and the reallocation
 > blend still hold, but as the RETAINED BRIDGE** (fallback + benchmark +
@@ -26,7 +26,7 @@ V2 adds auto-execution and learning from real performance.
 | `docs/V1_STRATEGY.md` | **THE ADOPTED STRATEGY (ADR-007)** — the market-signal monthly stack, the migration plan, impact map, roadmap Step 0→7, open owner decisions. Read alongside MILESTONES. |
 | `docs/MILESTONES.md` | **EXECUTION ORDER** — 13 increments, STOP points, incremental-seed map. Read before starting any work. |
 | `docs/TASKS.md` | Full build spec, phase by phase — the implementation source of truth (DDL, seed data, job specs, CLI/dashboard spec). |
-| `docs/DATA_MODELS.md` | Complete schema (13 entities, 10 relations, 3 TS, 10 doc tables), pinned calculation conventions, units, EventLog ordering semantics. |
+| `docs/DATA_MODELS.md` | Complete schema (13 entities, 11 relations, 3 TS, 13 doc tables), pinned calculation conventions, units, EventLog ordering semantics. |
 | `docs/ARCHITECTURE.md` | Regime detection algorithm, Planner/Worker cycle, invariant confrontation & birth maturation, unified improvement cycle, replay harness. |
 | `docs/USE_CASES.md` | UC0–UC9 step by step, proposal gates detail, Event Watch. |
 | `docs/REVISION_NOTES.md` | V1 scope, core concepts, ranking rule, the 3 validations and their honest bounds. |
@@ -110,7 +110,7 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
   ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 08:55
   **market-signal monthly decision** (`market_signal_cycle.py` — ADR-007's LIVE
-  allocation: PIT inputs → credit-spread/slope signal → book → 200d overlay →
+  allocation: PIT inputs → credit-spread/slope signal → book → trend overlay →
   binding caps → EventLog → `Proposal(proposal_type='market-signal')`; runs on
   every Monday but is a no-op unless the month's decision date is new, so the
   monthly cadence needs no separate schedule. It refreshes the stack's
@@ -193,7 +193,7 @@ the two and blocks any violating proposal — **on the ranking/bridge paths.
 ADR-009 scopes the DRAWDOWN leg out of the market-signal path**: it is measured
 there on the stack's 36-month rolling drawdown and raises a digest ALERT,
 because refusing a proposal cannot exit a position, only freeze one — and the
-proposal blocked during a drawdown is the 200d overlay's flight to safety. The
+proposal blocked during a drawdown is the trend overlay's flight to safety. The
 concentration cap still binds, EXCEPT on the haven chain — `HAVEN_EXEMPT` =
 IEF **and the cash fallback** (ADR-007's second addendum, extended 2026-08-08
 after the cap froze the stack in its stale book on four of the seven 2022 dates
@@ -243,9 +243,13 @@ IN_REGIME to Regime instances. Algorithm: docs/ARCHITECTURE.md.
 value became KNOWABLE (publication-dated, ALFRED first-release); replay and
 maturation are point-in-time by construction (`ts ≤ t`).
 
-**Entities** — 13 vertices, 10 relations (5 M:N tables + 5 FK columns),
-3 time-series, 11 document tables (10 in the spec + `curated_passage`, the M7
-curation checkpoint). Complete schema: docs/DATA_MODELS.md.
+**Entities** — 13 vertices, 11 relations (6 M:N tables + 5 FK columns),
+3 time-series, 13 document tables (10 in the spec + `curated_passage` the M7
+curation checkpoint, `innovation` the recurrence ledger, `revision_measurement`
+the measured-verdict ledger). These counts named what existed when they were
+written and drifted three times; the schema is the authority
+(`db/schema.py` section headers carry the same counts). Complete schema:
+docs/DATA_MODELS.md.
 
 ## Dev standards (essentials)
 

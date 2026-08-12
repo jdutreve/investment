@@ -260,10 +260,13 @@ def sample_moments(active: pd.Series, horizon: pd.Timedelta) -> list[pd.Timestam
 
     Two properties this buys, both load-bearing:
 
-    NON-OVERLAPPING → the Wilson verdict is sound. Each moment's outcome
+    NON-OVERLAPPING → the verdict's binomial tails are sound. Each moment's
+    outcome
     window is [d, d+horizon], so horizon-spacing makes the windows disjoint
-    and the moments quasi-independent — which is exactly what the binomial
-    bound in `time_validation_verdict` assumes. Sampling active time weekly
+    and the moments quasi-independent — which is exactly what the exact
+    binomial tails in `time_validation_verdict` assume (they were a Wilson
+    interval when this docstring was written; the assumption is the same one).
+    Sampling active time weekly
     instead would overlap every 12w window 12-fold and inflate N (and shrink
     the bound) against evidence that is not there.
 

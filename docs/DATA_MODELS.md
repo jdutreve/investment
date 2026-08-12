@@ -387,7 +387,7 @@ Three kinds (`proposal_type`):*
   book, not a rank and a duel); `proposed_allocation` is the POST-overlay
   effective target. `market_context` carries the full decision record — both
   signals with their trailing medians and the date each became knowable
-  (ADR-003), the hysteresis position, the sleeves below their 200d MA, and
+  (ADR-003), the hysteresis position, the sleeves below their moving average, and
   `held_allocation`, the post-overlay book actually held coming in. That last
   field is load-bearing, not informational: it is what
   `outcomes.evaluate_proposals` scores the +12w verdict against, because no
@@ -489,7 +489,7 @@ Adaptation {
   exclude it from static-allocation handling.
 - **`ms-growth-book` / `ms-inflation-book` / `ms-slowdown-book`** are
   `enabled=false`. They are the stack's COMPONENTS, not its competitors: each is
-  held only when the signal selects it and never as written (the 200d overlay
+  held only when the signal selects it and never as written (the trend overlay
   rewrites it), so ranking one measures a portfolio nobody holds. Kept in the
   graph — their ids appear in committed EventLog payloads, and their NAV series
   stay useful for diagnostics.
@@ -639,7 +639,7 @@ never by timestamp comparison.
 
 ---
 
-## Graph Schema — RELATION types (10 conceptual in V1 — V2 adds MODIFIES)
+## Graph Schema — RELATION types (11 conceptual in V1 — V2 adds MODIFIES)
 
 **Physical mapping rule (composition):** the five 1:N relations below are
 **compositions** — the child cannot exist without its parent (a Scenario
@@ -667,7 +667,7 @@ Document -[CONTAINS]-> Passage         → passage.document_id
   + passage.position : INT, passage.page : INT
 ```
 
-**M:N — association tables (5):**
+**M:N — association tables (6):**
 
 ```
 RegimeType -[FAVORS]-> Strategy
@@ -698,6 +698,17 @@ Portfolio -[DESIGNED_FOR]-> RegimeType
 Passage -[SUPPORTS]-> Invariant
   strength : FLOAT
   excerpt  : STRING
+
+Proposal -[CITES]-> Invariant
+  -- The invariants a REALLOCATION cited (the Worker's supporting_invariants),
+  --   written by Writeback when gate 6 admits them. A RELATION and not a
+  --   column, so `outcomes.evaluate_proposals` can read the cited set back at
+  --   +12w and confront each one (source='proposal'), and the digest can join
+  --   it. A SWITCH proposal derives its citations from the challenger's
+  --   BACKED_BY instead, so this table carries reallocation citations only —
+  --   and since ADR-012 removed the cognitive reallocation, nothing live
+  --   writes it; the retained bridge's replay is its remaining reader.
+  -- No properties: the pair IS the fact.
 ```
 
 **V2:** `Adaptation -[MODIFIES]-> Portfolio` (delta MAP, drawdown_before,
@@ -1025,6 +1036,38 @@ CREATE TABLE IF NOT EXISTS curated_passage (...);
 -- be a decision (bump CURATION_PROMPT_VERSION), never a silent 45-minute
 -- side effect of an edited seed. Composite PK keeps the history across
 -- fingerprints instead of overwriting it.
+
+CREATE TABLE IF NOT EXISTS innovation (...);
+-- id STRING (PK), type STRING, title STRING, rationale STRING, spec JSON,
+-- theme_id STRING (the first innovation of its cluster), source_id STRING
+--   (the invariant/strategy it became, if any), embedding BLOB float32[384],
+-- date DATE (the decision date it was proposed on), trace STRING, created_at
+-- The RECURRENCE LEDGER (writeback/recurrence.py, 2026-08-11). Everything the
+-- Worker proposes is filed here and clustered into a THEME by cosine over
+-- `title + rationale`, at the corpus dedup's own 0.75 — one notion of "the
+-- same claim" in the codebase, not two that drift.
+-- Recurrence counts DISTINCT TITLES, never rows: two runs replaying one date
+-- write the same sentence twice (one observation repeated), while six
+-- wordings of one critique are six independent arrivals. At
+-- `NOTABLE_RECURRENCE` distinct wordings the theme is surfaced in the digest.
+-- Recurrence is not proof — two repeated M8b themes were measured and
+-- rejected — it is a RANKING of where to look.
+
+CREATE TABLE IF NOT EXISTS revision_measurement (...);
+-- overrides_key STRING (canonical JSON of the override set), window_start
+--   DATE, window_end DATE  (composite PK), overrides JSON, title STRING,
+-- verdict STRING ('adopt'|'reject'|'unmeasurable'), sortino_delta REAL,
+-- cagr_delta REAL, drawdown_delta REAL, measured_at DATETIME
+-- WHAT HAS ALREADY BEEN MEASURED (mechanical/rule_revision.py, 2026-08-11), so
+-- nothing measures it twice and the Worker stops re-proposing settled
+-- questions: "add VCIT to the trend overlay" was re-derived three times
+-- because each verdict died with the throwaway as-of snapshot that produced it.
+-- Keyed on the EXPERIMENT (the override set), not the wording — five differently
+-- worded haven proposals resolving to the same constants are ONE experiment.
+-- The window is read off the PRICED NAV, never off the arguments: a measurement
+-- run against an as-of snapshot bounded at t answers 1991..t, and recording it
+-- under the full window would write a falsehood into the one table built to
+-- stop questions being re-asked.
 ```
 
 Ranking rule (applies to snapshot rows):

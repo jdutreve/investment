@@ -1,7 +1,7 @@
 """Health alerts on the live allocation path — what the owner must be TOLD,
 never what the system refuses to do (docs/DECISIONS.md ADR-009).
 
-Four checks, all read-only, all rendered into the Monday digest:
+Five checks, all read-only, all rendered into the Monday digest:
 
 - **drawdown** — the stack's 36M rolling drawdown against
   `user_profile.max_drawdown_pct`. This is the -25% rule of ADR-007, and it is
@@ -10,7 +10,7 @@ Four checks, all read-only, all rendered into the Monday digest:
   would have fired on 2020-03-20, the exact bottom.
 - **market-data freshness** — the stack's own price sleeves vs today. This is
   the one that actually protects capital. The stack's only downside control is
-  the 200d overlay, which re-reads its moving average once per monthly decision;
+  the trend overlay, which re-reads its moving average once per monthly decision;
   if the data pipeline dies, the overlay goes blind while the code keeps
   reporting a perfectly normal month. In 2020 the fall took 25 days.
 - **signal freshness** — `BAA10Y` and `T10Y2Y`, the two series that pick the
@@ -20,6 +20,11 @@ Four checks, all read-only, all rendered into the Monday digest:
   nothing else in the digest looks wrong.
 - **decision freshness** — no new monthly anchor in over a month. The backstop
   for the case where data flows but the cycle is stuck.
+- **anti-drift** — does the wired stack still reproduce the pinned pair ADR-007
+  was signed on? Read off the verdict `market_signal_cycle.journal_drift`
+  appends every run. Added 2026-08-12, and the gap it closes is the oldest one
+  here: the pair lived in a docstring, nothing read it, and the paragraph
+  stating the rule had itself drifted two supersessions behind unnoticed.
 
 WHAT THE STACK'S NAV IS, since two of these read it: a PAPER series. ADR-009
 gave `ms-stack` a `portfolio_nav` built by `shadow_book_nav` from the decision
@@ -39,11 +44,14 @@ time.
 """
 
 import dataclasses
+import json
 from datetime import date
 
 from investment.db.sqlite import InvestmentDB
+from investment.market_signal_cycle import DRIFT_EVENT
 from investment.mechanical.market_signal import (
     CREDIT_SPREAD,
+    MA_WINDOW_DAYS,
     STACK_PORTFOLIO_ID,
     STACK_TICKERS,
     YIELD_SLOPE,
@@ -108,7 +116,7 @@ async def stack_drawdown_alert(db: InvestmentDB) -> Alert | None:
             f"The stack's deepest drawdown over the last 36 months is {drawdown * 100:.1f}%, "
             f"past your {limit * 100:.0f}% rule (measured as of {rows[0]['ts']} on the PAPER "
             "series — the strategy's own decisions, not your account; it may have recovered "
-            "since). Nothing has been blocked — the 200d overlay remains the mechanism that "
+            "since). Nothing has been blocked — the trend overlay remains the mechanism that "
             "acts. This is for your decision."
         ),
     )
@@ -146,7 +154,7 @@ async def _oldest_series(
 
 async def market_data_freshness_alert(db: InvestmentDB, today: date | None = None) -> Alert | None:
     """The newest MarketData row for the stack's own price SLEEVES vs today.
-    Silence here is the dangerous state: a dead pipeline leaves the 200d overlay
+    Silence here is the dangerous state: a dead pipeline leaves the trend overlay
     reading stale prices while every other part of the chain reports success.
 
     `run_market_signal` refuses to run on a missing sleeve, but it raises inside
@@ -168,9 +176,9 @@ async def market_data_freshness_alert(db: InvestmentDB, today: date | None = Non
         level="critical",
         code="market_data_stale",
         message=(
-            f"Stack price data stops at {latest}, {age} days ago. The 200d trend overlay — the "
-            "stack's only downside control — cannot see past that date, and the decision "
-            "cycle will keep reporting a normal month while blind."
+            f"Stack price data stops at {latest}, {age} days ago. The {MA_WINDOW_DAYS}d trend "
+            "overlay — the stack's only downside control — cannot see past that date, and "
+            "the decision cycle will keep reporting a normal month while blind."
         ),
     )
 
@@ -218,6 +226,51 @@ async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) ->
     )
 
 
+async def stack_drift_alert(db: InvestmentDB) -> Alert | None:
+    """ADR-007's anti-drift guarantee, surfaced: does the wired stack still
+    reproduce the pair it was signed on (`market_signal.PINNED_CAGR` /
+    `PINNED_MAX_DRAWDOWN`)?
+
+    A pure READ of the latest `DRIFT_EVENT`, which `market_signal_cycle`
+    journals on every run. The measurement is a 35-year walk and belongs to a
+    mechanical job, not to a renderer: `build_digest` renders committed rows so
+    that any past Monday can be re-rendered without recomputing anything, and a
+    backtest inside it would also give the digest a new way to RAISE on Monday
+    morning (telegram/digest.py).
+
+    Silent when the check passes, when it has never run, and when it reported
+    itself UNMEASURABLE — the last one deliberately: an as-of snapshot bounded
+    at 2008 cannot answer a 35-year question, and shouting "drift" at a window
+    that is merely short would train the owner to ignore this line.
+
+    WHAT A FIRING MEANS, and it is exactly two things: a rule moved without its
+    pinned pair being re-signed in the same commit, or the ground moved under a
+    fixed marker (I-48 — rolling backfill start, Yahoo restatements). The
+    message says so, because the two need opposite responses and the alert
+    cannot tell them apart."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=DRIFT_EVENT,
+    )
+    if not rows:
+        return None
+    payload = json.loads(str(rows[0]["payload"]))
+    violations = payload.get("violations") or []
+    if not payload.get("measurable") or not violations:
+        return None
+    window = payload.get("window") or ["?", "?"]
+    return Alert(
+        level="critical",
+        code="stack_drift",
+        message=(
+            f"The stack no longer reproduces its pinned pair over {window[0]}..{window[1]}: "
+            f"{'; '.join(str(v) for v in violations)}. Either a rule changed without its pair "
+            "being re-signed, or the data moved under it (a re-seed, a Yahoo restatement). "
+            "Nothing has been blocked — this is the anti-drift guarantee reporting, not a gate."
+        ),
+    )
+
+
 async def decision_freshness_alert(db: InvestmentDB, today: date | None = None) -> Alert | None:
     """No new monthly decision anchor in over a month: the cycle is stuck even
     if the data is flowing."""
@@ -245,6 +298,7 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
     """Every live-path alert, critical first — the order the digest renders."""
     found = [
         await stack_drawdown_alert(db),
+        await stack_drift_alert(db),
         await market_data_freshness_alert(db, today),
         await signal_freshness_alert(db, today),
         await decision_freshness_alert(db, today),

@@ -9,7 +9,7 @@ See REVISION_NOTES.md for V1 scope and core concepts.
 >
 > **That is the RETAINED BRIDGE, not the live allocation path.** V1's adopted
 > strategy is the market-signal monthly countercyclical stack (market-priced
-> credit-spread/slope regime → 3 concentrated books → 200d trend overlay →
+> credit-spread/slope regime → 3 concentrated books → trend overlay →
 > binding caps), deciding MONTHLY. The bridge is kept as fallback, benchmark and
 > knowledge factory, and is not deleted until forward paper-mode earns the
 > switch.
@@ -59,7 +59,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Component       | Detail                                                        |
 |-----------------|---------------------------------------------------------------|
 | DB              | SQLite (stdlib), WAL, single file (single engine — ADR-004: graph + vector + FTS + TS + documents) |
-| Graph           | 13 entities (incl. EventLog); 10 relations = 5 M:N tables     |
+| Graph           | 13 entities (incl. EventLog); 11 relations = 6 M:N tables     |
 |                 | + 5 FK columns (composition rule)                             |
 | Time-Series     | MarketData + ScenarioProbability + PortfolioNAV               |
 | LLM Framework   | PydanticAI (model-agnostic)                                   |
@@ -362,7 +362,7 @@ alias feed-url='f() { echo "$1" > $INBOX/$(date +%s).url; }; f'
 
 ```python
 SCHEMA_SQL = """
--- Conceptual model unchanged (13 entities, 10 relations — see DATA_MODELS.md).
+-- Conceptual model unchanged (13 entities, 11 relations — see DATA_MODELS.md).
 -- Physical mapping (ADR-004): entity → table, relation → association table
 -- (they are all 1-hop FKs with properties), snake_case names.
 -- Types: STRING→TEXT, FLOAT→REAL, MAP→TEXT (JSON1), DATE/DATETIME→TEXT ISO-8601,
@@ -448,8 +448,8 @@ CREATE INDEX IF NOT EXISTS ix_snapshot_date     ON portfolio_weekly_snapshot (da
 #   journal_mode=WAL, synchronous=NORMAL, foreign_keys=ON
 ```
 
-**Done when:** schema created without error; 13 entity + 10 relation + 3 TS +
-10 document tables present; a cosine query over seeded embeddings returns
+**Done when:** schema created without error; 13 entity + 11 relation + 3 TS +
+13 document tables present; a cosine query over seeded embeddings returns
 ranked passages.
 
 ---
@@ -1911,8 +1911,8 @@ which ride the next backup).
 
 ```python
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
-async def test_schema_complete():            # 13 entity + 5 M:N relation + 3 TS +
-                                             # 10 doc tables; 5 FK-column relations
+async def test_schema_complete():            # 13 entity + 6 M:N relation + 3 TS +
+                                             # 13 doc tables; 5 FK-column relations
 async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
@@ -2280,8 +2280,8 @@ matches the MILESTONES.md per-increment sum.
 
 ## Definition of Done (V1) — moved from CLAUDE.md
 
-1. UC0 seed produces the 13 entity tables, 5 M:N relation tables (the
-   other 5 relations are FK columns), 3 TS tables and 10 document tables
+1. UC0 seed produces the 13 entity tables, 6 M:N relation tables (the
+   other 5 relations are FK columns), 3 TS tables and 13 document tables
    (incl. `benchmark_valuation`, the cross_class/cross_strategy benchmark);
    historical Regime instances from the 35y backfill; seed data; invariants
    MATURED over 35y and scenario probabilities WARM-STARTED over 35y (go-live

@@ -68,15 +68,20 @@ TESTABLE_PARAMETERS: dict[str, str] = {
 # without a description fails, rather than existing in the registry and being
 # invisible to the only thing that can name it.
 PARAMETER_DESCRIPTIONS: dict[str, str] = {
-    "trend_sleeves": "which sleeves the 200d overlay checks",
+    "trend_sleeves": "which sleeves the trend overlay checks",
     "trend_haven": "where a below-trend sleeve is redirected",
     "trend_fallback_haven": "where it goes when the haven is itself below trend",
     "confirm_decisions": "consecutive agreeing decisions before a book change",
     "ma_window_days": "the trend overlay's moving-average window",
     "median_window_days": "the trailing window the signal's medians use",
+    # The lookback is INTERPOLATED, not typed: these three descriptions state the
+    # units a model must write its candidate in, so a hand-typed "30 days" that
+    # outlived `SPREAD_SPEED_LOOKBACK_DAYS` would have the Worker proposing
+    # numbers on a scale the walk does not use.
     "spread_speed_veto": (
         "defer the risk-on wide-spread book while the spread is still widening faster "
-        "than this, in spread points per 30 days (null = off, the current rule)"
+        f"than this, in spread points per {market_signal.SPREAD_SPEED_LOOKBACK_DAYS} days "
+        "(null = off, the current rule)"
     ),
     "spread_speed_wide_trigger": (
         "enter the risk-on wide-spread book as soon as the spread widens faster than "
@@ -84,7 +89,7 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     ),
     "spread_stress_sleeve_gate": (
         "send the gated sleeves to the haven whenever the spread is wide and widening "
-        "faster than this, without waiting for their own 200d, same units (null = off)"
+        "faster than this, without waiting for their own trend read, same units (null = off)"
     ),
     "stress_gated_sleeves": (
         "which sleeves that stress gate empties — equities by default, and credit "
@@ -171,12 +176,13 @@ _FLOAT_KNOBS = frozenset(
 #
 # Verified to change no verdict on the day it shipped: it only stops the system
 # ever calling a shift of the ground an improvement.
-# The window `run_market_signal` defaults to — named here so a stored verdict
-# can say which question it answered.
-FULL_WINDOW = (date(1991, 1, 1), date(2026, 7, 1))
-
 NOISE_REL_TOL = 0.0071
 NOISE_ABS_TOL = 1e-12
+
+# The window `run_market_signal` defaults to — named there, not here. It was a
+# COPY of that pair of literals, which is the drift this project keeps finding:
+# two statements of one fact with nothing making them agree.
+FULL_WINDOW = market_signal.PINNED_WINDOW
 
 
 def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
@@ -294,7 +300,7 @@ class RevisionMeasurement:
         because the drawdown did not move — and it could not have: the stack's
         worst drawdown is 2020-03-20, the book in force through the covid crash
         was already the tight one, and the veto only defers a WIDE read. The
-        -20.61% belongs to the 200d overlay's latency, not to book selection.
+        -20.61% belongs to the trend overlay's latency, not to book selection.
         So "the drawdown must IMPROVE" was structurally an overlay-only filter:
         no book-selection revision could ever pass it, whatever its merit, and
         both revisions ever adopted were overlay changes.

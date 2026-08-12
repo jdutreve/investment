@@ -48,35 +48,54 @@ raised 40→50 for exactly this concentration, ADR-007 addendum 2026-07-20):**
 - `credit-spread-tight-yield-curve-flat`: SPY 50 / GLD 40 / IWN 10
 - `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 40 / IWN 10
 
-**Trend-following overlay:** each of the SPY and GLD sleeves is redirected to
-IEF whenever that asset is below its 200-day moving average. (This is the
-drawdown control; it carries -24% → without it the stack is -50%.) In risk-off
-both sleeves can redirect at once, concentrating IEF to ~90%; the trend-haven
-sleeve is therefore EXEMPT from the single-asset cap (ADR-007 addendum, choice
-(a) — it is a deliberate safety redirect, not a conviction bet).
+**Trend-following overlay:** every CHECKED sleeve — SPY, GLD and IWN since
+2026-08-07 — is redirected to IEF whenever that asset is below its own moving
+average, and IEF is checked too: when the haven is itself below trend the
+destination becomes cash. (This is the drawdown control; it carries -24% →
+without it the stack is -50%.) In risk-off several sleeves can redirect at once,
+concentrating the haven to ~90-100%; the haven CHAIN — IEF and the cash fallback
+— is therefore EXEMPT from the single-asset cap (ADR-007 addendum choice (a),
+extended to cash 2026-08-08 — it is a deliberate safety redirect, not a
+conviction bet).
+
+The WINDOW is deliberately not named here. It is a measured knob
+(`MA_WINDOW_DAYS`, 300 since 2026-08-11 and 200 before it), and every copy of it
+in prose has gone stale within a day of it moving; `mechanical/market_signal.py`
+holds the value and `describe_rule()` states it to the Worker.
 
 **Cadence: MONTHLY.** No VIX crisis overlay (measured to hurt at monthly
 cadence: 7.57%/-25%).
 
-**Backtest performance** (live DB, 1991-2026, net of Saxo's real 23 bps per
-order, vs B = risk-parity All Weather — **B is now net of the same cost**,
-ADR-010; it used to be quoted gross):
+**Backtest performance.** The CURRENT pinned pair is **11.57% CAGR / -20.61%**
+(Sortino 1.30, turnover 53.7), and `mechanical/market_signal.py` is its
+authority — it carries every supersession with its date, its measurement and its
+owner signature. Do not restate it here: this file has quoted a superseded pair
+as "the" performance three times.
 
-| | value |
+The table below is the **2026-08-02 state, kept as history** (live DB, 1991-2026,
+net of Saxo's real 23 bps per order, vs B = risk-parity All Weather, B net of the
+same cost, ADR-010). Three changes have landed since — the overlay completion
+(2026-08-07), the two trajectory knobs and the 300-day window (both 2026-08-11):
+
+| | value (2026-08-02, SUPERSEDED) |
 |---|---|
 | CAGR | 11.14%/yr (+3.80 vs B, both sides net — both halves of the split independently) |
 | Sortino | 1.09 (B: 0.92) |
-| Max drawdown (daily) | **-23.8%** (breaches the user's -15% rule) |
+| Max drawdown (daily) | **-23.8%** (breached the -15% rule then in force; the cap is -25% since ADR-007 and the drawdown is -20.61% today, i.e. compliant) |
 | Changes | 2.8/yr |
 | Fee drag | **0.66 pt/yr** measured (gross 11.80% → net 11.14%) |
 
-Those are the post-hysteresis numbers (ADR-007 fourth addendum, 2026-08-01:
+Those were the post-hysteresis numbers (ADR-007 fourth addendum, 2026-08-01:
 `CONFIRM_DECISIONS = 3` — a book switch waits for 3 confirming monthly
 decisions), restated under ADR-010's single cost rate. The pivot was signed on
 the un-damped **9.85% / 0.94 / -24% / 3.4 changes-a-year** and the hysteresis
 addendum on **11.26% / 1.11**, and the interim 10 bps/side estimate on
-**11.51% / 1.14**; all are history, not targets. Neither the books,
-the signals, the overlay nor the caps have changed.
+**11.51% / 1.14**; all are history, not targets. As of that date neither the
+books, the signals, the overlay nor the caps had changed — and that sentence
+stopped being true five days later: the OVERLAY has changed twice since
+(2026-08-07 completion, 2026-08-11 window) and the CAPS once (-15% → -25%,
+40% → 50%). The books and the two signals are still exactly as ADR-007 signed
+them.
 
 The "~1.5 pt/yr fee drag" this table used to claim was wrong by a factor of ~2:
 the measured drag at the REAL rate is **0.66 pt/yr**. The rate is no longer an
@@ -103,7 +122,8 @@ Legend: [done] already deployed · [new] to build · [decide] owner call.
 
 - **A. Data / signals — [done].** BAA10Y (credit spread), T10Y2Y (slope), IWN
   (small value), VCIT (IG credit) are seeded and in the live DB. Trailing
-  medians and the 200d MA are computed at decision time (no new series).
+  medians and the trend moving averages are computed at decision time (no new
+  series).
 - **B. Regime classification — [new].** A market-signal regime module
   (credit-spread + slope → growth/inflation/slowdown). Replaces the macro
   detector *for allocation*. The existing CPI/GDP detector can stay for the
@@ -113,7 +133,7 @@ Legend: [done] already deployed · [new] to build · [decide] owner call.
   Strategy/Portfolio entities. The 7 seeded books are retained as BENCHMARKS
   (B, SPY-proxy, etc.) or retired — [decide].
 - **D. Trend-following overlay — [new].** A mechanical module: SPY/GLD sleeve
-  → IEF below the 200d MA, evaluated monthly.
+  → IEF below its moving average, evaluated monthly.
 - **E. Cadence weekly → monthly — [new] + [decide-ADR].** CLAUDE.md pins a
   weekly Monday chain (ARCHITECTURE.md). Moving the DECISION cadence to
   monthly is a scheduling change that needs an ADR amendment. Note: the
@@ -159,7 +179,7 @@ NOT deleted until forward paper-mode earns the switch):**
   (catch-up/NAV/regime-step jobs keep their natural frequency).
 
 **NEW to build:** the market-signal regime module (credit-spread + slope), the
-3 market-signal books (seed), the 200d trend-following overlay, the monthly decision
+3 market-signal books (seed), the trend-following overlay, the monthly decision
 path. (Data for all of it is already deployed — area A.)
 
 **DOC / ADR surface (needs explicit owner sign-off — "never contradict an
@@ -179,7 +199,7 @@ contradicted silently). This is where OPEN #3 is signed off.
 
 **Step 1 — M6-bis: wire the stack, keep the bridge.** Move it from scratchpad
 to production: seed the 3 books, build the market-signal regime module + the
-200d trend overlay + the monthly decision path through the existing gates.
+trend overlay + the monthly decision path through the existing gates.
 **Replay-validate it reproduces 11.14%/-23.8%** (anti-drift check — the same
 guarantee that caught the M6 rebalance bug; 9.85% was the pre-hysteresis pair,
 ADR-007 fourth addendum). Ship an inspection view.
@@ -200,7 +220,7 @@ regime/book decision (qualitative reading of the credit-spread/slope state).
 **Wired 2026-08-02:** the decision itself runs MECHANICALLY
 (`market_signal_cycle.py`, 08:55, before UC8) and its full record — signal
 values vs their trailing medians, the dates each input became knowable, the
-hysteresis position, the sleeves below their 200d MA — is passed into the
+hysteresis position, the sleeves below their moving average — is passed into the
 Planner baseline and rendered into the Worker's context.
 
 **"Nuances" is defined by ADR-011, and it is narrower than the word suggests.**

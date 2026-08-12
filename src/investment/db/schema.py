@@ -1,10 +1,15 @@
 """Full SQLite schema (ADR-004) — see docs/DATA_MODELS.md for the conceptual
-spec this maps physically: 13 entity tables ("vertices"), 5 M:N tables
+spec this maps physically: 13 entity tables ("vertices"), 6 M:N tables
 ("edges" — the other 5 relations are FK+property columns on the child, per
-DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 11 document
+DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 13 document
 tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
 + `innovation`, the recurrence ledger, + `revision_measurement`,
 the measured-verdict ledger).
+
+Every count in that sentence has been wrong at some point — each named what
+existed when it was typed and outlived it. They are checked against the DDL
+below by the M1 table-count test, which is the only reason to keep writing
+them down.
 Types: STRING->TEXT, FLOAT->REAL, BOOLEAN->BOOLEAN (SQLite: NUMERIC
 affinity, stored 0/1), MAP/STRING[]->TEXT (JSON1), DATE/DATETIME->TEXT
 (ISO-8601), FLOAT[384]->BLOB (float32, see docs/TASKS.md Phase 1bis).
@@ -286,7 +291,7 @@ BEGIN
 END;
 
 -- ============================================================
--- M:N RELATION TABLES (5)
+-- M:N RELATION TABLES (6)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS favors (
@@ -385,7 +390,7 @@ CREATE TABLE IF NOT EXISTS portfolio_nav (
 );
 
 -- ============================================================
--- DOCUMENT TABLES (10) — plain tables, not part of the conceptual graph
+-- DOCUMENT TABLES (13) — plain tables, not part of the conceptual graph
 -- ============================================================
 
 -- Static (5)
@@ -452,7 +457,7 @@ CREATE TABLE IF NOT EXISTS detector_state (
   updated_at              TEXT NOT NULL
 );
 
--- Analytical (5)
+-- Analytical (8)
 
 CREATE TABLE IF NOT EXISTS invariant_confrontations (
   id             TEXT PRIMARY KEY,
@@ -708,10 +713,20 @@ DOCUMENT_TABLES = {
     "portfolio_weekly_snapshot",
     "scenario_calibration",
     "replay_report",
-    # M7: the UC4 curation checkpoint. Takes the documented count from 10 to
-    # 11 (CLAUDE.md "Entities", DATA_MODELS.md) — it is operational state, not
-    # a domain entity, but it is a table and it is counted.
+    # M7: the UC4 curation checkpoint. Took the documented count from 10 to 11
+    # (CLAUDE.md "Entities", DATA_MODELS.md) — it is operational state, not a
+    # domain entity, but it is a table and it is counted.
     "curated_passage",
+    # 2026-08-11, and both were MISSING from this set until the coherence pass
+    # of 2026-08-12 — the DDL created them, `sqlite_master` showed them to the
+    # Worker, and this registry (which gates `upsert_vertex`/`create_vertex`/
+    # `query_ts`) did not know they existed. The M1 count check could not catch
+    # it either: it asserts `expected <= tables`, so a table absent from the
+    # registry is invisible to it in exactly the direction that matters.
+    # The set that named every table there was, and did not follow when two more
+    # arrived (CLAUDE.md: "WHEN A SECOND ONE ARRIVES").
+    "innovation",
+    "revision_measurement",
 }
 
 

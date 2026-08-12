@@ -73,14 +73,24 @@ async def _stub_fetch_raw(ticker_row: Any, api_key: str, start: date | None) -> 
     return pd.Series(100.0 + 0.01 * range(800), index=dates)
 
 
-async def test_schema_creates_all_33_tables(db: InvestmentDB) -> None:
+async def test_schema_declares_every_table_it_creates(db: InvestmentDB) -> None:
+    """The registry and the DDL are ONE fact, checked in BOTH directions.
+
+    `expected <= tables` alone only catches a declared table the DDL forgot to
+    create — never the reverse, which is what actually happened: `innovation`
+    and `revision_measurement` shipped in the DDL on 2026-08-11 and reached
+    neither `DOCUMENT_TABLES` nor the count below, so `_VALID_TABLES` did not
+    know about two live tables and this test stayed green throughout.
+    """
     rows = await db.query("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = {row["name"] for row in rows}
+    tables = {row["name"] for row in rows if not row["name"].startswith("sqlite_")}
     expected = ENTITY_TABLES | RELATION_TABLES | TS_TABLES | DOCUMENT_TABLES
-    assert expected <= tables
+    assert expected == tables
     # 31 in the spec + `curated_passage` (M7 curation checkpoint) + `proposal_cites`
-    # (M8 reallocation citations, for the source='proposal' confrontations).
-    assert len(expected) == 33
+    # (M8 reallocation citations, for the source='proposal' confrontations)
+    # + `innovation` (the recurrence ledger) + `revision_measurement` (the
+    # measured-verdict ledger), both 2026-08-11.
+    assert len(expected) == 35
 
 
 async def test_trace_mandatory_on_vertices(db: InvestmentDB) -> None:
