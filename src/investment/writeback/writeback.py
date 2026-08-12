@@ -159,11 +159,21 @@ def market_signal_gates(
 
     What they actually catch is a CONFIGURATION or CODE change: a ticker
     deactivated in `allowed_tickers`, a `BOOKS` weight edited to something that
-    no longer sums to 100 or breaches the single-asset cap. Over the 12
+    no longer sums to 100 or breaches the single-asset cap. Over the 30
     reachable book x overlay states, every one passes — measured, not assumed.
     That is the correct outcome (the books were designed against these caps), but
     it means the guards must not be read as a safety control on the allocation.
     They assert the code still agrees with ADR-007; they do not protect capital.
+
+    THE COUNT SAID 12 UNTIL 2026-08-12, and it was right when it was written:
+    the overlay then checked SPY and GLD only, giving 3 books x 4 states. The
+    haven became trend-checked with a cash fallback (2026-08-07), IWN joined the
+    checked set, and `SPREAD_STRESS_SLEEVE_GATE` shipped — each multiplying the
+    reachable states, none touching this sentence. Re-enumerated and re-measured
+    on 2026-08-12: 30 states, zero violations, and TEN of them clear the
+    single-asset cap only because `HAVEN_EXEMPT` lets them (IEF or cash at
+    60-100%). A measured claim whose measurement is not redone when its inputs
+    change is an assumption wearing a measurement's clothes.
 
     1. the target sums to 100 (a malformed book is a bug, not an allocation);
     2. `max_single_asset_pct`, with the haven CHAIN exempt (`HAVEN_EXEMPT`) —
