@@ -66,13 +66,14 @@ mechanical decides · LLM proposes · reality judges · the owner executes
 Runs entirely on a MacBook (ADR-002): **one Python process**, one **SQLite**
 file (ADR-004), no daemon, no server, no cloud but the LLM APIs. No clock
 cron: an inbox **watcher** ingests deposits ~5 min after they land, and the
-weekly Monday chain is **due-on-start** (runs at wake/launch if overdue). Both
+weekly Sunday chain is **due-on-start** (runs at wake/launch if overdue). Both
 LLM roles route through OpenRouter (owner decision 2026-07-21).
 
-**Interfaces** (three fronts, one audited command layer — ADR-005):
-Telegram (weekly digest, alerts, chat, preference overrides) · `invest` CLI ·
-local web dashboard (`http://127.0.0.1:8765`, read-only SQL console,
-semantic search).
+**Interfaces** (three fronts, one audited command layer — ADR-005). Two are
+built: Telegram (weekly digest, alerts, chat, preference overrides) and the
+`invest` CLI (`status`, `ranking`, `nav`, `regime`, `regime-audit`,
+`invariants`, `sql`). The local web dashboard (`127.0.0.1:8765`) is **M10 and
+not yet built** — `ops/commands.py` and the run-lock it needs exist since M9.
 
 ## Documentation map
 
@@ -117,7 +118,7 @@ The **mechanical half runs**: seed, market backfill, regime materialization
 market-signal stack, outcomes, alerts and the digest. `docs/MILESTONES.md`
 carries the per-increment record.
 
-The **agent now runs itself**: one process holds the inbox watcher, the Monday
+The **agent now runs itself**: one process holds the inbox watcher, the Sunday
 cron, the wake heartbeat and the Telegram bot; the weekly chain is complete
 (catch-up → event watch → curation → the mechanical block → the monthly
 allocation decision → UC8 → digest); every front dispatches to one command

@@ -1883,10 +1883,17 @@ committed rows and the market-signal block from the journal, so the NEXT digest
 that gets through still carries the decision — the loss is a delay, not the
 order.
 
-**Trigger to revisit.** The first time a delivery actually fails on a real
-chain — the outbox directory being non-empty is the signal, and `invest status`
-should learn to say so — or the first time the owner asks for a digest to be
-re-sent.
+**Trigger to revisit.** A delivery that fails on a real chain *with the front
+configured*, or the first time the owner asks for a digest to be re-sent.
+
+**The trigger fired once and should not have** (2026-08-13). A review read the
+outbox as non-empty — `20260812T152258Z.txt` — and concluded the first real
+delivery failure had happened, so I-54 was due. It had not. `.env` still carried
+`REPLACE_ME`: the front was never set up, and a persistent queue with retries
+would have drained forever against a token that does not exist. NON-EMPTY WAS
+THE WRONG SIGNAL because it cannot tell "never configured" from "configured and
+failing", and when the sentence was written only the second case was imagined.
+The first delivery over a real token is what makes this measurable at all.
 
 ---
 

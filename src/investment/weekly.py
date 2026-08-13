@@ -35,7 +35,7 @@ from investment.config import Settings
 from investment.corpus.curation_sweep import sweep_corpus
 from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import WORKER_READING_EVENT, run_decision_cycle
+from investment.decision_cycle import CYCLE_COMPLETED_EVENT, run_decision_cycle
 from investment.delivery import deliver, outbox_path
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
@@ -107,13 +107,22 @@ async def weekly_cycle_already_ran(db: InvestmentDB, period: str) -> bool:
     it is called. A chain that broke at 09:30 on the digest therefore bought a
     second Worker deliberation to re-send one message.
 
-    ASKED OF THE JOURNAL, not of a state table: `journal_worker_reading` already
-    appends one event per cycle carrying its `trigger` and stamped with the
-    cycle's date, so the answer is already stored and a second record of it
-    would be the one that drifts. This is the same shape
+    ASKED OF THE JOURNAL, not of a state table: `run_decision_cycle` already
+    appends one event per COMPLETED cycle carrying its `trigger` and stamped
+    with the cycle's date, so the answer is already stored and a second record
+    of it would be the one that drifts. This is the same shape
     `commands.adhoc_cycles_today` uses for UC9's one-a-day rule and
     `market_signal_cycle.last_decision_date` for the monthly cadence — three
     questions of the same form, asked of the same log.
+
+    THE TERMINAL EVENT, NOT THE READING. This asked for `WorkerReadingEvent`
+    first, and that event is journalled BEFORE Planner Post and the knowledge
+    commit — so a cycle that got an answer out of the Worker and then failed to
+    commit it left a marker saying "done" over work that was not. The retry
+    skipped UC8 and the week kept nothing. `CYCLE_COMPLETED_EVENT` is appended
+    after `commit_knowledge` returns and means only that. The general form: a
+    guard must read a record written by the LAST step it is guarding, never by
+    the first.
 
     SCOPED TO THE WEEK, not to the day: a chain that starts Sunday and is
     retried on Tuesday is the SAME week's work, and `event_date = today` would
@@ -122,7 +131,7 @@ async def weekly_cycle_already_ran(db: InvestmentDB, period: str) -> bool:
     rows = await db.query(
         "SELECT COUNT(*) AS n FROM event_log WHERE type = :t AND event_date >= :period "
         "AND json_extract(payload, '$.trigger') = :trigger",
-        t=WORKER_READING_EVENT,
+        t=CYCLE_COMPLETED_EVENT,
         period=period,
         trigger=CHAIN_TRIGGER,
     )

@@ -47,6 +47,21 @@ from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_kn
 # WRITEBACK persists, and this is not a disposition.
 WORKER_READING_EVENT = "WorkerReadingEvent"
 
+# THE CYCLE FINISHED — appended last, after `commit_knowledge` returned. It
+# exists because the weekly resume guard (`weekly.weekly_cycle_already_ran`)
+# needs to know whether UC8 COMPLETED, and the only marker available was the
+# reading above, which is journalled BEFORE Planner Post and Writeback have run.
+# A cycle whose Worker answered and whose knowledge commit then failed left that
+# reading behind, so the resume after the crash read "already done" and skipped
+# the half that had not happened — the guard against a duplicate deliberation
+# had become a guard against ever finishing one.
+#
+# Two events rather than a moved one: the reading is an AUDIT of what the Worker
+# said and has to survive a later failure (it is what the next attempt's context
+# and any post-mortem read), while this is a TRANSACTION MARKER. Making one row
+# mean both is what caused the bug.
+CYCLE_COMPLETED_EVENT = "CognitiveCycleCompletedEvent"
+
 # The citation floor as the Worker is TOLD it (`_not_citable_because`). A copy
 # of `system_thresholds.proposal_invariant_weight_min`, not a read of it: this
 # is prompt text built from a context dict that carries no thresholds, while the
@@ -453,5 +468,23 @@ async def run_decision_cycle(
     knowledge = await commit_knowledge(
         db, post_result, regime_type, thresholds, today=today, embedder=planner_pre.embedder
     )
+
+    # LAST, and only on the success of everything above — this is what the
+    # weekly resume reads to decide the cycle need not run again
+    # (`CYCLE_COMPLETED_EVENT`). Anything that raised before here leaves no
+    # marker, so the next chain redoes the week.
+    async with db.transaction():
+        await db.append_event(
+            type=CYCLE_COMPLETED_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=run_id,
+            payload={
+                "trigger": trigger,
+                "run_id": run_id,
+                "confrontations": knowledge.confrontations,
+                "innovations": knowledge.innovations,
+            },
+            event_date=today,
+        )
 
     return UC8Result(context, worker_result, post_result, knowledge)

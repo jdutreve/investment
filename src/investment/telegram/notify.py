@@ -5,29 +5,25 @@ THE SEND HALF ONLY. `telegram/bot.py` (Task 6bis.2, UC9) is the receive half —
 handlers, buttons, the chat — and it is a much bigger thing that pulls in
 python-telegram-bot's `Application`, a running updater and a command layer. The
 chain needs neither: it needs to say one sentence to one chat when it aborts,
-and to deliver the Monday digest. Splitting the two lets `main.py` depend on the
+and to deliver the weekly digest. Splitting the two lets `main.py` depend on the
 sentence without depending on the bot.
 
-FAILING TO NOTIFY MUST NOT FAIL THE CALLER, and this is the whole design
-constraint. The alert exists because the chain broke; a raise here would replace
-a reported failure with an unreported one — the worst possible trade. So `notify`
-swallows and LOGS, and returns whether it got through. The one caller that wants
-the hard version (a smoke test, on demand) calls `send_message` directly.
+THE RAW TRANSPORT, and only that. `send_message` RAISES. Failing to notify must
+not fail the caller — the alert exists because the chain broke, and a raise here
+would replace a reported failure with an unreported one — but that rule is
+`delivery.deliver`'s to enforce, because absorbing the error is only half of it:
+the message still has to land somewhere, and `deliver` writes it to the outbox.
+This module used to own a `notify()` that swallowed and returned a bool, which
+lost the text; `deliver` replaced it and `notify()` sat unused (CLAUDE.md: "No
+dead code, no speculative stubs").
 
-NO RETRY LOOP. python-telegram-bot's `Bot` already retries transport faults
-internally; what is left after that is a wrong token, a wrong chat id, or no
-network — none of which a second attempt fixes, and all of which the log line
-names precisely.
+NO RETRY LOOP HERE. python-telegram-bot's `Bot` retries transport faults inside
+one call; what is left after that is a wrong token, a wrong chat id, or no
+network — none of which a second immediate attempt fixes. Retrying ACROSS runs
+would be a different feature with a persistent queue behind it (I-54).
 """
 
-import logging
-
 from telegram import Bot
-from telegram.error import TelegramError
-
-from investment.redact import redact_exception
-
-logger = logging.getLogger(__name__)
 
 # Telegram refuses a message body over 4096 characters, and the digest is the
 # one message that can reach it (a long ranking, several alerts, a Worker
@@ -54,22 +50,3 @@ async def send_message(token: str, chat_id: str, text: str) -> None:
     message that fails to PARSE is a message the owner never sees. Formatting is
     not worth that risk for a report read once a week."""
     await Bot(token).send_message(chat_id=chat_id, text=clip(text))
-
-
-async def notify(token: str, chat_id: str, text: str) -> bool:
-    """`send_message`, but a failure is logged and reported, never raised.
-
-    Returns True if the message got through. Every scheduled caller uses this
-    one: notification is the LAST step of whatever it reports on, and taking the
-    caller down with it turns a described failure into a silent one."""
-    try:
-        await send_message(token, chat_id, text)
-    except TelegramError as exc:
-        # Not `except Exception`: a TelegramError is "the message did not get
-        # through", which is what this function is allowed to absorb. Anything
-        # else (a bad type, a broken event loop) is a bug here and must surface.
-        # `redact_exception`, not `exc`: python-telegram-bot builds `InvalidToken`
-        # from the token it rejected (investment/redact.py).
-        logger.error("telegram notify failed (%s): %s", type(exc).__name__, redact_exception(exc))
-        return False
-    return True

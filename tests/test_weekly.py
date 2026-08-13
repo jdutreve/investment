@@ -13,8 +13,10 @@ from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 import pytest
+import tzlocal
 
 from investment import main as MAIN
 from investment import weekly as M
@@ -289,6 +291,40 @@ def test_the_anchor_is_sunday_and_the_cron_reads_the_same_constant() -> None:
     assert datetime(2026, 8, 9).weekday() == CHAIN_START_WEEKDAY  # a Sunday
 
 
+def test_the_cron_fires_on_the_OWNERS_clock_not_the_laptops() -> None:
+    """`AsyncIOScheduler(timezone=...)` does NOT reach a trigger the caller
+    built. It is passed to `_create_trigger`, which only runs for the string
+    form (`add_job(fn, "cron", ...)`); a `CronTrigger` instance resolves its own
+    timezone in `__init__` and, given none, takes `tzlocal.get_localzone()` —
+    the MACHINE's. So the scheduler said Zurich, the trigger said whatever the
+    laptop said, and on this laptop those agree, which is why it was invisible.
+
+    On a trip they do not agree: the chain would fire at 08:00 local while
+    `is_chain_due` (reading `settings.tz` through `agent_now`) still measured
+    the week from Zurich's Sunday 08:00. Both halves must anchor on one clock.
+
+    Pinned with the machine forced elsewhere, because a test on a Zurich laptop
+    cannot tell a fixed version from the broken one."""
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    from investment.chain import CHAIN_START_HOUR, CHAIN_START_WEEKDAY
+
+    scheduler = AsyncIOScheduler(timezone="Europe/Zurich")
+    trigger = CronTrigger(
+        day_of_week=CHAIN_START_WEEKDAY,
+        hour=CHAIN_START_HOUR,
+        minute=0,
+        timezone=ZoneInfo("Europe/Zurich"),
+    )
+    assert str(trigger.timezone) == "Europe/Zurich"
+    # and the scheduler is not what put it there
+    assert str(CronTrigger(day_of_week=CHAIN_START_WEEKDAY, hour=CHAIN_START_HOUR).timezone) == str(
+        tzlocal.get_localzone()
+    )
+    assert str(scheduler.timezone) == "Europe/Zurich"
+
+
 def test_the_anchor_is_found_from_any_day_of_the_week() -> None:
     """Written for any weekday rather than Monday's `now.weekday()` shortcut:
     the anchor moved once, and a formula that only works for one day has to be
@@ -346,8 +382,24 @@ def test_info_goes_to_stdout_and_warnings_to_stderr() -> None:
 # -- the one step a retry must not repeat -----------------------------------
 
 
+async def _complete_cycle(db: InvestmentDB, *, trigger: str, day: str) -> None:
+    """What `run_decision_cycle` appends LAST, once the knowledge commit has
+    returned. The guard reads this and not the Worker reading — see
+    `test_a_cycle_that_died_after_the_worker_is_not_counted_as_done`."""
+    async with db.transaction():
+        await db.append_event(
+            type="CognitiveCycleCompletedEvent",
+            source_uc="UC8",
+            source_id="run-1",
+            payload={"trigger": trigger, "confrontations": 3},
+            event_date=date.fromisoformat(day),
+        )
+
+
 async def _journal_reading(db: InvestmentDB, *, trigger: str, day: str) -> None:
-    """What `decision_cycle.journal_worker_reading` appends after every cycle."""
+    """What `decision_cycle.journal_worker_reading` appends BEFORE Planner Post
+    and the knowledge commit — an audit of what the Worker said, not proof the
+    cycle finished."""
     async with db.transaction():
         await db.append_event(
             type="WorkerReadingEvent",
@@ -370,7 +422,7 @@ async def test_a_retry_later_in_the_SAME_week_does_not_buy_a_second_cycle(
     that spends an LLM call and appends a fresh WorkerReadingEvent, invariant
     confrontations and innovations on every pass, so a failure at 09:30 on the
     digest used to buy a second Worker deliberation to re-send one message."""
-    await _journal_reading(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")  # Sunday's cycle
+    await _complete_cycle(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")  # Sunday's cycle
     # Tuesday's retry asks about the same week and finds it done.
     assert await M.weekly_cycle_already_ran(db, chain_period(date(2026, 8, 11))) is True
 
@@ -378,8 +430,25 @@ async def test_a_retry_later_in_the_SAME_week_does_not_buy_a_second_cycle(
 async def test_the_NEXT_week_runs_its_own_cycle(db: InvestmentDB) -> None:
     """Scoped to the week, not "has one ever run" — otherwise the chain would
     never think again."""
-    await _journal_reading(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")
+    await _complete_cycle(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")
     assert await M.weekly_cycle_already_ran(db, chain_period(date(2026, 8, 16))) is False
+
+
+async def test_a_cycle_that_died_after_the_worker_is_not_counted_as_done(
+    db: InvestmentDB,
+) -> None:
+    """THE GUARD'S OWN DEFECT. It read `WorkerReadingEvent`, which
+    `run_decision_cycle` appends BEFORE Planner Post and `commit_knowledge`. A
+    cycle that got its answer and then failed to commit it therefore left a
+    marker saying "done" over work that had not happened, and the retry skipped
+    UC8 — the week's deliberation was paid for and thrown away.
+
+    A guard must read a record written by the LAST step it guards."""
+    await _journal_reading(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")
+    assert await M.weekly_cycle_already_ran(db, "2026-08-09") is False
+
+    await _complete_cycle(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")
+    assert await M.weekly_cycle_already_ran(db, "2026-08-09") is True
 
 
 async def test_an_adhoc_UC9_cycle_does_not_stand_in_for_the_weeks_own(
@@ -387,5 +456,5 @@ async def test_an_adhoc_UC9_cycle_does_not_stand_in_for_the_weeks_own(
 ) -> None:
     """An ad-hoc `/cycle` is the owner asking for an EXTRA reading, not the
     week's. Counting it would let a Monday question silence Sunday's chain."""
-    await _journal_reading(db, trigger="uc9-adhoc", day="2026-08-10")
+    await _complete_cycle(db, trigger="uc9-adhoc", day="2026-08-10")
     assert await M.weekly_cycle_already_ran(db, "2026-08-09") is False

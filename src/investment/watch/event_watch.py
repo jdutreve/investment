@@ -472,7 +472,9 @@ async def run_event_watch(
 
         path = inbox / event_filename(item)
         path.write_text(event_document(item, triage), encoding="utf-8")
-        result = await ingester.ingest_file(path, kind="event", author=item.source, source=item.url)
+        result = await ingester.ingest_file(
+            path, kind="event", author=item.source, source_url=item.url
+        )
         ingested.append(result.document_id)
 
     staging.cleanup()

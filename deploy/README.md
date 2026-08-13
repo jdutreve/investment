@@ -8,11 +8,16 @@ is a deliberate act with the commands written out.
 ## Telegram — the one thing that is not code
 
 The agent runs, decides and records without Telegram; what it cannot do without
-it is DELIVER. The digest, the alerts and the `needs-user-input` questions all
-go through it, so an unset token means the week's work lands in the database
-and nowhere else. Measured on the first real launch (2026-08-12): `.env` still
-carried `REPLACE_ME`, the front logged itself disabled, and the chain ran to
-completion regardless — which is the intended behaviour, not a workaround.
+it is REACH YOU. The digest, the alerts and the `needs-user-input` questions all
+go through it. An unset token does not lose them: `delivery.deliver` writes the
+text to `~/data/investment/outbox/<timestamp>.txt` and logs it in full, so the
+week's work lands in the database AND in a file you can read. Nothing retries it
+later — the outbox is a record, not a queue (I-54) — and the following week's
+digest re-renders the current state anyway.
+
+Measured on the first real launch (2026-08-12): `.env` still carried
+`REPLACE_ME`, the front logged itself disabled, the chain ran to completion and
+the digest is in the outbox. That is the intended behaviour, not a workaround.
 
 Two values, both in `.env`:
 

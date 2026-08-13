@@ -87,10 +87,23 @@ PORTFOLIO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,49}$")
 # say the same thing (CLAUDE.md: "WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED
 # THE FIRST" — one set named the listing, and the gate never followed).
 #
-# `sqlite_master` and friends are included by the `sqlite_%` rule below rather
-# than listed: a query that can read the catalogue can find every table this
-# set exists to keep out of the prompt.
+# `sqlite_master` and friends are included by `INTERNAL_TABLE_PREFIXES` below
+# rather than listed: a query that can read the catalogue can find every table
+# this set exists to keep out of the prompt.
 SCHEMA_HIDDEN_TABLES = frozenset({"event_log", "user_profile", "sqlite_sequence"})
+
+# The prefixes of SQLite's own catalogue, refused by prefix rather than listed
+# because both families grow with the SQLite version and any member of either
+# re-enumerates everything `SCHEMA_HIDDEN_TABLES` exists to hide.
+#
+# `pragma_` IS THE SECOND ONE, and it arrived after the rule was written for the
+# first (CLAUDE.md: "WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED THE FIRST").
+# `PRAGMA` the STATEMENT is in the keyword blacklist above, which read as though
+# pragmas were handled; the table-valued function spelling is a single word —
+# `SELECT name FROM pragma_table_list` — so the keyword scan never saw it, and
+# it lists every table in the file including the three hidden ones.
+# `pragma_table_info(<table>)` reads their columns the same way.
+INTERNAL_TABLE_PREFIXES = ("sqlite_", "pragma_")
 
 
 async def describe_schema(db: InvestmentDB) -> str:
@@ -220,7 +233,7 @@ def _names_hidden_table(stmt: str) -> str | None:
     for hidden in sorted(SCHEMA_HIDDEN_TABLES):
         if hidden in words:
             return hidden
-    return next((word for word in sorted(words) if word.startswith("sqlite_")), None)
+    return next((word for word in sorted(words) if word.startswith(INTERNAL_TABLE_PREFIXES)), None)
 
 
 def _split_statements(stmt: str) -> list[str]:

@@ -288,20 +288,34 @@ class CorpusIngester:
         *,
         kind: str = "book",
         author: str | None = None,
-        source: str | None = None,
+        provenance_path: Path | None = None,
+        source_url: str | None = None,
     ) -> IngestResult:
         """Extract -> normalize -> chunk -> embed -> score -> persist, in one
         transaction. Idempotent: re-ingesting the same title overwrites the same
         document and passage ids, and drops the ones a shorter version no longer
-        has (`_drop_stale_passages`).
+        has, along with everything the old version derived (`_replace_derived`).
 
-        `source` OVERRIDES `source_path` when the file is not the provenance.
-        A book's provenance IS the file on disk; a UC3 event's is the press
-        release URL, and the file is only how the text reaches this method.
-        That distinction is load-bearing rather than cosmetic: `event_watch`
-        dedupes by URL against `document.source_path` and has no state table of
-        its own, so a document that recorded the temp file it was written to
-        would be re-triaged and re-ingested every week."""
+        `path` is where the bytes are READ FROM. It is not always where the
+        document came from, and the two overrides say which kind of elsewhere:
+
+          - `provenance_path` — a local file that is the document's real home.
+            The inbox watcher archives each deposit into `sources/` and passes
+            the destination, because `path` is about to stop existing.
+          - `source_url` — the document came off the web and the file is only
+            how the text reached this method (a UC3 press release written to a
+            temp file). Load-bearing rather than cosmetic: `event_watch` dedupes
+            by URL against `document.source_path` and has no state table of its
+            own, so a document recording its temp file would be re-triaged and
+            re-ingested every week.
+
+        TWO PARAMETERS, NOT ONE. They were a single `source: str | None`, and
+        `source_type` read it as "a URL was given" — so when the watcher started
+        passing the archive path (a fix for `source_path` pointing into an inbox
+        the file had left), every deposited book began recording
+        `source_type='url'` with a local filesystem path in it. One parameter
+        carrying two meanings cannot be classified by its presence; the caller
+        knows which it has, so the caller says so."""
         title = title_from(path)
         document_id = document_id_for(path, title)
         pages, pages_skipped = extract_pages(path)
@@ -324,6 +338,13 @@ class CorpusIngester:
         supports = await self.score_supports(vectors)
         logger.info("ingest %s: %d passages, %d pages skipped", title, len(chunks), pages_skipped)
 
+        # WHERE THE DOCUMENT LIVES, decided once and used by both the event and
+        # the vertex — a citation nobody can follow is not provenance. `path` is
+        # the last resort because for the watcher it is an inbox file that is
+        # about to be moved away.
+        provenance = source_url or str(provenance_path or path)
+        local_suffix = (provenance_path or path).suffix.lower()
+
         now = datetime.now(UTC).isoformat()
         async with self._db.transaction() as tx:
             # EventLog FIRST, same transaction (CLAUDE.md).
@@ -334,7 +355,7 @@ class CorpusIngester:
                 payload={
                     "document_id": document_id,
                     "title": title,
-                    "source_path": str(path),
+                    "source_path": provenance,
                     "chunk_count": len(chunks),
                     "pages_skipped": pages_skipped,
                 },
@@ -346,16 +367,20 @@ class CorpusIngester:
                     "title": title,
                     "author": author,
                     "kind": kind,
-                    "source_type": ("url" if source else "pdf")
-                    if source or path.suffix.lower() == ".pdf"
-                    else "text",
-                    "source_path": source or str(path),
+                    "source_type": "url"
+                    if source_url
+                    else ("pdf" if local_suffix == ".pdf" else "text"),
+                    "source_path": provenance,
                     "ingested_at": now,
                     "chunk_count": len(chunks),
                     "trace": f"Ingested from {path.name} ({len(chunks)} passages, "
                     f"{pages_skipped} low-content pages skipped).",
                 },
             )
+            # BEFORE the upserts, because it compares the incoming text against
+            # the stored text to find which passages actually changed — after,
+            # every passage would look identical to itself.
+            dropped = await self._replace_derived(tx, document_id, chunks)
             for chunk, vector in zip(chunks, vectors, strict=True):
                 passage_id = chunk_id_for(document_id, chunk.position)
                 await tx.upsert_vertex(
@@ -381,7 +406,6 @@ class CorpusIngester:
                         {"strength": score, "excerpt": chunk.content[:EXCERPT_CHARS]},
                     )
                     created += 1
-            dropped = await self._drop_stale_passages(tx, document_id, len(chunks))
 
         if dropped:
             logger.info("ingest %s: dropped %d passage(s) from a longer version", title, dropped)
@@ -428,35 +452,78 @@ class CorpusIngester:
             for row_index in range(len(vectors))
         ]
 
-    async def _drop_stale_passages(self, tx: InvestmentDB, document_id: str, kept: int) -> int:
-        """Delete the passages of a PREVIOUS, longer version of this document,
-        and everything hanging off them.
+    async def _replace_derived(
+        self, tx: InvestmentDB, document_id: str, chunks: list[Chunk]
+    ) -> int:
+        """Invalidate what the PREVIOUS version of this document derived, so the
+        upserts that follow are a replacement rather than a merge. Returns how
+        many passages the new version no longer has.
 
         RE-INGESTION WAS NOT IDEMPOTENT, only nearly so. Passage ids are
         `<document_id>:<position>` and the document id is a hash of the TITLE,
-        so re-depositing a book under the same name UPSERTs positions 0..n-1 —
-        and leaves positions n..m-1 of the older, longer version in place. Those
-        orphans keep their embeddings, keep their SUPPORTS edges to invariants,
-        and keep their `curated_passage` checkpoints, so they are still
-        retrieved by the Planner and still counted as curated. A corrected
-        second edition would be silently blended with the first.
+        so re-depositing a book under the same name UPSERTs positions 0..n-1 and
+        leaves positions n..m-1 of an older, longer version in place. Those
+        orphans keep their embeddings, their SUPPORTS edges and their curation
+        checkpoints, so the Planner still retrieves them. A corrected second
+        edition was silently blended with the first.
 
-        Their dependants go FIRST: `supports.passage_id` and
-        `curated_passage.passage_id` both carry a REFERENCES to `passage(id)`.
-        The checkpoint rows must go too — leaving them would mark passage
-        positions of the NEW version as already curated the moment the document
-        grows again."""
-        stale = await tx.query(
-            "SELECT id FROM passage WHERE document_id = :doc AND position >= :kept",
-            doc=document_id,
-            kept=kept,
+        THE SURPLUS POSITIONS WERE THE VISIBLE HALF, and fixing only those left
+        the subtler one: a position that still exists but whose TEXT CHANGED.
+        Same id, so the upsert replaces the content and the embedding — and
+        every row derived from the old content survives, pointing at text that
+        no longer says what it said:
+
+          - SUPPORTS. The scoring loop below re-scores every passage, but it
+            only WRITES edges above the similarity threshold. An edge whose new
+            score fell below it is not overwritten, it is simply not written,
+            and the stale one remains — an invariant still cited by a passage
+            that no longer supports it. So every edge of this document goes,
+            unconditionally, and the loop rebuilds the ones that still hold.
+          - `curated_passage`. Its fingerprint is
+            `v<prompt>/<model>/<effort>` (`worker/curator.py`) and contains
+            nothing about the text, so the checkpoint means "this passage id was
+            curated", not "this text was". New text under an old id therefore
+            reads as already curated and is never sent to the curator. Only the
+            CHANGED ids are cleared: re-curating an untouched book because one
+            chapter moved would be an LLM bill for no new knowledge.
+
+        Dependants go before their passage: `supports.passage_id` and
+        `curated_passage.passage_id` both carry a REFERENCES to `passage(id)`."""
+        existing = await tx.query(
+            "SELECT id, content FROM passage WHERE document_id = :doc", doc=document_id
         )
-        if not stale:
-            return 0
-        ids = [str(row["id"]) for row in stale]
-        placeholders = ", ".join(f":p{n}" for n in range(len(ids)))
-        params = {f"p{n}": pid for n, pid in enumerate(ids)}
-        for table in ("supports", "curated_passage"):
-            await tx.command(f"DELETE FROM {table} WHERE passage_id IN ({placeholders})", **params)
-        await tx.command(f"DELETE FROM passage WHERE id IN ({placeholders})", **params)
-        return len(ids)
+        if not existing:
+            return 0  # first ingestion: nothing derived from it yet
+
+        incoming = {chunk_id_for(document_id, c.position): c.content for c in chunks}
+        stale, changed = [], []
+        for row in existing:
+            passage_id = str(row["id"])
+            replacement = incoming.get(passage_id)
+            if replacement is None:
+                stale.append(passage_id)
+            elif replacement != str(row["content"]):
+                changed.append(passage_id)
+
+        await self._delete_by_passage(tx, "supports", [str(r["id"]) for r in existing])
+        await self._delete_by_passage(tx, "curated_passage", stale + changed)
+        await self._delete_by_passage(tx, "passage", stale)
+        if changed:
+            logger.info(
+                "ingest %s: %d passage(s) changed content, curation checkpoints cleared",
+                document_id,
+                len(changed),
+            )
+        return len(stale)
+
+    @staticmethod
+    async def _delete_by_passage(tx: InvestmentDB, table: str, passage_ids: list[str]) -> None:
+        """`DELETE FROM <table> WHERE passage_id IN (...)`, or `id` for `passage`
+        itself. `table` is never user input — the three call sites above are the
+        only ones, and each passes a literal."""
+        if not passage_ids:
+            return
+        column = "id" if table == "passage" else "passage_id"
+        placeholders = ", ".join(f":p{n}" for n in range(len(passage_ids)))
+        params = {f"p{n}": pid for n, pid in enumerate(passage_ids)}
+        await tx.command(f"DELETE FROM {table} WHERE {column} IN ({placeholders})", **params)

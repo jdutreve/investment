@@ -201,7 +201,7 @@ async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) ->
     having to read a JSON payload. Total ABSENCE is the exception and does not
     reach here as an alert alone — `run_market_signal` raises on it (it would
     otherwise default to the 90%-equity book on no signal), and this message is
-    the Monday-morning explanation of that abort."""
+    the Sunday-morning explanation of that abort."""
     today = today or date.today()
     absent, latest, age = await _oldest_series(db, SIGNAL_TICKERS, today)
     if absent:
@@ -234,8 +234,8 @@ async def stack_drift_alert(db: InvestmentDB) -> Alert | None:
     A pure READ of the latest `DRIFT_EVENT`, which `market_signal_cycle`
     journals on every run. The measurement is a 35-year walk and belongs to a
     mechanical job, not to a renderer: `build_digest` renders committed rows so
-    that any past Monday can be re-rendered without recomputing anything, and a
-    backtest inside it would also give the digest a new way to RAISE on Monday
+    that any past chain can be re-rendered without recomputing anything, and a
+    backtest inside it would also give the digest a new way to RAISE on Sunday
     morning (telegram/digest.py).
 
     Silent when the check passes, when it has never run, and when it reported

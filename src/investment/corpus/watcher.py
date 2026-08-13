@@ -133,7 +133,7 @@ class InboxWatcher:
             # the row a usable citation.
             archived = self._archive_target(path)
             try:
-                result = await self._ingester.ingest_file(path, source=str(archived))
+                result = await self._ingester.ingest_file(path, provenance_path=archived)
             except Exception as exc:  # see module docstring: quarantine, never crash
                 # Broad ON PURPOSE: a malformed PDF must quarantine itself, not
                 # stop the watcher. The reason is recorded, never swallowed —

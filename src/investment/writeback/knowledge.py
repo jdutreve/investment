@@ -15,7 +15,7 @@ re-run into permanent duplication.
 Three properties, in the order they matter:
 
 1. IDEMPOTENT — a passage already curated under the same fingerprint is
-   skipped. A Monday sweep over a stable corpus makes zero LLM calls.
+   skipped. A weekly sweep over a stable corpus makes zero LLM calls.
 2. RESUMABLE — written per batch as it returns, inside one transaction. A
    crash at 95% costs the batch in flight, not the run.
 3. DEDUPLICATED — a candidate that restates one already in the DB attaches

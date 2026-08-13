@@ -618,7 +618,16 @@ EventLog {
                         --  MarketSignalDecisionEvent (ADR-007 — one per
                         --    monthly decision, moved or not) |
                         --  WorkerReadingEvent (ADR-011 — the Worker's prose,
-                        --    one per UC8 cycle, proposal or not)
+                        --    one per UC8 cycle, proposal or not; appended
+                        --    BEFORE Planner Post, so it is an AUDIT of what
+                        --    the Worker said and NOT proof the cycle
+                        --    finished) |
+                        --  CognitiveCycleCompletedEvent (the UC8 terminal
+                        --    marker, appended after commit_knowledge
+                        --    returned. `weekly.weekly_cycle_already_ran`
+                        --    reads THIS to decide a retry may skip UC8 —
+                        --    reading the WorkerReadingEvent instead made a
+                        --    cycle that died mid-commit look done)
   source_uc  : STRING   -- 'UC0'..'UC9' | 'catch-up' | 'inbox-watcher' | 'system'
   source_id  : STRING   -- id of the entity or run that produced the event
   payload    : STRING   -- JSON (may reference older DOMAIN dates — that is

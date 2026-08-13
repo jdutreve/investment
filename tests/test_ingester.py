@@ -313,3 +313,132 @@ async def test_a_failure_while_linking_supports_leaves_NO_document(
     assert await db.query("SELECT id FROM document") == []
     assert await db.query("SELECT id FROM passage") == []
     assert await db.query("SELECT id FROM event_log WHERE type = 'IngestionEvent'") == []
+
+
+async def test_a_passage_whose_TEXT_changed_loses_its_curation_checkpoint(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """THE SUBTLER HALF of a re-ingestion, and the one dropping surplus
+    positions did not reach. Position 0 still exists in the new edition, so its
+    id is unchanged and the upsert replaces the content — while
+    `curated_passage` keeps a row whose fingerprint is
+    `v<prompt>/<model>/<effort>` (`worker/curator.py`) and says nothing about
+    the text. The checkpoint therefore means "this passage id was curated", so
+    rewritten text reads as already curated and is never sent to the curator:
+    a second edition's actual changes are the one part of it nobody reads."""
+    await _seed_invariant(db)
+    src = tmp_path / "Revised.md"
+    src.write_text("credit spreads widen in recessions. " * 40, encoding="utf-8")
+    ing = CorpusIngester(db, embedder)
+    first = await ing.ingest_file(src)
+
+    kept = f"{first.document_id}:00000"
+    await db.command(
+        "INSERT INTO curated_passage (passage_id, fingerprint, curated_at, candidate_count) "
+        "VALUES (:p, 'v5/model/high', '2026-01-01', 2)",
+        p=kept,
+    )
+
+    # Same title, same length, DIFFERENT text — so position 0 survives with new
+    # content, which is precisely the case the position sweep cannot see.
+    src.write_text("gold outperforms when real rates fall. " * 40, encoding="utf-8")
+    second = await ing.ingest_file(src)
+    assert second.document_id == first.document_id
+
+    assert (
+        await db.query("SELECT passage_id FROM curated_passage WHERE passage_id = :p", p=kept) == []
+    ), "the checkpoint outlived the text it certified"
+
+
+async def test_an_UNCHANGED_passage_keeps_its_checkpoint(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """The other side of the same rule, and the reason the invalidation compares
+    content instead of clearing everything: re-depositing an identical file —
+    which the inbox makes easy — must not re-buy the curation of a whole book
+    from the LLM."""
+    await _seed_invariant(db)
+    src = tmp_path / "Unchanged.md"
+    src.write_text("credit spreads widen in recessions. " * 40, encoding="utf-8")
+    ing = CorpusIngester(db, embedder)
+    first = await ing.ingest_file(src)
+
+    kept = f"{first.document_id}:00000"
+    await db.command(
+        "INSERT INTO curated_passage (passage_id, fingerprint, curated_at, candidate_count) "
+        "VALUES (:p, 'v5/model/high', '2026-01-01', 2)",
+        p=kept,
+    )
+    await ing.ingest_file(src)
+
+    assert (
+        await db.query("SELECT passage_id FROM curated_passage WHERE passage_id = :p", p=kept) != []
+    ), "an identical re-deposit re-bought the curation of the whole book"
+
+
+async def test_a_support_that_no_longer_holds_is_not_left_behind(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """SUPPORTS edges are only WRITTEN above the similarity threshold, never
+    deleted by falling under it. So a passage rewritten to say something else
+    kept citing the invariant its old text supported — an invariant backed by a
+    paragraph that no longer backs it, which is the corpus lying to the Planner
+    about its own evidence."""
+    await _seed_invariant(db)
+    src = tmp_path / "Rewritten.md"
+    src.write_text("inflation erodes nominal bond returns. " * 40, encoding="utf-8")
+    # every passage links, so the first version definitely has edges to lose
+    ing = CorpusIngester(db, embedder, similarity_min=-1.0)
+    first = await ing.ingest_file(src)
+    assert first.supports_created > 0
+
+    before = await db.query("SELECT passage_id, invariant_id FROM supports")
+    src.write_text("gold outperforms when real rates fall. " * 5, encoding="utf-8")
+    strict = CorpusIngester(db, embedder, similarity_min=2.0)  # nothing can link
+    await strict.ingest_file(src)
+
+    assert before != []
+    assert await db.query("SELECT passage_id FROM supports") == []
+
+
+async def test_a_deposited_file_is_not_recorded_as_a_url(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """`source_type` classified on the PRESENCE of the old single `source`
+    argument, which meant "a URL was given" until the inbox watcher started
+    passing the archive path so `source_path` would stop pointing into an inbox
+    the file had left. From then on every deposited book was `source_type='url'`
+    carrying a local filesystem path — one parameter with two meanings cannot be
+    classified by whether it was supplied."""
+    src = tmp_path / "Deposited.md"
+    src.write_text("credit spreads widen in recessions. " * 40, encoding="utf-8")
+    archived = tmp_path / "sources" / "Deposited.md"
+
+    result = await CorpusIngester(db, embedder).ingest_file(src, provenance_path=archived)
+
+    row = (await db.query("SELECT source_type, source_path FROM document"))[0]
+    assert row["source_type"] == "text"
+    assert row["source_path"] == str(archived)
+    # and the EventLog records the provenance too, not the inbox path it left
+    event = (await db.query("SELECT payload FROM event_log WHERE type = 'IngestionEvent'"))[0]
+    assert str(archived) in str(event["payload"])
+    assert result.document_id
+
+
+async def test_a_watched_event_is_still_recorded_as_a_url(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """The other caller, unchanged: UC3 writes the article to a temp file and
+    the URL is the provenance. `event_watch` dedupes against
+    `document.source_path`, so recording the temp file would re-triage and
+    re-ingest the same article every week."""
+    src = tmp_path / "PressRelease.md"
+    src.write_text("the central bank raised rates today. " * 40, encoding="utf-8")
+
+    await CorpusIngester(db, embedder).ingest_file(
+        src, kind="event", source_url="https://example.org/press/2026-08-13"
+    )
+
+    row = (await db.query("SELECT source_type, source_path FROM document"))[0]
+    assert row["source_type"] == "url"
+    assert row["source_path"] == "https://example.org/press/2026-08-13"

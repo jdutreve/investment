@@ -22,7 +22,7 @@ its place on exactly two occasions:
   - a bumped `CURATION_PROMPT_VERSION`, which changes the fingerprint and asks
     the whole corpus to be read again with the new instructions. That is a
     deliberate act, and the sweep is what carries it out over the following
-    Monday rather than in one interactive sitting.
+    Sunday rather than in one interactive sitting.
 
 WHAT IT DOES NOT DO: re-curate on its own initiative. UC4's trigger-2 sentence
 also mentions "re-curation opportunities on existing invariants", and there is

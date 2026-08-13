@@ -64,6 +64,7 @@ import sys
 from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -251,25 +252,40 @@ async def run_agent(settings: Settings) -> None:
 
         NOTHING RAISES OUT OF HERE. The files are already ingested and moved by
         the time this runs; a failed curation must not turn a successful batch
-        into a quarantined one, and the watcher's loop must survive it."""
+        into a quarantined one, and the watcher's loop must survive it.
+
+        THE BACKUP IS NOT THE CURATION'S DEPENDANT — the two steps are
+        sequential and independently guarded, which they were not. Both once sat
+        in one `try` under one lock, so a curation that failed (or merely found
+        the chain holding the lock) skipped the backup of an ingestion that had
+        ALREADY COMMITTED. That inverts what the backup is for: the batch most
+        worth having a copy of is precisely the one whose follow-up broke. The
+        backup also needs no lock — SQLite's online backup API reads, and
+        `backup_database` publishes atomically."""
+        sweep = None
         try:
             async with runtime.lock.hold(CURATION_LOCK):
                 sweep = await sweep_corpus(db, settings, embedder=runtime.embedder)
-                await asyncio.to_thread(
-                    backup_database,
-                    settings.db_path,
-                    settings.db_path.parent / "backups",
-                    # `settings.tz`, not the machine's — the backup is named for
-                    # a day, and which day that is belongs to the owner's
-                    # calendar (`weekly.agent_now`). The weekly chain already
-                    # passes its own `today` for the same reason.
-                    today=agent_now(settings).date(),
-                )
         except AlreadyRunning as exc:
             logger.info("post-ingestion curation deferred to the weekly sweep: %s", exc)
-            return
         except Exception:
             logger.exception("post-ingestion curation failed; the weekly sweep will retry it")
+
+        try:
+            await asyncio.to_thread(
+                backup_database,
+                settings.db_path,
+                settings.db_path.parent / "backups",
+                # `settings.tz`, not the machine's — the backup is named for a
+                # day, and which day that is belongs to the owner's calendar
+                # (`weekly.agent_now`). The weekly chain already passes its own
+                # `today` for the same reason.
+                today=agent_now(settings).date(),
+            )
+        except Exception:
+            logger.exception("post-ingestion backup failed; the next chain will take one")
+
+        if sweep is None:  # curation deferred or failed: nothing to report yet
             return
         titles = ", ".join(r.title for r in results)
         await deliver(
@@ -323,9 +339,27 @@ async def run_agent(settings: Settings) -> None:
     # nothing, silently, for as long as nobody looked. APScheduler's
     # `day_of_week` counts Monday as 0 like `date.weekday()`, so the constant
     # passes straight through.
+    #
+    # THE TIMEZONE IS PASSED TO THE TRIGGER, not merely to the scheduler, and
+    # the two are not the same thing. `AsyncIOScheduler(timezone=...)` only
+    # reaches a trigger the SCHEDULER builds — the `add_job(func, "cron", ...)`
+    # string form. A trigger constructed by the caller resolves its own
+    # timezone in `__init__`, and with none given it takes
+    # `tzlocal.get_localzone()` — the MACHINE's. Verified on APScheduler 3.11.3:
+    # with the machine on Asia/Tokyo and the scheduler on Europe/Zurich, this
+    # trigger reported Asia/Tokyo until the argument below was added. On this
+    # laptop the two agree and the bug is invisible; on a trip they do not, and
+    # the chain would fire at 08:00 of wherever the owner happens to be while
+    # `is_chain_due` (which reads `settings.tz` through `weekly.agent_now`)
+    # still thought Zurich. Both halves must anchor on the same clock.
     scheduler.add_job(
         tick,
-        CronTrigger(day_of_week=CHAIN_START_WEEKDAY, hour=CHAIN_START_HOUR, minute=0),
+        CronTrigger(
+            day_of_week=CHAIN_START_WEEKDAY,
+            hour=CHAIN_START_HOUR,
+            minute=0,
+            timezone=ZoneInfo(settings.tz),
+        ),
     )
 
     tasks = [
