@@ -974,8 +974,14 @@ SCENARIOS = [
 
 ### Task 1ter.6 — Portfolio seed (7 portfolios, exactly one defender=true)
 
-**All allocations comply with the BINDING user caps (max single asset 40%,
-max drawdown -15%). Per-portfolio rules may only be stricter.**
+**All allocations comply with the binding user caps. Per-portfolio rules may
+only be STRICTER, which is what the 40% / -15% written on every row below now
+is: ADR-007 raised the user caps to max single asset 50% / max drawdown -25%
+for the deliberately concentrated market-signal books and the
+accumulation-horizon stack (CLAUDE.md "Binding caps" is authoritative). The
+seeded Dalio portfolios keep the tighter pair they were calibrated with — they
+are the retained bridge, not the live path — so nothing below changes, but
+"the BINDING user caps" is no longer what these two numbers are.**
 
 ```python
 PORTFOLIOS = [
@@ -1913,7 +1919,9 @@ which ride the next backup).
 async def test_uc0_seed_idempotent():        # run twice → no duplicates; 2 SeedEvents
 async def test_schema_complete():            # 13 entity + 6 M:N relation + 3 TS +
                                              # 13 doc tables; 5 FK-column relations
-async def test_seed_respects_binding_caps(): # every seed allocation ≤ 40% single asset
+async def test_seed_respects_binding_caps(): # every seed allocation ≤ its OWN portfolio's
+                                             # max_single_asset_pct, itself ≤ the user cap
+                                             # (50% since ADR-007; the Dalio rows keep 40%)
 async def test_historical_regimes_seeded():  # ≥10 Regime instances; exactly 1 is_current
 async def test_nav_conventions_golden():     # NAV/sharpe/sortino/calmar on a fixed
                                              # 3-asset fixture == pinned golden numbers

@@ -11,7 +11,9 @@ FOUR THINGS RUN HERE, in one asyncio process (ADR-002/ADR-004: one machine, one
 connection, one writer):
 
   1. the INBOX WATCHER  — 60s poll, 5-minute quiet period, then an ingestion
-     batch (corpus/watcher.py). Event-driven, not scheduled.
+     batch (corpus/watcher.py), and on a batch that produced documents:
+     curation, a backup and a message to the owner (`after_ingestion`).
+     Event-driven, not scheduled.
   1b. the TELEGRAM BOT   — the owner's front, polling for updates. Every handler
      dispatches to `ops/commands.py`, which is also what the CLI and the
      dashboard will call (ADR-005): one command layer, three fronts.
@@ -54,10 +56,13 @@ waits for a text extractor this project does not have (`event_watch.py`).
 
 import asyncio
 import contextlib
+import fcntl
 import logging
+import os
 import signal
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -67,17 +72,21 @@ from telegram.ext import Application
 
 from investment.chain import CHAIN_START_HOUR, CHAIN_START_WEEKDAY
 from investment.config import Settings
+from investment.corpus.curation_sweep import sweep_corpus
 from investment.corpus.embedding import InProcessEmbedder
-from investment.corpus.ingester import CorpusIngester
+from investment.corpus.ingester import CorpusIngester, IngestResult
 from investment.corpus.watcher import InboxWatcher
+from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
-from investment.ops.run_lock import RunLock
+from investment.delivery import deliver, outbox_path
+from investment.ops.run_lock import AlreadyRunning, RunLock
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
+from investment.redact import RedactingFormatter, redact_exception
 from investment.runtime import AgentRuntime
 from investment.telegram.bot import build_application
 from investment.watch.event_watch import build_triage_agent
-from investment.weekly import chain_if_due
+from investment.weekly import agent_now, chain_if_due
 from investment.worker.agent import build_worker_agent
 
 logger = logging.getLogger(__name__)
@@ -92,6 +101,11 @@ HEARTBEAT_SECONDS = 300.0
 # The chain's own name in the run-lock. The other holders arrive with the
 # command layer ({catchup, uc8, replay} — Task 6ter.1).
 CHAIN_LOCK = "weekly-chain"
+
+# The post-ingestion curation's name in the same lock. It is the one holder that
+# is triggered by a FILE rather than by a clock or a command, so it is also the
+# one most likely to arrive while something else is running.
+CURATION_LOCK = "ingestion-curation"
 
 
 async def heartbeat(stop: asyncio.Event, tick: Callable[[], Awaitable[Any]]) -> None:
@@ -131,15 +145,54 @@ async def _start_bot(bot: Application) -> bool:  # type: ignore[type-arg]
         if bot.updater is not None:
             await bot.updater.start_polling()
     except TelegramError as exc:
+        # REDACTED AT THE CALL SITE as well as by the formatter: `InvalidToken`
+        # is built from the token it rejected, and this is the one line in the
+        # system guaranteed to print it. The formatter is the net; a message
+        # this predictable should not depend on the net (`investment/redact.py`).
         logger.error(
             "TELEGRAM FRONT DISABLED (%s: %s). The agent runs and records normally; "
             "the digest and the alerts have nowhere to go until TELEGRAM_BOT_TOKEN and "
             "TELEGRAM_CHAT_ID are set in .env.",
             type(exc).__name__,
-            exc,
+            redact_exception(exc),
         )
         return False
     return True
+
+
+@contextlib.contextmanager
+def single_process(db_path: Path) -> Iterator[None]:
+    """Refuse to start if another agent already holds this database.
+
+    ADR-004 says the agent is the SOLE WRITER and `ops/run_lock.py` enforces
+    single-flight INSIDE the process — its docstring is explicit that a second
+    `python -m investment.main` is "a different failure ... and belongs to
+    whatever guards the process itself, not here". Nothing guarded it. A manual
+    launch beside the launchd one gave two schedulers, two heartbeats, two
+    inbox watchers racing for the same files and two run-locks that know nothing
+    of each other, each convinced it was alone.
+
+    `flock` on a file beside the database, held for the process's whole life and
+    released by the OS however it dies — which is the property a PID file does
+    not have: a killed agent leaves a stale PID behind and the next launch has
+    to guess whether it means anything."""
+    lock_path = db_path.parent / f"{db_path.name}.agent.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("w")
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise RuntimeError(
+                f"another agent is already running on {db_path} (lock: {lock_path}). "
+                "Two agents on one SQLite file are two writers, two schedulers and two "
+                "inbox watchers — stop the other one, or `launchctl unload` the LaunchAgent."
+            ) from exc
+        handle.write(f"{os.getpid()}\n")
+        handle.flush()
+        yield
+    finally:
+        handle.close()
 
 
 async def run_agent(settings: Settings) -> None:
@@ -173,6 +226,62 @@ async def run_agent(settings: Settings) -> None:
     async def tick() -> None:
         await chain_if_due(runtime)
 
+    async def after_ingestion(results: list[IngestResult]) -> None:
+        """CURATE, BACK UP, TELL THE OWNER — the event-driven half of the
+        system, which M9 specifies and nothing called.
+
+        `InboxWatcher` has taken a `curator` hook since Task 3.1 and this
+        wiring never passed one, so a deposited book was ingested within the
+        minute and then sat uncurated until the following Sunday's 08:10 sweep.
+        M9's Definition of Verified is "deposit -> candidates on Telegram within
+        ~5 min", and no code path could produce that. The backup after every
+        ingestion batch (docs/TASKS.md Phase 7, `db/backup.py`'s own docstring:
+        "the data changes through exactly two paths") was missing for the same
+        reason — the chain backed itself up, the batch did not.
+
+        THE SWEEP, not a direct curator call: it is checkpoint-guarded
+        (`curated_passage`), so it curates exactly the passages this batch added
+        and costs one query per untouched document. That also makes this hook
+        and the Sunday step THE SAME operation — one of them failing is retried
+        by the other, which is what `curation_sweep` means by resumable.
+
+        UNDER THE RUN-LOCK, and refused rather than queued if the chain holds
+        it: a sweep running beside the chain's own would pay for the same
+        passages twice. Refused here means the 08:10 step does it.
+
+        NOTHING RAISES OUT OF HERE. The files are already ingested and moved by
+        the time this runs; a failed curation must not turn a successful batch
+        into a quarantined one, and the watcher's loop must survive it."""
+        try:
+            async with runtime.lock.hold(CURATION_LOCK):
+                sweep = await sweep_corpus(db, settings, embedder=runtime.embedder)
+                await asyncio.to_thread(
+                    backup_database,
+                    settings.db_path,
+                    settings.db_path.parent / "backups",
+                    # `settings.tz`, not the machine's — the backup is named for
+                    # a day, and which day that is belongs to the owner's
+                    # calendar (`weekly.agent_now`). The weekly chain already
+                    # passes its own `today` for the same reason.
+                    today=agent_now(settings).date(),
+                )
+        except AlreadyRunning as exc:
+            logger.info("post-ingestion curation deferred to the weekly sweep: %s", exc)
+            return
+        except Exception:
+            logger.exception("post-ingestion curation failed; the weekly sweep will retry it")
+            return
+        titles = ", ".join(r.title for r in results)
+        await deliver(
+            f"📥 Ingested {len(results)} document(s): {titles}.\n"
+            f"Curation produced {sweep.candidates} invariant candidate(s) "
+            f"across {sweep.documents} document(s)."
+            + (f"\n⚠️ {len(sweep.failed)} document(s) failed curation." if sweep.failed else ""),
+            token=settings.telegram_bot_token,
+            chat_id=settings.telegram_chat_id,
+            outbox=outbox_path(settings.db_path),
+        )
+
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -182,7 +291,13 @@ async def run_agent(settings: Settings) -> None:
         # is ordinary async code below, where a transaction can finish.
         loop.add_signal_handler(sig, stop.set)
 
-    watcher = InboxWatcher(db, runtime.ingester, settings.inbox_path, settings.sources_path)
+    watcher = InboxWatcher(
+        db,
+        runtime.ingester,
+        settings.inbox_path,
+        settings.sources_path,
+        curator=after_ingestion,
+    )
     # The bot runs INSIDE this process and shares the runtime — the same
     # connection (ADR-004), the same lock, the same agents. A separate bot
     # process would be a second writer on one SQLite file and a second run-lock
@@ -263,8 +378,12 @@ def configure_logging() -> None:
 
     The stdout handler needs the FILTER as well as its level: a level admits
     everything above it, so without the filter every warning would appear in
-    both files and the split would only be a duplication."""
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    both files and the split would only be a duplication.
+
+    BOTH handlers redact (`investment/redact.py`). A rejected Telegram token and
+    a failing FRED URL both carry their credential inside the exception text,
+    and under launchd these two files are where that text lands and stays."""
+    fmt = RedactingFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
 
     out = logging.StreamHandler(sys.stdout)
     out.setLevel(logging.INFO)
@@ -284,7 +403,11 @@ def main() -> None:
     configure_logging()
     # pydantic-settings populates required fields from .env at runtime; mypy
     # cannot see that (CLAUDE.md "Dev standards" mypy rule), as in seed.main.
-    asyncio.run(run_agent(Settings()))  # type: ignore[call-arg]
+    settings = Settings()  # type: ignore[call-arg]
+    # The lock is taken BEFORE the connection is opened, so the second agent
+    # never touches the file at all.
+    with single_process(settings.db_path):
+        asyncio.run(run_agent(settings))
 
 
 if __name__ == "__main__":

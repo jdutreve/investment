@@ -770,3 +770,59 @@ async def test_a_bounded_measurement_stops_at_its_window(db: InvestmentDB) -> No
     bounded = await MS.stack_metrics(db, run, until=cut)
     unbounded = await MS.stack_metrics(db, run)
     assert bounded.cagr != unbounded.cagr
+
+
+# -- the owner's off switch --------------------------------------------------
+
+
+async def _seed_strategy(db: InvestmentDB, *, enabled: bool) -> None:
+    """The stack's own Strategy vertex — the row `/disable` writes to. The
+    other tests in this module never needed it, which is exactly how the live
+    path came to ignore it."""
+    await db.command(
+        "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
+        "conditions, source, status, trace, created_at, updated_at) VALUES "
+        "(:id, 'MS stack', 'd', 'market-signal', 0.7, :enabled, '{}', 'corpus', 'active', "
+        "'t', '2026-01-01', '2026-01-01')",
+        id=MSC.STRATEGY_ID,
+        enabled=enabled,
+    )
+
+
+async def test_a_disabled_strategy_decides_nothing(db: InvestmentDB) -> None:
+    """`/disable market-signal-stack` used to answer "disabled" and change
+    nothing: `set_strategy_enabled` writes `strategy.enabled`, and no consumer
+    on the live path ever read it — the cycle kept deciding and the proposal
+    kept reaching the digest. A control that reports success and does nothing is
+    worse than no control (ops/commands.py, UC9)."""
+    await _market(db, spread=1.0, slope=2.0)
+    await _seed_strategy(db, enabled=False)
+
+    result = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+
+    assert result.skipped_reason == f"{MSC.STRATEGY_ID} is disabled"
+    assert result.proposal_id is None
+    assert await db.query("SELECT id FROM proposal") == []
+    # Nothing on the weekly footing either: a NAV or a drift verdict for a
+    # strategy the owner switched off keeps the ranking speaking for it.
+    for event_type in (W.MARKET_SIGNAL_EVENT, MSC.DRIFT_EVENT):
+        assert await db.query("SELECT id FROM event_log WHERE type = :t", t=event_type) == []
+
+
+async def test_re_enabling_resumes_the_cycle(db: InvestmentDB) -> None:
+    """A preference, not a verdict: switching it back on must need nothing but
+    the switch."""
+    await _market(db, spread=1.0, slope=2.0)
+    await _seed_strategy(db, enabled=False)
+    assert (await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))).skipped_reason
+
+    await db.command("UPDATE strategy SET enabled = 1 WHERE id = :id", id=MSC.STRATEGY_ID)
+    assert (await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))).emitted
+
+
+async def test_a_missing_strategy_row_reads_as_enabled(db: InvestmentDB) -> None:
+    """The absence of a row is not a decision to switch anything off, and
+    defaulting to "off" would silently stop the only live allocation path."""
+    await _market(db, spread=1.0, slope=2.0)
+    assert await MSC.strategy_is_enabled(db) is True
+    assert (await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))).emitted

@@ -297,3 +297,44 @@ async def test_the_decorator_keeps_what_pydantic_ai_reads_off_the_tool(
     assert "READ-ONLY" in (tools.db_query.__doc__ or "")
     assert "20 rows" in (tools.db_query.__doc__ or "")
     assert inspect.signature(tools.db_query).parameters.keys() == {"stmt"}
+
+
+# -- the tables the Worker was never shown -----------------------------------
+
+
+@pytest.mark.parametrize(
+    "stmt",
+    [
+        "SELECT * FROM user_profile",
+        "SELECT type, payload FROM event_log ORDER BY id DESC",
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+        "SELECT p.id FROM portfolio p JOIN user_profile u ON 1 = 1",
+        "WITH caps AS (SELECT max_drawdown_pct FROM user_profile) SELECT * FROM caps",
+        "SELECT id FROM portfolio UNION SELECT id FROM event_log",
+    ],
+)
+def test_a_hidden_table_is_refused_however_it_is_reached(stmt: str) -> None:
+    """HIDING A NAME IS NOT A BOUNDARY. `describe_schema` omitted these tables
+    and `validate_sql` let every one of them through — including
+    `sqlite_master`, which is the Worker's own documented first move when it has
+    no schema. A subquery, a CTE, a JOIN and a UNION are all ways in, which is
+    why the check is over the whole statement rather than its FROM clauses."""
+    with pytest.raises(ToolInputError, match="not queryable"):
+        validate_sql(stmt)
+
+
+def test_the_schema_listing_and_the_gate_agree() -> None:
+    """The two used to disagree, which is the whole defect: one set named what
+    the listing hides, and nothing made the gate read it."""
+    for hidden in SCHEMA_HIDDEN_TABLES:
+        with pytest.raises(ToolInputError):
+            validate_sql(f"SELECT * FROM {hidden}")
+
+
+def test_an_ordinary_query_still_passes() -> None:
+    """The refusal must not spread: these are the queries the Worker actually
+    writes, and a gate that took them too would be worse than no gate."""
+    assert "LIMIT" in validate_sql("SELECT id, sortino_rolling FROM portfolio")
+    assert "LIMIT" in validate_sql(
+        "SELECT i.id FROM invariant i JOIN backed_by b ON b.invariant_id = i.id"
+    )

@@ -28,12 +28,14 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await conn.close()
 
 
-@pytest.fixture(scope="module")
-def embedder() -> InProcessEmbedder:
-    """THE REAL MODEL, not a stub. What is under test is whether a similarity
-    threshold groups the Worker's actual paraphrases, and a stub embedder would
-    only test the arithmetic around it."""
-    return InProcessEmbedder("all-MiniLM-L6-v2")
+# THE `embedder` FIXTURE IS conftest's, deliberately, and this module used to
+# define its own. It was the same real model — what is under test is whether a
+# similarity threshold groups the Worker's actual paraphrases, and a stub
+# embedder would only test the arithmetic around it — but WITHOUT the guard:
+# conftest forces the load inside a `try` so a machine with no cached model and
+# no network SKIPS, and a module-scoped redefinition shadows that and fails
+# instead. It was 11 of the 11 red tests on such a machine, all of them saying
+# "the code is wrong" about an absent download (tests/conftest.py).
 
 
 # THE M8b CORPUS, VERBATIM — title and the opening of the rationale the Worker

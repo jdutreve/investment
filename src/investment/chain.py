@@ -19,9 +19,10 @@ knowing any of them.
 import dataclasses
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from investment.db.sqlite import InvestmentDB
+from investment.redact import redact_exception
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,17 @@ def is_chain_due(
     return last_success < most_recent_chain_start(now, weekday, hour)
 
 
+def chain_period(day: date, weekday: int = CHAIN_START_WEEKDAY) -> str:
+    """The week a chain run belongs to: the anchor DATE at or before `day`.
+
+    The key for "has this already happened THIS WEEK", which is a question two
+    callers ask (`weekly.weekly_cycle_already_ran` today). A date rather than an
+    ISO week number because the anchor moved once already (Monday -> Sunday,
+    2026-08-12) and `%G-W%V` would have silently re-grouped every stored row
+    when it did."""
+    return (day - timedelta(days=(day.weekday() - weekday) % 7)).isoformat()
+
+
 async def run_chain(
     db: InvestmentDB, steps: list[ChainStep], run_id: str, *, source_uc: str = "chain"
 ) -> ChainResult:
@@ -115,7 +127,19 @@ async def run_chain(
     exception: log it, append an ErrorEvent (its own transaction — EventLog is
     the audit trail even for a failure), and abort — later steps do NOT run.
     Returns a `ChainResult`; it never re-raises, so the scheduler stays alive to
-    send the alert (M9) rather than crashing."""
+    send the alert (M9) rather than crashing.
+
+    NO STEP-LEVEL RESUME, deliberately, and the reasoning is worth keeping
+    because the opposite was built first. A retry re-runs every step, which is
+    right for all of them but one: the mechanical steps are UPSERTs and
+    check-before-append, so re-running them on a Tuesday recomputes on Tuesday's
+    prices — strictly better than replaying Sunday's. The market-signal decision
+    is idempotent on its journalled decision date, the curation sweep on its
+    passage checkpoints, the event watch on its triage journal. UC8 is the only
+    step that both costs money and appends fresh rows every time it is called,
+    and it is guarded where it is called (`weekly.cognitive_cycle`) rather than
+    by a resume mechanism here. One question, asked by the one caller that has
+    it."""
     completed: list[str] = []
     for name, thunk in steps:
         try:
@@ -124,14 +148,20 @@ async def run_chain(
             # A chain runner must RECORD and abort, not crash the scheduler —
             # the abort + ErrorEvent IS the handling (CLAUDE.md "no bare except";
             # this is a named catch that surfaces via the EventLog + return).
-            logger.error("chain %s aborted at step %s: %s", run_id, name, exc, exc_info=True)
+            #
+            # REDACTED, because this text has three destinations and two of them
+            # are permanent: the log, an append-only EventLog payload, and the
+            # Telegram alert the caller builds from `ChainResult.error`. A FRED
+            # 400 carries the api key in the failing URL (investment/redact.py).
+            message = redact_exception(exc)
+            logger.error("chain %s aborted at step %s: %s", run_id, name, message, exc_info=True)
             async with db.transaction():
                 await db.append_event(
                     type=ERROR_EVENT,
                     source_uc=source_uc,
                     source_id=run_id,
-                    payload={"step": name, "error": str(exc), "error_type": type(exc).__name__},
+                    payload={"step": name, "error": message, "error_type": type(exc).__name__},
                 )
-            return ChainResult(run_id, completed, name, str(exc))
+            return ChainResult(run_id, completed, name, message)
         completed.append(name)
     return ChainResult(run_id, completed, None, None)

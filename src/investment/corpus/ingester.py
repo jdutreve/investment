@@ -6,8 +6,10 @@ seeded at UC0 produce byte-identical rows.
 
 PERSISTENCE ORDER is fixed and load-bearing (CLAUDE.md EventLog rule): the
 IngestionEvent is appended BEFORE the Document and Passage vertices, all inside
-ONE transaction. A crash therefore leaves either nothing or a complete document
-— never passages whose ingestion was never recorded.
+ONE transaction — which now also carries the SUPPORTS edges and the cleanup of
+a previous, longer version's passages. A crash therefore leaves either nothing
+or a complete document — never passages whose ingestion was never recorded, and
+never a document the audit trail says failed.
 
 EXTRACTION QUALITY is the reason `normalize_whitespace` exists and runs first.
 Measured on the real corpus (2026-07-20): pypdf emits ~1.6-2.2% "orphan
@@ -25,6 +27,7 @@ what works; anything else raises `UnsupportedSourceError` with the suffix, so
 the watcher can route the file to `inbox/failed/` with a real reason.
 """
 
+import asyncio
 import hashlib
 import logging
 import re
@@ -287,9 +290,10 @@ class CorpusIngester:
         author: str | None = None,
         source: str | None = None,
     ) -> IngestResult:
-        """Extract -> normalize -> chunk -> embed -> persist, then link
-        SUPPORTS. Idempotent: re-ingesting the same title overwrites the same
-        document and passage ids.
+        """Extract -> normalize -> chunk -> embed -> score -> persist, in one
+        transaction. Idempotent: re-ingesting the same title overwrites the same
+        document and passage ids, and drops the ones a shorter version no longer
+        has (`_drop_stale_passages`).
 
         `source` OVERRIDES `source_path` when the file is not the provenance.
         A book's provenance IS the file on disk; a UC3 event's is the press
@@ -305,10 +309,19 @@ class CorpusIngester:
         if not chunks:
             raise ValueError(f"{path.name} produced no passages after normalization")
 
-        # CPU-bound and slow (hundreds of vectors) — but this is a batch job on
-        # the ingestion path, not the asyncio chain, so it runs inline rather
-        # than behind an executor hop that would buy nothing here.
-        vectors = self._embedder.encode([c.content for c in chunks])
+        # OFF THE EVENT LOOP. Encoding a book is CPU-bound seconds to minutes,
+        # and the comment that used to stand here — "this is a batch job on the
+        # ingestion path, not the asyncio chain" — stopped being true when the
+        # inbox watcher became an asyncio task in the agent process (main.py)
+        # and UC3's event watch started calling `ingest_file` inside the weekly
+        # chain. Inline, a large PDF freezes the Telegram front, the heartbeat
+        # and the shutdown handler for its whole duration (CLAUDE.md "Asyncio
+        # single-writer: never block the loop; CPU-bound via run_in_executor").
+        vectors = await asyncio.to_thread(self._embedder.encode, [c.content for c in chunks])
+        # The SUPPORTS similarities are computed here too, BEFORE the
+        # transaction opens, so the edges can be written inside it — see
+        # `score_supports` on why they must be.
+        supports = await self.score_supports(vectors)
         logger.info("ingest %s: %d passages, %d pages skipped", title, len(chunks), pages_skipped)
 
         now = datetime.now(UTC).isoformat()
@@ -357,21 +370,41 @@ class CorpusIngester:
                         "embedding": to_blob(vector),
                     },
                 )
+            created = 0
+            for row_index, chunk in enumerate(chunks):
+                passage_id = chunk_id_for(document_id, chunk.position)
+                for invariant_id, score in supports[row_index]:
+                    await tx.create_edge(
+                        "supports",
+                        passage_id,
+                        invariant_id,
+                        {"strength": score, "excerpt": chunk.content[:EXCERPT_CHARS]},
+                    )
+                    created += 1
+            dropped = await self._drop_stale_passages(tx, document_id, len(chunks))
 
-        supports = await self.link_supports(document_id, chunks, vectors)
+        if dropped:
+            logger.info("ingest %s: dropped %d passage(s) from a longer version", title, dropped)
         return IngestResult(
             document_id=document_id,
             title=title,
             chunk_count=len(chunks),
-            supports_created=supports,
+            supports_created=created,
             pages_skipped=pages_skipped,
         )
 
-    async def link_supports(
-        self, document_id: str, chunks: Sequence[Chunk], vectors: np.ndarray
-    ) -> int:
-        """SUPPORTS edge wherever a passage's cosine to an invariant clears
-        `vector_similarity_min`.
+    async def score_supports(self, vectors: np.ndarray) -> list[list[tuple[str, float]]]:
+        """Per passage, the `(invariant_id, cosine)` pairs clearing
+        `vector_similarity_min`. Reads and computes; writes nothing.
+
+        SPLIT FROM THE WRITE so the edges can land in the SAME transaction as
+        the document and its passages. They used to be a second transaction
+        after the first had committed, and the gap was observable: a failure in
+        the linking left a Document and its Passages committed while the
+        watcher, seeing the exception, quarantined the file to `inbox/failed/`
+        and appended an ErrorEvent saying the ingestion had failed. The audit
+        trail and the database then disagreed about the same file, and a retry
+        found the document already there.
 
         Invariants are embedded here, in RAM, from `invariant_embedding_input`
         — the SAME pinned text the Planner will use, so the two sides of the
@@ -380,24 +413,50 @@ class CorpusIngester:
             "SELECT id, title, description FROM invariant ORDER BY id"
         )
         if not invariants or not len(vectors):
-            return 0
-        matrix = self._embedder.encode(
-            [invariant_embedding_input(str(r["title"]), str(r["description"])) for r in invariants]
+            return [[] for _ in range(len(vectors))]
+        matrix = await asyncio.to_thread(
+            self._embedder.encode,
+            [invariant_embedding_input(str(r["title"]), str(r["description"])) for r in invariants],
         )
         similarities = cosine_matrix(vectors, matrix)
-        created = 0
-        async with self._db.transaction() as tx:
-            for row_index, chunk in enumerate(chunks):
-                passage_id = chunk_id_for(document_id, chunk.position)
-                for col_index, invariant in enumerate(invariants):
-                    score = float(similarities[row_index][col_index])
-                    if score < self._similarity_min:
-                        continue
-                    await tx.create_edge(
-                        "supports",
-                        passage_id,
-                        str(invariant["id"]),
-                        {"strength": score, "excerpt": chunk.content[:EXCERPT_CHARS]},
-                    )
-                    created += 1
-        return created
+        return [
+            [
+                (str(invariant["id"]), float(similarities[row_index][col_index]))
+                for col_index, invariant in enumerate(invariants)
+                if float(similarities[row_index][col_index]) >= self._similarity_min
+            ]
+            for row_index in range(len(vectors))
+        ]
+
+    async def _drop_stale_passages(self, tx: InvestmentDB, document_id: str, kept: int) -> int:
+        """Delete the passages of a PREVIOUS, longer version of this document,
+        and everything hanging off them.
+
+        RE-INGESTION WAS NOT IDEMPOTENT, only nearly so. Passage ids are
+        `<document_id>:<position>` and the document id is a hash of the TITLE,
+        so re-depositing a book under the same name UPSERTs positions 0..n-1 —
+        and leaves positions n..m-1 of the older, longer version in place. Those
+        orphans keep their embeddings, keep their SUPPORTS edges to invariants,
+        and keep their `curated_passage` checkpoints, so they are still
+        retrieved by the Planner and still counted as curated. A corrected
+        second edition would be silently blended with the first.
+
+        Their dependants go FIRST: `supports.passage_id` and
+        `curated_passage.passage_id` both carry a REFERENCES to `passage(id)`.
+        The checkpoint rows must go too — leaving them would mark passage
+        positions of the NEW version as already curated the moment the document
+        grows again."""
+        stale = await tx.query(
+            "SELECT id FROM passage WHERE document_id = :doc AND position >= :kept",
+            doc=document_id,
+            kept=kept,
+        )
+        if not stale:
+            return 0
+        ids = [str(row["id"]) for row in stale]
+        placeholders = ", ".join(f":p{n}" for n in range(len(ids)))
+        params = {f"p{n}": pid for n, pid in enumerate(ids)}
+        for table in ("supports", "curated_passage"):
+            await tx.command(f"DELETE FROM {table} WHERE passage_id IN ({placeholders})", **params)
+        await tx.command(f"DELETE FROM passage WHERE id IN ({placeholders})", **params)
+        return len(ids)

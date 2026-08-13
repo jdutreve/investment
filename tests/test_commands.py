@@ -235,6 +235,26 @@ async def test_a_note_lands_in_the_inbox_for_the_watcher(db: InvestmentDB, tmp_p
     assert await db.query("SELECT id FROM document") == []  # the watcher's job, not ours
 
 
+async def test_two_notes_in_the_same_second_do_not_overwrite_each_other(
+    db: InvestmentDB, tmp_path: Path
+) -> None:
+    """Seconds are not a fine enough clock for a chat front. A thought typed in
+    two halves — the ordinary way people write on a phone — produced one
+    filename, and `write_text` silently replaced the first with the second. The
+    quiet period then guarantees they were both still waiting to be ingested.
+    `delivery.write_locally` reached the same answer for the same reason."""
+    runtime = _runtime(db, tmp_path)
+    await C.save_note(runtime, "the curve steepened")
+    await C.save_note(runtime, "and the SNB said nothing")
+
+    notes = sorted((tmp_path / "inbox").glob("*-note.md"))
+    assert len(notes) == 2
+    assert {n.read_text().strip() for n in notes} == {
+        "the curve steepened",
+        "and the SNB said nothing",
+    }
+
+
 # -- rendering --------------------------------------------------------------
 
 

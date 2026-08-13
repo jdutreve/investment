@@ -1,0 +1,55 @@
+# CLAUDE.md "Dev standards": "Pre-commit: ruff, mypy, secret scan." The rule was
+# written down and the file was missing, so none of the three ran before a
+# commit — `uv run ruff` and `uv run mypy` were a habit rather than a gate.
+#
+# INSTALL IT ONCE: `uv run pre-commit install`. Nothing here runs until that has
+# been done — this file is a configuration, not an installation.
+#
+# EVERY HOOK IS `local` AND GOES THROUGH `uv run`, deliberately. pre-commit's
+# mirrored ruff/mypy hooks pin their own versions in this file, which is a
+# second place for a tool version to live: `uv.lock` already pins both, and a
+# repo whose pre-commit ruff disagrees with its CI ruff fails in the one place
+# nobody is looking. `uv run` uses the locked version by construction.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff (lint)
+        entry: uv run ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff (format)
+        entry: uv run ruff format --check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      # mypy --strict on `src/investment/` ONLY (CLAUDE.md), and on the whole
+      # package rather than on the staged files: strict mode needs the imports
+      # to type-check the file in front of it, so a per-file invocation reports
+      # errors that a full run does not have.
+      - id: mypy-strict
+        name: mypy --strict (src/investment)
+        entry: uv run mypy --strict src/investment/
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      - id: secret-scan
+        name: secret scan (investment.redact patterns)
+        entry: uv run python deploy/scan_secrets.py
+        language: system
+        exclude: ^uv\.lock$
+        require_serial: true
+
+      # `.env` HOLDS THE REAL KEYS and `.gitignore` already excludes it — this
+      # is the second lock, for the day someone reaches for `git add -f`.
+      - id: no-dotenv
+        name: refuse to commit .env
+        entry: bash -c 'echo ".env carries live credentials — commit .env.example instead."; exit 1'
+        language: system
+        files: ^\.env$

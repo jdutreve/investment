@@ -959,14 +959,22 @@ idempotency/async-jobs hardening.
 wall clock, not about code**, so they stay open until the agent has run one.
 What exists now:
 
-- `main.py` — the process: inbox watcher, Monday 08:00 cron, 5-minute
-  heartbeat, due-on-start, graceful shutdown. Cron AND heartbeat, deliberately:
-  ADR-002's laptop sleeps, so a cron on a closed lid never fires; both go
-  through `chain_if_due`, guarded by `detector_state.last_chain_success` and
-  the run-lock.
-- `monday.py` — the chain, 10 steps, complete: catch-up → UC3 event watch →
+- `main.py` — the process: inbox watcher (with its post-batch curation, backup
+  and message to the owner), Sunday 08:00 cron, 5-minute heartbeat,
+  due-on-start, graceful shutdown, and the `flock` that refuses a second agent
+  on the same database. Cron AND heartbeat, deliberately: ADR-002's laptop
+  sleeps, so a cron on a closed lid never fires; both go through
+  `chain_if_due`, guarded by `detector_state.last_chain_success` and the
+  run-lock.
+- `weekly.py` — the chain, **12 steps**, complete: catch-up → UC3 event watch →
   UC4 curation sweep → backtests → scenarios → invariant weights → valuations →
-  ranking → outcomes → market-signal decision → UC8 → digest.
+  ranking → outcomes → market-signal decision → UC8 → digest. (It said 10 and
+  listed 12, which is the count drifting from the thing it counts — the list is
+  authoritative, as `weekly.weekly_steps` is authoritative over both.) A failed
+  run is retried WHOLE, so the mechanical steps recompute on fresher prices;
+  UC8 alone is guarded against a second pass in the same week
+  (`weekly.weekly_cycle_already_ran`), because it is the only step that spends
+  an LLM call and appends fresh journal rows every time it runs.
 - `mechanical/catchup.py` (UC1), `watch/event_watch.py` (UC3),
   `corpus/curation_sweep.py` (UC4's weekly pass) — the three jobs the chain
   needed and did not have.

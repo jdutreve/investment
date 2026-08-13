@@ -34,6 +34,7 @@ from typing import Literal
 
 from telegram.error import TelegramError
 
+from investment.redact import redact_exception
 from investment.telegram.notify import MAX_MESSAGE_CHARS, send_message
 
 logger = logging.getLogger(__name__)
@@ -101,11 +102,23 @@ def clip_to(text: str, limit: int) -> str:
 async def deliver(text: str, *, token: str, chat_id: str, outbox: Path) -> Channel:
     """Send `text` to the owner. Returns the channel that carried it.
 
-    NEVER RAISES. Delivery is the last step of whatever it reports on — a chain
-    that aborted, a month that decided — and taking the caller down here would
-    replace a reported failure with an unreported one. The file fallback means
-    there is no failure mode left to report anyway: the worst case is that the
-    message is on disk instead of on a phone."""
+    NEVER RAISES, and it is now STRUCTURALLY true rather than true of the paths
+    anyone thought about. Delivery is the last step of whatever it reports on —
+    a chain that aborted, a month that decided — and taking the caller down here
+    would replace a reported failure with an unreported one.
+
+    THREE WAYS IT USED TO RAISE ANYWAY, all of them on the day something is
+    already wrong:
+      - `write_locally` hits a full disk or an unwritable `~/data`, so the
+        fallback for a failed send fails in turn;
+      - `send_message` raises something that is NOT a `TelegramError` (a bad
+        chat_id type, a broken event loop), which skipped the fallback entirely
+        and propagated;
+      - and both of those arrive precisely when Telegram is already down.
+    So the file fallback is guarded, and anything that is not a `TelegramError`
+    falls back too — logged as the bug it is, but not at the cost of the
+    message. THE LOG IS THE LAST RESORT: it carries the full text in every
+    branch, so no path through this function loses the week's digest."""
     try:
         # Several messages when the text outgrows the channel, in order. Any
         # failure aborts the rest: half a digest on the phone and the whole of
@@ -113,19 +126,40 @@ async def deliver(text: str, *, token: str, chat_id: str, outbox: Path) -> Chann
         for part in split_message(text):
             await send_message(token, chat_id, part)
     except TelegramError as exc:
-        path = write_locally(text, outbox)
         # WARNING, not ERROR: the message was delivered, just not where it was
         # meant to go. An ERROR here would cry wolf every week on a machine
         # whose owner has decided not to use Telegram at all.
-        logger.warning(
-            "TELEGRAM UNAVAILABLE (%s: %s) — written to %s instead:\n%s",
-            type(exc).__name__,
-            exc,
-            path,
-            text,
-        )
+        _fall_back(text, outbox, "TELEGRAM UNAVAILABLE", exc, level=logging.WARNING)
+        return "file"
+    except Exception as exc:
+        # A fault in this code or its inputs rather than in the channel — ERROR,
+        # named as unexpected, and the message still gets out.
+        _fall_back(text, outbox, "DELIVERY FAILED UNEXPECTEDLY", exc, level=logging.ERROR)
         return "file"
     return "telegram"
+
+
+def _fall_back(text: str, outbox: Path, headline: str, exc: BaseException, *, level: int) -> None:
+    """Write `text` to the outbox and say so, or say so anyway.
+
+    The nested `except` is the point: this function IS the error path, so it has
+    nowhere left to escalate to. A write that fails is logged with the full text
+    beside it, which is the same promise the outbox makes — the message exists
+    somewhere a human can read it."""
+    try:
+        destination = str(write_locally(text, outbox))
+    except OSError as write_exc:
+        destination = f"NOWHERE — the outbox is unwritable ({write_exc!r})"
+        level = logging.ERROR
+    logger.log(
+        level,
+        "%s (%s: %s) — written to %s instead:\n%s",
+        headline,
+        type(exc).__name__,
+        redact_exception(exc),
+        destination,
+        text,
+    )
 
 
 def write_locally(text: str, outbox: Path) -> Path:

@@ -238,3 +238,78 @@ def test_defaults_match_the_seeded_thresholds() -> None:
     assert SYSTEM_THRESHOLDS["chunk_size_chars"] == DEFAULT_CHUNK_SIZE
     assert SYSTEM_THRESHOLDS["chunk_overlap_chars"] == DEFAULT_CHUNK_OVERLAP
     assert MIN_PAGE_CHARS == 300
+
+
+async def test_a_SHORTER_second_edition_leaves_no_ghost_passages(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """Re-ingestion was only NEARLY idempotent, and the gap was silent.
+
+    Passage ids are `<document_id>:<position>` and the document id hashes the
+    TITLE, so re-depositing a book under the same name UPSERTs positions
+    0..n-1 and leaves n..m-1 of the older, longer version behind — with their
+    embeddings, their SUPPORTS edges and their curation checkpoints intact. A
+    corrected second edition was blended with the first, and every retrieval
+    afterwards could return a paragraph the author had deleted."""
+    await _seed_invariant(db)
+    src = tmp_path / "Second Edition.md"
+    src.write_text("credit spreads widen in recessions. " * 400, encoding="utf-8")
+    ing = CorpusIngester(db, embedder)
+    long_version = await ing.ingest_file(src)
+    assert long_version.chunk_count > 4
+
+    # a checkpoint on a passage the short version will not have
+    doomed = f"{long_version.document_id}:{long_version.chunk_count - 1:05d}"
+    await db.command(
+        "INSERT INTO curated_passage (passage_id, fingerprint, curated_at, candidate_count) "
+        "VALUES (:p, 'fp-1', '2026-01-01', 0)",
+        p=doomed,
+    )
+
+    src.write_text("credit spreads widen in recessions. " * 20, encoding="utf-8")
+    short_version = await ing.ingest_file(src)
+    assert short_version.chunk_count < long_version.chunk_count
+
+    passages = await db.query("SELECT id FROM passage ORDER BY position")
+    assert len(passages) == short_version.chunk_count
+    assert doomed not in {str(r["id"]) for r in passages}
+    # and nothing dangles off the deleted rows
+    assert await db.query("SELECT passage_id FROM supports WHERE passage_id = :p", p=doomed) == []
+    assert (
+        await db.query("SELECT passage_id FROM curated_passage WHERE passage_id = :p", p=doomed)
+        == []
+    )
+    # the document's own count is the new one, not the high-water mark
+    assert (await db.query("SELECT chunk_count FROM document"))[0][
+        "chunk_count"
+    ] == short_version.chunk_count
+
+
+async def test_a_failure_while_linking_supports_leaves_NO_document(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SUPPORTS used to be a SECOND transaction after the document had already
+    committed. A failure there left a Document and its Passages in the database
+    while the watcher, seeing the exception, quarantined the file and appended
+    an ErrorEvent saying the ingestion had failed — the audit trail and the
+    database disagreeing about the same file."""
+    await _seed_invariant(db)
+    src = tmp_path / "Interrupted.md"
+    src.write_text("credit spreads widen in recessions. " * 100, encoding="utf-8")
+    # every passage links, so the failure below is reached whatever the corpus
+    ing = CorpusIngester(db, embedder, similarity_min=-1.0)
+
+    real_create_edge = db.create_edge
+
+    async def explode(table: str, *args: object, **kwargs: object) -> None:
+        if table == "supports":
+            raise RuntimeError("disk full")
+        await real_create_edge(table, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(db, "create_edge", explode)
+    with pytest.raises(RuntimeError, match="disk full"):
+        await ing.ingest_file(src)
+
+    assert await db.query("SELECT id FROM document") == []
+    assert await db.query("SELECT id FROM passage") == []
+    assert await db.query("SELECT id FROM event_log WHERE type = 'IngestionEvent'") == []

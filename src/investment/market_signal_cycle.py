@@ -151,6 +151,30 @@ class MarketSignalCycleResult:
         return self.gate_outcome is not None and not self.gate_outcome.passed
 
 
+async def strategy_is_enabled(db: InvestmentDB) -> bool:
+    """Whether the owner has left the stack switched on (`strategy.enabled`).
+
+    THE COMMAND SAID "disabled" AND NOTHING STOPPED. `/disable
+    market-signal-stack` writes `strategy.enabled = 0` and appends the
+    UserDecisionEvent (ops/commands.py), and until this check existed no
+    consumer on the live path ever read the column: the cycle kept deciding, the
+    proposal kept reaching the digest, and the ranking filters
+    `portfolio.enabled` — a different column on a different row. A control that
+    reports success and changes nothing is worse than no control, because the
+    owner stops looking.
+
+    Enabling is a PREFERENCE and never a thesis (UC9), which is why this is
+    honoured rather than argued with: the agent adjudicates theses, never the
+    owner's rules.
+
+    A MISSING ROW READS AS ENABLED. On a database seeded before the strategy
+    vertex existed, the absence of a row is not a decision to switch anything
+    off, and defaulting to "off" would silently stop the only live allocation
+    path in the system."""
+    rows = await db.query("SELECT enabled FROM strategy WHERE id = :id", id=STRATEGY_ID)
+    return bool(rows[0]["enabled"]) if rows else True
+
+
 async def last_decision_date(db: InvestmentDB) -> str | None:
     """The decision date of the most recent journalled decision — the
     idempotency key. Read off the EventLog, whose monotonic ULID id IS the
@@ -336,8 +360,17 @@ async def run_market_signal_cycle(
 ) -> MarketSignalCycleResult:
     """Run one live monthly decision. Idempotent: a second call in the same
     month re-derives the same decision date, sees it already journalled, and
-    returns without writing."""
+    returns without writing.
+
+    A DISABLED STRATEGY STOPS EVERYTHING HERE, before the walk: no NAV refresh,
+    no drift verdict, no decision, no proposal. Refreshing the NAV of a strategy
+    the owner has switched off would keep the ranking and the drawdown alert
+    speaking for it, which is the same lie in a quieter voice."""
     today = today or date.today()
+
+    if not await strategy_is_enabled(db):
+        logger.info("market-signal cycle skipped: %s is disabled by the owner", STRATEGY_ID)
+        return MarketSignalCycleResult(None, {}, None, None, f"{STRATEGY_ID} is disabled")
 
     run = await run_market_signal(db, start=HISTORY_START, end=today, cost_bps=cost_bps)
     if not run.decisions:

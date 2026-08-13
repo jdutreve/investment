@@ -69,6 +69,16 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.jp.investment-agent.
 `bootstrap` is the modern verb; `launchctl load` still works and prints a
 deprecation notice.
 
+**ONE AGENT AT A TIME, enforced.** Once launchd holds it, a second
+`uv run python -m investment.main` exits immediately naming the lock file
+(`<db>.agent.lock`, `main.single_process`): two agents on one SQLite file are
+two writers, two schedulers and two inbox watchers racing for the same
+deposits. To go back to running it in the foreground, stop the service first:
+
+```bash
+launchctl bootout gui/$(id -u)/com.jp.investment-agent
+```
+
 ## Inspect
 
 ```bash

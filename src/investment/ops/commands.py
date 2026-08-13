@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 DECISION_EVENT = "UserDecisionEvent"
 SOURCE_UC = "UC9"
 
-# Lock names for the heavy operations, alongside `monday.CHAIN_LOCK`. Distinct
+# Lock names for the heavy operations, alongside `weekly.CHAIN_LOCK`. Distinct
 # strings because the refusal message names the holder, and "already running:
 # catch-up" and "already running: weekly-chain" send the owner to different
 # places.
@@ -355,10 +355,24 @@ async def save_note(runtime: AgentRuntime, text: str) -> CommandResult:
     the agent and must reach the 08:10 sweep the same morning; a note is
     deposited by the OWNER, and the watcher's 5-minute quiet period exists so a
     burst of deposits settles into one batch. Ingesting a note synchronously
-    would bypass the batching the watcher was built for."""
+    would bypass the batching the watcher was built for.
+
+    NEVER OVERWRITES, and the name is why: seconds are not a fine enough clock
+    for a chat front. Two `/note` messages sent in the same second — a thought
+    typed in two halves, the ordinary way people write on a phone — produced one
+    filename, and `write_text` silently replaced the first with the second. The
+    quiet period then guarantees they were still both waiting to be ingested.
+    `delivery.write_locally` reached the same answer for the same reason: a
+    taken name gets a suffix, because a resolution is a bet on how fast the
+    caller is."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-    path = runtime.settings.inbox_path / f"{stamp}-note.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    inbox = runtime.settings.inbox_path
+    inbox.mkdir(parents=True, exist_ok=True)
+    path = inbox / f"{stamp}-note.md"
+    attempt = 2
+    while path.exists():
+        path = inbox / f"{stamp}-{attempt}-note.md"
+        attempt += 1
     path.write_text(text.strip() + "\n", encoding="utf-8")
     logger.info("note saved: %s (%d chars)", path.name, len(text))
     return CommandResult(

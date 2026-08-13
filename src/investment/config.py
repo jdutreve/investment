@@ -10,7 +10,7 @@ below for the two ways that is enforced, and why.
 
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BeforeValidator
 from pydantic_settings import (
@@ -18,6 +18,8 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+from investment.redact import register_secret
 
 
 def _expand_path(v: str) -> Path:
@@ -168,3 +170,21 @@ class Settings(BaseSettings):
     user_benchmark: str = "all-weather-USD"
     user_phase: str = "accumulation"
     user_auto_validation_hours: int = 48
+
+    def model_post_init(self, context: Any, /) -> None:
+        """Arm the redactor with THIS process's real credentials
+        (`investment/redact.py`).
+
+        HERE rather than in `main`, and that is the point: constructing the
+        settings is the one thing every entry point does — the agent, the CLI,
+        the seed, a test harness — so there is no path that reads a key without
+        the redactor knowing it. A `register_secrets(settings)` call in `main`
+        would have been correct for the agent and silently absent from the other
+        three (CLAUDE.md: encode the rule where it cannot be skipped)."""
+        for secret in (
+            self.openrouter_api_key,
+            self.anthropic_api_key,
+            self.fred_api_key,
+            self.telegram_bot_token,
+        ):
+            register_secret(secret)

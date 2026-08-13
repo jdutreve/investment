@@ -3,7 +3,7 @@ src/investment/chain.py). The sequential/abort/ErrorEvent contract with stub
 steps against a real throwaway SQLite, and the DUE-ON-START arithmetic."""
 
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -89,3 +89,16 @@ async def test_an_empty_chain_is_a_clean_no_op(db: InvestmentDB) -> None:
     result = await chain.run_chain(db, [], "run-3")
     assert result.ok is True
     assert result.completed == []
+
+
+# -- the week key -----------------------------------------------------------
+
+
+def test_chain_period_is_the_anchor_date_of_the_week() -> None:
+    """Every day from a Sunday to the following Saturday belongs to that
+    Sunday, so a Tuesday retry and the Sunday run that failed share a key
+    (`weekly.weekly_cycle_already_ran` is what asks)."""
+    assert chain.chain_period(date(2026, 8, 9)) == "2026-08-09"  # the Sunday itself
+    assert chain.chain_period(date(2026, 8, 11)) == "2026-08-09"  # Tuesday after
+    assert chain.chain_period(date(2026, 8, 15)) == "2026-08-09"  # Saturday after
+    assert chain.chain_period(date(2026, 8, 16)) == "2026-08-16"  # the next Sunday

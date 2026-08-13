@@ -50,22 +50,42 @@ def backup_database(db_path: Path, backups_dir: Path, *, today: date | None = No
     """Copy the live database to `backups_dir`, prune to `KEEP_BACKUPS`, return
     the file written.
 
-    Overwrites the day's file if it exists — see `_STEM`. The copy is made
-    first and the prune second, so a prune that fails cannot leave the caller
-    without today's backup."""
+    WRITTEN BESIDE, VERIFIED, THEN MOVED INTO PLACE. Backing up straight onto
+    the day's file destroyed a good backup to make a bad one: the second run of
+    a day truncates yesterday's-good-copy-of-today and rebuilds it, so a crash,
+    a full disk or a `kill` during those seconds left a half-written file under
+    the name of the day's only backup. The window is small and the loss is total,
+    which is the worst trade a backup can make — and it opens on exactly the
+    kind of day someone would want to restore.
+
+    `quick_check` before the rename because a copy that cannot be read is not a
+    backup, and `Path.replace` for the rename because it is atomic within a
+    filesystem: the name points at the old file or the new one, never at a
+    partial write.
+
+    The copy is made first and the prune second, so a prune that fails cannot
+    leave the caller without today's backup."""
     today = today or date.today()
     backups_dir.mkdir(parents=True, exist_ok=True)
     dest = backup_path(backups_dir, today)
+    staging = dest.with_suffix(".db.partial")
 
     source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        target = sqlite3.connect(dest)
+        target = sqlite3.connect(staging)
         try:
             source.backup(target)
+            status = target.execute("PRAGMA quick_check").fetchone()[0]
+            if status != "ok":
+                raise sqlite3.DatabaseError(f"backup failed integrity check: {status}")
         finally:
             target.close()
+    except BaseException:
+        staging.unlink(missing_ok=True)
+        raise
     finally:
         source.close()
+    staging.replace(dest)
 
     pruned = prune_backups(backups_dir)
     logger.info("backup written: %s (%d pruned)", dest, pruned)

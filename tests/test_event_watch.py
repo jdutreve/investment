@@ -157,12 +157,15 @@ async def test_nothing_fetched_means_nothing_queried(db: InvestmentDB) -> None:
 # -- the run ----------------------------------------------------------------
 
 
-async def test_a_routine_item_leaves_no_trace(
+async def test_a_routine_item_leaves_no_document_only_a_verdict(
     db: InvestmentDB, ingester: CorpusIngester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Discarded means discarded: no document, no file, no embedding. These
     feeds are mostly bank-merger approvals — keeping them would bury the one
-    item a year that matters."""
+    item a year that matters.
+
+    What it DOES leave is the one-line judgement row, which is what stops the
+    same administrative order being re-triaged next Sunday (`unseen`)."""
     monkeypatch.setattr(EW, "EVENT_SOURCES", ())
     inbox = tmp_path / "inbox"
     agent = _agent(EventTriage(verdict="routine", reasoning="an administrative order"))
@@ -179,6 +182,11 @@ async def test_a_routine_item_leaves_no_trace(
     assert report.ingested == [] and report.flagged == []
     assert await db.query("SELECT id FROM document") == []
     assert not list(inbox.glob("*.md"))  # and nothing reached the watcher's queue
+    judged = await db.query(
+        "SELECT source_id, payload FROM event_log WHERE type = :t", t=EW.TRIAGE_EVENT
+    )
+    assert [str(r["source_id"]) for r in judged] == [ORDER.url]
+    assert "routine" in str(judged[0]["payload"])
 
 
 async def test_an_item_the_model_cannot_describe_is_flagged_not_written(
@@ -308,3 +316,67 @@ async def test_a_triage_that_stops_answering_is_bounded_and_costs_only_itself(
     # Nothing ingested, so next week sees both as new and retries them.
     assert report.ingested == []
     assert await EW.unseen(db, [FED, ORDER]) == [FED, ORDER]
+
+
+# -- the dedupe: an item is judged ONCE --------------------------------------
+
+
+async def test_a_routine_item_is_not_re_triaged_the_following_week(
+    db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE COST THAT WENT UNNOTICED BECAUSE THE CORPUS STAYED CORRECT. The
+    dedupe was by URL against `document.source_path`, and a routine item
+    creates no Document — so every Sunday the same 15-20 slow-moving feed
+    entries came back as new and were paid for again. The feeds turn over in
+    weeks, not days."""
+
+    async def one_item(session: object, source: object) -> list[FeedItem]:
+        return [ORDER]
+
+    monkeypatch.setattr(EW, "fetch_feed", one_item)
+    monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "Fed", "url": "u", "domain": "d"},))
+    agent = _agent(EventTriage(verdict="routine", reasoning="administrative"))
+
+    first = await EW.run_event_watch(db, ingester, agent)
+    assert first.new == 1 and first.routine == 1
+
+    second = await EW.run_event_watch(db, ingester, agent)
+    assert second.new == 0  # never reaches the model at all
+    assert second.routine == 0
+
+
+async def test_a_flagged_item_asks_the_owner_only_once(
+    db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`needs_user_input` is not ingested either, so the same unanswerable
+    headline was pushed to Telegram every week, forever."""
+
+    async def one_item(session: object, source: object) -> list[FeedItem]:
+        return [SNB]
+
+    monkeypatch.setattr(EW, "fetch_feed", one_item)
+    monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "SNB", "url": "u", "domain": "d"},))
+    agent = _agent(
+        EventTriage(verdict="major", needs_user_input=True, reasoning="a headline and no text")
+    )
+
+    assert len((await EW.run_event_watch(db, ingester, agent)).flagged) == 1
+    assert (await EW.run_event_watch(db, ingester, agent)).flagged == []
+
+
+async def test_an_ingested_item_needs_no_second_record(
+    db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A major item's Document already carries the URL, and two records of one
+    fact is the drift `unseen` warns about."""
+
+    async def one_item(session: object, source: object) -> list[FeedItem]:
+        return [FED]
+
+    monkeypatch.setattr(EW, "fetch_feed", one_item)
+    monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "Fed", "url": "u", "domain": "d"},))
+    agent = _agent(EventTriage(verdict="major", summary="rates held", reasoning="policy"))
+
+    assert len((await EW.run_event_watch(db, ingester, agent)).ingested) == 1
+    assert await db.query("SELECT id FROM event_log WHERE type = :t", t=EW.TRIAGE_EVENT) == []
+    assert (await EW.run_event_watch(db, ingester, agent)).new == 0

@@ -19,14 +19,23 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from ulid import ULID
 
-from investment.chain import CHAIN_START_HOUR, ChainResult, ChainStep, is_chain_due, run_chain
+from investment.chain import (
+    CHAIN_START_HOUR,
+    ChainResult,
+    ChainStep,
+    chain_period,
+    is_chain_due,
+    run_chain,
+)
+from investment.config import Settings
 from investment.corpus.curation_sweep import sweep_corpus
 from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import run_decision_cycle
+from investment.decision_cycle import WORKER_READING_EVENT, run_decision_cycle
 from investment.delivery import deliver, outbox_path
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
@@ -47,6 +56,27 @@ logger = logging.getLogger(__name__)
 # layer's ({catchup, uc8} — ops/commands.py).
 CHAIN_LOCK = "weekly-chain"
 
+# What UC8's journalled reading is stamped with when the CHAIN is what asked for
+# it (`decision_cycle.journal_worker_reading` payload `trigger`), as against
+# `commands.CYCLE_TRIGGER` for an ad-hoc UC9 re-run. It reads the same as
+# `CHAIN_LOCK` and is a different thing — a lock name identifies who holds an
+# operation, a trigger identifies who asked for a cycle — so they are two
+# constants rather than one shared by coincidence.
+CHAIN_TRIGGER = "weekly-chain"
+
+
+def agent_now(settings: Settings) -> datetime:
+    """The wall clock the agent's calendar runs on — `settings.tz`, never the
+    machine's.
+
+    THE CONFIGURED ZONE WAS NOT AUTHORITATIVE, which is invisible for as long as
+    the two agree. `datetime.now().astimezone()` reads the SYSTEM zone, so a Mac
+    set to New York would ask "is it past Sunday 08:00" in New York while
+    `TZ=Europe/Zurich` sat in `.env` saying otherwise, and the digest carrying
+    the month's order would land six hours late. Europe/Zurich is the
+    presentation edge (CLAUDE.md), and this is that edge."""
+    return datetime.now(ZoneInfo(settings.tz))
+
 
 async def last_chain_success(db: InvestmentDB) -> datetime | None:
     """When the weekly chain last completed, or None if it never has.
@@ -60,6 +90,43 @@ async def last_chain_success(db: InvestmentDB) -> datetime | None:
     if not rows or not rows[0]["last_chain_success"]:
         return None
     return datetime.fromisoformat(str(rows[0]["last_chain_success"]))
+
+
+async def weekly_cycle_already_ran(db: InvestmentDB, period: str) -> bool:
+    """Whether the chain's UC8 cycle has already run in the week `period` opens.
+
+    THE ONE STEP A RETRY MUST NOT REPEAT. The chain is retried whole — a partial
+    run leaves it DUE and the next heartbeat starts again from the top — and
+    that is right for every step but this one. The mechanical steps are UPSERTs
+    and check-before-append, so re-running them on a Tuesday recomputes on
+    Tuesday's prices; the market-signal decision is idempotent on its journalled
+    decision date, the curation sweep on its checkpoints, the event watch on its
+    triage journal. UC8 is the only step that both spends money on an LLM and
+    appends a fresh set of rows — a WorkerReadingEvent, invariant
+    confrontations, innovations and their recurrence entries — every single time
+    it is called. A chain that broke at 09:30 on the digest therefore bought a
+    second Worker deliberation to re-send one message.
+
+    ASKED OF THE JOURNAL, not of a state table: `journal_worker_reading` already
+    appends one event per cycle carrying its `trigger` and stamped with the
+    cycle's date, so the answer is already stored and a second record of it
+    would be the one that drifts. This is the same shape
+    `commands.adhoc_cycles_today` uses for UC9's one-a-day rule and
+    `market_signal_cycle.last_decision_date` for the monthly cadence — three
+    questions of the same form, asked of the same log.
+
+    SCOPED TO THE WEEK, not to the day: a chain that starts Sunday and is
+    retried on Tuesday is the SAME week's work, and `event_date = today` would
+    read Tuesday as a fresh cycle. Ad-hoc UC9 cycles are excluded by the trigger
+    — they are the owner asking for an extra reading, not the week's."""
+    rows = await db.query(
+        "SELECT COUNT(*) AS n FROM event_log WHERE type = :t AND event_date >= :period "
+        "AND json_extract(payload, '$.trigger') = :trigger",
+        t=WORKER_READING_EVENT,
+        period=period,
+        trigger=CHAIN_TRIGGER,
+    )
+    return bool(rows and int(rows[0]["n"]))
 
 
 async def record_chain_success(db: InvestmentDB, when: datetime) -> None:
@@ -127,12 +194,18 @@ def weekly_steps(
         await strategy_probation_check(db, today)
 
     async def cognitive_cycle() -> None:
+        """09:00. Skipped when this week's chain already ran one — the only
+        step a retry must not repeat (`weekly_cycle_already_ran`)."""
+        period = chain_period(today)
+        if await weekly_cycle_already_ran(db, period):
+            logger.info("uc8 already ran for the week of %s, skipped", period)
+            return
         await run_decision_cycle(
             db,
             runtime.planner_pre,
             runtime.worker_agent,
             runtime.planner_post,
-            trigger="weekly-chain",
+            trigger=CHAIN_TRIGGER,
             user_profile=user_profile,
             thresholds=thresholds,
             today=today,
@@ -176,12 +249,16 @@ async def run_weekly_chain(
     and never re-raises, so this function's job is to say it out loud.
 
     THE MARKER IS STAMPED ONLY ON A COMPLETE CHAIN. A partial run leaves the
-    chain DUE, so the next heartbeat retries it — which is right: the steps that
-    completed are idempotent (UPSERTs and check-before-append, CLAUDE.md), and
-    the alternative is a week with no ranking because one fetch failed at 08:31.
-    """
+    chain DUE, so the next heartbeat retries it FROM THE TOP — which is right,
+    and the reason is per-step: the mechanical steps are idempotent (UPSERTs and
+    check-before-append, CLAUDE.md) and re-running them on a Tuesday recomputes
+    on Tuesday's prices rather than freezing Sunday's. The one exception is UC8,
+    which spends an LLM call and appends fresh journal rows on every pass, and
+    it is guarded at its own step (`weekly_cycle_already_ran`). The alternative
+    — a week with no ranking because one fetch failed at 08:31 — is worse than
+    any of it."""
     db, settings = runtime.db, runtime.settings
-    today = today or date.today()
+    today = today or agent_now(settings).date()
     run_id = str(ULID())
     token, chat = settings.telegram_bot_token, settings.telegram_chat_id
 
@@ -215,7 +292,7 @@ async def run_weekly_chain(
             )
             result = await run_chain(db, steps, run_id)
     except AlreadyRunning as exc:
-        logger.info("monday chain skipped: %s", exc)
+        logger.info("weekly chain skipped: %s", exc)
         return None
 
     if result.ok:
@@ -225,13 +302,14 @@ async def run_weekly_chain(
         await asyncio.to_thread(
             backup_database, settings.db_path, settings.db_path.parent / "backups", today=today
         )
-        logger.info("monday chain %s complete: %s", run_id, result.completed)
+        logger.info("weekly chain %s complete: %s", run_id, result.completed)
     else:
         await send(
             f"🚨 weekly chain ABORTED at step '{result.failed_step}': {result.error}\n\n"
             f"Completed before it: {', '.join(result.completed) or 'nothing'}.\n"
-            "The steps that ran stand; the chain stays DUE and will retry on the next "
-            "heartbeat. Nothing was ranked or proposed on half-computed state."
+            "The steps that ran stand; the chain stays DUE and the next heartbeat re-runs it "
+            "on fresh data — except the cognitive cycle, which is not paid for twice in one "
+            "week. Nothing was ranked or proposed on half-computed state."
         )
     return result
 
@@ -244,10 +322,11 @@ async def chain_if_due(runtime: AgentRuntime, *, now: datetime | None = None) ->
     and `is_chain_due` compares against a local Sunday 08:00, so `now` must be
     local wall-clock and the marker is converted to it. Europe/Zurich lives at
     the presentation edge (CLAUDE.md), and "the most recent Sunday 08:00" is a
-    statement about the owner's calendar, not about UTC."""
-    now = now or datetime.now().astimezone()
+    statement about the owner's calendar, not about UTC — `settings.tz`'s
+    calendar specifically, see `agent_now`."""
+    now = now or agent_now(runtime.settings)
     last = await last_chain_success(runtime.db)
     if not is_chain_due(last.astimezone(now.tzinfo) if last else None, now, hour=CHAIN_START_HOUR):
         return None
-    logger.info("monday chain is DUE (last success: %s)", last)
+    logger.info("weekly chain is DUE (last success: %s)", last)
     return await run_weekly_chain(runtime, today=now.date())

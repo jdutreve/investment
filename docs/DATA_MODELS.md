@@ -603,7 +603,13 @@ EventLog {
                         --  ProposalEvent | InnovationEvent | UserDecisionEvent |
                         --  RegimeEvent (catch-up detector, on change only) |
                         --  IngestionEvent (inbox watcher, per batch) |
-                        --  ErrorEvent (failed job in the Monday chain) |
+                        --  ErrorEvent (failed job in the weekly chain) |
+                        --  EventTriageEvent (UC3, one per item judged and
+                        --    DISCARDED — routine or needs_user_input, the two
+                        --    verdicts that create no Document; source_id =
+                        --    the item URL, which is the dedupe key) |
+                        --  MarketSignalDriftEvent (the anti-drift verdict,
+                        --    appended weekly whatever it says) |
                         --  ReplayEvent (Phase 9 shadow replay run) |
                         --  OutcomeEvent (weekly outcomes.py — payload.kind:
                         --    'proposal' | 'calibration' | 'probation') |

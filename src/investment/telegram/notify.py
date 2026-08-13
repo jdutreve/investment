@@ -25,6 +25,8 @@ import logging
 from telegram import Bot
 from telegram.error import TelegramError
 
+from investment.redact import redact_exception
+
 logger = logging.getLogger(__name__)
 
 # Telegram refuses a message body over 4096 characters, and the digest is the
@@ -66,6 +68,8 @@ async def notify(token: str, chat_id: str, text: str) -> bool:
         # Not `except Exception`: a TelegramError is "the message did not get
         # through", which is what this function is allowed to absorb. Anything
         # else (a bad type, a broken event loop) is a bug here and must surface.
-        logger.error("telegram notify failed (%s): %s", type(exc).__name__, exc)
+        # `redact_exception`, not `exc`: python-telegram-bot builds `InvalidToken`
+        # from the token it rejected (investment/redact.py).
+        logger.error("telegram notify failed (%s): %s", type(exc).__name__, redact_exception(exc))
         return False
     return True

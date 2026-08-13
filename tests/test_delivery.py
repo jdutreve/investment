@@ -201,3 +201,47 @@ async def test_a_failure_partway_through_puts_the_WHOLE_text_in_the_outbox(
     written = next(iter(outbox.glob("*.txt"))).read_text()
     for n in range(8):
         assert f"section {n}" in written
+
+
+async def test_an_unwritable_outbox_does_not_take_the_caller_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`deliver` promises NEVER RAISES, and the promise used to hold only for
+    the paths anyone had thought about: the fallback for a failed send could
+    itself fail, on the one morning Telegram is already down."""
+
+    async def down(token: str, chat_id: str, text: str) -> None:
+        raise TimedOut()
+
+    def unwritable(text: str, outbox: Path) -> Path:
+        raise PermissionError("read-only file system")
+
+    monkeypatch.setattr(delivery, "send_message", down)
+    monkeypatch.setattr(delivery, "write_locally", unwritable)
+
+    with caplog.at_level(logging.ERROR):
+        assert (
+            await delivery.deliver("the digest", token="t", chat_id="c", outbox=tmp_path) == "file"
+        )
+    # THE LOG IS THE LAST RESORT: the message still exists somewhere readable.
+    assert "the digest" in caplog.text
+    assert "unwritable" in caplog.text
+
+
+async def test_a_non_telegram_failure_still_reaches_the_outbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only `TelegramError` used to trigger the fallback, so a bug in this code
+    — a bad type, a broken loop — propagated and lost the message entirely."""
+
+    async def wrong(token: str, chat_id: str, text: str) -> None:
+        raise TypeError("chat_id must be a string")
+
+    monkeypatch.setattr(delivery, "send_message", wrong)
+    outbox = tmp_path / "outbox"
+
+    with caplog.at_level(logging.ERROR):
+        assert await delivery.deliver("the digest", token="t", chat_id="c", outbox=outbox) == "file"
+    assert next(iter(outbox.glob("*.txt"))).read_text().strip() == "the digest"
+    # Named as the bug it is, rather than as a channel outage.
+    assert "UNEXPECTEDLY" in caplog.text

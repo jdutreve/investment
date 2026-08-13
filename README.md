@@ -40,15 +40,19 @@ mechanical decides · LLM proposes · reality judges · the owner executes
   publication-dated), regime detection with print-based hysteresis, NAV +
   Sharpe/Sortino/Calmar (pinned formulas), backtests → FAVORS, the monthly
   market-signal decision, proposal gates, outcome verdicts at +12 weeks. Fully
-  replayable — a **35-year point-in-time shadow replay gates go-live**.
-- **Mechanical allocation is sovereign (ADR-011):** the Worker *reads* the
-  monthly decision and contributes a qualitative reading; it may not cancel it,
-  delay it, re-pick the book or adjust its weights. A disagreement with the
-  *rule* goes through `innovations_proposed`, where ADR-006's maturation
-  measures it.
+  replayable over 35 years of point-in-time vintages — which is how a strategy
+  earns its numbers. **Go-live is gated on forward paper-mode** (ADR-007 §5),
+  not on that replay: ADR-013 removed the replay gate, whose predicate was the
+  agent's proposals beating the defender, once ADR-012 removed the agent's
+  proposals from the allocation path entirely.
+- **Mechanical allocation is sovereign (ADR-012, subsuming ADR-011):** the
+  Worker *reads* the monthly decision and contributes a qualitative reading; it
+  may not cancel it, delay it, re-pick the book or adjust its weights — and
+  proposes no allocation at all, for any book. A disagreement with the *rule*
+  goes through `innovations_proposed`, where ADR-006's maturation measures it.
 - **Three LLM roles:** the **Planner** (guardrail) assembles the context and
-  catches hallucinations; the **Worker** (Sonnet) interprets and proposes
-  (reallocations on the bridge, new/revised strategies, new invariants); the
+  catches hallucinations; the **Worker** interprets and proposes (new/revised
+  strategies, new invariants, process critiques — never an allocation); the
   **curator** turns deposited books and watched events into invariant
   candidates — dedup-gated, quality-contracted, matured mechanically over 35y
   (no user gate — ADR-006).

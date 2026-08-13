@@ -37,6 +37,7 @@ from investment.corpus.ingester import (
     UnsupportedSourceError,
 )
 from investment.db.sqlite import InvestmentDB
+from investment.redact import redact_exception
 
 logger = logging.getLogger(__name__)
 
@@ -124,17 +125,26 @@ class InboxWatcher:
             return report
 
         for path in files:
+            # WHERE THE FILE WILL LIVE, decided before it is ingested so the
+            # Document can record it. `source_path` is a book's provenance and
+            # it used to be the INBOX path — a location the next two lines make
+            # untrue, so every ingested book pointed at a file that no longer
+            # existed. Resolving the archive name first costs nothing and makes
+            # the row a usable citation.
+            archived = self._archive_target(path)
             try:
-                result = await self._ingester.ingest_file(path)
+                result = await self._ingester.ingest_file(path, source=str(archived))
             except Exception as exc:  # see module docstring: quarantine, never crash
                 # Broad ON PURPOSE: a malformed PDF must quarantine itself, not
-                # stop the watcher. The reason is recorded, never swallowed.
-                reason = f"{type(exc).__name__}: {exc}"
+                # stop the watcher. The reason is recorded, never swallowed —
+                # and redacted, because it lands in an append-only ErrorEvent
+                # payload (investment/redact.py).
+                reason = f"{type(exc).__name__}: {redact_exception(exc)}"
                 logger.warning("inbox: %s failed — %s", path.name, reason)
                 await self._quarantine(path, reason)
                 report.failed.append((path, reason))
                 continue
-            self._move_to_sources(path)
+            self._move_to_sources(path, archived)
             report.ingested.append(result)
             logger.info("inbox: ingested %s (%d passages)", result.title, result.chunk_count)
 
@@ -178,13 +188,23 @@ class InboxWatcher:
         )
         shutil.move(str(path), str(self._unique_target(self.failed_dir / path.name)))
 
-    def _move_to_sources(self, path: Path) -> None:
+    def _archive_target(self, path: Path) -> Path:
+        """Where `path` will be filed once ingested — resolved BEFORE the
+        ingestion so the Document can carry it as its `source_path`.
+
+        The directory is created here rather than at move time because the
+        uniqueness check below reads it: `_unique_target` on a directory that
+        does not exist yet answers "free" for a name that a concurrent batch
+        could also be told is free."""
+        target_dir = self._sources / ("corpus" if path.suffix.lower() in SUPPORTED_SUFFIXES else "")
+        target_dir.mkdir(parents=True, exist_ok=True)
+        return self._unique_target(target_dir / path.name)
+
+    def _move_to_sources(self, path: Path, target: Path) -> None:
         """Processed files leave the inbox, which is what makes the watcher
         idempotent: the queue IS the inbox, so an ingested file cannot be
         picked up twice."""
-        target_dir = self._sources / ("corpus" if path.suffix.lower() in SUPPORTED_SUFFIXES else "")
-        target_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(path), str(self._unique_target(target_dir / path.name)))
+        shutil.move(str(path), str(target))
 
     @staticmethod
     def _unique_target(target: Path) -> Path:

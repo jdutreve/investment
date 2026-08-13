@@ -7,21 +7,28 @@ it (CLAUDE.md "Architecture in one screen"). Everything here is a boundary,
 not a convenience layer — each limit below exists because the caller is a
 language model whose output is not trusted input.
 
-WHY A BLACKLIST *AND* A ROW CAP AND A SINGLE-STATEMENT RULE. None of the
-three is sufficient alone:
+WHY A BLACKLIST *AND* A TABLE GATE *AND* A ROW CAP *AND* A SINGLE-STATEMENT
+RULE. None of them is sufficient alone:
 
 - the keyword check stops the obvious write;
 - the single-statement rule stops `SELECT 1; DROP TABLE invariant` — a
   blacklist scanning the whole string would catch that one, but not
   `SELECT 1; ATTACH DATABASE ...`, and enumerating every dangerous verb is
   a losing game;
+- the table gate (`_names_hidden_table`) stops a perfectly well-formed
+  read of something the Worker was never shown — `user_profile`, the
+  `event_log`, or `sqlite_master` to find out what else exists;
 - the row cap stops a `SELECT *` over `market_data` (200k rows) from
   blowing the context window, which is a denial-of-service on the Worker's
   own reasoning rather than on the database.
 
-The connection is opened read-only where SQLite allows it, so the blacklist
-is defence in depth rather than the only thing standing between a
-hallucinated statement and the data.
+THE CONNECTION IS NOT READ-ONLY, and this file used to claim it was. `db` here
+is the agent's ONE shared connection (ADR-004) — the writer's — because the
+Worker's tools are bound to the same `InvestmentDB` every other caller uses.
+The claim mattered: it was the stated reason the keyword blacklist could be
+"defence in depth" rather than the only thing standing between a hallucinated
+statement and the data. It is the only thing. Everything above is written on
+that understanding.
 """
 
 import functools
@@ -70,6 +77,19 @@ PORTFOLIO_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,49}$")
 # the system DID (it is unaware of Writeback — worker/agent.py); the embedding
 # blobs are unreadable to it; `user_profile` reaches the owner's private caps,
 # which bind through the gates and not through the Worker's reasoning.
+#
+# HIDING A NAME IS NOT A BOUNDARY, which is the defect this set used to be.
+# `describe_schema` omitted these tables and `validate_sql` let every one of
+# them through: `SELECT * FROM user_profile` was a legal query, and so was
+# `SELECT name FROM sqlite_master` — the Worker's own documented first move
+# before the schema was handed to it, which is to say it had already found the
+# way round. `_names_hidden_table` now refuses them, so the listing and the gate
+# say the same thing (CLAUDE.md: "WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED
+# THE FIRST" — one set named the listing, and the gate never followed).
+#
+# `sqlite_master` and friends are included by the `sqlite_%` rule below rather
+# than listed: a query that can read the catalogue can find every table this
+# set exists to keep out of the prompt.
 SCHEMA_HIDDEN_TABLES = frozenset({"event_log", "user_profile", "sqlite_sequence"})
 
 
@@ -187,6 +207,22 @@ def _contains_keyword(stmt: str) -> str | None:
     return None
 
 
+def _names_hidden_table(stmt: str) -> str | None:
+    """The first hidden or internal table named anywhere in `stmt`, else None.
+
+    Word matching over the WHOLE statement rather than parsing its FROM clauses:
+    a subquery, a CTE, a `JOIN`, a `pragma_table_info` argument and a
+    `UNION SELECT` are all ways to reach a table, and enumerating the syntax is
+    the losing game `_contains_keyword` already declines to play. The cost is
+    that a column or an alias sharing a name with a hidden table is refused —
+    none exists, and a refusal returns a message the model can act on."""
+    words = {word.lower() for word in _WORD_RE.findall(stmt)}
+    for hidden in sorted(SCHEMA_HIDDEN_TABLES):
+        if hidden in words:
+            return hidden
+    return next((word for word in sorted(words) if word.startswith("sqlite_")), None)
+
+
 def _split_statements(stmt: str) -> list[str]:
     """Statements separated by `;`, ignoring a trailing one and empties.
 
@@ -220,6 +256,13 @@ def validate_sql(stmt: str) -> str:
         )
     if not text.upper().startswith(("SELECT", "WITH")):
         raise ToolInputError("query must start with SELECT or WITH")
+
+    hidden = _names_hidden_table(text)
+    if hidden is not None:
+        raise ToolInputError(
+            f"{hidden} is not queryable — it is not part of the schema you were given. "
+            "Everything you may read is listed in that schema; ask for it by name."
+        )
 
     return _enforce_limit(text)
 

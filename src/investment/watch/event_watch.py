@@ -16,15 +16,17 @@ person does not re-derive them.
 FOUR STEPS, and only one of them is a model:
 
   1. FETCH — feedparser over the pinned URLs.
-  2. DEDUPE — by URL against `document.source_path`. No state table: the corpus
-     already knows what it has ingested, and a second record of that fact is the
-     one that drifts. This is also what makes the job idempotent, which is what
-     lets the cron and the heartbeat both reach it.
+  2. DEDUPE — by URL, against `document.source_path` for what was ingested and
+     against the triage journal for what was judged and discarded. No state
+     table: the corpus already knows what it has ingested, and the EventLog
+     already records every judgement (`unseen` explains why it takes both).
+     This is what makes the job idempotent, which is what lets the cron and the
+     heartbeat both reach it.
   3. TRIAGE — one model call per new item (skill-triage-events.md): MAJOR or
-     ROUTINE. Routine is DISCARDED, and discarded means no document, no
-     embedding, no trace beyond the log line. These feeds are mostly bank
-     merger approvals and conference invitations; keeping them would bury the
-     one item a year that matters.
+     ROUTINE. Routine is DISCARDED — no document, no embedding, nothing but the
+     one-line journal row that stops it being re-judged next week. These feeds
+     are mostly bank merger approvals and conference invitations; keeping them
+     would bury the one item a year that matters.
   4. INGEST — synchronously, through the same `CorpusIngester` the watcher uses,
      so the 08:10 curation sweep sees the event minutes later rather than next
      week.
@@ -64,6 +66,7 @@ from pydantic_ai.models.openai import OpenAIChatModelSettings
 from investment.corpus.ingester import CorpusIngester
 from investment.db.sqlite import InvestmentDB
 from investment.openrouter_client import build_native_output_model
+from investment.redact import redact_exception
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +132,22 @@ FEED_TIMEOUT_SECONDS = 30.0
 # Generous against the 3m38s that was real work: this refuses a call that has
 # stopped being work, not one that is thinking.
 TRIAGE_CALL_BUDGET_SECONDS = 300.0
+
+# A WALL CLOCK ON THE WHOLE SLOT, because bounding each call leaves the job
+# unbounded: 54 items each allowed 300 seconds is four and a half hours, and the
+# 08:05 step blocks the nine steps behind it — the ranking, the allocation
+# decision and the digest all wait on it. A per-part limit is not a limit on the
+# unit.
+#
+# Twenty minutes against a first live run that took under two: this stops a
+# morning of stalled sockets, not a busy week. What it costs when it trips is
+# stated in `run_event_watch` — the un-triaged items are simply still new next
+# week, which is the same recovery an unreachable feed gets.
+EVENT_WATCH_BUDGET_SECONDS = 1200.0
+
+# One row per item the triage judged and DISCARDED — the verdicts that create no
+# Document and would otherwise be re-triaged every week (`unseen`).
+TRIAGE_EVENT = "EventTriageEvent"
 
 # How much of the headline reaches the filename. Long enough to be the
 # Document's title in the corpus, short enough to stay under every filesystem's
@@ -230,12 +249,26 @@ async def fetch_feed(session: aiohttp.ClientSession, source: dict[str, str]) -> 
 
 
 async def unseen(db: InvestmentDB, items: list[FeedItem]) -> list[FeedItem]:
-    """The items whose URL is not already a Document's `source_path`.
+    """The items this watch has never judged.
 
     THE DEDUPE, and it is also the whole idempotency story (UC3 step 1: "dedupe
     by URL against existing Document source_paths"). Within one run too: the
     same release can appear in two feeds, and paying a triage call twice for one
-    URL is the cheapest kind of waste to avoid."""
+    URL is the cheapest kind of waste to avoid.
+
+    TWO SOURCES OF TRUTH, because a Document is only created for one of the
+    three outcomes. `routine` is discarded and `needs_user_input` is
+    deliberately not ingested, so neither leaves a Document — and the URL was
+    therefore "new" again the following week, and the week after that. The feeds
+    carry 15-20 entries each and turn over slowly, so the steady state was
+    re-triaging most of ~54 items every Sunday and re-flagging the same
+    unanswerable headlines to the owner forever. Only the model call was paid
+    twice; the corpus was correct throughout, which is why it went unnoticed.
+
+    The second source is the EventLog rather than a state table, deliberately:
+    the docstring above says a second record of an ingested document is the one
+    that drifts, and that argument holds. What is recorded here is not the
+    document — it is the JUDGEMENT, which nothing else stores."""
     if not items:
         return []
     seen_now: set[str] = set()
@@ -247,12 +280,39 @@ async def unseen(db: InvestmentDB, items: list[FeedItem]) -> list[FeedItem]:
         unique.append(item)
 
     placeholders = ",".join(f":u{n}" for n in range(len(unique)))
+    params = {f"u{n}": item.url for n, item in enumerate(unique)}
     rows = await db.query(
-        f"SELECT source_path FROM document WHERE source_path IN ({placeholders})",
-        **{f"u{n}": item.url for n, item in enumerate(unique)},
+        f"SELECT source_path AS url FROM document WHERE source_path IN ({placeholders}) "
+        f"UNION SELECT source_id AS url FROM event_log "
+        f"WHERE type = '{TRIAGE_EVENT}' AND source_id IN ({placeholders})",
+        **params,
     )
-    known = {str(r["source_path"]) for r in rows}
+    known = {str(r["url"]) for r in rows}
     return [item for item in unique if item.url not in known]
+
+
+async def journal_triage(db: InvestmentDB, item: FeedItem, triage: EventTriage) -> None:
+    """Record that this URL was judged, and how.
+
+    Appended for the two verdicts that leave NOTHING else behind — `routine`
+    and `needs_user_input`. A major item that gets ingested needs no row here:
+    its Document already carries the URL, and two records of one fact is the
+    drift `unseen` warns about.
+
+    The URL is the `source_id` so the dedupe is an indexed lookup on a column
+    rather than a JSON extraction over the whole log."""
+    async with db.transaction():
+        await db.append_event(
+            type=TRIAGE_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=item.url,
+            payload={
+                "verdict": triage.verdict,
+                "needs_user_input": triage.needs_user_input,
+                "title": item.title,
+                "source": item.source,
+            },
+        )
 
 
 def render_item(item: FeedItem) -> str:
@@ -347,8 +407,9 @@ async def run_event_watch(
             try:
                 items = await fetch_feed(session, source)
             except Exception as exc:
-                logger.warning("event watch: %s unreachable — %s", source["name"], exc)
-                failed[source["name"]] = f"{type(exc).__name__}: {exc}"
+                message = redact_exception(exc)
+                logger.warning("event watch: %s unreachable — %s", source["name"], message)
+                failed[source["name"]] = f"{type(exc).__name__}: {message}"
                 continue
             fetched += len(items)
             candidates.extend(items)
@@ -358,7 +419,24 @@ async def run_event_watch(
     staging = tempfile.TemporaryDirectory(prefix="event-watch-")
     inbox = Path(staging.name)
 
-    for item in fresh:
+    deadline = asyncio.get_running_loop().time() + EVENT_WATCH_BUDGET_SECONDS
+    for index, item in enumerate(fresh):
+        if asyncio.get_running_loop().time() >= deadline:
+            # The remaining items are left untouched and un-journalled, so the
+            # next run sees them as new — the same recovery a feed outage gets.
+            # Checked BETWEEN items rather than wrapping the loop in a timeout:
+            # a cancellation mid-item would lose an ingestion halfway.
+            #
+            # Counted off the INDEX and not off the tallies: `failed` also holds
+            # the sources that were unreachable, keyed by name rather than by
+            # URL, so `len(failed)` is not a count of items and would have made
+            # this line understate the backlog on exactly the bad mornings.
+            logger.warning(
+                "event watch: %d item(s) left un-triaged — the %.0fs budget is spent",
+                len(fresh) - index,
+                EVENT_WATCH_BUDGET_SECONDS,
+            )
+            break
         try:
             async with asyncio.timeout(TRIAGE_CALL_BUDGET_SECONDS):
                 triage = (await triage_agent.run(render_item(item))).output
@@ -367,12 +445,17 @@ async def run_event_watch(
             # wall clock is recorded and skipped like any other failure, stays
             # un-ingested, and is seen as new again next week. One item must
             # never cost the other fifty-three.
-            logger.warning("event watch: triage failed for %s — %s", item.url, exc)
-            failed[item.url] = f"{type(exc).__name__}: {exc}"
+            message = redact_exception(exc)
+            logger.warning("event watch: triage failed for %s — %s", item.url, message)
+            failed[item.url] = f"{type(exc).__name__}: {message}"
             continue
 
         if triage.verdict == "routine":
             routine += 1
+            # JOURNALLED BEFORE THE COUNTER MEANS ANYTHING: a routine item
+            # leaves no Document, so this row is the only thing that stops the
+            # same conference invitation being re-triaged every Sunday.
+            await journal_triage(db, item, triage)
             logger.info("event watch: routine, discarded — %s", item.title[:80])
             continue
 
@@ -380,8 +463,10 @@ async def run_event_watch(
         if triage.needs_user_input:
             # NOT ingested. The model said it cannot describe this item without
             # inventing, and a document written anyway would carry the invention
-            # into the corpus with an embedding on it.
+            # into the corpus with an embedding on it. Journalled for the same
+            # reason as a routine item — and one more: the owner is asked ONCE.
             flagged.append(item)
+            await journal_triage(db, item, triage)
             logger.warning("event watch: NEEDS USER INPUT — %s (%s)", item.title[:80], item.url)
             continue
 

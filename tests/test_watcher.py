@@ -218,3 +218,38 @@ async def test_run_drains_at_startup_then_stops_promptly(
     stop.set()
     await asyncio.wait_for(task, timeout=2.0)
     assert len(await db.query("SELECT id FROM document")) == 1
+
+
+async def test_the_document_records_where_the_file_ENDS_UP(
+    env: tuple[InvestmentDB, InboxWatcher], tmp_path: Path
+) -> None:
+    """`source_path` is a book's provenance, and it used to be the INBOX path —
+    a location the very next line makes untrue, since an ingested file is moved
+    to `sources/`. Every ingested book therefore cited a file that no longer
+    existed."""
+    db, w = env
+    _deposit(tmp_path / "inbox", "Big Debt Crises.md")
+    await w.scan_once()
+
+    archived = tmp_path / "sources" / "corpus" / "Big Debt Crises.md"
+    rows = await db.query("SELECT source_path FROM document")
+    assert str(rows[0]["source_path"]) == str(archived)
+    assert Path(str(rows[0]["source_path"])).exists()
+
+
+async def test_a_redeposited_book_cites_the_copy_it_produced(
+    env: tuple[InvestmentDB, InboxWatcher], tmp_path: Path
+) -> None:
+    """The FILE is kept as evidence under a suffixed name while the DOCUMENT is
+    deduplicated by title, so the citation must follow the file that was
+    actually written this time."""
+    db, w = env
+    _deposit(tmp_path / "inbox", "Twice.md")
+    await w.scan_once()
+    _deposit(tmp_path / "inbox", "Twice.md", "credit spreads widen in recessions. " * 60)
+    await w.scan_once()
+
+    rows = await db.query("SELECT source_path FROM document")
+    assert len(rows) == 1  # one document, deduplicated by title
+    assert str(rows[0]["source_path"]).endswith("Twice-1.md")
+    assert Path(str(rows[0]["source_path"])).exists()

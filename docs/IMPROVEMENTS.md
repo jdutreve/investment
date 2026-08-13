@@ -1850,3 +1850,72 @@ innovation ledger (`writeback/recurrence.py`, 2026-08-09) counts how many
 distinct wordings a critique has arrived in and surfaces it in the digest at
 three. The two complaints that produced this entry are one theme in that ledger,
 so the next one raises it to three and the system says so by itself.
+
+---
+
+## I-54 — The outbox records a message that existed; nothing re-sends it
+
+**Where.** `delivery.py`, `weekly.run_weekly_chain`.
+
+**What exists.** Telegram first, and on a `TelegramError` the full text is
+written to `~/data/investment/outbox/<timestamp>.txt` and logged in full. That
+closed the real hole — a week of work lost to a bad token — and the guarantee is
+now structural: no path through `deliver` raises, and a failed outbox write
+still puts the text in the log (`_fall_back`).
+
+**What is still missing.** A file on the laptop is not a human being told. The
+chain then stamps `last_chain_success` and reports a clean run, so "the
+computation finished" and "the owner has the month's order" are the same event
+in the record and different events in the world. Nothing retries when the token
+is fixed, and nothing tells the owner on Monday that Sunday's digest is sitting
+in a directory.
+
+**The shape it would take** (from the 2026-08-13 review): a persistent outbox —
+`pending | sent | failed`, attempt count, last diagnostic — drained on a timer
+and by the heartbeat, plus `invest deliveries` and `invest digest` on the
+command layer, and a chain result that distinguishes *computed* from
+*delivered*.
+
+**Why not now.** It is a new table, a new state machine and two new commands, on
+a path whose failure mode is currently visible in three places (the log, the
+file, and the WARNING line naming the outbox). The digest also re-renders from
+committed rows and the market-signal block from the journal, so the NEXT digest
+that gets through still carries the decision — the loss is a delay, not the
+order.
+
+**Trigger to revisit.** The first time a delivery actually fails on a real
+chain — the outbox directory being non-empty is the signal, and `invest status`
+should learn to say so — or the first time the owner asks for a digest to be
+re-sent.
+
+---
+
+## I-55 — Backtests and FAVORS write vertices and edges outside the EventLog contract
+
+**Where.** `mechanical/backtests.py` (`run_backtests_and_favors`).
+
+**What it does.** Writes `backtest` vertices and `favors` edges directly, with
+no preceding event and no enclosing transaction — one `upsert_vertex` per
+strategy × regime instance, one `create_edge` per aggregate, each committing on
+its own.
+
+**Why that is arguably fine.** CLAUDE.md exempts "pure TS writes" from the
+EventLog rule, and these rows are the same kind of thing: a full recomputation
+from `portfolio_nav` and the regime instances, deterministic, idempotent, and
+replaced wholesale on the next run. No decision is taken here — FAVORS is
+evidence, and the ranking rule reads it without asking when it was written.
+
+**Why it is still worth doing.** The exemption names TS writes, not "derived
+rows", so today the code is outside the letter of the rule while inside its
+spirit — and a reader cannot tell which. The absent transaction is the sharper
+half: a failure partway leaves a regime type with some strategies re-measured
+against this week's NAV and others against last week's, and the FAVORS table
+then mixes two vintages with nothing recording that it does.
+
+**The shape it would take.** One transaction around the whole loop (the agent is
+the sole writer, so nothing is blocked by holding it) and one
+`BacktestsComputedEvent` naming the window and the counts — which would also
+give the digest a way to say when FAVORS last moved.
+
+**Trigger to revisit.** The first FAVORS row whose `last_updated` disagrees with
+its neighbours, or the first time the 08:30 step fails partway.

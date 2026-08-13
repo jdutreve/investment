@@ -9,7 +9,7 @@ drives the same steps through the same runner on TestModel.
 """
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -18,6 +18,7 @@ import pytest
 
 from investment import main as MAIN
 from investment import weekly as M
+from investment.chain import chain_period
 from investment.db.sqlite import InvestmentDB
 from investment.market.regime import DetectorState, _load_state, _persist_state
 
@@ -340,3 +341,51 @@ def test_info_goes_to_stdout_and_warnings_to_stderr() -> None:
     # that would happily emit an INFO record straight into stderr.
     assert err.level == _logging.WARNING
     assert info.levelno < err.level <= warn.levelno
+
+
+# -- the one step a retry must not repeat -----------------------------------
+
+
+async def _journal_reading(db: InvestmentDB, *, trigger: str, day: str) -> None:
+    """What `decision_cycle.journal_worker_reading` appends after every cycle."""
+    async with db.transaction():
+        await db.append_event(
+            type="WorkerReadingEvent",
+            source_uc="UC8",
+            source_id="run-1",
+            payload={"trigger": trigger, "reasoning": "..."},
+            event_date=date.fromisoformat(day),
+        )
+
+
+async def test_a_week_with_no_cycle_yet_runs_one(db: InvestmentDB) -> None:
+    assert await M.weekly_cycle_already_ran(db, "2026-08-09") is False
+
+
+async def test_a_retry_later_in_the_SAME_week_does_not_buy_a_second_cycle(
+    db: InvestmentDB,
+) -> None:
+    """THE DEFECT THIS CLOSES. The chain is retried whole, which is right for
+    every mechanical step — they recompute on fresher prices. UC8 is the one
+    that spends an LLM call and appends a fresh WorkerReadingEvent, invariant
+    confrontations and innovations on every pass, so a failure at 09:30 on the
+    digest used to buy a second Worker deliberation to re-send one message."""
+    await _journal_reading(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")  # Sunday's cycle
+    # Tuesday's retry asks about the same week and finds it done.
+    assert await M.weekly_cycle_already_ran(db, chain_period(date(2026, 8, 11))) is True
+
+
+async def test_the_NEXT_week_runs_its_own_cycle(db: InvestmentDB) -> None:
+    """Scoped to the week, not "has one ever run" — otherwise the chain would
+    never think again."""
+    await _journal_reading(db, trigger=M.CHAIN_TRIGGER, day="2026-08-09")
+    assert await M.weekly_cycle_already_ran(db, chain_period(date(2026, 8, 16))) is False
+
+
+async def test_an_adhoc_UC9_cycle_does_not_stand_in_for_the_weeks_own(
+    db: InvestmentDB,
+) -> None:
+    """An ad-hoc `/cycle` is the owner asking for an EXTRA reading, not the
+    week's. Counting it would let a Monday question silence Sunday's chain."""
+    await _journal_reading(db, trigger="uc9-adhoc", day="2026-08-10")
+    assert await M.weekly_cycle_already_ran(db, "2026-08-09") is False
