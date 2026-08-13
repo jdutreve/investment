@@ -66,7 +66,14 @@ holds the value and `describe_rule()` states it to the Worker.
 **Cadence: MONTHLY.** No VIX crisis overlay (measured to hurt at monthly
 cadence: 7.57%/-25%).
 
-**Backtest performance.** The CURRENT pinned pair is **11.57% CAGR / -20.61%**
+**Backtest performance. EVERY FIGURE BELOW PREDATES THE 2026-08-13 LOOK-AHEAD
+FIX and is optimistic by roughly a point a year** — see "The look-ahead" at the
+foot of this file. They are not comparable to anything measured after that date.
+Read "The attribution" too before quoting the "+3.80 vs B" as the strategy's
+edge: B is a PASSIVE benchmark with zero turnover, so it never earned any of the
+bias the stack did, and the margin absorbs the whole of it.
+
+The CURRENT pinned pair is **11.57% CAGR / -20.61%**
 (Sortino 1.30, turnover 53.7), and `mechanical/market_signal.py` is its
 authority — it carries every supersession with its date, its measurement and its
 owner signature. Do not restate it here: this file has quoted a superseded pair
@@ -755,3 +762,237 @@ gain, and a slower signal is a less fitted one.
 175 and 225 days also adopted on the full sample and were REFUSED, each failing
 the half it was not fitted to. The out-of-sample split earned its keep on its
 first outing, and would have let two fitted windows through without it.
+
+---
+
+## The attribution: what the SIGNAL earns over the TREND (2026-08-13)
+
+> **Measured BEFORE the look-ahead fix of the same day** (see the section
+> below). Every figure here is optimistic, and unevenly so — the stack trades
+> more than its control and collected more of the bias. The finding holds in
+> DIRECTION and its size roughly halves: the signal's margin is +0.56pp of CAGR,
+> not +1.11pp, and Sortino 1.237 vs 1.089 rather than 1.311 vs 1.150. The
+> conclusion the section draws — the overlay carries the strategy, the signal
+> adds a little — is strengthened by the correction, not weakened.
+
+Every number this file has ever published compares the stack to a PASSIVE
+portfolio — All Weather, +3.80pp/yr, the figure ADR-007 was signed on. That
+answers "is this better than holding a static balanced book". It does not answer
+the question that decides whether the credit/slope read is worth its complexity:
+
+> is it better than the SAME 300d overlay on a book that never rotates?
+
+That arm had never been built. It could not even be asked of the measurement
+machinery — `rule_revision.TESTABLE_PARAMETERS` moves knobs INSIDE the rule, and
+`BOOKS` is not a knob, so "delete the signal layer" was not expressible. Built
+and measured on 2026-08-13, with the two layers switched independently:
+
+    SIGNAL = spread level vs 10y median + slope + CONFIRM_DECISIONS hysteresis
+             + SPREAD_SPEED_VETO + SPREAD_STRESS_SLEEVE_GATE
+    TREND  = the MA_WINDOW_DAYS overlay per sleeve + the IEF/cash haven chain
+
+    D  signal ON,  trend ON    the live stack
+    C  signal ON,  trend OFF   book rotation alone
+    B  signal OFF, trend ON    trend-following on a FIXED book  <- the missing arm
+    A  signal OFF, trend OFF   buy and hold
+
+All arms are priced by `shadow_book_nav` on ONE `load_series` load, one vintage,
+one calendar, at ADR-010's 23 bps — and the measurement is bounded with
+`nav.loc[:end]`, so the half-windows do not repeat the frozen-tail error of
+2026-08-11. The harness self-checks: arm D over `PINNED_WINDOW` reproduces
+11.616% / -20.612%, the pinned pair, before any other arm is reported.
+
+### The finding
+
+Starting from the `credit-spread-wide` book and adding one layer at a time,
+1991-2026:
+
+    arm                                  CAGR   sortino    maxDD
+    A  buy & hold                      10.60%     0.76   -51.80%
+    B  + the trend overlay alone       11.38%     1.10   -21.59%
+    D  + the credit/slope signal       11.62%     1.30   -20.61%
+
+**THE OVERLAY BUYS 30 POINTS OF DRAWDOWN; THE SIGNAL BUYS 1.** The signal
+layer's entire marginal contribution over the strongest fixed-book competitor is
+**+0.24pp of CAGR and +0.20 of Sortino**. Real — Sortino's move is ~28x the
+0.71% noise floor — and an order of magnitude smaller than the number this file
+has been quoting, because that number was measured against the wrong opponent.
+
+Full decomposition, all three windows:
+
+    arm                                CAGR   sort   calm    maxDD    turn
+    --- full 1991-2026 -------------------------------------------------
+    D  signal + trend  (LIVE)        11.62%   1.30   0.56  -20.61%    53.7
+    C  signal only, no overlay       12.04%   1.10   0.40  -29.85%    39.4
+    B  trend only — wide book        11.38%   1.10   0.53  -21.59%    36.0
+    B  trend only — flat book        10.71%   1.15   0.52  -20.61%    40.5
+    B  trend only — static 60/40      9.52%   1.14   0.50  -18.90%    28.5
+    B  trend only — static SPY       12.30%   1.00   0.36  -33.72%    28.0
+    A  buy & hold — wide book        10.60%   0.76   0.20  -51.80%     0.0
+    A  buy & hold — static SPY       11.00%   0.75   0.20  -55.19%     0.0
+    --- first 1991-2008 ------------------------------------------------
+    D  signal + trend  (LIVE)        13.23%   1.47   0.99  -13.32%    22.3
+    C  signal only, no overlay       10.03%   0.80   0.34  -29.85%    16.8
+    B  trend only — wide book        13.04%   1.26   1.17  -11.11%    12.3
+    B  trend only — static 60/40     11.25%   1.24   1.55   -7.25%    10.5
+    A  buy & hold — wide book         8.03%   0.47   0.17  -46.99%     0.0
+    --- second 2009-2026 -----------------------------------------------
+    D  signal + trend  (LIVE)        10.15%   1.18   0.49  -20.61%    30.9
+    C  signal only, no overlay       12.93%   1.21   0.46  -28.32%    21.6
+    B  trend only — flat book         9.90%   1.15   0.48  -20.61%    24.0
+    A  buy & hold — flat book        12.56%   1.22   0.53  -23.78%     0.0
+    A  buy & hold — static 60/40      9.85%   1.20   0.46  -21.32%     0.0
+
+### Three things this settles
+
+**The -20.61% belongs to the overlay, mechanically and no longer by inference.**
+The flat book FROZEN under the same overlay reaches -20.61% — the stack's own
+drawdown, to four decimals. `rule_revision.adopt` reasoned its way to this in
+August ("the stack's worst drawdown is 2020-03-20, the book in force through the
+covid crash was already the tight one"); here it is measured. Book selection
+does not move the number the -25% cap binds, and now a test fails if it starts
+to (`test_the_stack_still_beats_its_own_control_arm`).
+
+**Rotation alone is not admissible.** Arm C is -29.85%, past the -25% cap. The
+stack needs its overlay to clear its own binding constraint; the overlay does
+not need the stack.
+
+**The edge is not evenly distributed, and the second half is uncomfortable.** On
+1991-2008 the stack is overwhelming (13.23%/1.47/-13.32% against buy & hold's
+8.03%/0.47/-46.99%). On 2009-2026 the whole apparatus — 74 target changes, 30.9
+turnover — returns 10.15% at Sortino 1.18, while buying the flat book in 2009
+and never trading again returns **12.56% at Sortino 1.22 and -23.78%, inside the
+cap**. Seventeen years is partly a regime artefact (a bull market punishes every
+de-risking rule) and it is also the length of the owner's horizon. It is
+recorded here rather than explained away.
+
+### What NOT to conclude
+
+The signal still wins. Against every fixed-book arm on the full sample it is
+Pareto-dominant — better or equal on all four indicators — except static SPY,
+which wins CAGR by 0.68pp and loses Sortino, Calmar and 13 points of drawdown,
+breaching the -25% cap by a wide margin and so inadmissible under the owner's
+own rule. Nothing here argues for deleting the signal layer. It argues that its
+measured worth is ~0.2-0.9pp of CAGR and ~0.15-0.20 of Sortino, and that every
+claim about it should be stated against a fixed book from now on.
+
+### What changed as a result
+
+**The control arm is now a SEEDED, PERSISTED portfolio** (`ms-trend-baseline`),
+not a study: `market_signal.run_trend_baseline` prices it, the weekly cycle
+refreshes its `portfolio_nav` beside the stack's, and the UC7 ranking and the
+digest compare them every week with nobody remembering to. The argument is
+verbatim the one that created `ms-stack` — a strategy with no NAV cannot be
+measured — applied to the thing the stack has to beat. It freezes
+`credit-spread-tight-yield-curve-flat`, chosen by measurement rather than taste:
+the signal itself holds that book 197 of 418 monthly decisions (47.1%).
+
+**Forward paper-mode's question changes.** Step 6 must now judge D against
+`ms-trend-baseline`, not against a passive benchmark — otherwise it will
+confirm the overlay and credit the signal. And the margin being ~0.2pp of CAGR
+says what forward evidence can and cannot settle: 6-18 months will never resolve
+a return gap that small. What is falsifiable on that horizon is the SORTINO
+margin (+0.15 to +0.20, well clear of the noise floor), so that is what the
++12w scoring should watch.
+
+**Where to look next is the overlay, not the signal.** Every knob switched on in
+August — the veto, the stress gate, their 0.20 thresholds — lives in the layer
+worth +0.24pp, and each was fitted on these same 35 years. The layer that
+carries the result has been swept exactly once (200 -> 300 days, 2026-08-09).
+The ±band around the moving average, a graduated sleeve instead of a 100/0
+switch, and the 125-day window that is still the only setting ever measured to
+improve the drawdown materially (-17.86%, refused for 0.94% of Sortino) all live
+there — and all three are TRADE-OFFS, which the Pareto test cannot adopt by
+construction. That doctrine question is open above and is now blocking the one
+layer that demonstrably pays.
+
+
+---
+
+## The look-ahead, removed (2026-08-13, owner signature)
+
+Found while testing whether the overlay should re-read faster than the monthly
+decision. The daily variant measured Sortino 2.38 / CAGR 17.5% / maxDD -8.7%,
+which is not a discovery but a symptom: results that improve monotonically with
+decision frequency are the signature of same-day information.
+
+**The mechanism.** `shadow_book_nav` applies a target dated t BEFORE day t's
+return — `synthesize_nav`'s pinned sequencing, "the portfolio enters the period
+already rebalanced" — while the trend read used the CLOSE of day t. The rule set
+weights from a price it then earned. No implementer can do that: at the moment
+the order goes in, that close does not exist.
+
+**Why it is not noise.** The rule is momentum-shaped, so an asset that ROSE
+today is likelier to sit above its moving average today. The rule was therefore
+systematically positioned for the very day it was reading — a free move, in one
+direction, on every decision date, worth most precisely on the days the
+allocation swings hardest.
+
+**It survived from M4 because it is harmless for a static book.** A portfolio
+that never decides cannot exploit it, which is why the NAV engine's convention
+was validated against Portfolio Visualizer and stayed correct. What was wrong
+was feeding it a decision that used same-day data.
+
+**Measured, over 1991-2026 — it scales with turnover exactly as that explanation
+predicts:**
+
+    arm                            turnover   as published   lagged 1d   the bias
+    market-signal stack (LIVE)         54.3        11.82%      10.86%    0.96pp/yr
+    ms-trend-baseline (control)        40.5        10.71%      10.30%    0.41pp/yr
+    a static book                       0.0             —           —    0.00pp/yr
+
+...and with frequency: monthly 11.82% -> 10.86%, daily 14.50% -> 8.19%. The
+daily overlay was better than monthly ONLY through the bias; honestly measured
+it is worse on every indicator, which closes the cadence question.
+
+**What was fixed, and where.** The lag goes on the DECISION read
+(`StackSeries.decision_prices`), not on the NAV engine: the engine's convention
+is right and is shared with every static portfolio and the M4 golden numbers.
+Decide on yesterday's close, trade at today's open, earn today. The two FRED
+signals are NOT lagged — ADR-003 already defines a `ts` as the date the value
+became knowable, so a second lag would double-count the data model's. Doing so
+anyway would cost a further ~0.4pp/yr, recorded so that stays a vintage question
+rather than being rediscovered as a new one.
+
+    pinned pair    11.76% / -20.61%   ->   11.21% / -20.61%
+    sortino        1.311              ->   1.237
+    calmar         0.574              ->   0.547
+    turnover       54.3               ->   53.0
+
+**The drawdown does not move**, which is consistent with everything else
+measured that day: it belongs to the overlay's latency, and one day either way
+does not touch it.
+
+### What this costs, and what it corrects
+
+It is NOT a supersession like the others. The rule did not change and got no
+worse; the measurement stopped crediting it with information it never had. Two
+consequences the project has to carry:
+
+- **Every stack figure published before this date is optimistic by ~1pp/yr** and
+  is not comparable to anything measured after it. That includes the pivot's
+  "+3.80 vs B": All Weather has zero turnover and earned none of the bias, so
+  the margin absorbs the stack's full 0.96pp.
+- **The attribution's headline halves.** The signal layer's margin over its
+  frozen-book control was +1.11pp of CAGR and is +0.56pp once both are measured
+  honestly; Sortino 1.311 vs 1.150 becomes 1.237 vs 1.089. The finding holds in
+  DIRECTION — the signal still earns its place — and its size was overstated by
+  about a factor of two, because the stack trades more than the control and so
+  collected more of the bias.
+
+Comparisons between arms of SIMILAR turnover are unaffected, which is why the
+book search and the overlay sweep stand as measured. The earlier claim that "all
+same-cadence comparisons are valid" was too generous and is withdrawn: what
+matters is similar TURNOVER, not similar cadence.
+
+### Why now rather than after paper-mode
+
+A backtest promising a point more than the rule can deliver would have surfaced
+in eighteen months as the strategy failing — the one misreading Step 6 cannot
+afford. It is also the only moment the break in comparability is cheap: no
+forward evidence exists yet to be broken.
+
+`test_the_walk_decides_on_the_previous_close_not_the_decision_day` holds the
+separation, and it was written because wiring the fix changed the live rule with
+the entire suite staying green. Nothing held it; nothing would have noticed it
+being undone.

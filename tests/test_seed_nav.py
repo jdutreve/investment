@@ -102,10 +102,17 @@ async def test_seed_steps_12_13_populate_nav_and_snapshot(tmp_path: Path) -> Non
         enabled = [pf for pf in PORTFOLIOS if pf["enabled"]]
         # VALUATION skips a portfolio with no NAV series; RANKING still emits a
         # row for it, with null indicators, so the two counts differ by exactly
-        # the skipped stack. Asserted rather than smoothed over: the ranking
-        # deliberately shows every enabled portfolio, including one it cannot
-        # score yet.
-        assert snapshot_inventory["portfolios_valued"] == len(enabled) - 1
+        # the portfolios the seed had to skip. Asserted rather than smoothed
+        # over: the ranking deliberately shows every enabled portfolio,
+        # including ones it cannot score yet.
+        #
+        # DERIVED FROM THE INVENTORY, not a literal. This read `len(enabled) - 1`
+        # while ms-stack was the only enabled row a partial seed could skip, and
+        # broke the day ms-trend-baseline arrived — CLAUDE.md's "when a second
+        # one arrives, find what named the first", caught by its own test suite.
+        # The rule is "one valuation short per skipped NAV", and now it says so.
+        unvalued = [pf for pf in enabled if "skipped" in nav_inventory.get(pf["id"], {})]
+        assert snapshot_inventory["portfolios_valued"] == len(enabled) - len(unvalued)
         assert snapshot_inventory["snapshot_rows"] == len(enabled)
 
         snap_rows = await db.query(

@@ -861,13 +861,14 @@ async def _measure_rule_revision(
         logger.exception("rule revision '%s' could not be measured", proposal.title)
         return
 
-    verdict = {True: "adopt", False: "reject", None: "unmeasurable"}[measurement.adopt]
+    verdict = measurement.verdict
     logger.info(
-        "rule revision '%s' measured: %s %s%s",
+        "rule revision '%s' measured: %s %s%s%s",
         proposal.title,
         verdict,
         overrides,
         f" (untestable: {unknown})" if unknown else "",
+        f" [{measurement.traded}]" if measurement.traded else "",
     )
     now = datetime.now(UTC).isoformat()
     async with db.transaction():
@@ -880,6 +881,10 @@ async def _measure_rule_revision(
                 "overrides": overrides,
                 "untestable_parameters": unknown,
                 "verdict": verdict,
+                # The exchange, carried into the payload so `alerts.py` can put
+                # it in the digest without re-running a 35-year walk (the same
+                # read-only-renderer rule stack_drift_alert follows).
+                "traded": measurement.traded,
                 "sortino_delta": measurement.sortino_delta,
                 "drawdown_delta": measurement.drawdown_delta,
                 "baseline_turnover": measurement.baseline_turnover,
@@ -887,11 +892,20 @@ async def _measure_rule_revision(
             },
             event_date=today,
         )
-        # `adopt is False` only ever comes from two present deltas, but that is
-        # a fact about RevisionMeasurement, not one the type carries — read them
-        # back explicitly rather than assert it here.
+        # ONLY A CLEAN REJECT CLOSES THE STRATEGY (owner decision, 2026-08-13).
+        # Until then `adopt is False` covered both "everything got worse" and
+        # "this buys a large gain for a small loss", and closed the strategy in
+        # both cases — so the one revision ever measured to improve the drawdown
+        # materially (`ma_window_days=125`: -2.75pp of drawdown for 0.94% of
+        # Sortino) would have been buried under the same word as a bad idea. A
+        # trade-off stays OPEN and reaches the owner through the digest instead;
+        # it still adopts nothing on its own.
+        #
+        # `verdict == "reject"` only ever comes from two present deltas, but
+        # that is a fact about RevisionMeasurement, not one the type carries —
+        # read them back explicitly rather than assert it here.
         sortino, drawdown = measurement.sortino_delta, measurement.drawdown_delta
-        if measurement.adopt is False and sortino is not None and drawdown is not None:
+        if verdict == "reject" and sortino is not None and drawdown is not None:
             await db.command(
                 "UPDATE strategy SET status = 'closed', enabled = 0, date_revised = :today, "
                 "trace = trace || :reason, updated_at = :now WHERE id = :id",

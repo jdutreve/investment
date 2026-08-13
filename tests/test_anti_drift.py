@@ -148,3 +148,100 @@ async def test_the_live_stack_still_reproduces_its_pinned_pair(tmp_path: Path) -
     assert check.violations == [], (
         f"the wired stack no longer reproduces ADR-007's pinned pair: {'; '.join(check.violations)}"
     )
+
+
+@pytest.mark.skipif(not LIVE_DB.exists(), reason=_SKIP_REASON)
+async def test_the_stack_still_beats_its_own_control_arm(tmp_path: Path) -> None:
+    """THE ATTRIBUTION, enforced (2026-08-13; docs/V1_STRATEGY.md).
+
+    ADR-007 was signed on +3.80pp/yr against All Weather — a PASSIVE benchmark,
+    which answers "better than holding a static book" and not the question that
+    decides whether the signal layer is worth its complexity: better than the
+    SAME 300d overlay on a book that never rotates? Measured, the signal's whole
+    marginal contribution is +0.24pp of CAGR and +0.20 of Sortino, against the
+    overlay's 30 points of drawdown. The margin is real and it is small, which
+    is exactly why it needs a machine watching it rather than a paragraph.
+
+    TWO ASSERTIONS, and they are deliberately structural rather than pinned to
+    the measured deltas. The numbers move with the ground (I-48) and the margin
+    is only ~2.5x the noise floor, so pinning them would produce a test that
+    fails on a re-seed. What must not change is the SHAPE of the result:
+
+      - the two arms share a max drawdown, because the covid trough that sets it
+        happened while the frozen book was in force — the mechanical form of
+        `rule_revision.adopt`'s finding that the -20.61% belongs to the overlay
+        and not to book selection;
+      - the stack's Sortino EXCEEDS the control's. If that ever stops being
+        true, the signal layer has stopped paying for itself and the owner needs
+        to hear it from a red test, not from a study someone might re-run.
+
+    Both arms are priced from ONE `load_series` on one vintage, in one process —
+    the I-48 discipline `RevisionMeasurement` already applies to baseline vs
+    variant, for the same reason: a delta between two loads is not a delta."""
+    copy = tmp_path / "live-copy.db"
+    shutil.copy(LIVE_DB, copy)
+    db = InvestmentDB(copy)
+
+    series = await MS.load_series(db)
+    start, end = MS.PINNED_WINDOW
+    stack = await MS.run_market_signal(db, start=start, end=end, series=series)
+    control = await MS.run_trend_baseline(db, start=start, end=end, series=series)
+    stack_m = await MS.stack_metrics(db, stack, until=end)
+    control_m = await MS.stack_metrics(db, control, until=end)
+
+    assert stack_m.sortino is not None and control_m.sortino is not None
+    assert stack_m.max_drawdown is not None and control_m.max_drawdown is not None
+
+    gap_pp = abs(stack_m.max_drawdown - control_m.max_drawdown) * 100.0
+    assert gap_pp <= MS.DRIFT_TOLERANCE_PP, (
+        "the stack and its frozen-book control no longer share a max drawdown "
+        f"(stack {stack_m.max_drawdown * 100:.2f}%, control {control_m.max_drawdown * 100:.2f}%, "
+        f"{gap_pp:.2f}pp apart) — book selection has started moving the number the "
+        "-25% cap binds, which contradicts the attribution and rule_revision.adopt"
+    )
+    assert stack_m.sortino > control_m.sortino, (
+        f"the signal layer no longer pays: stack Sortino {stack_m.sortino:.3f} vs frozen-book "
+        f"control {control_m.sortino:.3f} (CAGR {(stack_m.cagr or 0) * 100:.2f}% vs "
+        f"{(control_m.cagr or 0) * 100:.2f}%). The overlay carries the strategy; the "
+        "credit/slope read is what ADR-007 claims to add, and it is no longer adding it."
+    )
+
+
+@pytest.mark.skipif(not LIVE_DB.exists(), reason=_SKIP_REASON)
+async def test_the_walk_decides_on_the_previous_close_not_the_decision_day(tmp_path: Path) -> None:
+    """NO LOOK-AHEAD (owner decision, 2026-08-13; `StackSeries.decision_prices`).
+
+    `shadow_book_nav` applies a target dated t before day t's return, so a trend
+    read taken from day t's CLOSE sets weights that then earn that same day —
+    information no implementer has when the order goes in. It is worth ~1pp/yr
+    on this rule, because a momentum rule reading today's close is systematically
+    positioned for today's move: measured, removing it took the pinned CAGR from
+    11.82% to 11.27% with the drawdown untouched.
+
+    THIS IS THE TEST THAT WAS MISSING. Wiring the lag changed the live rule and
+    the whole suite stayed green, which means nothing held the separation and
+    nothing would have noticed it being undone. Two assertions, both structural:
+    the decision view is exactly one trading day behind the pricing view, and
+    what the DECISION actually journalled is the earlier number.
+
+    A price series' own previous row, deliberately, not the shared calendar's:
+    an instrument's previous close is its own, whether or not the defender's NAV
+    index happens to carry that day."""
+    copy = tmp_path / "live-copy.db"
+    shutil.copy(LIVE_DB, copy)
+    db = InvestmentDB(copy)
+
+    series = await MS.load_series(db)
+    for ticker in MS.TREND_SLEEVES:
+        priced, decided = series.prices[ticker], series.decision_prices[ticker]
+        assert decided.index.equals(priced.index)
+        # value at row i of the decision view == value at row i-1 of the priced one
+        assert decided.iloc[1:].to_numpy().tolist() == priced.iloc[:-1].to_numpy().tolist()
+
+    run = await MS.run_market_signal(db, start=MS.PINNED_WINDOW[0], end=MS.PINNED_WINDOW[1])
+    decision = run.decisions[-1]
+    read = decision.trend["SPY"]
+    same_day = float(series.prices["SPY"].loc[decision.date])
+    previous = float(series.decision_prices["SPY"].loc[decision.date])
+    assert read.price == previous, "the journalled read is not the previous close"
+    assert read.price != same_day, "the walk read the decision day's own close — look-ahead is back"

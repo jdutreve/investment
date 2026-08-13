@@ -56,6 +56,7 @@ from investment.mechanical.market_signal import (
     STACK_TICKERS,
     YIELD_SLOPE,
 )
+from investment.writeback.writeback import RULE_MEASUREMENT_EVENT
 
 # The weekly chain refreshes market data every week, so anything past a week
 # means at least one chain run did not happen or did not fetch. The same figure
@@ -294,6 +295,49 @@ async def decision_freshness_alert(db: InvestmentDB, today: date | None = None) 
     )
 
 
+async def rule_tradeoff_alert(db: InvestmentDB) -> Alert | None:
+    """A measured revision the machine will NOT decide — the fourth verdict
+    (`rule_revision.Verdict`), surfaced because it is the only one that needs a
+    human and the only one nothing else reports.
+
+    WHY IT EXISTS. Until 2026-08-13 a revision that bought a large gain for a
+    small loss got the word `reject`, identically to one that made everything
+    worse, and the strategy was closed on both. `ma_window_days=125` is the case
+    that forced the change: -2.75pp of max drawdown, the largest safety gain
+    ever measured on this stack, refused for 0.94% of Sortino and never shown to
+    anyone. The verdict now names it and this line carries it out.
+
+    A pure READ of the newest `RuleRevisionMeasuredEvent`, like every alert
+    here: `build_digest` renders committed rows and must never run a backtest
+    (telegram/digest.py). Silent unless the LATEST measurement is a trade-off —
+    a trade-off two months old has either been decided or declined, and
+    re-raising it every Sunday is how a digest line stops being read.
+
+    `warn`, not `critical`: nothing is broken and nothing is blocked. It is a
+    decision waiting, and the message says what the decision costs and buys so
+    the owner can take it from the digest without opening a REPL."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=RULE_MEASUREMENT_EVENT,
+    )
+    if not rows:
+        return None
+    payload = json.loads(str(rows[0]["payload"]))
+    if payload.get("verdict") != "trade-off":
+        return None
+    traded = payload.get("traded") or "no exchange recorded"
+    return Alert(
+        level="warn",
+        code="rule_tradeoff",
+        message=(
+            f"A measured rule revision needs YOUR call — '{payload.get('title')}' "
+            f"({payload.get('overrides')}): {traded}. Nothing has been adopted or refused: "
+            "the Pareto test only decides revisions where nothing gets worse, and this one "
+            "trades. Adopting it is a git edit and a signature (ADR-006/ADR-007)."
+        ),
+    )
+
+
 async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Alert]:
     """Every live-path alert, critical first — the order the digest renders."""
     found = [
@@ -302,6 +346,7 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
         await market_data_freshness_alert(db, today),
         await signal_freshness_alert(db, today),
         await decision_freshness_alert(db, today),
+        await rule_tradeoff_alert(db),
     ]
     alerts = [a for a in found if a is not None]
     return sorted(alerts, key=lambda a: a.level != "critical")

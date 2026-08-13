@@ -81,9 +81,10 @@ def test_the_verdict_is_pareto_over_every_indicator() -> None:
 
     Rule #1 survives intact — nothing may get worse."""
     # the shape of the adopted 2026-08-07 change: several improve, none degrade
-    assert _measurement(sortino=(1.09, 1.17), drawdown=(-0.238, -0.206)).adopt is True
-    # drawdown improves but Sortino degrades -> refused. Pareto is not a trade.
-    assert _measurement(sortino=(1.17, 1.09), drawdown=(-0.238, -0.206)).adopt is False
+    assert _measurement(sortino=(1.09, 1.17), drawdown=(-0.238, -0.206)).verdict == "adopt"
+    # drawdown improves but Sortino degrades -> Pareto is not a trade, and since
+    # 2026-08-13 it says WHICH kind of refusal that is instead of one word for two.
+    assert _measurement(sortino=(1.17, 1.09), drawdown=(-0.238, -0.206)).verdict == "trade-off"
     # THE CASE THAT CHANGED, and the reason it did: return improves at UNCHANGED
     # risk. The old rule refused this; it is the velocity veto's exact shape.
     assert (
@@ -92,16 +93,17 @@ def test_the_verdict_is_pareto_over_every_indicator() -> None:
             drawdown=(-0.2061, -0.2061),
             cagr=(0.1072, 0.1110),
             calmar=(0.52, 0.54),
-        ).adopt
-        is True
+        ).verdict
+        == "adopt"
     )
-    # ...and buying that return with drawdown is still refused on the spot
+    # ...and buying that return with drawdown is still refused on the spot —
+    # as a trade-off, which adopts nothing but no longer closes the strategy.
     assert (
-        _measurement(sortino=(1.09, 1.30), drawdown=(-0.206, -0.238), cagr=(0.10, 0.13)).adopt
-        is False
+        _measurement(sortino=(1.09, 1.30), drawdown=(-0.206, -0.238), cagr=(0.10, 0.13)).verdict
+        == "trade-off"
     )
-    # a change that moves nothing at all is not an adoption
-    assert _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.238)).adopt is False
+    # a change that moves nothing at all is not an adoption, and not a trade
+    assert _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.238)).verdict == "reject"
     # FLOAT NOISE IS NOT A DEGRADATION, and this is the exact measurement that
     # forced the tolerance: the velocity veto reached the SAME trough by a
     # different arithmetic path, -0.2061245891298571 vs -0.20612458912985732,
@@ -113,15 +115,15 @@ def test_the_verdict_is_pareto_over_every_indicator() -> None:
             sortino=(1.173, 1.244),
             drawdown=(-0.2061245891298571, -0.20612458912985732),
             cagr=(0.1072, 0.1110),
-        ).adopt
-        is True
+        ).verdict
+        == "adopt"
     )
     # ...and a real move of the same indicator is still caught.
     assert (
         _measurement(
             sortino=(1.173, 1.244), drawdown=(-0.2061, -0.2200), cagr=(0.1072, 0.1110)
-        ).adopt
-        is False
+        ).verdict
+        == "trade-off"
     )
 
 
@@ -140,17 +142,22 @@ def test_the_noise_floor_is_the_measured_ground_movement() -> None:
     assert rule_revision.NOISE_REL_TOL == 0.0071
 
     # Under the floor: ground, not result. Nothing else moves -> no adoption.
-    assert _measurement(sortino=(1.1725, 1.1760), drawdown=(-0.2061, -0.2061)).adopt is False
+    assert _measurement(sortino=(1.1725, 1.1760), drawdown=(-0.2061, -0.2061)).verdict == "reject"
     # Over it: a real degradation, however small. This is the 125-day overlay's
     # exact shape — 0.94% of Sortino for 2.75pp of drawdown — refused because it
     # is a TRADE-OFF, which is a different answer from "too small to see".
-    assert _measurement(sortino=(1.173, 1.162), drawdown=(-0.2061, -0.1786)).adopt is False
+    # THE DOCTRINE CASE, named at last: 0.94% of Sortino for 2.75pp of drawdown
+    # is an EXCHANGE, and since 2026-08-13 the verdict says so and the owner is
+    # told. It still adopts nothing.
+    tradeoff = _measurement(sortino=(1.173, 1.162), drawdown=(-0.2061, -0.1786))
+    assert tradeoff.verdict == "trade-off"
+    assert tradeoff.traded is not None and "max_drawdown" in tradeoff.traded
     # a single indicator improving, alone, is enough when nothing else moves
-    assert _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.206)).adopt is True
+    assert _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.206)).verdict == "adopt"
     # and CALMAR counts like the rest — it is not a derived afterthought here
     assert (
-        _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.238), calmar=(1.0, 0.9)).adopt
-        is False
+        _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.238), calmar=(1.0, 0.9)).verdict
+        == "reject"
     )
 
 
@@ -171,7 +178,7 @@ def test_a_missing_metric_is_unmeasurable_not_a_rejection() -> None:
         baseline_turnover=0.0,
         variant_turnover=0.0,
     )
-    assert m.adopt is None  # not False — nothing was compared
+    assert m.verdict == "unmeasurable"  # not False — nothing was compared
     assert "unmeasurable" in rule_revision.render(m)
 
 

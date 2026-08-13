@@ -32,7 +32,7 @@ import asyncio
 import dataclasses
 import json
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -707,16 +707,34 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
         result = await ratios.backfill_nav(db, _vertex_id(pf), allocation, window, cost)
         results[_vertex_id(pf)] = dataclasses.asdict(result)
 
-    # The stack LAST: `run_market_signal` reads the trading calendar off the
-    # defender's NAV index, so the static series above must exist first.
+    # The rotating arms LAST: they read the trading calendar off the defender's
+    # NAV index, so the static series above must exist first.
     #
-    # SKIPPED, not failed, when its inputs are absent — the incremental-seed
-    # contract (docs/MILESTONES.md "Incremental seed": each run completes the
-    # steps whose prerequisites now exist and SKIPS the rest with a warning).
-    # `run_market_signal` raises on a missing sleeve on purpose (a stack quietly
-    # holding a sleeve at 0% is the bug that once crippled it), so the
-    # prerequisite is checked here rather than by catching that guard.
-    missing = await _missing_stack_series(db)
+    # THE CONTROL ARM IS BUILT FIRST AND UNCONDITIONALLY, because it needs no
+    # signal series at all — it freezes a book and runs the price overlay, so
+    # BAA10Y/T10Y2Y being absent is irrelevant to it. Gating it on the stack's
+    # prerequisites would leave the strategy's own benchmark unbuildable on a
+    # price-only database, i.e. missing from the ranking on exactly the partial
+    # seeds the incremental contract exists to serve.
+    missing_prices = await _missing_series(db, _STACK_PRICE_SERIES)
+    if missing_prices:
+        logger.warning("step 12: trend-baseline NAV skipped, no series for %s", missing_prices)
+        results[market_signal.TREND_BASELINE_PORTFOLIO_ID] = {
+            "skipped": f"missing series: {missing_prices}"
+        }
+    else:
+        baseline = await market_signal.run_trend_baseline(db, end=date.today())
+        results[market_signal.TREND_BASELINE_PORTFOLIO_ID] = dataclasses.asdict(
+            await market_signal.persist_trend_baseline_nav(db, baseline, window)
+        )
+
+    # SKIPPED, not failed, when the STACK's inputs are absent — the
+    # incremental-seed contract (docs/MILESTONES.md "Incremental seed": each run
+    # completes the steps whose prerequisites now exist and SKIPS the rest with
+    # a warning). `run_market_signal` raises on a missing sleeve on purpose (a
+    # stack quietly holding a sleeve at 0% is the bug that once crippled it), so
+    # the prerequisite is checked here rather than by catching that guard.
+    missing = sorted(missing_prices + await _missing_series(db, _STACK_SIGNAL_SERIES))
     if missing:
         logger.warning("step 12: market-signal stack NAV skipped, no series for %s", missing)
         results[market_signal.STACK_PORTFOLIO_ID] = {"skipped": f"missing series: {missing}"}
@@ -759,10 +777,25 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
     return results
 
 
-async def _missing_stack_series(db: InvestmentDB) -> list[str]:
-    """Which of the stack's inputs have no MarketData yet — its 5 sleeves plus
-    the two signals that pick the book. Empty list = the stack is buildable."""
-    needed = [*market_signal.STACK_TICKERS, market_signal.CREDIT_SPREAD, market_signal.YIELD_SLOPE]
+# The PRICE prerequisite, shared by both rotating arms: `market_signal.load_series`
+# refuses to build a world missing any sleeve, so neither the stack nor its
+# control can be priced without all five.
+_STACK_PRICE_SERIES: tuple[str, ...] = market_signal.STACK_TICKERS
+
+# The stack's EXTRA prerequisite — the two series that pick the book. The control
+# arm freezes its book and so needs neither; splitting the two sets is what lets
+# a price-only database still produce the benchmark the stack is judged against.
+_STACK_SIGNAL_SERIES: tuple[str, ...] = (market_signal.CREDIT_SPREAD, market_signal.YIELD_SLOPE)
+
+
+async def _missing_series(db: InvestmentDB, needed: Sequence[str]) -> list[str]:
+    """Which of `needed` have no MarketData yet. Empty list = buildable.
+
+    Parameterised on 2026-08-13, when the control arm arrived with a STRICTLY
+    SMALLER prerequisite than the stack's: this asked one question ("is the
+    stack buildable") and two callers now ask different ones. Gating the control
+    on the stack's signal series would have made the benchmark unbuildable on
+    exactly the partial seeds the incremental contract exists to serve."""
     placeholders = ",".join(f":t{n}" for n in range(len(needed)))
     rows = await db.query(
         f"SELECT DISTINCT ticker FROM market_data WHERE ticker IN ({placeholders})",

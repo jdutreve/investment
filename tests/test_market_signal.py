@@ -18,14 +18,21 @@ from investment.mechanical.market_signal import apply_trend_overlay, build_targe
 # The book keys are deliberately verbose (ADR-007 third addendum: the Worker is
 # an LLM that reads them as semantic context). Aliased here so assertions stay
 # on one line and a typo in a 37-char literal cannot pass silently.
-WIDE = "credit-spread-wide"
+# SPLIT ON 2026-08-13: `WIDE` named one book when the wide branch ignored the
+# slope, and there are two now. The alias is gone rather than repointed — a name
+# that silently means "one of the two wide books" is how the first version of
+# this file would have kept passing while testing half the rule.
+WIDE_FLAT = "credit-spread-wide-yield-curve-flat"
+WIDE_STEEP = "credit-spread-wide-yield-curve-steep"
 TIGHT_FLAT = "credit-spread-tight-yield-curve-flat"
 TIGHT_STEEP = "credit-spread-tight-yield-curve-steep"
 
 
-def test_wide_spread_is_wide_credit() -> None:
-    # spread above its 10y median -> WIDE, whatever the slope says.
-    assert classify_regime(spread=2.5, spread_median=1.8, slope=-0.5, slope_median=1.0) == WIDE
+def test_wide_spread_reads_the_slope_too() -> None:
+    # Spread above its 10y median -> WIDE, and since the 2x2 the slope then
+    # picks WHICH wide book. Before 2026-08-13 both of these returned one key.
+    assert classify_regime(spread=2.5, spread_median=1.8, slope=-0.5, slope_median=1.0) == WIDE_FLAT
+    assert classify_regime(spread=2.5, spread_median=1.8, slope=2.0, slope_median=1.0) == WIDE_STEEP
 
 
 def test_tight_spread_flat_slope_is_tight_flat() -> None:
@@ -41,15 +48,23 @@ def test_tight_spread_steep_slope_is_tight_steep() -> None:
 
 
 def test_missing_median_defaults_to_wide_credit() -> None:
-    # Warm-up before 10y of history: NaN median -> the equity-tilted WIDE book.
+    # Warm-up before 10y of history: NaN median -> the equity-tilted WIDE read,
+    # and a NaN SLOPE median reads flat, so the warm-up book is wide-flat.
     assert (
-        classify_regime(spread=1.2, spread_median=float("nan"), slope=0.3, slope_median=1.0) == WIDE
+        classify_regime(spread=1.2, spread_median=float("nan"), slope=0.3, slope_median=1.0)
+        == WIDE_FLAT
+    )
+    assert (
+        classify_regime(
+            spread=1.2, spread_median=float("nan"), slope=0.3, slope_median=float("nan")
+        )
+        == WIDE_FLAT
     )
 
 
 def test_overlay_redirects_below_trend_sleeve_to_haven() -> None:
-    # WIDE book SPY50/IWN40/GLD10 with SPY below its 200d MA -> SPY's 50 to IEF.
-    out = apply_trend_overlay(market_signal.BOOKS[WIDE], frozenset({"SPY"}))
+    # wide-steep book SPY50/IWN40/GLD10 with SPY below its MA -> SPY's 50 to IEF.
+    out = apply_trend_overlay(market_signal.BOOKS[WIDE_STEEP], frozenset({"SPY"}))
     assert out == {"IEF": 50.0, "IWN": 40.0, "GLD": 10.0}
 
 
@@ -62,7 +77,8 @@ def test_overlay_merges_both_sleeves_into_haven() -> None:
 
 
 def test_overlay_noop_when_above_trend() -> None:
-    assert apply_trend_overlay(market_signal.BOOKS[WIDE], frozenset()) == market_signal.BOOKS[WIDE]
+    for book in market_signal.BOOKS.values():
+        assert apply_trend_overlay(book, frozenset()) == book
 
 
 def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
@@ -111,7 +127,9 @@ def test_build_targets_emits_only_on_change() -> None:
     prices = {t: pd.Series([1000.0, 1000.0], index=idx) for t in ("SPY", "IWN", "GLD")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0]]
-    assert targets[idx[0]] == market_signal.BOOKS[WIDE]
+    # slope 1.0 == its median -> STEEP, so the wide-steep book (the one the 2x2
+    # left at the Verdad allocation).
+    assert targets[idx[0]] == market_signal.BOOKS[WIDE_STEEP]
 
 
 def _steady_switch_frame(
@@ -143,12 +161,14 @@ def test_build_targets_switches_after_confirmation() -> None:
 
 
 def test_build_targets_holds_through_an_unconfirmed_signal() -> None:
-    # One decision short of confirmation: the stack must still hold the wide book.
+    # One decision short of confirmation: the stack must still hold the wide
+    # book — wide-STEEP here, since `_steady_switch_frame` opens with the slope
+    # at its own median and `slope >= median` reads steep.
     n = market_signal.CONFIRM_DECISIONS
     idx, series, mas, prices = _steady_switch_frame(n - 1)
     targets = build_targets(idx, *series, mas, prices)
     assert list(targets) == [idx[0]]
-    assert targets[idx[0]] == market_signal.BOOKS[WIDE]
+    assert targets[idx[0]] == market_signal.BOOKS[WIDE_STEEP]
 
 
 def test_build_targets_resets_the_count_when_the_candidate_flickers() -> None:
@@ -177,7 +197,7 @@ def test_trend_overlay_is_not_damped_by_the_hysteresis() -> None:
     prices = {t: pd.Series([1.0, 1.0], index=idx) for t in ("SPY", "IWN", "GLD", "IEF")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0], idx[1]]
-    assert targets[idx[1]]["IEF"] == market_signal.BOOKS[WIDE]["SPY"]  # SPY sleeve redirected
+    assert targets[idx[1]]["IEF"] == market_signal.BOOKS[WIDE_STEEP]["SPY"]  # SPY sleeve redirected
 
 
 def test_cap_violations_is_empty_over_a_run_and_names_what_breaks() -> None:
@@ -192,7 +212,7 @@ def test_cap_violations_is_empty_over_a_run_and_names_what_breaks() -> None:
     # concentration the trend-haven exemption exists for.
     run = market_signal.MarketSignalRun(
         nav=pd.Series([100.0, 90.0], index=idx),
-        targets={idx[0]: {"IEF": 90.0, "IWN": 10.0}, idx[1]: dict(market_signal.BOOKS[WIDE])},
+        targets={idx[0]: {"IEF": 90.0, "IWN": 10.0}, idx[1]: dict(market_signal.BOOKS[WIDE_STEEP])},
         turnover=1.0,
     )
     assert market_signal.cap_violations(run, caps, -0.238) == []
@@ -218,7 +238,7 @@ def test_the_overlay_checks_the_haven_it_redirects_into() -> None:
     A rule that flees a falling asset into a falling asset is not a drawdown
     control — in Feb 2022 it moved 40% into IEF while IEF was below its own 200d
     line, in the worst bond tape of the 35-year sample."""
-    book = market_signal.BOOKS["credit-spread-wide"]  # SPY 50 / IWN 40 / GLD 10
+    book = market_signal.BOOKS[WIDE_STEEP]  # SPY 50 / IWN 40 / GLD 10
 
     # haven healthy: the classic redirect, everything lands in IEF
     healthy = market_signal.apply_trend_overlay(book, frozenset({"SPY", "IWN", "GLD"}))
@@ -235,14 +255,14 @@ def test_a_book_holding_the_haven_moves_it_too_when_it_fails_the_test() -> None:
     leaving an existing haven sleeve untouched would judge one asset two ways in
     the same decision."""
     # VCIT 50 / IEF 40 / IWN 10
-    steep = market_signal.BOOKS["credit-spread-tight-yield-curve-steep"]
+    steep = market_signal.BOOKS[TIGHT_STEEP]
     out = market_signal.apply_trend_overlay(steep, frozenset({"IWN", market_signal.TREND_HAVEN}))
     assert out[market_signal.TREND_FALLBACK_HAVEN] == pytest.approx(50.0)  # IEF 40 + IWN 10
     assert out["VCIT"] == pytest.approx(50.0)
 
 
 def test_every_risky_sleeve_is_trend_checked() -> None:
-    """IWN was 40% of the credit-spread-wide book and outside the overlay — a
+    """IWN was 40% of the wide book and outside the overlay — a
     rule premised on impaired credit holding maximum exposure to the most
     credit-sensitive equity sleeve there is. Found in both M8b runs, five times."""
     assert set(market_signal.TREND_SLEEVES) >= {"SPY", "GLD", "IWN"}
@@ -319,9 +339,9 @@ def test_the_spread_trajectory_knobs_are_on_at_the_measured_value() -> None:
 
     # A warm-up with no speed yet must never veto: the rule falls back to the
     # level read it has always used.
-    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE_FLAT
     # Wide and calm -> still the risk-on book, exactly as before the knobs.
-    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.05) == WIDE
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.05) == WIDE_FLAT
     # Wide and still widening fast -> deferred to the curve branch.
     assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
 
@@ -347,13 +367,13 @@ def test_the_spread_speed_veto_defers_the_risk_on_book_it_does_not_hasten_it(
     # Wide level, widening FAST -> deferred to the curve branch.
     assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
     # Wide level, stabilised -> the risk-on book, as the rule always did.
-    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.05) == WIDE
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, 0.05) == WIDE_FLAT
     # Wide and TIGHTENING -> equally the risk-on book: the veto is one-sided.
-    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, -0.50) == WIDE
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, -0.50) == WIDE_FLAT
     # A tight level is untouched by the veto — it only ever defers a WIDE read.
     assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.30) == TIGHT_FLAT
     # Warm-up: no speed yet, so no veto and no crash.
-    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 1.0, None) == WIDE_FLAT
 
 
 def test_the_wide_trigger_enters_on_speed_and_is_off_by_default(
@@ -373,7 +393,7 @@ def test_the_wide_trigger_enters_on_speed_and_is_off_by_default(
 
     monkeypatch.setattr(market_signal, "SPREAD_SPEED_WIDE_TRIGGER", 0.20)
     # Tight level, widening fast -> the risk-on book, entered on speed alone.
-    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.30) == WIDE
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.30) == WIDE_FLAT
     # Tight and calm -> untouched.
     assert market_signal.classify_regime(1.0, 2.0, 0.5, 1.0, 0.05) == TIGHT_FLAT
     # Warm-up with no speed yet never triggers.
@@ -416,7 +436,7 @@ def test_the_sleeve_gate_empties_equity_on_credit_stress_and_says_why(
     monkeypatch.setattr(market_signal, "SPREAD_STRESS_SLEEVE_GATE", None)
     monkeypatch.setattr(market_signal, "SPREAD_SPEED_VETO", None)
     off = market_signal.walk_decisions(**frame)[0]
-    assert off.target == market_signal.BOOKS[WIDE]  # price says hold everything
+    assert off.target == market_signal.BOOKS[WIDE_STEEP]  # price says hold everything
 
     # The gate alone, with the veto held off: the two are separable hypotheses
     # and this test is about the sleeves, not about which book was selected.
@@ -455,7 +475,7 @@ def test_the_gate_is_idle_when_the_spread_is_wide_but_calm(
         },
         spread_speed=pd.Series([-0.10], index=idx),  # wide, but tightening
     )[0]
-    assert decision.target == market_signal.BOOKS[WIDE]
+    assert decision.target == market_signal.BOOKS[WIDE_STEEP]
 
 
 def test_describe_rule_states_every_active_knob() -> None:
@@ -589,3 +609,96 @@ def test_the_stress_gate_reaches_sleeves_the_200d_does_not_check(
         spread_speed=pd.Series([1.43], index=idx),
     )[0]
     assert ungated.target["VCIT"] == 50.0
+
+
+# -- the control arm (2026-08-13) -------------------------------------------
+#
+# WHY THESE EXIST. The stack was only ever measured against a PASSIVE benchmark
+# (All Weather, +3.80pp/yr — the number ADR-007 was signed on), never against
+# the same trend overlay on a book that does not rotate. When that arm was
+# finally built, the signal layer's whole marginal contribution turned out to be
+# +0.24pp of CAGR and +0.20 of Sortino against the overlay's 30 points of
+# drawdown (docs/V1_STRATEGY.md "The attribution"). These pin the control's
+# defining property: it runs the overlay and NOTHING of the signal.
+
+
+def _flat_frame(n: int) -> tuple[pd.DatetimeIndex, dict, dict]:
+    """`n` monthly dates with every instrument well above its moving average."""
+    idx = pd.to_datetime([f"2020-{m:02d}-03" for m in range(1, 1 + n)])
+    tickers = ("SPY", "IWN", "GLD", "VCIT", "IEF")
+    mas = {t: pd.Series([100.0] * n, index=idx) for t in tickers}
+    prices = {t: pd.Series([200.0] * n, index=idx) for t in tickers}
+    return idx, mas, prices
+
+
+def test_the_control_arm_freezes_its_book_and_emits_only_on_change() -> None:
+    """Above trend throughout: one target, and it IS the frozen book. The stack
+    would have re-classified on every date; the control has nothing to classify
+    with, which is the experiment."""
+    idx, mas, prices = _flat_frame(3)
+    targets = market_signal.trend_baseline_targets(idx, mas, prices)
+    assert list(targets) == [idx[0]]
+    assert targets[idx[0]] == market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK]
+
+
+def test_the_control_arm_takes_no_credit_input_at_all() -> None:
+    """THE PROPERTY UNDER TEST, asserted on the signature rather than on an
+    output: a control that could read the spread would not be a control. The
+    stack's three signal entry points — `classify_regime`, `advance_hysteresis`
+    and the stress gate — all need a spread or a slope, and none of them can be
+    reached from a function that is never handed one."""
+    import inspect
+
+    accepted = set(inspect.signature(market_signal.trend_baseline_targets).parameters)
+    assert accepted == {"dates", "moving_averages", "prices", "book"}
+
+
+def test_the_control_arm_runs_the_same_overlay_and_the_same_haven_chain() -> None:
+    """It must react to price exactly as the stack does — same redirect, same
+    IEF-then-cash fallback — or the attribution would be measuring two different
+    overlays and crediting the difference to the signal."""
+    idx, mas, prices = _flat_frame(1)
+    prices["SPY"] = pd.Series([50.0], index=idx)  # SPY alone below its line
+    targets = market_signal.trend_baseline_targets(idx, mas, prices)
+    book = market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK]
+    assert targets[idx[0]][market_signal.TREND_HAVEN] == book["SPY"]
+
+    # ...and when the haven is itself below trend, the destination is cash —
+    # the 2026-08-07 symmetry fix, which the control inherits by construction
+    # because it calls `apply_trend_overlay` rather than reimplementing it.
+    for ticker in ("SPY", "GLD", "IWN", "IEF"):
+        prices[ticker] = pd.Series([50.0], index=idx)
+    fled = market_signal.trend_baseline_targets(idx, mas, prices)
+    assert fled[idx[0]] == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
+
+
+def test_the_frozen_book_is_one_of_the_books_the_signal_chooses_between() -> None:
+    """Measured, not picked: `credit-spread-tight-yield-curve-flat` is the book
+    the signal itself holds 197 of 418 monthly decisions (47.1%). A control that
+    froze a book the strategy never holds would answer a question nobody asked."""
+    assert market_signal.TREND_BASELINE_BOOK in market_signal.BOOKS
+
+
+def test_the_control_arm_is_seeded_and_declared_time_varying() -> None:
+    """The id lives in two files that must agree — `market_signal` names it,
+    `seed_data` seeds it — and nothing imports across, because seed_data cannot
+    import market_signal without a cycle (replay already imports seed_data).
+    So it is pinned here, the same technique `EQUITY_SLEEVES` uses against the
+    ticker catalog.
+
+    TIME_VARYING matters as much as the row: the book is frozen but the OVERLAY
+    still rewrites it monthly, so `backfill_nav`'s constant weights would price
+    a portfolio nobody holds — and membership is also what gives the control
+    ADR-011's gate 0, so the Worker cannot retarget it."""
+    from investment.db.seed_data import PORTFOLIOS, TIME_VARYING_PORTFOLIOS
+
+    seeded = {p["id"]: p for p in PORTFOLIOS}
+    assert market_signal.TREND_BASELINE_PORTFOLIO_ID in seeded
+    assert market_signal.TREND_BASELINE_PORTFOLIO_ID in TIME_VARYING_PORTFOLIOS
+    row = seeded[market_signal.TREND_BASELINE_PORTFOLIO_ID]
+    assert row["enabled"] and not row["defender"]
+    # The seeded allocation is the frozen book, or the ranking would describe
+    # the control as holding something it never holds.
+    assert row["allocation"] == {
+        t: int(w) for t, w in market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK].items()
+    }

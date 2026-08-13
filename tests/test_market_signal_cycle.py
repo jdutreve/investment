@@ -31,7 +31,11 @@ from investment.writeback import writeback as W
 
 USER = {"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0}
 
-WIDE = "credit-spread-wide"
+# The fixture's slope sits at its own trailing median throughout, and
+# `slope >= median` reads STEEP — so the wide state this file exercises is
+# wide-STEEP since the 2x2 split of 2026-08-13. Named in full rather than left
+# as `WIDE_STEEP`, which stopped identifying one book on that date.
+WIDE_STEEP = "credit-spread-wide-yield-curve-steep"
 TIGHT_STEEP = "credit-spread-tight-yield-curve-steep"
 
 # The books hold these five; the 200d MA needs 200 prints and the trailing
@@ -42,8 +46,8 @@ START = date(2024, 1, 1)
 
 def _decision(
     *,
-    held: str = WIDE,
-    signalled: str = WIDE,
+    held: str = WIDE_STEEP,
+    signalled: str = WIDE_STEEP,
     target: dict[str, float] | None = None,
     below: tuple[str, ...] = (),
     pending: str | None = None,
@@ -167,7 +171,7 @@ async def _market(
     so the trailing median equals the value; the classifier's comparison is
     strict (`>`), so a flat spread reads TIGHT and the slope decides the book.
     `spread_wide` ramps the spread instead — a monotonic rise sits above its own
-    trailing median at every point, which is the WIDE state (and the only book
+    trailing median at every point, which is the WIDE_STEEP state (and the only book
     holding SPY, hence the only one the 200d overlay can act on)."""
     rising = [100.0 + i * 0.1 for i in range(DAYS)]
     # A sleeve that rises then falls hard ends BELOW its own 200d MA.
@@ -196,22 +200,22 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 
 
 def test_advance_hysteresis_first_decision_commits_immediately() -> None:
-    assert MS.advance_hysteresis(None, None, 0, WIDE) == (WIDE, None, 0)
+    assert MS.advance_hysteresis(None, None, 0, WIDE_STEEP) == (WIDE_STEEP, None, 0)
 
 
 def test_advance_hysteresis_holds_until_confirmed() -> None:
-    held, pending, count = WIDE, None, 0
+    held, pending, count = WIDE_STEEP, None, 0
     for expected in range(1, MS.CONFIRM_DECISIONS):
         held, pending, count = MS.advance_hysteresis(held, pending, count, TIGHT_STEEP)
-        assert (held, pending, count) == (WIDE, TIGHT_STEEP, expected)
+        assert (held, pending, count) == (WIDE_STEEP, TIGHT_STEEP, expected)
     held, pending, count = MS.advance_hysteresis(held, pending, count, TIGHT_STEEP)
     assert (held, pending, count) == (TIGHT_STEEP, None, 0)
 
 
 def test_advance_hysteresis_flicker_resets_the_count() -> None:
     # A candidate that flickers back to the held book abandons its progress.
-    held, pending, count = MS.advance_hysteresis(WIDE, TIGHT_STEEP, 2, WIDE)
-    assert (held, pending, count) == (WIDE, None, 0)
+    held, pending, count = MS.advance_hysteresis(WIDE_STEEP, TIGHT_STEEP, 2, WIDE_STEEP)
+    assert (held, pending, count) == (WIDE_STEEP, None, 0)
 
 
 def test_build_targets_is_a_projection_of_the_walk() -> None:
@@ -286,16 +290,14 @@ def test_no_reachable_book_state_can_be_refused() -> None:
         assert W.market_signal_gates(target, {}, caps, allowed).passed, (book, below)
 
     # ...but a DEACTIVATED ticker does trip them, which is what they are for.
-    assert not W.market_signal_gates(
-        dict(MS.BOOKS["credit-spread-wide"]), {}, caps, allowed - {"IWN"}
-    ).passed
+    assert not W.market_signal_gates(dict(MS.BOOKS[WIDE_STEEP]), {}, caps, allowed - {"IWN"}).passed
 
 
 def test_turnover_and_min_change_do_not_bind_a_book_switch() -> None:
     """The reallocation-blend knobs would block the strategy outright: the books
     barely overlap, so a switch is a ~90-100% turnover move against a 30% cap."""
     caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
-    wide, steep = MS.BOOKS[WIDE], MS.BOOKS[TIGHT_STEEP]
+    wide, steep = MS.BOOKS[WIDE_STEEP], MS.BOOKS[TIGHT_STEEP]
     from investment.mechanical.gates import turnover_pct
 
     assert turnover_pct(wide, steep) > 30.0  # would fail the realloc gate
@@ -308,7 +310,7 @@ async def test_an_absent_signal_series_refuses_the_run_instead_of_defaulting(
 ) -> None:
     """The silent failure the sleeve guard already covers, on the two inputs that
     PICK the book. With no `BAA10Y` rows the median is NaN, `classify_regime`
-    treats that as warm-up and answers `credit-spread-wide` — the 90%-equity book
+    treats that as warm-up and answers a WIDE_STEEP state — the equity-tilted book
     — so a dead FRED feed would have quietly allocated the most aggressive book
     on no signal at all, and `knowable_at: None` reads identically to a genuine
     warm-up. The live cycle has no pre-check of its own (the seed's
@@ -381,7 +383,7 @@ async def test_the_stack_row_tracks_the_last_emitted_proposal(db: InvestmentDB) 
         "(:id, 'S', 'market-signal', 0, 1, 'CHF', 'b', :alloc, -25.0, 50.0, 'accumulation', 't', "
         "'2026-01-01')",
         id=MS.STACK_PORTFOLIO_ID,
-        alloc=json.dumps(MS.BOOKS[WIDE]),  # the seeded initial value
+        alloc=json.dumps(MS.BOOKS[WIDE_STEEP]),  # the seeded initial value
     )
     await _market(db, spread=1.0, slope=2.0)
 
@@ -393,7 +395,7 @@ async def test_the_stack_row_tracks_the_last_emitted_proposal(db: InvestmentDB) 
 
     # Before the opening entry: the row says a book, the decision says nothing
     # held — and that gap is what makes the opening proposal happen at all.
-    assert await stack_row() == MS.BOOKS[WIDE]
+    assert await stack_row() == MS.BOOKS[WIDE_STEEP]
     assert await MSC.held_allocation(db) == {}
 
     result = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
@@ -410,7 +412,7 @@ async def test_proposal_records_the_full_audit_record(db: InvestmentDB) -> None:
     await _market(db, spread=1.0, slope=2.0, spy_trend="down", spread_wide=True)
     result = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
     assert result.emitted
-    assert result.decision is not None and result.decision.held == WIDE
+    assert result.decision is not None and result.decision.held == WIDE_STEEP
 
     row = (await db.query("SELECT * FROM proposal"))[0]
     context = json.loads(str(row["market_context"]))
@@ -518,7 +520,7 @@ async def test_emit_is_keyed_on_what_is_held_not_on_the_walk(db: InvestmentDB) -
     walk reports "no change". Keying the emit on the HELD allocation re-proposes
     what the blocked decision could not."""
     held = dict(MS.BOOKS[TIGHT_STEEP])
-    decision = _decision(held=WIDE)  # target is the WIDE book, held is the steep one
+    decision = _decision(held=WIDE_STEEP)  # target is the WIDE_STEEP book, held is the steep one
     outcome, proposal_id = await W.dispose_market_signal(
         db,
         decision,
@@ -532,8 +534,8 @@ async def test_emit_is_keyed_on_what_is_held_not_on_the_walk(db: InvestmentDB) -
     # ...and a decision that lands on exactly what is held emits nothing.
     outcome, proposal_id = await W.dispose_market_signal(
         db,
-        _decision(held=WIDE),
-        dict(MS.BOOKS[WIDE]),
+        _decision(held=WIDE_STEEP),
+        dict(MS.BOOKS[WIDE_STEEP]),
         {"decision_date": "2026-09-01"},
         USER,
         today=date(2026, 9, 1),
@@ -559,7 +561,7 @@ async def test_decision_then_digest_through_the_chain_runner(db: InvestmentDB) -
 
     text = rendered["text"]
     assert "🧭 Market-signal decision (paper-test)" in text
-    assert "credit-spread-wide" in text
+    assert WIDE_STEEP in text
     assert f"{MS.CREDIT_SPREAD} " in text and "vs 10y median" in text
     assert "knowable 2025-11-01" in text
     # The WINDOW comes from the constant, not from a literal: this line asserted
@@ -624,7 +626,7 @@ async def test_a_blocked_decision_is_loud_in_the_digest(db: InvestmentDB) -> Non
         db,
         _decision(target={"SPY": 60.0, "IWN": 40.0}),  # 60 breaches the 50 cap
         {},
-        {"decision_date": "2026-08-03", "held_book": WIDE},
+        {"decision_date": "2026-08-03", "held_book": WIDE_STEEP},
         USER,
         today=date(2026, 8, 3),
     )
@@ -633,7 +635,7 @@ async def test_a_blocked_decision_is_loud_in_the_digest(db: InvestmentDB) -> Non
     assert "FROZEN in its previous book, not in the one named above" in text
     # ...and the header must not present that book as a POSITION: the move
     # never happened, so it is a target, not what is held.
-    assert f"target book {WIDE}" in text
+    assert f"target book {WIDE_STEEP}" in text
 
 
 # -- the outcome end: scored against what was HELD ---------------------------

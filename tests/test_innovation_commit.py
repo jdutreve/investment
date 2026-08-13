@@ -237,7 +237,7 @@ def _revision(parameters: dict[str, object]) -> ImprovementProposal:
 
 def _measurement(sortino_delta: float, drawdown_delta: float) -> rule_revision.RevisionMeasurement:
     """A measurement with the two deltas the acceptance test reads. Built from
-    NavMetrics rather than stubbed, so `adopt` is computed by the real property."""
+    NavMetrics rather than stubbed, so `verdict` is computed by the real property."""
     base = NavMetrics(cagr=0.10, sortino=1.0, calmar=0.5, max_drawdown=-0.20)
     return rule_revision.RevisionMeasurement(
         overrides={"ma_window_days": 100},
@@ -268,22 +268,66 @@ async def test_a_measured_bad_rule_revision_is_CLOSED_not_left_to_rot(
     """The failure this repairs: a rule revision changes CONSTANTS, so
     `_base_allocation` finds no book, no candidate portfolio is born, no NAV
     exists, and probation closes it months later as 'never had evidence' — while
-    the evidence was one second of walking away."""
+    the evidence was one second of walking away.
+
+    BOTH indicators degrade here. Until 2026-08-13 this test used a revision
+    that improved the drawdown and paid for it in Sortino, which is a TRADE-OFF
+    and no longer closes anything — see the test below, which took that case."""
     await _framework(db)
 
     async def _measured(_db: object, _o: object) -> rule_revision.RevisionMeasurement:
-        return _measurement(-0.07, +0.025)
+        return _measurement(-0.07, -0.025)
 
     monkeypatch.setattr(writeback, "measure_revision", _measured)
     result = PostPlannerResult(innovations=[_revision({"ma_window_days": 100})])
     assert await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None) == 1
 
     row = (await db.query("SELECT status, enabled, trace FROM strategy WHERE id='strat-rev'"))[0]
-    assert row["status"] == "closed"  # drawdown improved but Sortino paid for it
+    assert row["status"] == "closed"  # nothing improved and two things got worse
     assert row["enabled"] == 0
-    assert "-0.070" in row["trace"] and "+2.50pp" in row["trace"]  # the numbers, not a verdict word
+    assert "-0.070" in row["trace"] and "-2.50pp" in row["trace"]  # the numbers, not a verdict word
     ev = await db.query("SELECT payload FROM event_log WHERE type='RuleRevisionMeasuredEvent'")
     assert json.loads(ev[0]["payload"])["verdict"] == "reject"
+
+
+async def test_a_measured_TRADE_OFF_stays_open_and_carries_its_exchange(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE FOURTH VERDICT (owner decision, 2026-08-13).
+
+    -0.07 of Sortino for +2.5pp of drawdown is the `ma_window_days=125` shape —
+    the largest safety gain ever measured on this stack, refused by Pareto and,
+    until now, CLOSED under the same word as a revision that made everything
+    worse. The owner never saw it.
+
+    Three things must hold, and the third is the one that makes the other two
+    worth anything: the verdict names the case, the strategy stays OPEN, and the
+    exchange travels in the payload so `alerts.rule_tradeoff_alert` can render
+    it into the digest without re-running a 35-year walk.
+
+    It still adopts nothing. Rule #1 is intact — the constant is a git edit and
+    an owner signature (ADR-006/ADR-007)."""
+    await _framework(db)
+
+    async def _measured(_db: object, _o: object) -> rule_revision.RevisionMeasurement:
+        return _measurement(-0.07, +0.025)
+
+    monkeypatch.setattr(writeback, "measure_revision", _measured)
+    result = PostPlannerResult(innovations=[_revision({"ma_window_days": 125})])
+    assert await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None) == 1
+
+    row = (await db.query("SELECT status, trace FROM strategy WHERE id='strat-rev'"))[0]
+    assert row["status"] == "proposed"  # NOT closed — the machine declines to decide
+    assert "rejected" not in row["trace"]
+
+    payload = json.loads(
+        (await db.query("SELECT payload FROM event_log WHERE type='RuleRevisionMeasuredEvent'"))[0][
+            "payload"
+        ]
+    )
+    assert payload["verdict"] == "trade-off"
+    assert "max_drawdown" in payload["traded"] and "sortino" in payload["traded"]
+    assert payload["traded"].index("buys") < payload["traded"].index("costs")
 
 
 async def test_a_measured_GOOD_revision_stays_proposed_because_the_gate_is_git(

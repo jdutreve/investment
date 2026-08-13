@@ -1598,7 +1598,7 @@ PORTFOLIOS: list[dict[str, object]] = [
         # human- and LLM-facing surface (name, trace, and the decision keys in
         # mechanical/market_signal.py BOOKS) is renamed.
         "id": "ms-growth-book",
-        "name": "Market-Signal Book — Credit Spread Wide",
+        "name": "Market-Signal Book — Credit Spread Wide, Yield Curve Steep",
         "framework_id": "market-signal",
         "defender": False,
         "enabled": False,
@@ -1609,12 +1609,44 @@ PORTFOLIOS: list[dict[str, object]] = [
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
-        "trace": "Market-signal 'credit-spread-wide' book (credit spread WIDE vs its 10y "
-        "median — stress is priced, so the countercyclical response is to buy "
-        "risk); also the warm-up default before 10y of signal history. ADR-007; "
+        "trace": "Market-signal 'credit-spread-wide-yield-curve-steep' book (credit spread "
+        "WIDE vs its 10y median — stress is priced, so the countercyclical response "
+        "is to buy risk — with the slope STEEP). Held both wide curve states until "
+        "the 2x2 split of 2026-08-13, which left this allocation untouched because "
+        "its state's sleeve ranking inverts between the halves of the sample. ADR-007; "
         "renamed from 'growth' by the 2026-07-20 addendum (docs/IMPROVEMENTS.md "
         "I-39: the signal is orthogonal to CPI, the old name asserted a macro "
         "reading the book does not have).",
+    },
+    {
+        # THE FOURTH BOOK, 2026-08-13. The wide branch used to ignore the slope,
+        # so `ms-growth-book` above served both curve states; the 2x2 split them
+        # and this row is the half that took a NEW allocation. A new vertex
+        # rather than a redefinition of ms-growth-book, for the reason that row
+        # states at length: its id is in committed EventLog payloads, and what a
+        # committed id points at must not change under it.
+        #
+        # IWN 50 / SPY 50 is the one book change the two halves of the sample
+        # agree on — IWN ranks first in both, SPY second in both, and GLD is
+        # negative in both, which the old SPY 50 / IWN 40 / GLD 10 contradicted
+        # three times over (mechanical/market_signal.py BOOKS carries the table).
+        "id": "ms-wide-flat-book",
+        "name": "Market-Signal Book — Credit Spread Wide, Yield Curve Flat",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": False,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {"IWN": 50, "SPY": 50},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "Market-signal 'credit-spread-wide-yield-curve-flat' book (spread "
+        "WIDE, slope FLAT vs their 10y medians) — also the warm-up default before "
+        "10y of signal history. Created by the 2x2 split of 2026-08-13: the wide "
+        "branch had never consulted the slope, and the two states it merged rank "
+        "the sleeves in opposite orders out of sample.",
     },
     {
         "id": "ms-inflation-book",  # frozen id — see ms-growth-book above
@@ -1704,13 +1736,56 @@ PORTFOLIOS: list[dict[str, object]] = [
         "held as written, so only this row carries the strategy's realized "
         "drawdown, which is what the -25% cap binds.",
     },
+    {
+        # THE STACK'S CONTROL ARM, seeded 2026-08-13 — the opponent ADR-007 never
+        # had. The pivot was signed on +3.80pp/yr against All Weather, a PASSIVE
+        # portfolio; the attribution measured on 2026-08-13 asked the harder
+        # question — the same 300d overlay on a book that never rotates — and the
+        # signal's whole marginal contribution turned out to be +0.24pp of CAGR
+        # and +0.20 of Sortino, against the overlay's 30 points of drawdown
+        # (docs/V1_STRATEGY.md "The attribution").
+        #
+        # It is seeded rather than computed on demand for the reason ms-stack is:
+        # the ranking, the digest and the 36M drawdown all read `portfolio_nav`,
+        # so a control with no row is a control nobody looks at. `allocation` is
+        # the book it freezes (market_signal.TREND_BASELINE_BOOK, the one the
+        # signal itself holds 47.1% of the time) and, exactly like ms-stack, is
+        # only the INITIAL value — the overlay rewrites it every month, which is
+        # why this id joins TIME_VARYING_PORTFOLIOS below.
+        "id": "ms-trend-baseline",
+        "name": "Trend Baseline (control arm, no credit signal)",
+        "framework_id": "market-signal",
+        "defender": False,
+        "enabled": True,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 50, "GLD": 40, "IWN": 10},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 50.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "The market-signal stack with its SIGNAL LAYER REMOVED: the "
+        "credit-spread-tight-yield-curve-flat book frozen, the same 300d trend "
+        "overlay and IEF/cash haven chain, the same ADR-010 cost rate. It exists "
+        "to answer whether the credit/slope read earns its complexity — measured "
+        "2026-08-13, it earns +0.24pp CAGR and +0.20 Sortino, not the +3.80 the "
+        "pivot was signed on against a passive benchmark.",
+    },
 ]
 
 # Portfolios whose allocation VARIES over time, so their NAV cannot be built by
 # `ratios.backfill_nav` (constant weights) and they are not comparable to a
 # static book inside the replay's challenger search. Named once here; the seed
 # and the replay both read this rather than hard-coding the id.
-TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack"})
+#
+# `ms-trend-baseline` joined on 2026-08-13 and belongs here for the identical
+# reason, which is worth stating because its allocation LOOKS static: the book
+# is frozen but the overlay still rewrites it every month, so its NAV comes from
+# `shadow_book_nav` too and `backfill_nav`'s constant weights would price a
+# portfolio nobody holds. It also inherits ADR-011's gate 0 by being here — the
+# Worker cannot retarget a mechanically-driven control arm, which is the whole
+# point of a control.
+TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-baseline"})
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("4s-balanced-defender", "four-seasons-rp", True),
@@ -1728,8 +1803,13 @@ HOLDS_EDGES: list[tuple[str, str, bool]] = [
     # thing the strategy actually is.
     ("ms-stack", "market-signal-stack", True),
     ("ms-growth-book", "market-signal-stack", False),
+    ("ms-wide-flat-book", "market-signal-stack", False),
     ("ms-inflation-book", "market-signal-stack", False),
     ("ms-slowdown-book", "market-signal-stack", False),
+    # NOT primary, and deliberately attached to the same strategy: the control
+    # arm is what that strategy must beat, so it belongs in its graph rather
+    # than floating loose. `_primary_portfolio_id` still resolves to ms-stack.
+    ("ms-trend-baseline", "market-signal-stack", False),
 ]
 
 DESIGNED_FOR_EDGES: list[tuple[str, str, str]] = [

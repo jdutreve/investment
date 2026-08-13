@@ -80,8 +80,11 @@ from investment.mechanical.market_signal import (
     Decision,
     DriftCheck,
     check_drift,
+    load_series,
     persist_stack_nav,
+    persist_trend_baseline_nav,
     run_market_signal,
+    run_trend_baseline,
     stack_metrics,
 )
 from investment.writeback.writeback import (
@@ -372,7 +375,16 @@ async def run_market_signal_cycle(
         logger.info("market-signal cycle skipped: %s is disabled by the owner", STRATEGY_ID)
         return MarketSignalCycleResult(None, {}, None, None, f"{STRATEGY_ID} is disabled")
 
-    run = await run_market_signal(db, start=HISTORY_START, end=today, cost_bps=cost_bps)
+    # ONE load, both arms. `load_series` reads the calendar, the risk-free curve
+    # and every price and moving average exactly once, and hands the SAME frames
+    # to the stack and to its control — so a difference between the two can never
+    # be an artefact of one of them having loaded a slightly different world
+    # (`replay._book_calendar`: "both arms share it, so A - B can never be an
+    # artefact of a calendar difference").
+    series = await load_series(db)
+    run = await run_market_signal(
+        db, start=HISTORY_START, end=today, cost_bps=cost_bps, series=series
+    )
     if not run.decisions:
         return MarketSignalCycleResult(None, {}, None, None, "no decision date in the window")
 
@@ -383,6 +395,20 @@ async def run_market_signal_cycle(
     # would leave it untouched on the ~3 weekly runs a month that decide nothing, so
     # the alert built to catch stale data would itself have gone stale.
     await persist_stack_nav(db, run, window)
+    # THE CONTROL ARM, refreshed on exactly the same weekly footing and for the
+    # same reason (2026-08-13). It is the strategy minus its signal layer, and it
+    # is priced here rather than in a study so the ranking compares the two every
+    # week without anyone remembering to: the attribution that motivated it found
+    # the signal worth +0.24pp of CAGR against this arm, so whether that margin
+    # survives forward is THE question paper-mode has to answer, and a question
+    # measured once in August 2026 is not one paper-mode can answer at all.
+    await persist_trend_baseline_nav(
+        db,
+        await run_trend_baseline(
+            db, start=HISTORY_START, end=today, cost_bps=cost_bps, series=series
+        ),
+        window,
+    )
     # The anti-drift check, on the SAME weekly footing and BEFORE the monthly
     # early return, for the same reason the NAV refresh is: the question "does
     # the wired stack still reproduce the pair it was signed on" has nothing to

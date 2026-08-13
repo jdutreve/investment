@@ -23,6 +23,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.mechanical import alerts as A
 from investment.mechanical import market_signal as MS
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS
+from investment.writeback import writeback as W
 
 TODAY = date(2026, 8, 3)
 
@@ -352,3 +353,66 @@ async def test_a_healthy_db_collects_nothing(db: InvestmentDB) -> None:
     await _decision_event(db, TODAY - timedelta(days=5))
     await _drift_event(db)
     assert await A.collect_alerts(db, TODAY) == []
+
+
+# -- the fourth verdict, surfaced ------------------------------------------
+
+
+async def _measurement_event(db: InvestmentDB, verdict: str, traded: str | None = None) -> None:
+    async with db.transaction():
+        await db.append_event(
+            type=W.RULE_MEASUREMENT_EVENT,
+            source_uc="UC8",
+            source_id="strat-rev",
+            payload={
+                "title": "shorten the trend window",
+                "overrides": {"ma_window_days": 125},
+                "verdict": verdict,
+                "traded": traded,
+            },
+            event_date=TODAY,
+        )
+
+
+async def test_no_measurement_yet_says_nothing(db: InvestmentDB) -> None:
+    assert await A.rule_tradeoff_alert(db) is None
+
+
+async def test_an_adopted_or_rejected_measurement_says_nothing(db: InvestmentDB) -> None:
+    """Only the verdict the machine WILL NOT decide needs a human. An adopt is
+    already recorded and a reject already closed its strategy; repeating either
+    in the digest is how a line stops being read."""
+    await _measurement_event(db, "adopt")
+    assert await A.rule_tradeoff_alert(db) is None
+    await _measurement_event(db, "reject")
+    assert await A.rule_tradeoff_alert(db) is None
+
+
+async def test_a_trade_off_reaches_the_owner_with_its_exchange(db: InvestmentDB) -> None:
+    """The case that forced the fourth verdict: `ma_window_days=125` buys 2.75pp
+    of max drawdown for 0.94% of Sortino — the largest safety gain ever measured
+    on this stack — and Pareto refuses it. Before 2026-08-13 that refusal was
+    indistinguishable from "this made everything worse" and never left the log.
+
+    The message must carry the EXCHANGE, not just the word: an owner deciding
+    from the digest needs the terms, and the whole point is that they decide."""
+    await _measurement_event(
+        db, "trade-off", traded="buys max_drawdown +0.028 — costs sortino -0.011"
+    )
+    alert = await A.rule_tradeoff_alert(db)
+    assert alert is not None
+    assert alert.level == "warn"  # nothing is broken and nothing is blocked
+    assert alert.code == "rule_tradeoff"
+    assert "max_drawdown +0.028" in alert.message and "sortino -0.011" in alert.message
+    assert "ma_window_days" in alert.message
+
+
+async def test_only_the_LATEST_measurement_is_raised(db: InvestmentDB) -> None:
+    """A trade-off from two months ago has been decided or declined. Re-raising
+    it every Sunday until someone acts is the failure mode `stack_drawdown_alert`
+    documents from the other side."""
+    await _measurement_event(
+        db, "trade-off", traded="buys max_drawdown +0.028 — costs sortino -0.011"
+    )
+    await _measurement_event(db, "adopt")
+    assert await A.rule_tradeoff_alert(db) is None

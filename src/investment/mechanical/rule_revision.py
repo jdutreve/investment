@@ -33,13 +33,19 @@ import json
 import math
 from collections.abc import Mapping
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import market_signal
 from investment.mechanical.replay import NavMetrics
+
+# The four answers a measurement can give. A Literal rather than a bare str so
+# a caller that maps over them (`writeback`, `render`, the digest alert) fails
+# type-checking when a fifth arrives, instead of silently falling through the
+# `else` branch the way the True/False/None mapping did.
+Verdict = Literal["adopt", "trade-off", "reject", "unmeasurable"]
 
 # The knobs a revision may move and still be measured mechanically. Name ->
 # (module attribute, coercer). Anything outside this set needs code, and
@@ -286,10 +292,38 @@ class RevisionMeasurement:
         return {k: float(var[k]) - float(base[k]) for k in base}  # type: ignore[arg-type]  # guarded
 
     @property
-    def adopt(self) -> bool | None:
-        """PARETO: adopt iff at least one indicator improves and NONE degrades.
-        `None` when an indicator is missing on either arm — the honest answer,
-        not a False that reads as a refusal.
+    def verdict(self) -> Verdict:
+        """PARETO, with the ARBITRATION case named — four answers, not three.
+
+        WHY THE FOURTH EXISTS (owner decision, 2026-08-13). Pareto refuses
+        anything that degrades an indicator, which is right and stays right. But
+        it gave `reject` to two completely different things: a revision that
+        makes everything worse, and a revision that buys a large gain with a
+        small loss. The owner never saw the second kind, because the word was
+        the same and the strategy was closed either way.
+
+        The case that forced it is measured and sitting in docs/V1_STRATEGY.md:
+        `ma_window_days=125` improves the max drawdown by 2.75pp — from -20.61%
+        to -17.86%, the largest safety gain ever measured on this stack — and
+        gives up 0.94% of Sortino. Refused, silently, by both the original
+        acceptance test and by Pareto. No rule in this system could adopt it,
+        and no rule could even REPORT it, so the one change that would have
+        bought real safety looked exactly like a bad idea.
+
+        So:
+          adopt        at least one improves, NONE degrades — unchanged, and
+                       still the only verdict that acts on its own;
+          trade-off    at least one improves AND at least one degrades — the
+                       machine measured it and will not decide it;
+          reject       nothing improves and something degrades;
+          unmeasurable an indicator is missing on either arm.
+
+        RULE #1 IS INTACT. `trade-off` adopts nothing and changes no constant —
+        it is strictly a widening of what the system can SAY. The exchange rate
+        between drawdown and Sortino is not defined here and deliberately never
+        will be: choosing that number after seeing the cases is calibrating to
+        an outcome, which is exactly the reasoning that refused a 1% noise band
+        (see NOISE_REL_TOL). An arbitration belongs to the owner, stated as one.
 
         THE TEST USED TO BE "Sortino not degraded AND max drawdown improved",
         which the proposing Worker wrote and which the 2026-08-07 pair was
@@ -313,11 +347,26 @@ class RevisionMeasurement:
         decision 2026-08-09)."""
         base, var = self.baseline.as_map(), self.variant.as_map()
         if any(base[k] is None or var[k] is None for k in base):
-            return None
+            return "unmeasurable"
         directions = [_direction(float(base[k]), float(var[k])) for k in base]  # type: ignore[arg-type]  # guarded
-        if any(d < 0 for d in directions):
-            return False
-        return any(d > 0 for d in directions)
+        improved, degraded = any(d > 0 for d in directions), any(d < 0 for d in directions)
+        if degraded:
+            return "trade-off" if improved else "reject"
+        return "adopt" if improved else "reject"
+
+    @property
+    def traded(self) -> str | None:
+        """What a `trade-off` costs and buys, one indicator per clause, or None
+        when the verdict is not one. The whole point of the fourth verdict is
+        that the owner reads the EXCHANGE rather than the word, so the numbers
+        travel with it — into the log line, the EventLog payload and the digest
+        alert, none of which would otherwise carry them."""
+        if self.verdict != "trade-off":
+            return None
+        deltas = self.deltas or {}
+        gains = [f"{k} {v:+.3f}" for k, v in sorted(deltas.items()) if v > 0]
+        losses = [f"{k} {v:+.3f}" for k, v in sorted(deltas.items()) if v < 0]
+        return f"buys {', '.join(gains)} — costs {', '.join(losses)}"
 
 
 def extract_overrides(spec: dict[str, Any]) -> dict[str, Any] | None:
@@ -453,7 +502,7 @@ async def _record_measurement(
     where the same change rejects on all three windows. Recording it under the
     default full window would have written that falsehood into the one place
     built to stop questions being re-asked."""
-    verdict = {True: "adopt", False: "reject", None: "unmeasurable"}[measurement.adopt]
+    verdict = measurement.verdict
     deltas = measurement.deltas or {}
     async with db.transaction() as tx:
         await tx.command(
@@ -537,17 +586,27 @@ def render(measurement: RevisionMeasurement) -> str:
         dd = "n/a" if m.max_drawdown is None else f"{m.max_drawdown * 100:.2f}%"
         return f"  {label:<10}{cagr:>9}{sortino:>9}{dd:>10}{turnover:>10.1f}"
 
-    verdict = {True: "ADOPT", False: "reject", None: "unmeasurable"}[measurement.adopt]
+    verdict = measurement.verdict
+    if verdict == "unmeasurable":
+        tail = "  verdict: unmeasurable"
+    else:
+        tail = (
+            f"  verdict: {'ADOPT' if verdict == 'adopt' else verdict}  "
+            f"(sortino {measurement.sortino_delta:+.3f}, "
+            f"drawdown {(measurement.drawdown_delta or 0.0) * 100:+.2f}pp)"
+        )
+        # The EXCHANGE, spelled out under the verdict. A reader who sees only
+        # "trade-off" has to go back to the two rows above and subtract; the
+        # whole reason this verdict exists is to put the decision in front of
+        # the owner, and a decision needs its terms.
+        if traded := measurement.traded:
+            tail += f"\n  OWNER CALL — {traded}"
     return "\n".join(
         [
             f"revision: {measurement.overrides}",
             f"  {'':<10}{'CAGR':>9}{'Sortino':>9}{'maxDD':>10}{'turnover':>10}",
             line("baseline", measurement.baseline, measurement.baseline_turnover),
             line("variant", measurement.variant, measurement.variant_turnover),
-            f"  verdict: {verdict}  "
-            f"(sortino {measurement.sortino_delta:+.3f}, "
-            f"drawdown {(measurement.drawdown_delta or 0.0) * 100:+.2f}pp)"
-            if measurement.adopt is not None
-            else "  verdict: unmeasurable",
+            tail,
         ]
     )

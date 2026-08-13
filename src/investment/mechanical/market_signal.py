@@ -82,8 +82,41 @@ owner-arbitrated:
   pricing bounded to each; 175 and 225 also adopted on the full sample and were
   refused, each failing the half it was not fitted to.
 
-The pinned pair is therefore **11.57% / -20.61%**. The earlier figures are
-history, not targets. Any OTHER divergence from 11.57% is drift and must be
+- 2026-08-13, THE 2x2 SPLIT OF THE WIDE BRANCH (owner signature): 11.57% ->
+  **11.76%** CAGR, Sortino 1.30 -> **1.31**, Calmar 0.54 -> 0.57, drawdown
+  unchanged at -20.61%, turnover 53.7 -> 54.3. The wide branch had never
+  consulted the slope, so one book served two states; splitting them and giving
+  wide-flat `IWN 50 / SPY 50` is the ONE book change both halves of the sample
+  agree on (see BOOKS for the ranking table). A search that fitted all four
+  books instead scored Sortino 1.47 -> 1.56 on the training half and
+  1.18 -> 1.08 out of sample — recorded because it is the cost of the thing NOT
+  done here.
+
+  THE FIRST CHANGE THIS MODULE HAS EVER MADE TO THE BOOKS. Every supersession
+  above moved a threshold or the overlay; the books came from the Verdad paper
+  and had never been confronted with data. That they were nearly right is worth
+  as much as the correction: three of the four states carry no stable ranking at
+  all, and acting on them measurably destroys value.
+
+- 2026-08-13, THE ONE-DAY LOOK-AHEAD REMOVED (owner signature): 11.76% ->
+  **11.21%** CAGR, Sortino 1.311 -> **1.237**, Calmar 0.574 -> 0.547, drawdown
+  UNCHANGED at -20.61%, turnover 54.3 -> 53.0. The trend read used the CLOSE of
+  the decision day to set weights that then earned that same day's return —
+  `StackSeries.decision_prices` carries the full account. THIS IS NOT A
+  SUPERSESSION LIKE THE OTHERS: the rule did not change and got no better or
+  worse, the MEASUREMENT stopped crediting it with information it never had. So
+  the drop is not a loss, and every figure above it in this list is optimistic
+  by roughly a point a year — they are history in a stronger sense than usual
+  and must not be compared to anything measured after this line.
+
+  Signed BEFORE forward paper-mode rather than after, deliberately: a backtest
+  promising a point more than the rule can deliver would have shown up in
+  eighteen months as the strategy failing, which is the one misreading Step 6
+  cannot afford. It is also the only moment the break in comparability is cheap,
+  since no forward evidence exists yet to be broken.
+
+The pinned pair is therefore **11.21% / -20.61%**. The earlier figures are
+history, not targets. Any OTHER divergence from 11.21% is drift and must be
 explained, which is what this module exists to guarantee.
 
 That sentence named 10.71% for two supersessions after 10.71% stopped being the
@@ -151,8 +184,32 @@ from investment.mechanical.replay import NavMetrics, nav_metrics, shadow_book_na
 # the one called "growth" (docs/IMPROVEMENTS.md I-39). Since the Worker is an
 # LLM that reads these keys as semantic context, a book called "inflation" that
 # does not track inflation is a reasoning hazard, not just untidy naming.
+# FOUR BOOKS SINCE 2026-08-13, and the fourth is a SPLIT of the wide one rather
+# than an addition. Until then the wide branch never consulted the slope — a
+# deliberate asymmetry ADR-007 inherited from the Verdad paper — so 180 of the
+# 418 monthly decisions shared one book across two states that behave in
+# opposite ways. Mean forward 3m return by state, measured on each half of the
+# sample independently (docs/V1_STRATEGY.md "The books, revisited"):
+#
+#     wide-flat   TRAIN  IWN +4.68  SPY +3.03  IEF +1.75  VCIT +1.09  GLD -0.67
+#                 VALID  IWN +6.57  SPY +5.10  VCIT +1.52  IEF +0.08  GLD -0.14
+#     wide-steep  TRAIN  GLD +3.72  IEF +2.01  VCIT +0.79  IWN +0.72  SPY -2.50
+#                 VALID  IWN +7.56  SPY +6.52  GLD +4.78  VCIT +2.52  IEF +0.66
+#
+# WIDE-FLAT IS THE ONLY STATE OF THE FOUR WHOSE RANKING AGREES ACROSS THE HALVES:
+# IWN first in both, SPY second in both, GLD NEGATIVE in both. The old shared
+# book (SPY 50 / IWN 40 / GLD 10) contradicted all three facts at once — it
+# under-weighted the best asset, over-weighted the second and held 10% of the
+# only consistent loser. `IWN 50 / SPY 50` is that correction and nothing more.
+#
+# WIDE-STEEP KEEPS THE VERDAD BOOK UNTOUCHED, deliberately: its ranking INVERTS
+# between halves (SPY worst at -2.50, then second-best at +6.52), so there is no
+# stable evidence to act on. A search that fitted all four states scored better
+# on the training half and WORSE out of sample (Sortino 1.47 -> 1.56 train,
+# 1.18 -> 1.08 validate), which is the cost of acting anyway, measured.
 BOOKS: dict[str, dict[str, float]] = {
-    "credit-spread-wide": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
+    "credit-spread-wide-yield-curve-flat": {"IWN": 50.0, "SPY": 50.0},
+    "credit-spread-wide-yield-curve-steep": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
     "credit-spread-tight-yield-curve-flat": {"SPY": 50.0, "GLD": 40.0, "IWN": 10.0},
     "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
 }
@@ -224,6 +281,48 @@ HAVEN_EXEMPT = frozenset({TREND_HAVEN, TREND_FALLBACK_HAVEN})
 # static fictions nobody holds instead of the one thing that is (ADR-009).
 STACK_PORTFOLIO_ID = "ms-stack"
 
+# THE STACK'S REAL COMPETITOR, and until 2026-08-13 it had never been on the
+# start line.
+#
+# The stack was only ever measured against All Weather (+3.80pp/yr, ADR-007) —
+# a PASSIVE portfolio, which answers "is this better than holding a static
+# balanced book" and not the question that decides whether the signal layer
+# earns its complexity: is it better than THE SAME TREND OVERLAY on a book that
+# never rotates? Measured 2026-08-13 (docs/V1_STRATEGY.md "The attribution"),
+# starting from the credit-spread-wide book and adding one layer at a time:
+#
+#     arm                                CAGR    sortino   maxDD
+#     buy & hold, no signal, no trend   10.60%     0.76   -51.80%
+#     + the trend overlay alone         11.38%     1.10   -21.59%
+#     + the credit/slope signal (LIVE)  11.62%     1.30   -20.61%
+#
+# THE OVERLAY BUYS 30 POINTS OF DRAWDOWN; THE SIGNAL BUYS 1. The signal's whole
+# marginal contribution over a fixed book is +0.24pp of CAGR and +0.20 of
+# Sortino — real, and an order of magnitude smaller than the number the pivot
+# was signed on, because that number was measured against the wrong opponent.
+#
+# So the opponent is now a PERSISTED SERIES rather than a scratchpad table: it
+# gets a `portfolio_nav` like the stack, refreshed by the same weekly job, and
+# the ranking and the digest compare them without anyone remembering to. The
+# argument is verbatim the one that created `ms-stack` above — a strategy with
+# no NAV cannot be measured at all — applied to the thing the stack must beat.
+TREND_BASELINE_PORTFOLIO_ID = "ms-trend-baseline"
+
+# WHICH book the baseline freezes, MEASURED rather than picked: it is the one
+# the signal itself holds most often over the 418 monthly decisions —
+# credit-spread-tight-yield-curve-flat, 197 of them (47.1%), against 38.3% for
+# credit-spread-wide and 14.6% for the steep book. "The stack minus its signal"
+# is therefore the book the stack spends most of its life in, which is the least
+# arbitrary freeze available and the one a reader can check.
+#
+# A second measurement agrees, and it is the stronger argument: this book under
+# the overlay reproduces the stack's max drawdown to four decimals (-20.61%).
+# That is `V1_STRATEGY.md`'s own finding made mechanical — the covid trough that
+# sets the stack's worst drawdown happened while this book was in force, so
+# freezing it changes nothing about the number the -25% cap binds. The baseline
+# and the stack fail identically, which is exactly what a control must do.
+TREND_BASELINE_BOOK = "credit-spread-tight-yield-curve-flat"
+
 # Decision key -> the seeded Portfolio vertex that IS that book (db/seed_data.py
 # PORTFOLIOS). The live path needs it because `Proposal.defender_id` is a
 # portfolio id, not a signal state. The entity ids keep their original
@@ -231,8 +330,14 @@ STACK_PORTFOLIO_ID = "ms-stack"
 # payloads, which are append-only (seed_data's ms-growth-book note). This map is
 # the ONE place the frozen spelling meets the renamed decision keys, so no other
 # module has to know both vocabularies.
+# `ms-growth-book` follows the WIDE-STEEP key, not the wide-flat one, and the
+# choice is the frozen allocation rather than the name: that row holds
+# SPY 50 / IWN 40 / GLD 10, which is the book wide-steep KEEPS. wide-flat took a
+# new allocation, so it takes a new vertex (`ms-wide-flat-book`) instead of
+# silently redefining what a committed EventLog id points at.
 BOOK_PORTFOLIO_IDS: dict[str, str] = {
-    "credit-spread-wide": "ms-growth-book",
+    "credit-spread-wide-yield-curve-flat": "ms-wide-flat-book",
+    "credit-spread-wide-yield-curve-steep": "ms-growth-book",
     "credit-spread-tight-yield-curve-flat": "ms-inflation-book",
     "credit-spread-tight-yield-curve-steep": "ms-slowdown-book",
 }
@@ -353,7 +458,7 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # in the same commit or turns the check red — which is the git gate ADR-006 does
 # not reach, held by a machine instead of by a memory.
 #
-# THE CAGR HERE IS 11.616% AND THE NOTE ABOVE SAYS 11.57%. That is not a third
+# THE CAGR HERE IS 11.269% AND THE NOTE ABOVE SAYS 11.21%. That is not a third
 # stale copy — it is the same run measured the only way a REFERENCE can be, and
 # building this check is what exposed the difference.
 #
@@ -363,10 +468,9 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # hold the last book to the end of whatever data exists today" — a figure that
 # MOVES every time a new price lands. Measured on the live DB, 2026-08-12:
 #
-#     priced to 2026-08-07 (free tail)  11.5690%   <- the signed figure
-#     priced to 2026-07-01 (bounded)    11.6161%
-#     priced to 2026-01-01              11.7198%
-#     max drawdown, every one of them  -20.6125%
+#     priced to 2026-08-11 (free tail)  11.2094%   <- the signed figure
+#     priced to 2026-07-01 (bounded)    11.2691%
+#     max drawdown, both of them       -20.6125%
 #
 # A reference that drifts with the calendar cannot detect drift: pinned at the
 # free-tail value, this check would have cried wolf within about three months on
@@ -379,7 +483,7 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # OWNER CALL, stated rather than assumed: the prose figure stays as signed, and
 # if you prefer the machine to check the free-tail number instead, this is the
 # line to change — but it will then need re-pinning every quarter.
-PINNED_CAGR = 0.11616
+PINNED_CAGR = 0.11269
 PINNED_MAX_DRAWDOWN = -0.20612
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
@@ -473,13 +577,19 @@ def describe_rule(caps: Caps | None = None) -> str:
         )
     return (
         "THE MECHANICAL RULE THAT DECIDED THIS MONTH (market-signal stack)\n"
+        # "three books" was written here when there were three, and the fourth
+        # arrived on 2026-08-13 — the same defect this whole function exists to
+        # repair, one line below the sentence that repairs it. Counted now.
         f"  1. Credit spread (BAA10Y) vs its {MEDIAN_WINDOW_DAYS // 252}-year trailing\n"
-        "     median, and yield slope (T10Y2Y) vs its own, select ONE of three books:\n"
+        f"     median, and yield slope (T10Y2Y) vs its own, select ONE of {len(BOOKS)} books\n"
+        "     (the two indicators are read independently — their 2x2 names the state):\n"
         f"{books}\n"
         f"  2. A book change is applied only after {CONFIRM_DECISIONS} consecutive\n"
         "     monthly decisions agree (hysteresis against boundary flip-flop).\n"
         f"  3. {MA_WINDOW_DAYS}-day trend overlay: {', '.join(checked)} — and ONLY\n"
-        f"     these — are checked against their own {MA_WINDOW_DAYS}d moving average.\n"
+        f"     these — are checked against their own {MA_WINDOW_DAYS}d moving average,\n"
+        "     both read at the PREVIOUS close (the rule decides on what was knowable\n"
+        "     before the order goes in, so the price you see here is yesterday's).\n"
         f"     Whichever sleeve is below is redirected to {TREND_HAVEN}; and when\n"
         f"     {TREND_HAVEN} is ITSELF below its own line, the destination becomes\n"
         f"     {TREND_FALLBACK_HAVEN} instead — including the {TREND_HAVEN} a book\n"
@@ -508,7 +618,14 @@ def describe_rule(caps: Caps | None = None) -> str:
 class TrendRead:
     """One trend sleeve's overlay read at a decision date. Carries the two
     numbers the comparison was made on, not just its boolean answer: "SPY is
-    below trend" is unauditable, "SPY 512.40 vs MA 548.10" is."""
+    below trend" is unauditable, "SPY 512.40 vs MA 548.10" is.
+
+    BOTH NUMBERS ARE AS OF THE PREVIOUS CLOSE since 2026-08-13, not the decision
+    date's — the rule decides on what was knowable before the order goes in
+    (`StackSeries.decision_prices`). Anything rendering these must not label them
+    with the decision date: the digest line that said "redirected to IEF" while
+    the target was cash is the same defect, and a journal that contradicts the
+    decision is worse than no journal."""
 
     price: float
     moving_average: float | None  # None before MA_WINDOW_DAYS of history
@@ -683,38 +800,43 @@ def classify_regime(
     slope_median: float | None,
     spread_speed: float | None = None,
 ) -> str:
-    """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"):
-    credit spread WIDE vs its 10y median -> `credit-spread-wide` (stress is
-    PRICED, so the countercyclical response is to buy risk); else, on the
-    slope: FLAT vs its 10y median -> `credit-spread-tight-yield-curve-flat`,
-    STEEP -> `credit-spread-tight-yield-curve-steep`.
+    """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"): the two
+    indicators are read INDEPENDENTLY and their 2x2 names the state — credit
+    spread vs its 10y median (WIDE = stress is PRICED, so the countercyclical
+    response is to buy risk), yield slope vs its own (FLAT / STEEP).
+
+    THE 2x2 IS NEW ON 2026-08-13 and replaces an asymmetry: the wide branch used
+    to return before consulting the slope, so `credit-spread-wide` covered both
+    curve states with one book. Measured on each half of the sample separately,
+    those two states rank the five sleeves in opposite orders — see BOOKS, which
+    carries the numbers and the reason only ONE of the two books changed.
 
     The returned key names the SIGNAL STATE, not a macro regime — see BOOKS.
-    Note the deliberate asymmetry the names encode: when the spread is WIDE the
-    yield curve is never consulted, which is why that key carries no curve term.
 
-    A missing median (warm-up, before MEDIAN_MIN_DAYS of history) defaults to
-    `credit-spread-wide` — the equity-tilted book — exactly as the backtest did
-    rather than stalling; the trend overlay still guards its downside."""
+    A missing median (warm-up, before MEDIAN_MIN_DAYS of history) reads WIDE,
+    exactly as the backtest did rather than stalling; the slope's own warm-up
+    reads FLAT, so the warm-up book is `credit-spread-wide-yield-curve-flat` and
+    the trend overlay still guards its downside."""
     fast = (
         SPREAD_SPEED_WIDE_TRIGGER is not None
         and spread_speed is not None
         and not pd.isna(spread_speed)
         and spread_speed > SPREAD_SPEED_WIDE_TRIGGER
     )
-    if fast:
-        return "credit-spread-wide"
     wide = spread_median is None or pd.isna(spread_median) or spread > spread_median
     # See SPREAD_SPEED_VETO: defer the risk-on book while the crack is still
     # opening. A missing speed (warm-up) never vetoes — the rule falls back to
-    # the level read it has always used.
-    if wide and SPREAD_SPEED_VETO is not None and spread_speed is not None:
+    # the level read it has always used. `fast` (SPREAD_SPEED_WIDE_TRIGGER,
+    # measured nil and OFF) forces the wide read before the veto can defer it.
+    if wide and not fast and SPREAD_SPEED_VETO is not None and spread_speed is not None:
         wide = pd.isna(spread_speed) or spread_speed <= SPREAD_SPEED_VETO
-    if wide:
-        return "credit-spread-wide"
-    if slope_median is None or pd.isna(slope_median) or slope < slope_median:
-        return "credit-spread-tight-yield-curve-flat"
-    return "credit-spread-tight-yield-curve-steep"
+    # THE SLOPE IS READ ON BOTH BRANCHES since the 2x2 (2026-08-13). Warm-up —
+    # a missing slope median — reads FLAT on both, which keeps the pre-2x2
+    # warm-up behaviour on the tight side and gives the wide side the
+    # equity-tilted book the backtest defaulted to.
+    steep = slope_median is not None and not pd.isna(slope_median) and slope >= slope_median
+    curve = "steep" if steep else "flat"
+    return f"credit-spread-{'wide' if wide or fast else 'tight'}-yield-curve-{curve}"
 
 
 def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) -> dict[str, float]:
@@ -1078,16 +1200,77 @@ _PINNED_WINDOW_GRACE_DAYS = 7
 # -- I/O driver -------------------------------------------------------------
 
 
-async def run_market_signal(
-    db: InvestmentDB,
-    *,
-    start: date = PINNED_WINDOW[0],
-    end: date = PINNED_WINDOW[1],
-    cadence: str = "monthly",
-    cost_bps: float = COST_BPS,
-) -> MarketSignalRun:
-    """Load the series, run the pure logic, price it on the shared NAV engine.
-    Defaults reproduce ADR-007's backtest window and MONTHLY cadence."""
+@dataclasses.dataclass(frozen=True)
+class StackSeries:
+    """Every series the walk reads, loaded and derived ONCE.
+
+    Extracted from `run_market_signal` when the trend baseline arrived (2026-08-13):
+    two arms that must be comparable cannot each build their own calendar, their
+    own risk-free curve or their own moving averages. `replay._book_calendar`'s
+    docstring already states the guarantee this preserves — "both arms share it,
+    so A - B can never be an artefact of a calendar difference" — and the
+    baseline exists precisely to be subtracted from the stack."""
+
+    calendar: pd.DatetimeIndex
+    rf: pd.Series
+    # WHAT THE NAV IS PRICED ON. Never handed to the walk — see `decision_prices`.
+    prices: dict[str, pd.Series]
+    # WHAT THE WALK DECIDES ON: the same prices, one trading day back.
+    #
+    # THE LOOK-AHEAD THIS REMOVES (owner decision, 2026-08-13). `shadow_book_nav`
+    # applies a target dated t BEFORE day t's return — `synthesize_nav`'s pinned
+    # sequencing, "the portfolio enters the period already rebalanced" — while
+    # the trend read used the CLOSE of day t. So the rule set weights from a
+    # price it then earned, which no implementer can do: at the moment the order
+    # goes in, that close does not exist yet.
+    #
+    # HARMLESS FOR A STATIC BOOK, which is why it survived from M4 to here: a
+    # portfolio that never decides cannot exploit it. It is NOT harmless for a
+    # trend rule, and not as noise either — the rule is momentum-shaped, so an
+    # asset that ROSE today is likelier to sit above its average today, and the
+    # rule was therefore systematically positioned for the very day it was
+    # reading. A free move, in one direction, on every decision date.
+    #
+    # Measured over 1991-2026: 11.82% -> 11.27% CAGR, Sortino 1.311 -> 1.237,
+    # max drawdown UNCHANGED at -20.61%. It scaled with turnover exactly as that
+    # explanation predicts — 0.96pp for the stack (turnover 54.3), 0.41pp for
+    # its frozen-book control (40.5), 0.00pp for a static book — and with
+    # frequency: a daily-overlay variant measured 14.50% and was worth 8.19%
+    # once lagged, i.e. it was better than monthly ONLY through the bias.
+    #
+    # The fix is here and not in `shadow_book_nav`: the NAV engine's convention
+    # is right and is shared with every static portfolio and the M4 golden
+    # numbers. What was wrong is feeding a decision that used same-day data.
+    # Decide on yesterday's close, trade at today's open, earn today.
+    #
+    # THE TWO FRED SIGNALS ARE NOT LAGGED, deliberately: ADR-003 already defines
+    # a MarketData `ts` as the date the value became KNOWABLE (ALFRED
+    # first-release), so lagging them here would apply a second lag on top of
+    # the data model's. Measured separately, doing so would cost a further
+    # ~0.4pp/yr — recorded so the question can be re-opened as a vintage
+    # question, which is what it is, rather than rediscovered as a new one.
+    decision_prices: dict[str, pd.Series]
+    spread_raw: pd.Series
+    slope_raw: pd.Series
+    spread: pd.Series
+    slope: pd.Series
+    spread_median: pd.Series
+    slope_median: pd.Series
+    spread_speed: pd.Series
+    moving_averages: dict[str, pd.Series]
+    # The signal series that are ABSENT, empty when both are present. Carried
+    # rather than raised on, because only one of the two arms depends on them —
+    # see the note at the assignment.
+    missing_signals: list[str] = dataclasses.field(default_factory=list)
+
+
+async def load_series(db: InvestmentDB) -> StackSeries:
+    """Read and derive everything both arms decide on.
+
+    Raises on a missing SLEEVE — no arm can price a book whose constituents have
+    no series, and holding one flat at 0% is the bug that once crippled this
+    stack. A missing SIGNAL series is recorded instead: it disables the stack
+    (`run_market_signal` refuses) and is irrelevant to the control arm."""
     inputs = await replay.load_inputs(db)
     calendar = replay._book_calendar(inputs)
     rf = await ratios.load_rf_daily(db)
@@ -1106,51 +1289,198 @@ async def run_market_signal(
     # is only auditable if the live path can say WHEN each input became knowable.
     spread_raw = await ratios.load_price(db, CREDIT_SPREAD)
     slope_raw = await ratios.load_price(db, YIELD_SLOPE)
-    absent = [t for t, s in ((CREDIT_SPREAD, spread_raw), (YIELD_SLOPE, slope_raw)) if s.empty]
-    if absent:
-        # The same refusal as the missing sleeve above, for a WORSE failure mode.
-        # An absent signal series reindexes to all-NaN, `classify_regime` reads
-        # that as warm-up, and the stack silently holds `credit-spread-wide` —
-        # the 90%-equity book — on no signal at all. It is not a warm-up: the
-        # decision would be uninformed rather than early, and nothing downstream
-        # could tell the two apart (`knowable_at` is None in both cases).
-        # `seed._missing_stack_series` pre-checks the same two series to SKIP
-        # rather than raise (the incremental-seed contract); the LIVE cycle has
-        # no such pre-check, and this is what stops it deciding blind.
-        #
-        # Only ABSENT is caught here, and deliberately: a series that STOPPED
-        # updating ffills and still decides, which `alerts.signal_freshness_alert`
-        # reports rather than blocks. An alert and never a block is the owner's
-        # recorded decision (docs/MILESTONES.md, second coherence pass
-        # 2026-08-02) — ADR-003 says a stale print IS what was knowable, and
-        # ADR-009 scopes the live path to telling rather than refusing.
-        raise ValueError(f"market-signal stack missing signal series for {absent}")
+    # RECORDED HERE, REFUSED IN `run_market_signal` — and the split is the point.
+    #
+    # An absent signal series reindexes to all-NaN, `classify_regime` reads that
+    # as warm-up, and the stack silently holds `credit-spread-wide` — the
+    # 90%-equity book — on no signal at all. It is not a warm-up: the decision
+    # would be uninformed rather than early, and nothing downstream could tell
+    # the two apart (`knowable_at` is None in both cases). So the stack must
+    # refuse, and it does, one function down.
+    #
+    # But the CONTROL ARM reads no signal at all, and a shared loader that
+    # raised here would have handed it a prerequisite it does not have — the
+    # arm would have been unbuildable on a price-only database, which is exactly
+    # the fixture the seed's incremental contract has to survive. The refusal
+    # therefore belongs to the consumer that actually depends on the series, not
+    # to the loader that merely fetches it.
+    #
+    # Only ABSENT is caught at all, and deliberately: a series that STOPPED
+    # updating ffills and still decides, which `alerts.signal_freshness_alert`
+    # reports rather than blocks. An alert and never a block is the owner's
+    # recorded decision (docs/MILESTONES.md, second coherence pass 2026-08-02) —
+    # ADR-003 says a stale print IS what was knowable, and ADR-009 scopes the
+    # live path to telling rather than refusing.
+    missing_signals = [
+        t for t, s in ((CREDIT_SPREAD, spread_raw), (YIELD_SLOPE, slope_raw)) if s.empty
+    ]
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()
     spread_median = spread.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
     slope_median = slope.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
+    # Both DECISION-TIME views, shifted together so a sleeve's price and its own
+    # line are always read as of the same close (see `decision_prices`). Shifting
+    # only one of the two would compare today's price to yesterday's average,
+    # which is a different rule and a worse one.
+    #
+    # SHIFTED ON EACH SERIES' OWN INDEX, and the average is still computed the
+    # way it always was — the lag is the ONLY change. Reindexing to the shared
+    # calendar first and averaging on that instead moved the result a further
+    # 0.03pp, which is a second change wearing the first one's clothes: an
+    # instrument's previous close is its own previous close, whether or not the
+    # defender's NAV index happens to have that day.
+    decision_prices = {t: p.shift(1) for t, p in prices.items()}
     moving_averages = {
-        ticker: prices[ticker].rolling(MA_WINDOW_DAYS, min_periods=MA_WINDOW_DAYS).mean()
+        ticker: prices[ticker].rolling(MA_WINDOW_DAYS, min_periods=MA_WINDOW_DAYS).mean().shift(1)
         for ticker in (*TREND_SLEEVES, TREND_HAVEN)
     }
-
-    dates = replay.decision_dates(calendar, start, end, cadence)
     # Computed unconditionally and cheap: the walk ignores it while
     # SPREAD_SPEED_VETO is None, and computing it only when the knob is set
     # would make the measured variant read a series the baseline never built.
     spread_speed = compute_derivatives(spread, CREDIT_SPREAD, SPREAD_SPEED_LOOKBACK_DAYS)["speed"]
+    return StackSeries(
+        calendar=calendar,
+        rf=rf,
+        prices=prices,
+        decision_prices=decision_prices,
+        spread_raw=spread_raw,
+        slope_raw=slope_raw,
+        spread=spread,
+        slope=slope,
+        spread_median=spread_median,
+        slope_median=slope_median,
+        spread_speed=spread_speed,
+        moving_averages=moving_averages,
+        missing_signals=missing_signals,
+    )
+
+
+async def run_market_signal(
+    db: InvestmentDB,
+    *,
+    start: date = PINNED_WINDOW[0],
+    end: date = PINNED_WINDOW[1],
+    cadence: str = "monthly",
+    cost_bps: float = COST_BPS,
+    series: StackSeries | None = None,
+) -> MarketSignalRun:
+    """Load the series, run the pure logic, price it on the shared NAV engine.
+    Defaults reproduce ADR-007's backtest window and MONTHLY cadence.
+
+    `series` lets a caller running BOTH arms load once and hand the same frames
+    to each (`run_trend_baseline`, the attribution). Omitted, it loads its own,
+    so every existing call site is unchanged."""
+    s = series or await load_series(db)
+    if s.missing_signals:
+        # THE REFUSAL, at the only arm that depends on it (see `load_series`).
+        # `seed._missing_stack_series` pre-checks the same two series to SKIP
+        # rather than raise (the incremental-seed contract); the LIVE cycle has
+        # no such pre-check, and this is what stops it deciding blind.
+        raise ValueError(f"market-signal stack missing signal series for {s.missing_signals}")
+    dates = replay.decision_dates(s.calendar, start, end, cadence)
     decisions = walk_decisions(
-        dates, spread, slope, spread_median, slope_median, moving_averages, prices, spread_speed
+        dates,
+        s.spread,
+        s.slope,
+        s.spread_median,
+        s.slope_median,
+        s.moving_averages,
+        s.decision_prices,
+        s.spread_speed,
     )
     targets = {d.date: d.target for d in decisions if d.changed}
-    nav, turnover = shadow_book_nav(targets, prices, rf, cost_bps, calendar)
+    nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
     return MarketSignalRun(
         nav=nav,
         targets=targets,
         turnover=turnover,
         decisions=decisions,
-        raw_series={CREDIT_SPREAD: spread_raw, YIELD_SLOPE: slope_raw, **prices},
+        raw_series={CREDIT_SPREAD: s.spread_raw, YIELD_SLOPE: s.slope_raw, **s.prices},
     )
+
+
+def trend_baseline_targets(
+    dates: Sequence[pd.Timestamp],
+    moving_averages: Mapping[str, pd.Series],
+    prices: Mapping[str, pd.Series],
+    book: Mapping[str, float] | None = None,
+) -> dict[pd.Timestamp, dict[str, float]]:
+    """The CONTROL arm's change-point map: `TREND_BASELINE_BOOK` frozen, the
+    same `MA_WINDOW_DAYS` overlay re-read on the same monthly clock, the same
+    IEF/cash haven chain — and NO credit input of any kind.
+
+    It calls `apply_trend_overlay` and `_trend_read`, the live functions, for the
+    reason every measurement in this module does: a control reimplemented beside
+    the thing it controls measures the reimplementation. The only difference from
+    `walk_decisions` is what it does NOT do — no `classify_regime`, no
+    `advance_hysteresis`, no stress gate. Those three ARE the signal layer, so
+    their absence is the experiment.
+
+    The stress gate is deliberately out even though it acts on sleeves rather
+    than on the book: it fires on a credit condition, so it belongs to the layer
+    under test, not to the overlay."""
+    held = dict(book if book is not None else BOOKS[TREND_BASELINE_BOOK])
+    targets: dict[pd.Timestamp, dict[str, float]] = {}
+    previous: dict[str, float] | None = None
+    for t in dates:
+        below = frozenset(
+            ticker
+            for ticker in (*TREND_SLEEVES, TREND_HAVEN)
+            if ticker in prices
+            and ticker in moving_averages
+            and _trend_read(_at(prices[ticker], t), _at(moving_averages[ticker], t)).below
+        )
+        target = apply_trend_overlay(held, below)
+        if target != previous:
+            targets[t] = target
+        previous = target
+    return targets
+
+
+async def run_trend_baseline(
+    db: InvestmentDB,
+    *,
+    start: date = PINNED_WINDOW[0],
+    end: date = PINNED_WINDOW[1],
+    cadence: str = "monthly",
+    cost_bps: float = COST_BPS,
+    series: StackSeries | None = None,
+) -> MarketSignalRun:
+    """Price the control arm — same window, same clock, same NAV engine, same
+    ADR-010 cost rate as `run_market_signal`, so the difference between them is
+    the signal layer and nothing else.
+
+    Returns a `MarketSignalRun` with `decisions` EMPTY, and that is not a gap to
+    be filled later: a `Decision` records what the signal decided, and this arm
+    has no signal. Its whole journal is `targets` — the dates the overlay moved
+    money — which is exactly what `shadow_book_nav` priced and what
+    `persist_trend_baseline_nav` writes. `stack_metrics` reads only `nav`, so
+    both arms are measured by one function, which is the comparability the
+    attribution rests on."""
+    s = series or await load_series(db)
+    dates = replay.decision_dates(s.calendar, start, end, cadence)
+    targets = trend_baseline_targets(dates, s.moving_averages, s.decision_prices)
+    nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
+    return MarketSignalRun(nav=nav, targets=targets, turnover=turnover)
+
+
+async def persist_trend_baseline_nav(
+    db: InvestmentDB, run: MarketSignalRun, window: int
+) -> ratios.NavBackfillResult:
+    """Write the control arm's daily NAV under `TREND_BASELINE_PORTFOLIO_ID`.
+
+    Every caveat on `persist_stack_nav` applies verbatim — a PAPER series priced
+    on the decision walk, no slippage, no fills — and it must, because the two
+    are compared: a control measured on friendlier assumptions than the arm it
+    controls proves nothing. Same producer, same cost rate, same conventions.
+
+    THIS IS WHAT MAKES THE COMPARISON PERMANENT. `ratios.value_portfolios`, the
+    UC7 ranking and the digest all read `portfolio_nav`, so once this row exists
+    the baseline arrives in the ranking beside the stack every week, through the
+    same formulas, with no one having to remember to run an attribution. The
+    question "does the signal still beat a frozen book" stops being a study
+    someone did once in August 2026."""
+    return await ratios.persist_nav(db, TREND_BASELINE_PORTFOLIO_ID, run.nav.dropna(), window)
 
 
 async def persist_stack_nav(
