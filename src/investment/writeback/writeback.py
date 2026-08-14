@@ -902,7 +902,7 @@ async def _measure_rule_revision(
         # Until then `adopt is False` covered both "everything got worse" and
         # "this buys a large gain for a small loss", and closed the strategy in
         # both cases — so the one revision ever measured to improve the drawdown
-        # materially (`ma_window_days=125`: -2.75pp of drawdown for 0.94% of
+        # materially (a 125-day window, then `ma_window_days`: -2.75pp of drawdown for 0.94% of
         # Sortino) would have been buried under the same word as a bad idea. A
         # trade-off stays OPEN and reaches the owner through the digest instead;
         # it still adopts nothing on its own.

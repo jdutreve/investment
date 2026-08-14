@@ -182,7 +182,8 @@ _FLOAT_KNOBS = frozenset(
 # and not result. It is a NOISE floor, deliberately not a materiality threshold:
 # a 1% band was considered and refused because it sits inside the 8-basis-point
 # corridor between this floor and the smallest improvement the sweep classifies
-# as real (+1.02% of Sortino at ma_window_days=225). Choosing a number in that
+# as real (+1.02% of Sortino at a 225-day window, then `ma_window_days`).
+# Choosing a number in that
 # corridor decides one specific case, which is calibrating to an outcome rather
 # than measuring noise. Whether a small Sortino loss is worth a large drawdown
 # gain is a TRADE-OFF and belongs to the owner, stated as such — not laundered
@@ -321,7 +322,8 @@ class RevisionMeasurement:
         the same and the strategy was closed either way.
 
         The case that forced it is measured and sitting in docs/V1_STRATEGY.md:
-        `ma_window_days=125` improves the max drawdown by 2.75pp — from -20.61%
+        a 125-day window (then the knob `ma_window_days`, superseded by the
+        list-valued `ma_windows`) improves the max drawdown by 2.75pp — from -20.61%
         to -17.86%, the largest safety gain ever measured on this stack — and
         gives up 0.94% of Sortino. Refused, silently, by both the original
         acceptance test and by Pareto. No rule in this system could adopt it,

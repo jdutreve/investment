@@ -303,7 +303,8 @@ async def rule_tradeoff_alert(db: InvestmentDB) -> Alert | None:
 
     WHY IT EXISTS. Until 2026-08-13 a revision that bought a large gain for a
     small loss got the word `reject`, identically to one that made everything
-    worse, and the strategy was closed on both. `ma_window_days=125` is the case
+    worse, and the strategy was closed on both. A 125-day window (then the knob
+    `ma_window_days`, now `ma_windows`) is the case
     that forced the change: -2.75pp of max drawdown, the largest safety gain
     ever measured on this stack, refused for 0.94% of Sortino and never shown to
     anyone. The verdict now names it and this line carries it out.

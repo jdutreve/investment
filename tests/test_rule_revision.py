@@ -136,7 +136,7 @@ def test_the_noise_floor_is_the_measured_ground_movement() -> None:
     A NOISE floor, not a materiality threshold. The distinction is load-bearing:
     a 1% band was considered and refused because it lands inside the
     8-basis-point corridor between this floor and the smallest improvement the
-    sweep calls real (+1.02% of Sortino at ma_window_days=225) — and a number
+    sweep calls real (+1.02% of Sortino at a 225-day window) — and a number
     chosen in that corridor decides one specific case rather than measuring
     anything. Trade-offs belong to the owner, stated as trade-offs."""
     assert rule_revision.NOISE_REL_TOL == 0.0071

@@ -148,8 +148,7 @@ owner-arbitrated:
   in this list that the measurement ARGUES AGAINST**, and it is recorded as a
   conviction call rather than dressed as a finding. 11.60% -> **11.53%** CAGR,
   Sortino 1.342 -> **1.330**, drawdown unchanged at -16.50%, turnover 63.2 ->
-  63.9. It rejects on the full sample and on 2009-2026 and is marginally
-  positive on 1991-2008.
+  63.9.
 
   It rejects on the full sample and on 2009-2026 and ADOPTS on 1991-2008, which
   is MIXED — the sample-artefact signal this project usually treats as a
@@ -222,9 +221,14 @@ from investment.mechanical import ratios, replay
 from investment.mechanical.gates import Caps, concentration_ok, drawdown_ok
 from investment.mechanical.replay import NavMetrics, nav_metrics, shadow_book_nav
 
-# The 3 books (docs/V1_STRATEGY.md). Concentrated tilts: the 50% sleeves are the
-# measured source of the +2.5-vs-B edge and the reason the single-asset cap was
-# raised 40 -> 50 (ADR-007 addendum). Weights are allocation percent points.
+# THE BOOKS (docs/V1_STRATEGY.md). Concentrated tilts, and the concentration is
+# why the single-asset cap was raised 40 -> 50 (ADR-007 addendum) and 50 -> 60
+# (2026-08-14, for SPY 60 below). Weights are allocation percent points.
+#
+# The count is deliberately not written here. It was "The 3 books" from the
+# pivot until the 2x2 split made it four, and the sentence went stale the same
+# day — `len(BOOKS)` is the only copy that cannot, which is what `describe_rule`
+# interpolates.
 #
 # NAMED AFTER THE SIGNAL STATE THAT SELECTS THEM, not after a macro regime
 # (renamed 2026-07-20, ADR-007 addendum; previously growth/inflation/slowdown).
@@ -289,7 +293,7 @@ BOOKS: dict[str, dict[str, float]] = {
 }
 
 # The trend overlay: these sleeves are redirected to the haven when their own
-# price is below their `MA_WINDOW_DAYS` moving average. This is the drawdown
+# price is below their `MA_WINDOWS` moving averages. This is the drawdown
 # control (-24% with it, -50% without — docs/V1_STRATEGY.md).
 #
 # IWN JOINED 2026-08-07. It is 40% of the credit-spread-wide book and was held
@@ -396,7 +400,7 @@ TREND_FALLBACK_HAVEN = ratios.CASH_TICKER
 HAVEN_EXEMPT = frozenset({TREND_HAVEN, TREND_FALLBACK_HAVEN})
 
 # The STACK itself as a Portfolio vertex — the object that is actually held, as
-# opposed to the 3 books, which are only ever held conditionally and always
+# opposed to the books, which are only ever held conditionally and always
 # through the overlay. It exists so the stack has a `portfolio_nav` series like
 # every other portfolio: without one, its 36M rolling drawdown (the measure the
 # -25% cap is about) cannot be computed at all, and the ranking compares three

@@ -1,22 +1,17 @@
 # V1_STRATEGY.md — the adopted strategy + migration plan
 
-> **OVERLAY COMPLETION, 2026-08-07 (owner-approved).** The 200d overlay now
-> checks EVERY risky sleeve (IWN joined SPY and GLD) and checks the HAVEN it
-> redirects into — when IEF is itself below its 200d line the redirect goes to
-> cash. Both came from the M8b Worker, found independently in two runs; the
-> haven half is the market-priced form of its own proposal, which had gated the
-> haven on CPI (refused: the stack reads prices only). Measured 4-way in one
-> process: 11.10% -> 10.71% CAGR, Sortino 1.09 -> 1.17, maxDD -23.78% ->
-> -20.61%. Neither change is worth much alone — the haven check does NOTHING on
-> its own — and together they cut the drawdown by 3.2 points.
+> **THE PINNED PAIR IS NOT IN THIS FILE.** It lives in
+> `mechanical/market_signal.py` (`PINNED_CAGR` / `PINNED_MAX_DRAWDOWN`), which
+> `drift_violations` confronts on every weekly run. This banner used to carry it
+> and was two supersessions behind when the owner caught it on 2026-08-14 — the
+> FIFTH time a copy in this file went stale. Every figure below any heading here
+> is history with a date on it; nothing in this file states the current pair.
 >
-> **Superseded again on 2026-08-11** (owner signature): the two spread-trajectory
-> knobs are ON at 0.20, and the trend window moved 200 -> 300 the same day,
-> taking the pinned pair to **11.57% / -20.61%**, Sortino 1.17 -> 1.30, turnover
-> 61.1 -> 53.7. Same provenance for the knobs — the Worker's most repeated
-> critique, measured out of sample as well as in; the window came from asking
-> what had never been measured (`mechanical/market_signal.py`).
-
+> **What the stack IS, in one line:** the two market signals name a 2x2 state,
+> the state selects one of four concentrated books, a graduated trend overlay
+> moves each checked sleeve out by the fraction of its moving averages it has
+> fallen below, and the haven chain ends in cash. The constants are the
+> authority; `describe_rule()` generates the prose from them.
 
 **Status: ADOPTED as the V1 candidate (owner decision, 2026-07-19).**
 Backtest-validated only. "Adopted" means it is the strategy the code will be
@@ -80,14 +75,16 @@ Read "The attribution" too before quoting the "+3.80 vs B" as the strategy's
 edge: B is a PASSIVE benchmark with zero turnover, so it never earned any of the
 bias the stack did, and the margin absorbs the whole of it.
 
-The CURRENT pinned pair is **11.53% CAGR / -16.50%**
-(Sortino 1.330, turnover 63.9), and `mechanical/market_signal.py` is its
-authority — it carries every supersession with its date, its measurement and its
-owner signature. Do not restate it here: this file has quoted a superseded pair
-as "the" performance FOUR times now, the fourth caught by the owner on
-2026-08-14 along with the cap, the book count and the overlay window in this
-same header. The instruction is not working; the only reliable copy is the
-module, and `drift_violations` is what enforces it.
+The pinned pair is in `mechanical/market_signal.py` and nowhere else — see the
+banner at the top of this file. That module carries every supersession with its
+date, its measurement and its owner signature, and `drift_violations` checks the
+live stack against it every week.
+
+Do not restate it here. This file has quoted a superseded pair as "the"
+performance FIVE times, most recently on 2026-08-14 when the owner found it two
+supersessions behind in the header banner AND in this paragraph. The standing
+instruction not to copy it has been in this file since August and has not worked
+once; the fix that did work was making a machine read the number.
 
 The table below is the **2026-08-02 state, kept as history** (live DB, 1991-2026,
 net of Saxo's real 23 bps per order, vs B = risk-parity All Weather, B net of the

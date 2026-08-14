@@ -366,7 +366,12 @@ async def _measurement_event(db: InvestmentDB, verdict: str, traded: str | None 
             source_id="strat-rev",
             payload={
                 "title": "shorten the trend window",
-                "overrides": {"ma_window_days": 125},
+                # A REAL knob name. This said `ma_window_days`, which stopped
+                # existing when the overlay became graduated (it is `ma_windows`,
+                # a list, since 2026-08-14) — a fixture describing a revision the
+                # registry could not measure, passing because an alert renders
+                # whatever the payload holds.
+                "overrides": {"ma_windows": [125, 250]},
                 "verdict": verdict,
                 "traded": traded,
             },
@@ -389,7 +394,7 @@ async def test_an_adopted_or_rejected_measurement_says_nothing(db: InvestmentDB)
 
 
 async def test_a_trade_off_reaches_the_owner_with_its_exchange(db: InvestmentDB) -> None:
-    """The case that forced the fourth verdict: `ma_window_days=125` buys 2.75pp
+    """The case that forced the fourth verdict: a 125-day window buys 2.75pp
     of max drawdown for 0.94% of Sortino — the largest safety gain ever measured
     on this stack — and Pareto refuses it. Before 2026-08-13 that refusal was
     indistinguishable from "this made everything worse" and never left the log.
@@ -404,7 +409,7 @@ async def test_a_trade_off_reaches_the_owner_with_its_exchange(db: InvestmentDB)
     assert alert.level == "warn"  # nothing is broken and nothing is blocked
     assert alert.code == "rule_tradeoff"
     assert "max_drawdown +0.028" in alert.message and "sortino -0.011" in alert.message
-    assert "ma_window_days" in alert.message
+    assert "ma_windows" in alert.message
 
 
 async def test_only_the_LATEST_measurement_is_raised(db: InvestmentDB) -> None:

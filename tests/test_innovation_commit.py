@@ -295,7 +295,7 @@ async def test_a_measured_TRADE_OFF_stays_open_and_carries_its_exchange(
 ) -> None:
     """THE FOURTH VERDICT (owner decision, 2026-08-13).
 
-    -0.07 of Sortino for +2.5pp of drawdown is the `ma_windows` shape —
+    -0.07 of Sortino for +2.5pp of drawdown is the the 125-day window's shape —
     the largest safety gain ever measured on this stack, refused by Pareto and,
     until now, CLOSED under the same word as a revision that made everything
     worse. The owner never saw it.
