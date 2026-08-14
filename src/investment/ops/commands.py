@@ -238,6 +238,56 @@ async def set_max_drawdown(runtime: AgentRuntime, pct: float) -> CommandResult:
     )
 
 
+async def set_max_single_asset(runtime: AgentRuntime, pct: float) -> CommandResult:
+    """The binding CONCENTRATION cap, in percent points on 0-100.
+
+    THE MISSING HALF OF THE PAIR (added 2026-08-14). `set_max_drawdown` has
+    existed since the command layer shipped, and this one had not — so of the two
+    caps CLAUDE.md calls binding, the owner could move one from a chat message
+    and the other only by editing `.env` and re-running the seed. That asymmetry
+    was found the day the cap actually had to move (50 -> 60 for the tight-flat
+    book's SPY 60) and cost a full re-seed to apply a single number.
+
+    VALIDATED HERE for the same reason the drawdown rule is: this number binds
+    real gates. It refuses any proposal whose largest ASSET CLASS exceeds it
+    (`gates.concentration_ok` — a class, not a ticker, since 2026-08-14), and the
+    market-signal path takes the stricter of it, `ms-stack`'s and the book's. A
+    value at or below zero would refuse every allocation ever proposed; one above
+    100 would bind nothing, forever, with no error to read.
+
+    IT DOES NOT TOUCH THE PER-PORTFOLIO ROWS, deliberately: those may only be
+    STRICTER (CLAUDE.md "Binding caps"), so raising the user profile alone
+    leaves a book capped by its own row exactly as its author intended. Raising a
+    book's own cap is a seed change, which is where that decision belongs."""
+    if not 0.0 < pct <= 100.0:
+        return CommandResult.refused(
+            f"A concentration cap is a percentage in (0, 100] — got {pct}. Example: /cap 60"
+        )
+    rows = await runtime.db.query("SELECT max_single_asset_pct FROM user_profile LIMIT 1")
+    if not rows:
+        return CommandResult.refused("No user_profile row — run the seed first.")
+    previous = float(rows[0]["max_single_asset_pct"])
+    if previous == pct:
+        return CommandResult.noop(f"The concentration cap is already {pct}%.")
+
+    async with runtime.db.transaction():
+        await _append_decision(runtime, "set_max_single_asset", {"from": previous, "to": pct})
+        await runtime.db.command(
+            "UPDATE user_profile SET max_single_asset_pct = :pct, updated_at = :now",
+            pct=pct,
+            now=datetime.now(UTC).isoformat(),
+        )
+    return CommandResult(
+        ok=True,
+        message=(
+            f"Concentration cap {previous}% → {pct}%. It binds the largest ASSET CLASS of an "
+            "allocation, not the largest ticker, and applies from the next gate evaluation; "
+            "per-portfolio rules stay as they are and may only be stricter."
+        ),
+        changed=True,
+    )
+
+
 # -- the heavy operations (single-flight) -----------------------------------
 
 

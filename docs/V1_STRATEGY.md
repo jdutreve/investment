@@ -1195,3 +1195,34 @@ them stricter is the point of the stricter-only rule.
 `market_signal_gates` takes the stricter of THREE (user profile, `ms-stack`, the
 book), so all three had to move together or the gate would have refused the book
 the strategy holds 47% of the time.
+
+
+## Two gaps the cap change exposed, closed (2026-08-14)
+
+**The cap now binds an ASSET CLASS, not a ticker.** Read per-ticker,
+`SPY 50 / VTI 20` is two compliant sleeves under a 60% cap and 70% of one thing
+— both are `US_EQUITY`. That candidate measured better during the search and was
+better only because the cap could be satisfied by splitting a position across
+two wrappers of the same asset. `gates.concentration_ok` sums by
+`allowed_tickers.asset_class` now.
+
+Every validated book stays legal, and that is the test of the fix rather than a
+lucky outcome: `IWN 50 / SPY 50` is 100% equity, but US_SMALL_VALUE and
+US_EQUITY are different exposures deliberately held together and that
+concentration IS the countercyclical bet. What the sum refuses is one exposure
+wearing two names.
+
+**What it does NOT fix, pinned as a known limit.** A shared risk FACTOR across
+different classes: `TLT 50 / IEF 40` is 90% duration and still passes, because
+US_LONG_TREASURY and US_TREASURY_7_10 are two classes. A factor taxonomy would
+catch it — and would also refuse the 90-100% equity books ADR-007 validated on
+purpose, so it is a strictly larger decision and belongs to the owner rather
+than to a quiet generalisation inside a gate.
+
+**And the concentration cap is reachable from a chat message.** `/cap 60`
+(`commands.set_max_single_asset`) is the missing half of a pair: `/drawdown` has
+existed since the command layer shipped, so of the two caps CLAUDE.md calls
+binding, one was owner-settable and the other needed a `.env` edit plus a full
+re-seed. Found the day the cap actually had to move. It touches the user profile
+only — per-portfolio rules may only be stricter, and raising a book's own cap
+stays a seed change, which is where that decision belongs.

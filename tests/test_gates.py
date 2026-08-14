@@ -9,6 +9,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from investment.mechanical import market_signal
 from investment.mechanical.gates import (
     ALLOCATION_SUM_TOLERANCE,
     Caps,
@@ -481,3 +482,46 @@ def test_the_haven_chain_is_exempt_on_the_cognitive_path_too() -> None:
         ).failed_gate
         == "max_single_asset_pct"
     )
+
+
+# -- the cap binds an asset class, not a ticker (2026-08-14) ----------------
+
+
+def test_the_cap_sums_tickers_of_the_same_asset_class() -> None:
+    """THE ARBITRAGE THIS CLOSES. `SPY 50 / VTI 20` is two compliant sleeves
+    under a 60% cap read per-ticker, and 70% of ONE thing — both are US_EQUITY.
+    A candidate measured better that way during the 2026-08-14 search and was
+    better only because the cap could be satisfied by splitting a position
+    across two wrappers of the same asset. A cap that counts line items limits
+    paperwork, not risk."""
+    caps = Caps(max_single_asset_pct=60.0, max_drawdown_pct=-25.0)
+    assert not concentration_ok({"SPY": 50.0, "VTI": 20.0, "GLD": 30.0}, caps)
+    assert concentration_ok({"SPY": 60.0, "GLD": 40.0}, caps)  # the same 60, honestly
+
+
+def test_distinct_asset_classes_are_not_summed_however_correlated() -> None:
+    """The validated books stay legal, and they must: `IWN 50 / SPY 50` is 100%
+    equity, but US_SMALL_VALUE and US_EQUITY are different exposures deliberately
+    held together — that concentration IS the countercyclical bet ADR-007 signed.
+    What the sum refuses is one exposure wearing two names, not two exposures."""
+    caps = Caps(max_single_asset_pct=60.0, max_drawdown_pct=-25.0)
+    for book in market_signal.BOOKS.values():
+        assert concentration_ok(book, caps), book
+
+
+def test_a_shared_risk_FACTOR_across_classes_is_NOT_caught() -> None:
+    """Pinned as a KNOWN LIMIT rather than left to be discovered as a surprise.
+    `TLT 50 / IEF 40` is 90% duration and passes, because US_LONG_TREASURY and
+    US_TREASURY_7_10 are two classes. A factor taxonomy would catch it — and
+    would also refuse the 90-100% equity books ADR-007 validated on purpose, so
+    it is a strictly larger decision than this gate makes."""
+    caps = Caps(max_single_asset_pct=60.0, max_drawdown_pct=-25.0)
+    assert concentration_ok({"TLT": 50.0, "IEF": 40.0, "IWN": 10.0}, caps)
+
+
+def test_an_unknown_ticker_is_still_capped_on_its_own() -> None:
+    """The synthetic `cash` sleeve and any test fixture map to themselves, so
+    nothing escapes the gate by being absent from the catalog."""
+    caps = Caps(max_single_asset_pct=60.0, max_drawdown_pct=-25.0)
+    assert not concentration_ok({"cash": 70.0, "SPY": 30.0}, caps)
+    assert concentration_ok({"cash": 70.0, "SPY": 30.0}, caps, exempt=frozenset({"cash"}))

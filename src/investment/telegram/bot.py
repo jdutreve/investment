@@ -51,6 +51,7 @@ HELP = """Commands:
 /cycle — one ad-hoc cognitive cycle (max 1/day)
 /enable <strategy_id> · /disable <strategy_id>
 /drawdown <pct> — your binding drawdown rule, e.g. -20
+/cap <pct> — your binding concentration cap, e.g. 60
 
 Anything else you send is filed as a note and ingested within ~5 minutes."""
 
@@ -109,6 +110,15 @@ def build_application(runtime: AgentRuntime) -> Application:  # type: ignore[typ
             return
         await reply(update, await commands.set_max_drawdown(runtime, pct))
 
+    async def on_cap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not authorized(update):
+            return
+        pct = commands.parse_float(context.args[0]) if context.args else None
+        if pct is None:
+            await reply(update, commands.CommandResult.refused("Usage: /cap 60"))
+            return
+        await reply(update, await commands.set_max_single_asset(runtime, pct))
+
     async def on_text(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         """Anything that is not a command. See the module docstring: filed as a
         note, deliberately, until the chat handler exists."""
@@ -127,6 +137,7 @@ def build_application(runtime: AgentRuntime) -> Application:  # type: ignore[typ
         ("enable", on_enable),
         ("disable", on_disable),
         ("drawdown", on_drawdown),
+        ("cap", on_cap),
     ):
         application.add_handler(CommandHandler(name, handler))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))

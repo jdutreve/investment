@@ -21,13 +21,25 @@ eligibility): the mechanical replay cites no invariants — it is "blind to
 invariant weights" by design (docs/ARCHITECTURE.md) — so the gate has no
 input until the Worker exists at M8.
 
-PURE module: no I/O, no DB. Every threshold arrives as an argument.
+PURE module: no I/O, no DB, deterministic. Every THRESHOLD arrives as an
+argument — that part is unchanged and is what lets the replay and Writeback share
+these rules without either configuring the other.
+
+ONE STATIC IMPORT since 2026-08-14: `seed_data.ALLOWED_TICKERS`, for the
+ticker -> asset-class map `concentration_ok` needs. It is a frozen catalog, not a
+threshold and not I/O (seed_data imports nothing from this package, so there is
+no cycle), and it is imported rather than passed for a reason the module cares
+about: an optional map defaulted to None would silently restore the per-ticker
+blindness for any caller that forgot it, which is exactly the defect being fixed.
+The rule belongs to the gate, not to the discipline of its callers.
 """
 
 import dataclasses
 import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
+
+from investment.db.seed_data import ALLOWED_TICKERS
 
 if TYPE_CHECKING:
     # TYPE-ONLY, and deliberately so: `snapshots.build_snapshot` must call
@@ -136,6 +148,12 @@ def allocation_well_formed(allocation: Mapping[str, float]) -> bool:
     return bool(allocation) and weights_well_formed(allocation)
 
 
+# ticker -> asset class, read from the SEED CATALOG rather than restated. An
+# unknown ticker (the synthetic `cash` sleeve, a test fixture) maps to itself, so
+# it is still capped individually and nothing silently escapes the gate.
+_ASSET_CLASS: dict[str, str] = {str(t["ticker"]): str(t["asset_class"]) for t in ALLOWED_TICKERS}
+
+
 def concentration_ok(
     allocation: Mapping[str, float], caps: Caps, exempt: frozenset[str] = frozenset()
 ) -> bool:
@@ -157,9 +175,37 @@ def concentration_ok(
     fallback it goes to when IEF is itself below trend (owner, 2026-08-08; it
     named IEF alone until the cap froze the stack in its stale book on four 2022
     dates). Empty by default, so the seeded-portfolio callers
-    (switch/reallocation gates) are unchanged and still bind every sleeve."""
-    considered = [w for t, w in allocation.items() if t not in exempt]
-    return not considered or max(considered) <= caps.max_single_asset_pct
+    (switch/reallocation gates) are unchanged and still bind every sleeve.
+
+    THE CAP BINDS AN ASSET CLASS, NOT A TICKER (2026-08-14), and the difference
+    is the whole point of the fix. Reading it per-ticker, `SPY 50 / VTI 20` is
+    two compliant sleeves under a 60% cap — and it is 70% of ONE thing, since
+    both are `US_EQUITY`. A candidate measured better that way during the
+    2026-08-14 search, and it was better only because the cap could be satisfied
+    by splitting a position across two wrappers of the same asset. A cap that
+    counts line items limits paperwork, not risk.
+
+    Summing by `allowed_tickers.asset_class` keeps every validated book legal,
+    because the concentration those books carry is REAL and across distinct
+    sleeves: `IWN 50 / SPY 50` is 100% equity but US_SMALL_VALUE and US_EQUITY
+    are different exposures deliberately held together, and the countercyclical
+    bet IS that concentration. What the sum refuses is the same exposure wearing
+    two names.
+
+    WHAT THIS DOES NOT FIX, stated so it is not mistaken for solved: a shared
+    RISK FACTOR across different classes. `TLT 50 / IEF 40` is 90% duration and
+    still passes, because US_LONG_TREASURY and US_TREASURY_7_10 are two classes.
+    A factor taxonomy would catch it — and would also refuse the 90-100% equity
+    books ADR-007 validated on purpose, so it is a strictly larger decision than
+    this one and belongs to the owner, not to a quiet generalisation here."""
+    considered: dict[str, float] = {}
+    for ticker, weight in allocation.items():
+        if ticker in exempt:
+            continue
+        considered[_ASSET_CLASS.get(ticker, ticker)] = considered.get(
+            _ASSET_CLASS.get(ticker, ticker), 0.0
+        ) + float(weight)
+    return not considered or max(considered.values()) <= caps.max_single_asset_pct
 
 
 def effective_caps(user_profile: Mapping[str, Any], portfolio: Mapping[str, Any] | None) -> Caps:

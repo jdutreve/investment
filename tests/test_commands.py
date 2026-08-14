@@ -117,6 +117,37 @@ async def test_the_drawdown_rule_moves_and_is_audited(db: InvestmentDB, tmp_path
     assert '"from": -25.0' in str(decisions[0]["payload"])
 
 
+async def test_the_concentration_cap_moves_and_is_audited(db: InvestmentDB, tmp_path: Path) -> None:
+    """THE MISSING HALF OF THE PAIR, added 2026-08-14. Of the two caps CLAUDE.md
+    calls binding, only the drawdown rule was reachable from a chat message —
+    found the day the concentration cap actually had to move (50 -> 60), and it
+    cost a `.env` edit plus a full re-seed to apply one number."""
+    runtime = _runtime(db, tmp_path)
+    result = await C.set_max_single_asset(runtime, 60.0)
+
+    assert result.ok and result.changed
+    rows = await db.query("SELECT max_single_asset_pct FROM user_profile")
+    assert float(rows[0]["max_single_asset_pct"]) == 60.0
+    decisions = await _decisions(db)
+    assert len(decisions) == 1
+    assert '"to": 60.0' in str(decisions[0]["payload"])
+
+
+@pytest.mark.parametrize("bad", [0.0, -10.0, 101.0])
+async def test_a_concentration_cap_outside_the_range_is_refused(
+    db: InvestmentDB, tmp_path: Path, bad: float
+) -> None:
+    """A cap at or below zero refuses every allocation ever proposed; one above
+    100 binds nothing, forever, with no error to read — the same two failure
+    modes the drawdown rule is validated against, in the other units."""
+    before = (await db.query("SELECT max_single_asset_pct FROM user_profile"))[0]
+    result = await C.set_max_single_asset(_runtime(db, tmp_path), bad)
+    assert not result.ok
+    after = (await db.query("SELECT max_single_asset_pct FROM user_profile"))[0]
+    assert after["max_single_asset_pct"] == before["max_single_asset_pct"]  # untouched
+    assert await _decisions(db) == []
+
+
 @pytest.mark.parametrize("bad", [20.0, 0.0, -100.0, -250.0])
 async def test_a_drawdown_outside_the_range_is_refused(
     db: InvestmentDB, tmp_path: Path, bad: float
