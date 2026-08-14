@@ -1480,9 +1480,36 @@ contaminating itself.
 
 ## I-45 — ADR-010's "every NAV pays" is not literally true: +12w scoring is gross
 
-**Why deferred:** it is an inconsistency between an ADR's wording and one call
-site, whose measured effect is below the precision of the thing it feeds. Cheap
-to close either way, and closing it wrongly is worse than leaving it named.
+**✅ CLOSED 2026-08-14 by resolution (1) — the scoring NAVs now pay.**
+`_window_return` takes `cost_bps` and both callers pass
+`system_thresholds.replay_cost_bps`: `_evaluate_one` (the +12w verdict) and
+`paper_test_progress` (the weekly scoreboard, which had to move with it — a
+running excess computed on cheaper NAVs than the verdict's would preview a
+verdict it disagrees with). ADR-010 point 2 loses its correction note and reads
+literally again.
+
+**Measured, on the two-sleeve fixture the new test pins:** 6.6e-5 over a 12-week
+window at 10 bps — 0.66 bp, ~1.5 bp at the live 23, which corroborates the
+estimate below. No verdict moved, and none could: the live ledger holds one
+proposal (2026-08-12) whose window has not closed, and whose paper-test tracking
+has not yet crossed a month boundary, so nothing recomputed differently.
+
+**Why (1) and not (2).** Both were defensible and the numbers did not choose
+between them, so consistency did: (2) buys nothing but an exception, and an
+exception is a thing the next reader must rediscover before they can trust the
+rule. Note what (2) would have cost specifically — the argument that a shared
+cost cancels in a pairwise difference is TRUE for this verdict, so the exception
+would have been correct and still wrong to take, because the reader meeting
+`synthesize_nav(cost_bps=...)` at three call sites and a bare
+`synthesize_nav(...)` at the fourth has to reconstruct that argument from
+nothing. **Single sleeves hid it for free:** every allocation in the outcome
+tests is one ticker, and a lone sleeve never drifts from a 100% target, so the
+whole suite was indifferent to the rate — the new test uses two.
+
+**Why it was deferred until now:** it was an inconsistency between an ADR's
+wording and one call site, whose measured effect is below the precision of the
+thing it feeds. Cheap to close either way, and closing it wrongly is worse than
+leaving it named.
 
 **What it is.** ADR-010 states one rate charged to every NAV. That holds for
 every PERSISTED `portfolio_nav` series — the static books, the All-Weather
@@ -1500,7 +1527,7 @@ verdict compares the two legs, so what actually matters is the DIFFERENCE
 between their drift, which is smaller again. No won/lost verdict flips unless
 the gap is already inside a basis point, where it was never meaningful.
 
-**The two honest resolutions**, one of which must be picked:
+**The two honest resolutions** that were on the table — (1) taken:
 1. pass `ratios.TRADING_COST_BPS` in `_window_return` — one argument, no
    measurable change to any verdict, and the ADR becomes literally true;
 2. amend ADR-010 to say "every PERSISTED NAV", and state that proposal scoring
@@ -1513,9 +1540,11 @@ Note that (2) resurrects the reasoning ADR-010 rejected. It is still valid HERE
 and was not there, and that distinction is the whole content of this item: a
 cost that cancels in a pairwise difference does not cancel in a shared ranking.
 
-**Trigger to revisit:** before Step 6 (forward paper-mode). Until then the
-outcome ledger holds fixtures; from Step 6 it becomes the evidence the go-live
+**The trigger that fired:** before Step 6 (forward paper-mode). Until now the
+outcome ledger held fixtures; from Step 6 it becomes the evidence the go-live
 verdict rests on, and "the numbers are net" has to be true without a footnote.
+It is, as of 2026-08-14 — which is the whole reason to spend ten minutes on a
+0.66 bp discrepancy nobody would have noticed in a verdict.
 
 ---
 
@@ -1568,10 +1597,11 @@ If/when adding from this list, prioritize by dependency and impact:
    `outcomes.py` (unified improvement cycle).
 3. **I-30** (authoritative backfill) — a correctness fix on real stored data,
    not a feature; do it before go-live or at the next ticker/lag change.
-3-bis. **I-45** (+12w scoring is gross) — ten minutes, no verdict moves; the
-   point is that ADR-010's wording and the code must agree BEFORE the outcome
-   ledger stops being fixtures. **I-46** (the Worker's lever after Step 6) is
-   NOT here on purpose: it is settled inside the Step 6 plan or not at all.
+3-bis. ~~**I-45** (+12w scoring is gross)~~ — **closed 2026-08-14**: the
+   scoring NAVs pay `replay_cost_bps` like every other NAV, so ADR-010's wording
+   and the code agree before the outcome ledger stops being fixtures.
+   **I-46** (the Worker's lever after Step 6) is NOT here on purpose: it is
+   settled inside the Step 6 plan or not at all.
 4. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
 5. **I-3 + I-11** (Hypothesis) — closes the epistemic loop, prevents post-hoc bias.
 6. **I-5** (two-tier half-life) — small change, real fairness gain for Dalio-grade.

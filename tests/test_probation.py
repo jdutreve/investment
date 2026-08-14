@@ -46,6 +46,14 @@ async def _seed(db: InvestmentDB) -> None:
         "INSERT INTO system_thresholds (key, value, updated_at) "
         "VALUES ('strategy_probation_weeks', 12.0, '2026-01-01')"
     )
+    # `paper_test_progress` charges the window's rebalances at the SAME rate the
+    # +12w verdict does (ADR-010 point 2). Seeded here rather than left to the
+    # `ratios.TRADING_COST_BPS` fallback so this fixture exercises the path the
+    # live database takes.
+    await cmd(
+        "INSERT INTO system_thresholds (key, value, updated_at) "
+        "VALUES ('replay_cost_bps', 23.0, '2026-01-01')"
+    )
     # Activation now checks each scenario book against the BINDING caps and the
     # tradable universe, so probation needs both to reach a verdict at all.
     await cmd(

@@ -158,14 +158,29 @@ async def _allocation_at(db: InvestmentDB, portfolio_id: str, as_of: str) -> dic
 
 
 async def _window_return(
-    db: InvestmentDB, fractions: Mapping[str, float], start: pd.Timestamp, end: pd.Timestamp
+    db: InvestmentDB,
+    fractions: Mapping[str, float],
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    cost_bps: float,
 ) -> float | None:
     """The buy-and-hold synthetic-NAV return of `fractions` over [start, end],
     on the pinned NAV conventions (ratios.synthesize_nav: monthly rebalance,
     cash accrues at rf). `None` when the allocation cannot be valued — a
     missing price series, or the window not yet complete in the data (the same
     incomplete-forward-window guard maturation uses; without it the last
-    proposals would be scored on a truncated window)."""
+    proposals would be scored on a truncated window).
+
+    `cost_bps` BILLS THE DRIFT-REBALANCES INSIDE THE WINDOW (ADR-010 point 2,
+    closing docs/IMPROVEMENTS.md I-45). These NAVs are temporary — synthesized
+    to answer one question and never persisted — and they were the last ones in
+    the system trading for free, which made ADR-010's "every NAV pays" literally
+    false and left the ADR carrying a correction note. The measured size is ~1.5
+    bp over 12 weeks and it lands on BOTH legs, so no verdict moves; the reason
+    to charge it anyway is that a rule with one silent exception is a rule the
+    next reader has to rediscover. The caller passes
+    `system_thresholds.replay_cost_bps`, which ADR-010 pins equal to
+    `ratios.TRADING_COST_BPS` — the same rate the persisted NAVs pay."""
     non_cash = [t for t in fractions if t != CASH]
     prices = {t: await ratios.load_price(db, t) for t in non_cash}
     if any(p.empty for p in prices.values()):
@@ -176,8 +191,14 @@ async def _window_return(
     # allocation is not unvaluable though: it compounds at rf, which is exactly
     # what the engine's own cash leg does. Reachable because 'cash' is an
     # allowed reallocation ticker, so a fully defensive proposal is legal and
-    # must still be scorable rather than skipped forever as "unvaluable".
-    nav = (1.0 + rf).cumprod() if not non_cash else ratios.synthesize_nav(fractions, prices, rf)
+    # must still be scorable rather than skipped forever as "unvaluable". It
+    # pays no rebalance either, and that is arithmetic rather than an exemption:
+    # a lone sleeve cannot drift away from a 100% target, so sum|dW| is 0.
+    nav = (
+        (1.0 + rf).cumprod()
+        if not non_cash
+        else ratios.synthesize_nav(fractions, prices, rf, cost_bps=cost_bps)
+    )
     if nav.empty or nav.index.max() < end:
         return None
     v_start, v_end = _asof(nav, start), _asof(nav, end)
@@ -352,13 +373,16 @@ async def _evaluate_one(
     if not incumbent_frac or not proposed_frac:
         return ProposalOutcome(pid, "", None, None, "allocation missing or empty")
 
-    incumbent_return = await _window_return(db, incumbent_frac, start, end)
-    proposed_gross = await _window_return(db, proposed_frac, start, end)
+    incumbent_return = await _window_return(db, incumbent_frac, start, end, cost_bps)
+    proposed_gross = await _window_return(db, proposed_frac, start, end, cost_bps)
     if incumbent_return is None or proposed_gross is None:
         return ProposalOutcome(pid, "", None, None, "price data does not cover the window")
 
-    # The proposed side pays a one-time entry cost for trading away from what is
-    # already held; the incumbent is held, so it pays nothing.
+    # The proposed side pays a one-time ENTRY cost for trading away from what is
+    # already held; the incumbent is held, so it pays no entry. The rebalances
+    # inside the window are a separate charge, billed to both legs by
+    # `_window_return` — `proposed_gross` is gross of the switch only, not gross
+    # of everything (ADR-010 point 2).
     cost = turnover(incumbent_frac, proposed_frac) * cost_bps / 10_000.0
     proposed_return = proposed_gross - cost
     v = verdict(proposed_return, incumbent_return)
@@ -867,6 +891,23 @@ async def paper_test_progress(db: InvestmentDB, today: date | None = None) -> li
         "SELECT * FROM proposal WHERE paper_started IS NOT NULL "
         "AND (outcome IS NULL OR json_extract(outcome, '$.verdict') = 'pending')"
     )
+    # The SAME rate the +12w verdict charges, for the same reason the incumbent
+    # resolution is shared below: a running excess computed on cheaper NAVs than
+    # the verdict's would be a scoreboard that contradicts the verdict it is
+    # previewing.
+    #
+    # WITH A FALLBACK, unlike `evaluate_proposals`, and the difference is the
+    # contract rather than an oversight. This function feeds the DIGEST, which is
+    # a report and must render from whatever the database holds — including a
+    # database that holds almost nothing (`test_build_digest_on_an_empty_db_says
+    # _no_proposal`). `evaluate_proposals` decides a verdict, so a missing
+    # threshold there is a broken seed and says so. Falling back cannot introduce
+    # a second rate: ADR-010 pins `replay_cost_bps` EQUAL to
+    # `ratios.TRADING_COST_BPS`, so the constant is the reference and the row is
+    # its persisted copy — when the copy is absent, the reference is what the
+    # verdict would have used anyway.
+    rows_cost = await db.query("SELECT value FROM system_thresholds WHERE key = 'replay_cost_bps'")
+    cost_bps = float(rows_cost[0]["value"]) if rows_cost else ratios.TRADING_COST_BPS
     end = pd.Timestamp(today)
     progress: list[dict[str, Any]] = []
     for proposal in rows:
@@ -884,8 +925,8 @@ async def paper_test_progress(db: InvestmentDB, today: date | None = None) -> li
         # decides won/lost is a scoreboard that contradicts its own verdict.
         incumbent = normalize(await _incumbent_allocation(db, proposal))
         proposed = normalize(await _proposed_allocation(db, proposal))
-        inc_ret = await _window_return(db, incumbent, start, end) if incumbent else None
-        pro_ret = await _window_return(db, proposed, start, end) if proposed else None
+        inc_ret = await _window_return(db, incumbent, start, end, cost_bps) if incumbent else None
+        pro_ret = await _window_return(db, proposed, start, end, cost_bps) if proposed else None
         excess = pro_ret - inc_ret if (inc_ret is not None and pro_ret is not None) else None
         progress.append(
             {

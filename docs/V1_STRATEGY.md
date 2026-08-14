@@ -267,8 +267,10 @@ defender flag. **But it leaves the Worker with no legal allocation target at
 all** — UC8-B becomes unreachable in full. Delete it, demote the bridge instead
 of retiring it, or give the Worker a capped satellite sleeve: the three futures
 are specified in docs/IMPROVEMENTS.md I-46 and must be settled in THIS plan,
-not during it. Also close I-45 (+12w scoring is gross) before this step: from
-here the outcome ledger stops being fixtures and becomes the go-live evidence.
+not during it. I-45 (+12w scoring was gross of the window's rebalances) was the
+other pre-condition and is **CLOSED 2026-08-14** — from here the outcome ledger
+stops being fixtures and becomes the go-live evidence, so its numbers had to be
+net without a footnote.
 
 **Step 7 — V2 auto-execution**, only after forward validation earns it.
 

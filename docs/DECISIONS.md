@@ -791,11 +791,14 @@ replay charged the arms it was compared against.
    rebalance triggers no CHF conversion.
 2. **Every NAV pays it** — static books, the All-Weather benchmark, and the
    stack. A benchmark charged nothing is an alternative nobody can actually buy.
-   *(Correction 2026-08-02: read "every PERSISTED NAV". The temporary NAVs
-   `outcomes._window_return` builds to score a proposal at +12w charge the
-   switch but not the ~3 drift-rebalances inside the window — ~1.5 bp on both
-   legs, so no verdict moves. Named and to be closed before Step 6:
-   docs/IMPROVEMENTS.md I-45.)*
+   *(This read "every PERSISTED NAV" between 2026-08-02 and 2026-08-14, because
+   the temporary NAVs `outcomes._window_return` builds to score a proposal at
+   +12w charged the switch but not the drift-rebalances inside the window. I-45
+   is now CLOSED by charging them rather than by narrowing the sentence, so the
+   literal wording holds again: `_window_return` takes `cost_bps` and both its
+   callers pass `system_thresholds.replay_cost_bps`. Measured at 0.66 bp over 12
+   weeks at 10 bps — ~1.5 bp at the live 23 — on BOTH legs, so no verdict moved,
+   which is why the choice was free to be made on consistency alone.)*
 3. **The monthly drift-rebalance is billed too**, in BOTH engines. It was free
    in `shadow_book_nav` on the reasoning that "both arms pay it equally, so
    charging it would only add noise to A - B" — true inside the replay, false

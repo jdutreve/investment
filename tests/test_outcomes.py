@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from datetime import date, timedelta
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from investment.db.sqlite import InvestmentDB
@@ -138,6 +139,67 @@ async def test_a_reallocation_is_valued_from_its_inline_target(db: InvestmentDB)
     await _add_proposal(db, "p-realloc", "reallocation", START, proposed_allocation='{"SPY": 100}')
     (res,) = await outcomes.evaluate_proposals(db, today=TODAY)
     assert res.verdict == "won"
+
+
+async def test_the_scored_window_pays_its_drift_rebalances(db: InvestmentDB) -> None:
+    """I-45 / ADR-010 point 2: the temporary NAVs built to score a proposal are
+    charged the same rate as the persisted ones, so "every NAV pays" is true of
+    the code and not only of the ADR.
+
+    TWO SLEEVES ARE WHAT MAKES IT VISIBLE, and that is why no other test here
+    moved when the charge was added: every other allocation in this file is a
+    single ticker, and a lone sleeve cannot drift away from a 100% target — its
+    rebalance trades nothing at any rate."""
+    await _add_proposal(
+        db, "p-cost", "reallocation", START, proposed_allocation='{"SPY": 50, "TLT": 50}'
+    )
+    (res,) = await outcomes.evaluate_proposals(db, today=TODAY)
+    assert res.proposed_return is not None
+
+    gross = await outcomes._window_return(
+        db, {"SPY": 0.5, "TLT": 0.5}, pd.Timestamp(START), pd.Timestamp(END), 0.0
+    )
+    assert gross is not None
+    # The switch out of TLT 100 into 50/50 moves 0.5 in and 0.5 out = 1.0 turnover
+    # at the seeded 10 bps, charged once on entry by `_evaluate_one`.
+    entry_cost = 0.001
+    rebalances = gross - entry_cost - res.proposed_return
+    assert rebalances > 0.0, "the drift-rebalances inside the window are free again"
+    # Two of them (the Feb and Mar month boundaries inside a 2026-01-05 -> 03-30
+    # window). The SPY ramp drifts the pair ~1.7 pt off target in a month, so
+    # each rebalance trades sum|dW| ~= 0.034 at 10 bps = 3.4e-5, twice = 6.6e-5.
+    # I-45's estimate was ~1.5 bp at the LIVE 23 bps; 0.66 bp at the fixture's 10
+    # is the same measurement, and it is the size that made this a wording fix
+    # rather than a verdict fix.
+    assert rebalances == pytest.approx(6.6e-5, abs=5e-6)
+
+
+async def test_the_scoreboard_prices_at_the_pinned_rate_on_a_bare_db(tmp_path: Path) -> None:
+    """`paper_test_progress` feeds the DIGEST, which must render from whatever
+    the database holds — so a missing `replay_cost_bps` falls back to
+    `ratios.TRADING_COST_BPS` instead of raising, which is what
+    `evaluate_proposals` does with the same missing row (it decides a verdict; a
+    broken seed must stop it). ADR-010 pins the two equal, so the fallback cannot
+    price at a rate the verdict would not have used.
+
+    Named because the digest tests only cover it by accident: they build empty
+    databases for other reasons, and would start failing for a reason nobody
+    would connect to this rule."""
+    db = InvestmentDB(tmp_path / "bare.db")
+    try:
+        await db.command(
+            "INSERT INTO proposal (id, date, proposal_type, defender_id, recommendation, "
+            "market_context, reasoning, paper_started, trace, created_at) VALUES ('bare', "
+            ":d, 'reallocation', 'defender-pf', 'paper-test', '{}', 'r', :d, 't', :d)",
+            d=START.isoformat(),
+        )
+        # No system_thresholds row, no prices: the run must complete and report
+        # the unvaluable legs as None rather than raise on the missing rate.
+        (progress,) = await outcomes.paper_test_progress(db, today=TODAY)
+        assert progress["proposal_id"] == "bare"
+        assert progress["excess"] is None
+    finally:
+        await db.close()
 
 
 async def test_a_proposal_before_its_window_is_left_pending(db: InvestmentDB) -> None:
