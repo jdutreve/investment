@@ -768,6 +768,11 @@ digest rendered in terminal.
 - [x] simulated Monday on fixtures end to end (`test_simulated_monday.py`)
 - [x] bear-shift fixture (+35pts) → reallocation proposal passes gates
       (`test_decision_cycle.py::test_bear_shift_reallocation_passes_gates_and_persists`)
+      — VERIFIED AT M8 AND SINCE RETIRED: ADR-012 deleted the cognitive
+      reallocation, so the test went with it. The checkbox stays ticked because
+      it records what was true when the milestone closed; the gate arithmetic it
+      pinned now lives in `tests/test_gates.py`, exercised by the bridge's
+      replay.
 - [x] Call 2 downgrades an unevidenced verdict to neutral
       (`test_planner_post.py::test_unevidenced_verdict_is_downgraded_to_neutral`)
 - [x] digest readable and complete (`test_digest.py::test_render_is_complete_and_readable`,
@@ -785,7 +790,11 @@ opening the numbered-migration convention). Readers must now branch on
 
 **✅ Watch CLEARED 2026-07-30 — gate 6 stays `integrated`-only.** Measured on
 the live DB with the production predicates (`cited_invariant_eligible` +
-`condition_active_now`), not estimated:
+`condition_active_now`), not estimated. **The gate itself was deleted on
+2026-08-14** with the rest of the citation apparatus (ADR-012 left the Worker no
+field to cite from). The measurement below did NOT die with it: it is why the
+Planner still shows the Worker `integrated`-only invariants, and it is the
+finding any future citation channel starts from rather than re-litigates.
 
 - The corpus is 253 rows but **209 are UC4 curator notes flagged `reference
   knowledge: no effect to measure`** — empty condition, never confronted, not

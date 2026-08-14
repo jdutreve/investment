@@ -11,6 +11,20 @@ See REVISION_NOTES.md for V1 scope and core concepts.
 > credit-spread/slope regime (V1_STRATEGY), not the CPI/GDP quadrant detector.
 > The regime-detection algorithm below is retained for invariant `condition`
 > evaluation and the regime graph; it no longer drives allocation.
+>
+> **ADR-012 (2026-08-09/11) — THE WORKER DOES NOT ALLOCATE.** Everything below
+> that describes the Worker PROPOSING an allocation is history, and is marked
+> where it appears: `WorkerResult.reallocation_proposed`, the
+> `ReallocationProposal` model, `writeback.dispose_reallocation` with its gate 0
+> and gates 1-6, the cooldown pre-gate, and gate 6's cited-invariant eligibility
+> (deleted 2026-08-14 with the citation apparatus in the Worker's context) no
+> longer exist. UC8-A's switch went earlier, with ADR-007's retirement of the
+> ranked duel. The 0.4/0.6 delta blend SURVIVES as pure mechanics —
+> `gates.blend_allocation` + `reallocation_gates`, called only by the retained
+> bridge's replay — so where this document explains the blend it still describes
+> running code; where it says the WORKER proposes it, it does not. What the
+> cognitive cycle produces now is a reading, evaluations, scenario adjustments
+> and innovations, all of which mature mechanically under ADR-006.
 
 ## Objective
 
@@ -90,53 +104,26 @@ PLANNER system prompt:
    You prepare the optimal context. You never reason about
    the strategies themselves."
 
-WORKER system prompt:
-  "You are the CAPTAIN of this ship — a long-term investment expert, Phase 1
-   accumulation. Your DESTINATION is fixed: build retirement capital over
-   15-20 years. Rule #1: don't lose. Rule #2: don't forget rule #1.
-   You read the WEATHER — the market: the current regime, global liquidity,
-   volatility, and the level/speed/acceleration of every series (speed and
-   acceleration tell you whether a storm is building or easing, so you
-   ANTICIPATE, not merely react).
-   You steer by LIGHTHOUSES — the invariants in your context orient your
-   reasoning, they do not give orders (see skill-interpret-invariants).
-   You carry 35 YEARS of a sailor's experience — every indicator, backtest,
-   FAVORS edge and invariant weight you read was already confronted over
-   1991-present (1994, 2000, 2008, 2020, 2022).
-   You chart the course; the owner's hand is on the wheel — V1 never
-   auto-executes, and final safety gates are applied outside you.
-   The ADOPTED allocation is the market-signal monthly stack: the book named
-   in your context was ALREADY CHOSEN, mechanically, from market-priced
-   credit-spread and yield-slope signals confronted over those same 35 years,
-   with a trend-following overlay on top. Read it, challenge it, say plainly
-   where it looks wrong and what it cannot see — that reading is your
-   contribution. Do not re-pick the book: that decision is not yours, and a
-   course set by a proven instrument is not improved by overruling it on
-   impression. Neither its book NOR its weights are yours to adjust:
-   proposing that allocation back with a few points moved is re-deciding it
-   by another route. If you believe the instrument itself is wrong — not
-   this month's reading, but the rule — say so as an innovation
-   (strategy_revision), where the claim gets measured over time instead of
-   applied once on conviction. A disagreement worth acting on is worth
-   proving.
-   Evaluate strategies, rank portfolios, compare challengers against the
-   defender, propose paper-mode adjustments. You may propose adjusting the
-   defender's own allocation (blend 0.4 × active-scenario target +
-   0.6 × regime-favored structural anchor), citing the invariants that
-   support it — this is the retained fallback book, kept as benchmark, not
-   the adopted stack.
-   Use the Skills provided and the data in your context.
-   You are unaware of the Planner, Writeback, and internal storage.
-   Three tools: db_query, market_fetch, portfolio_check.
-   Sharpe/Sortino/Calmar are pre-calculated indicators in USD in the DB;
-   the suffix is _rolling. Interpret them — do not recalculate.
-   Rolling window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
-   WorkerResult must include innovations_proposed (empty list if none)
-   and reallocation_proposed (null if none).
-   Your reading of the market-signal allocation goes in
-   market_signal_assessment — always, even when you agree and even when you
-   propose nothing else; it is recorded and shown to the owner. If your
-   context carries no market-signal allocation, say so there in one line."
+WORKER system prompt: `worker/agent.py WORKER_SYSTEM_PROMPT` — READ IT THERE.
+
+  This document used to carry a copy, and on 2026-08-14 the copy was found
+  still instructing the Worker to "propose adjusting the defender's own
+  allocation (blend 0.4 x scenario + 0.6 x FAVORS), citing the invariants that
+  support it" and to fill `reallocation_proposed` — five days after ADR-012
+  deleted both. The shipped prompt had been correct the whole time; the DOC was
+  what disagreed, and a reader trusting it would have built against a Worker
+  that no longer exists. This is the same failure as the 300-day trend window
+  (commit 5c26f17): a fact stated in two places, with nothing making the
+  statements agree.
+
+  What the persona establishes, so this section still means something without
+  restating it: the CAPTAIN framing (15-20y accumulation, rule #1 don't lose),
+  the WEATHER it reads, the LIGHTHOUSES that orient rather than order, the 35
+  years already confronted, the owner's hand on the wheel — and the paragraph
+  that matters most here, YOU DO NOT ALLOCATE: the book was already chosen
+  mechanically, neither it nor its weights are the Worker's to adjust, and a
+  disagreement with the RULE goes out as a `strategy_revision` innovation to be
+  measured rather than applied on conviction (ADR-011, ADR-012).
 
 CURATOR: no persona system prompt by design. It runs on WORKER_MODEL but
   is a single-shot, tool-less transformation whose behavioral spec lives
@@ -157,9 +144,10 @@ INGESTS   corpus → Passages → Invariants (UC4)
 DETECTS   regime (4 Seasons) from MarketData TS with level/speed/acceleration
 RANKS     all enabled portfolios, including the defender, by USD
           *_rolling indicators + drawdown (weekly)
-PROPOSES  V1 emits paper-mode Proposal vertices when a gate is met:
-          switch (mechanical gates) or reallocation (Worker-proposed,
-          Writeback-validated)
+PROPOSES  V1 emits ONE paper-mode Proposal vertex a month, from the
+          mechanical market-signal decision (ADR-007), disposed by the
+          binding caps. The two cognitive kinds are gone: switch with
+          ADR-007, reallocation with ADR-012
 V2 ADAPTS Telegram with auto-validation timeout (V2 only)
 MEASURES  PortfolioNAV + weekly snapshots with rolling indicators (USD)
 V2 LEARNS Adaptation × performance_3m → BACKED_BY invariant weights
@@ -802,11 +790,12 @@ V2 may use shift thresholds for auto-adaptive execution.
   what synthetic backtests replay.
 - `delta = 0.4 × scenario_delta + 0.6 × favors_delta`, rounded to 2.5-point
   increments, then re-normalized to sum 100.
-- This blend is the basis of the Worker's **reallocation proposals**
-  (`WorkerResult.reallocation_proposed`, see DATA_MODELS.md); Writeback
-  validates the result against the mechanical reallocation gates
-  (USE_CASES.md UC8-B).
-- Worker documents the blend in `reasoning` and cites supporting invariants.
+- This blend WAS the basis of the Worker's reallocation proposals. Since ADR-012
+  it is purely mechanical: `gates.blend_allocation` computes it and
+  `gates.reallocation_gates` validates it, for ONE caller — the retained
+  bridge's replay (`replay.py`), which needs a defender policy to benchmark the
+  stack against. No LLM sits inside either half any more, which is what makes
+  the bridge a clean comparison: two mechanical policies, no cognitive variance.
 
 ---
 
@@ -872,9 +861,10 @@ Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
            DECISION itself is MONTHLY (a no-op unless the month's anchor
            date is new). This is the allocation path.
   09:00  UC8: Planner Pre → Worker → Planner Post → Writeback
-         — the Worker READS the 08:55 decision and nuances it; it may not
-           re-pick the book (ADR-011, enforced as gate 0). The reallocation
-           it may still emit is the BRIDGE's.
+         — the Worker READS the 08:55 decision and nuances it. It may not
+           re-pick the book, and since ADR-012 that holds by construction
+           rather than by a gate: it emits no allocation of any kind, for
+           the stack or for the bridge. Knowledge only.
   09:30  Weekly digest → Telegram
 ```
 
@@ -1062,15 +1052,17 @@ class EvaluationDraft(BaseModel):
     reasoning        : str
 
 class WorkerResult(BaseModel):
-    regime_assessment     : str
-    ranking_commentary    : str                       # explains, never re-ranks
-    scenario_adjustments  : list[ScenarioAdjustment]  # qualitative triggers only
-    evaluations           : list[EvaluationDraft]
-    reallocation_proposed : Optional[ReallocationProposal]  # see DATA_MODELS.md
-    innovations_proposed  : list[ImprovementProposal]       # empty list if none
-    reasoning             : str   # also serves as the Proposal vertex's
-                                  #   reasoning (switch commentary folded here)
+    regime_assessment       : str
+    ranking_commentary      : str                       # explains, never re-ranks
+    market_signal_assessment: str   # the reading of the mechanical decision
+    scenario_adjustments    : list[ScenarioAdjustment]  # qualitative triggers only
+    evaluations             : list[EvaluationDraft]
+    innovations_proposed    : list[ImprovementProposal] # [] means "nothing", said
+    reasoning               : str
 ```
+No `reallocation_proposed`, and no `ReallocationProposal` model: ADR-012. Every
+field is REQUIRED — an omitted list validating as `[]` made "nothing to propose"
+and "forgot the field" the same answer (worker/result.py).
 
 ### CALL 2 — Knowledge Extractor (async post-Worker)
 ```
@@ -1080,9 +1072,10 @@ create_task only buys parallelism within the UC8 step.
 Extracts: regime updates, evaluations, scenario updates,
           invariant confrontations, innovations.
 Outputs PostPlannerResult via extract_knowledge tool.
-Writeback commits — EventLog append first, then vertices, then edges —
-and runs the MECHANICAL proposal gates (switch from snapshot ranks;
-reallocation validation from WorkerResult.reallocation_proposed).
+Writeback commits — EventLog append first, then vertices, then edges.
+It runs NO proposal gate on this path: the switch died with ADR-007's
+retirement of the ranked duel, the reallocation with ADR-012. The only
+gated disposition left is the mechanical one (dispose_market_signal).
 ```
 
 ---
@@ -1118,9 +1111,9 @@ stale data). Timezone Europe/Zurich.
   09:00:05  Worker     LLM ~5s  → WorkerResult
   09:00:10  asyncio.create_task() → PlannerPost + Writeback
               Call 2 + commits (EventLog first)
-              Mechanical gates: switch (from snapshot ranks) and
-              reallocation (from WorkerResult.reallocation_proposed)
-              Proposal vertex (V1) if a gate passes
+              NO gate and NO Proposal on this path since ADR-012 — the
+              month's Proposal was minted at 08:55 by the mechanical
+              market-signal cycle, which UC8 reads and comments
               snapshot `recommendation` columns updated
               (rows themselves written by UC7 at 08:50)
 

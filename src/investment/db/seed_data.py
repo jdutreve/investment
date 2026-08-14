@@ -54,7 +54,12 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
     "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)
     "proposal_cooldown_weeks": 4.0,  # anti-repetition: weeks before a near-identical realloc may repeat
-    "proposal_invariant_weight_min": 0.10,  # realloc gate 6: min weight_effective to be citable
+    # UNREAD SINCE ADR-012 deleted gate 6 (`gates.cited_invariant_eligible`),
+    # and kept deliberately: the seed writes thresholds with INSERT OR REPLACE
+    # and prunes nothing, so removing the key here would leave every existing
+    # database holding a row that no line of code or seed data explains. It
+    # stays until a threshold prune exists, and this comment is why.
+    "proposal_invariant_weight_min": 0.10,  # was: min weight_effective to be citable
     "invariant_refuted_min_confrontations": 4.0,  # N floor for the REFUTED/INADEQUATE branches
     "invariant_refuted_score": 0.35,  # score below which an amply-confronted invariant is REFUTED
     # Weeks a new/revised Strategy runs before auto-keep/close

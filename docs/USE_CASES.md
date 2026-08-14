@@ -59,15 +59,13 @@ alert. Times in ../CLAUDE.md are indicative.)
                               the stack NAV each time, but the DECISION is
                               MONTHLY — a no-op unless the month's anchor date
                               is new. Journalled whether or not money moves.
-  UC8  Proposal Detection   → ProposalEvent + Proposal vertex
-                              (switch or reallocation), or nothing.
-                              RETAINED BRIDGE (ADR-007). The Worker READS the
-                              08:55 decision and nuances it in
-                              `market_signal_assessment`; it may NOT re-pick
-                              the book (ADR-011 — gate 0 of
-                              dispose_reallocation refuses any reallocation
-                              targeting a TIME_VARYING_PORTFOLIOS row, before
-                              any merit gate).
+  UC8  Cognitive cycle      → WorkerReadingEvent + knowledge commit.
+                              NO Proposal vertex and no gate since ADR-012:
+                              the Worker READS the 08:55 decision and nuances
+                              it in `market_signal_assessment`, and emits no
+                              allocation of any kind. It may not re-pick the
+                              book, and that now holds by construction rather
+                              than through ADR-011's gate 0.
   —    Weekly digest        → Telegram (09:30 — renders the market-signal
                               decision from its journal, plus UC7/UC8 output;
                               always sent)
@@ -480,21 +478,33 @@ context. Every ranked portfolio includes its concrete allocation.
 
 ## UC8 — Proposal Detection
 
-> **RETAINED BRIDGE (ADR-007) + BOUNDED BY ADR-011.** The switch gates (A) and
-> the scenario-driven reallocation blend (B) below are the BRIDGE's decision
-> path. No live cycle emits a switch. A reallocation may never target a
-> `TIME_VARYING_PORTFOLIOS` row: mechanical allocation is sovereign, and gate 0
-> of `dispose_reallocation` refuses it before any merit gate runs. The Worker's
-> contribution to the ADOPTED path is a READING (`market_signal_assessment`,
-> journalled and rendered) plus a rule challenge routed through
-> `innovations_proposed` — never an allocation. The gate mechanics, the caps and
-> the cooldown described below are otherwise unchanged.
+> **HISTORY BELOW THIS LINE (ADR-007, then ADR-012).** Neither (A) nor (B)
+> runs any more. ADR-007 retired the ranked defender/challenger duel, so no
+> cycle emits a SWITCH; ADR-012 then deleted the cognitive REALLOCATION whole —
+> `WorkerResult.reallocation_proposed`, `ReallocationProposal`,
+> `dispose_reallocation` with its gate 0, gates 1-6 and the cooldown pre-gate,
+> and (2026-08-14) gate 6's cited-invariant eligibility with the citation
+> apparatus in the Worker's context. ADR-011's gate 0 needed no repeal: with no
+> cognitive allocation expressible, the property it enforced holds by
+> construction.
+>
+> **What UC8 IS today:** Planner Pre → Worker → Planner Post → knowledge commit.
+> The Worker's contribution is a READING (`market_signal_assessment`, journalled
+> and rendered in the digest), evaluations, scenario adjustments, and a rule
+> challenge routed through `innovations_proposed` where ADR-006 measures it.
+>
+> **What survives of the mechanics below, and where:** the 0.4/0.6 blend and the
+> merit gates live on in `gates.blend_allocation` / `gates.reallocation_gates` /
+> `gates.switch_gates`, called by the retained bridge's REPLAY only
+> (`replay.py`) — mechanically, with no LLM inside either policy. So the rules
+> below still describe running code; they no longer describe anything the Worker
+> does. Read them as the bridge's specification, not as UC8's behaviour.
 
 **Trigger:** Weekly Worker cycle (Monday 09:00).
 **Principle: the Worker proposes, Writeback disposes.** All gates are
 deterministic and run mechanically in Writeback; the Worker contributes
 judgment (reasoning, qualitative trigger interpretation, Evaluations,
-innovations, reallocation proposals). V1 never auto-applies.
+innovations) and, until ADR-012, reallocation proposals. V1 never auto-applies.
 
 **A — Switch proposal (mechanical gates, Writeback):**
 1. challenger outranks the defender in `portfolio_weekly_snapshot`;
@@ -678,7 +688,8 @@ switch cooldown rule). Pending proposals auto-expire after
 | 5  | Knowledge Storage   | Any event with data | —                                     | Event-driven     |
 | 6  | Portfolio Valuation | Weekly cron         | ValuationEvent                        | Weekly           |
 | 7  | Portfolio Ranking   | Weekly cron         | RankingEvent + snapshot               | Weekly           |
-| 8  | Proposal Detection  | Weekly Worker cycle | ProposalEvent + Proposal (switch or reallocation) / — | Weekly |
+| 8  | Cognitive cycle     | Weekly Worker cycle | WorkerReadingEvent + knowledge commit (no Proposal since ADR-012) | Weekly |
+| 8b | Market-signal decision | Monthly anchor date | MarketSignalDecisionEvent + Proposal | Monthly |
 | 9  | User interfaces     | Telegram / CLI / dashboard | UserDecisionEvent (one command layer) | On demand |
 
 ---

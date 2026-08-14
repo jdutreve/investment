@@ -1164,20 +1164,20 @@ class ImprovementProposal(BaseModel):
     floor_weight   : float            # new_invariant only; ignored otherwise
     trace          : str
 
-class ReallocationProposal(BaseModel):
-    """Worker-proposed adjustment of the DEFENDER's allocation (paper-mode).
-    Writeback validates mechanically before persisting a Proposal vertex."""
-    proposed_allocation : dict[str, float]   # percent weights, must sum to 100
-    scenario_delta      : dict[str, float]   # tactical input (active scenario target − current)
-    favors_delta        : dict[str, float]   # structural input (FAVORS-derived − current)
-    blend_note          : str                # how 0.4/0.6 blend was applied
-    supporting_invariants : list[str]        # invariant ids cited
-    reasoning           : str
+# ReallocationProposal WAS HERE — deleted by ADR-012 (the Worker does not
+# allocate), along with `WorkerResult.reallocation_proposed`. It carried a
+# proposed_allocation, the scenario/favors deltas behind the 0.4/0.6 blend, a
+# blend_note and `supporting_invariants` — the citation list that fed gate 6,
+# itself deleted 2026-08-14. Nothing writes `proposal_cites` on the live path
+# any more; the rows in that table are history.
 
 # WorkerResult must always include:
-#   innovations_proposed  : list[ImprovementProposal]      (empty list if none)
-#   reallocation_proposed : Optional[ReallocationProposal] (None if none)
-# Full WorkerResult schema in ARCHITECTURE.md.
+#   innovations_proposed : list[ImprovementProposal]  (an EMPTY LIST if none —
+#                          required key, empty value: an omitted field
+#                          validating as [] made "nothing to propose" and
+#                          "forgot the field" the same answer)
+# Full WorkerResult schema in ARCHITECTURE.md, authoritative in
+# worker/result.py.
 ```
 
 ---

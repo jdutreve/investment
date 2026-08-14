@@ -1,5 +1,22 @@
 # EXAMPLE.md — Full cycle: Stagflation May 2026
 
+> **THIS TRACE PREDATES TWO DECISIONS AND IS KEPT AS ILLUSTRATION, not as a
+> description of the live system** (audited 2026-08-14). ADR-007 replaced the
+> allocation path with the market-signal monthly stack, so the ranked
+> defender/challenger duel of Step 8B no longer runs live; ADR-012 then deleted
+> the cognitive reallocation of Step 8A entirely — there is no
+> `reallocation_proposed`, no `ReallocationProposal`, no `dispose_reallocation`
+> and no gate 6. What a real cycle produces today is ONE mechanical Proposal a
+> month (the market-signal decision, disposed by the binding caps) plus a
+> Worker READING, evaluations and innovations.
+>
+> **What is still faithful, and why the file is worth keeping:** the corpus →
+> passage → invariant chain, the regime detection and its hysteresis, the
+> ranking rule, the FAVORS aggregation, invariant maturation and confrontation,
+> the EventLog-before-vertex ordering, and the digest's shape. Steps 8A and 8B
+> read as the BRIDGE's specification — whose gate mechanics do still run inside
+> `replay.py`, mechanically, with no Worker in them.
+
 Full trace of a real V1 cycle: events → regime → portfolio ranking
 → Worker cycle → innovation → proposals to user.
 Each entity is instantiated with its actual properties.

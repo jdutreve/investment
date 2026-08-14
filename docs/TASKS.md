@@ -235,8 +235,9 @@ not root scripts — no path ambiguity.
 │       │   │                       Backtest, Proposal, Portfolio,
 │       │   │                       Document, Passage, EventLog (V2: Adaptation)
 │       │   ├── command.py        ← PlannerContext, QueryStrategies
-│       │   └── result.py         ← WorkerResult, ReallocationProposal,
-│       │                           ImprovementProposal, PostPlannerResult
+│       │   └── result.py         ← WorkerResult, ImprovementProposal,
+│       │                           PostPlannerResult (ReallocationProposal
+│       │                           deleted — ADR-012)
 │       ├── db/
 │       │   ├── sqlite.py
 │       │   ├── schema.py
@@ -1444,13 +1445,16 @@ Original list, kept for the contracts it pins:
   build proposed_allocation = current + 0.4×scenario_delta + 0.6×favors_delta,
   rounded to 2.5, renormalized to 100; cite ≥1 supporting invariant; explain
   the blend in reasoning. Otherwise return null.
-  > **RETAINED BRIDGE (ADR-007), and BOUNDED by ADR-011.** The scenario-driven
-  > reallocation is the bridge's decision, not the live one. It may never target
-  > a `TIME_VARYING_PORTFOLIOS` row — mechanical allocation is sovereign, and
-  > gate 0 of `dispose_reallocation` refuses it before any merit gate. The
-  > Worker's contribution to the ADOPTED path is `market_signal_assessment`
-  > (a reading) plus `innovations_proposed` (a rule challenge), never an
-  > allocation.
+  > **DELETED BY ADR-012 — the Worker does not allocate.** The paragraph above
+  > describes a skill instruction that no longer ships: there is no
+  > `reallocation_proposed` to fill, no `ReallocationProposal`, and no
+  > `dispose_reallocation` to gate it. ADR-011's gate 0 (which refused any
+  > cognitive reallocation aimed at a `TIME_VARYING_PORTFOLIOS` row) is subsumed
+  > rather than repealed: with no cognitive allocation expressible, sovereignty
+  > holds by construction. The blend itself survives as mechanics for the
+  > retained bridge's replay (`gates.blend_allocation`). The Worker's whole
+  > contribution is `market_signal_assessment` (a reading) plus
+  > `innovations_proposed` (a rule challenge measured under ADR-006).
 - `skill-interpret-invariants.md` — LEADS with the mental model: invariants
   are **lighthouses, not orders** — they ORIENT the Worker's reasoning, they
   do not dictate the decision (the Worker steers, Writeback verifies). Then
@@ -1586,9 +1590,11 @@ batch is FLAGGED in the digest / EventLog (paraphrase inflation likely) —
 candidates are never silently dropped.
 
 **Done when:** on the seeded DB, the Worker produces a complete WorkerResult
-(with reallocation_proposed populated when the bear-scenario fixture shifts
-+35pts) using only the 3 bridged tools; the curator enriches an
-existing invariant from a new fixture passage without touching its weight.
+using only the 3 bridged tools; the curator enriches an existing invariant from
+a new fixture passage without touching its weight. (The original wording asked
+for `reallocation_proposed` populated by a bear-scenario fixture — ADR-012
+removed the field, so completeness now means every REQUIRED key present, with
+`innovations_proposed = []` said rather than omitted.)
 
 ---
 
@@ -1661,7 +1667,9 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #   → Proposal(proposal_type='switch', recommendation='paper-test'|'monitor',
 #              reasoning=WorkerResult.reasoning)
 
-# B — reallocation gate (from WorkerResult.reallocation_proposed):
+# B — reallocation gate. DELETED FROM THE LIVE PATH BY ADR-012 (no
+#     `reallocation_proposed` to read); the rules below survive in
+#     `gates.reallocation_gates`, run mechanically by the bridge's replay:
 #   sum(proposed_allocation) == 100 ± 0.1
 #   AND every ticker in allowed_tickers(active, non-MACRO asset_class) or 'cash'
 #   AND max(proposed_allocation) <= binding single-asset cap
@@ -1933,10 +1941,12 @@ async def test_portfolio_ranking():          # all enabled ranked; calmar<1 demo
                                              # gap_to_defender null only for defender
 async def test_favors_targets_strategy():    # RegimeType -[FAVORS]-> Strategy only
 async def test_holds_primary():              # exactly one HOLDS primary=true per Portfolio
-async def test_switch_gate():                # challenger passes 5 gates → Proposal(switch)
+# The four gate tests below now cover gates.py directly (tests/test_gates.py),
+# not a live disposition: ADR-007 retired the switch, ADR-012 the cognitive
+# reallocation. What they pin is what the BRIDGE's replay runs.
+async def test_switch_gate():                # challenger passes 5 gates → passed
 async def test_switch_gate_blocked_caps():   # binding user cap violation → blocked
-async def test_reallocation_gate():          # valid ReallocationProposal → Proposal
-                                             # vertex with proposed_allocation
+async def test_reallocation_gate():          # well-formed target → passed
 async def test_reallocation_gate_turnover(): # Σ|delta|/2 > 30 → blocked
 async def test_invariant_confrontation():    # active-condition invariant: effect beats
                                              # benchmark (method) → confirmation row +

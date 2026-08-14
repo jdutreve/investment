@@ -213,8 +213,8 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
                 "active": False,
                 "status": "integrated",
             },
-            # active and integrated, but under the citation floor — the case the
-            # Worker was never told about and could not deduce
+            # light, and still shown: weight is a fact the reader weighs, not a
+            # threshold to pass, now that nothing is being qualified for a gate
             {
                 "id": "inv-light",
                 "title": "light",
@@ -236,43 +236,16 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
     )
     text = render_context_for_worker(ctx)
     assert "def-pf *" in text  # defender starred
-    assert "[CITABLE] inv-gold" in text
-    # ...and every refusal states its OWN reason, so gate 6 cannot refuse for
-    # something the Worker had no way to know (docs/MILESTONES.md M8 gate-6
-    # watch item). Being told "cite ACTIVE and integrated" was not enough: the
-    # weight floor and the refuted test were invisible.
-    assert "[not citable: dormant" in text
-    assert "below the 0.10 floor" in text
-    assert "not citable: status proposed" in text
-    assert "1 citable" in text
+    # EVERY lighthouse is rendered, and none of them is qualified for anything.
+    # Until ADR-012 each line carried [CITABLE] / [not citable: <reason>] and the
+    # block closed on "a reallocation MUST cite at least one of them" — teaching
+    # gate 6 to a Worker that can no longer allocate, cite, or be refused.
+    for inv_id in ("inv-gold", "inv-dormant", "inv-light", "inv-unproven"):
+        assert f"  {inv_id} — " in text
+    assert "citable" not in text.lower()
+    # DORMANT SURVIVES the removal, because it is a fact about the market and
+    # not about a gate: a lighthouse whose condition does not hold today
+    # describes a world that is not present.
+    assert "(weight 0.7, null, integrated, dormant)" in text
+    assert "(weight 0.7, null, integrated)" in text  # inv-gold, condition holding
     assert "COACH NOTES: framed" in text
-
-
-def test_render_says_so_when_nothing_is_citable() -> None:
-    """Measured on the M8b covid episode: the Worker proposed three times and
-    was refused twice on gate 6, with nothing citable available whatever it
-    chose. Proposing into a vacuum is not a reasoning error, and it must be
-    told rather than left to discover it through a refusal it never sees."""
-    from investment.planner.context import PlannerContext
-
-    ctx = PlannerContext(
-        regime={"regime_name": "Stag", "regime_type_id": "stag", "confidence": 0.7},
-        global_liquidity={},
-        ranking=[],
-        scenarios=[],
-        top_invariants=[
-            {
-                "id": "inv-a",
-                "title": "a",
-                "weight_effective": 0.7,
-                "active": False,
-                "status": "integrated",
-            }
-        ],
-        recent_proposals=[],
-        passages=[],
-        notes="",
-    )
-    text = render_context_for_worker(ctx)
-    assert "NONE is citable this cycle" in text
-    assert "a fact about the corpus" in text

@@ -11,18 +11,23 @@ sibling `market_signal_cycle.py` follows the same rule. Note that the EventLog
 `source_uc` values stay 'UC8': those are committed DATA, append-only.
 
   PlannerPre.run        → PlannerContext (baseline + Call 1a margin + Call 1b)
-  Worker                → WorkerResult (interprets, proposes)
+  Worker                → WorkerResult (interprets; proposes KNOWLEDGE)
   PlannerPost.run       → PostPlannerResult (extract + guardrail)
-  Writeback.dispose     → Proposal, only if every gate passes
+  commit_knowledge      → confrontations, conviction, scenarios, innovations
+
+NO DISPOSITION AND NO GATE, since ADR-012 (the fourth line above read
+"Writeback.dispose → Proposal, only if every gate passes" until 2026-08-14).
+The Worker does not allocate, so this chain mints no Proposal: the month's one
+Proposal comes from `market_signal_cycle`, mechanically, at 08:55 — this cycle
+READS it and comments on it.
 
 The Worker is handed the context as TEXT and stays unaware of the Planner,
 Writeback and storage (docs/ARCHITECTURE.md WORKER) — `render_context_for_worker`
-is that boundary. Writeback runs ONLY on what the Worker proposed: no
-reallocation, no gate run, no vertex. The knowledge commit (confrontations,
-conviction nudges, scenario probabilities, innovations) runs on every cycle,
-proposal or not — a quiet week still learns. So does `journal_worker_reading`,
-which records the Worker's prose (ADR-011) before the guardrail runs: without it
-a cycle that proposes and confronts nothing leaves no trace at all.
+is that boundary. The knowledge commit (confrontations, conviction nudges,
+scenario probabilities, innovations) runs on every cycle — a quiet week still
+learns. So does `journal_worker_reading`, which records the Worker's prose
+(ADR-011) before the guardrail runs: without it a cycle that confronts nothing
+leaves no trace at all.
 """
 
 import dataclasses
@@ -62,14 +67,6 @@ WORKER_READING_EVENT = "WorkerReadingEvent"
 # mean both is what caused the bug.
 CYCLE_COMPLETED_EVENT = "CognitiveCycleCompletedEvent"
 
-# The citation floor as the Worker is TOLD it (`_not_citable_because`). A copy
-# of `system_thresholds.proposal_invariant_weight_min`, not a read of it: this
-# is prompt text built from a context dict that carries no thresholds, while the
-# gate itself reads the seeded value and stays the authority. If they ever
-# disagree the gate wins and the Worker was merely misinformed — which is still
-# strictly better than the previous state, where it was told nothing at all.
-CITATION_WEIGHT_MIN = 0.10
-
 
 @dataclasses.dataclass(frozen=True)
 class UC8Result:
@@ -84,13 +81,6 @@ class UC8Result:
     worker_result: WorkerResult
     post_result: PostPlannerResult
     knowledge: KnowledgeCommit  # what the guardrailed knowledge commit persisted
-
-
-def _defender_row(ranking: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The defender among the ranked portfolios (docs/DATA_MODELS.md: exactly
-    one defender). None if the snapshot carried none — then there is nothing to
-    reallocate."""
-    return next((row for row in ranking if row.get("defender")), None)
 
 
 def _allocation(row: dict[str, Any]) -> dict[str, float]:
@@ -188,27 +178,6 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _not_citable_because(inv: dict[str, Any]) -> str | None:
-    """Why gate 6 would refuse this invariant as support, or None if it would
-    not — the SAME four clauses as `gates.cited_invariant_eligible`, stated in
-    the Worker's own words.
-
-    Deliberately a second expression of one rule, and the duplication is the
-    lesser evil: the gate is the authority and runs on the DB rows, while this
-    reads the context dict the Worker is handed, which carries no confrontation
-    counts. Keeping them in sync is a real cost; leaving the Worker to guess
-    cost a cycle every time it cited a lighthouse that looked fine
-    (docs/MILESTONES.md M8: "gate 6 may be near-unsatisfiable")."""
-    if str(inv.get("status")) != "integrated":
-        return f"status {inv.get('status')}, not integrated"
-    if not inv.get("active"):
-        return "dormant — its condition does not hold today"
-    weight = inv.get("weight_effective")
-    if weight is not None and float(weight) < CITATION_WEIGHT_MIN:
-        return f"weight {float(weight):.2f} below the {CITATION_WEIGHT_MIN:.2f} floor"
-    return None
-
-
 def render_context_for_worker(context: PlannerContext) -> str:
     """The PlannerContext as the text the Worker reads (docs/ARCHITECTURE.md
     WORKER: "the data in your context"). Deliberately unaware of provenance —
@@ -302,40 +271,23 @@ def render_context_for_worker(context: PlannerContext) -> str:
                 f"over n={row.get('n_periods')}"
             )
     lines.append("")
-    lines.append("INVARIANTS (lighthouses — [CITABLE] may support a reallocation):")
-    citable = 0
+    # THE CORPUS TO REASON WITH, no longer a set of citable supports. Until
+    # ADR-012 each line carried a [CITABLE] / [not citable: reason] flag and a
+    # closing sentence — "a reallocation MUST cite at least one of them" — that
+    # taught gate 6 to a Worker which could then satisfy it. The Worker no longer
+    # allocates, `WorkerResult` has no field to carry a citation, and nothing
+    # writes `proposal_cites` on the live path, so the whole apparatus was
+    # instructing the model in a move it cannot make. DORMANT is kept, because it
+    # is a fact about the market rather than about a gate: a lighthouse whose
+    # condition does not hold today describes a world that is not present, which
+    # is exactly what a reader needs to weigh it.
+    lines.append("INVARIANTS (lighthouses — the corpus you reason with):")
     for inv in context.top_invariants:
-        reason = _not_citable_because(inv)
-        citable += reason is None
-        flag = "[CITABLE]" if reason is None else f"[not citable: {reason}]"
+        state = f"{inv.get('status', '?')}" + ("" if inv.get("active") else ", dormant")
         lines.append(
-            f"  {flag} {inv.get('id')} — {inv.get('title', '')} "
+            f"  {inv.get('id')} — {inv.get('title', '')} "
             f"(weight {inv.get('weight_effective', '?')}, {inv.get('author', 'null')}, "
-            f"{inv.get('status', '?')})"
-        )
-    # THE REASON, not just the verdict. The Worker used to be told "cite only
-    # ACTIVE and integrated" and left to infer the rest — it was never told the
-    # weight floor or the refuted test, so an [ACTIVE] integrated lighthouse
-    # could still fail gate 6 for a reason invisible to it.
-    #
-    # AND IT IS TOLD WHEN THE SET IS EMPTY. Measured on the M8b covid episode:
-    # it proposed three times and was refused twice on gate 6, with nothing
-    # citable available whatever it chose. Proposing into a vacuum is not a
-    # reasoning error, and the cycle it costs is a cycle nobody could have
-    # spent well.
-    if not context.top_invariants:
-        pass
-    elif citable:
-        lines.append(
-            f"  → {citable} citable. A reallocation MUST cite at least one of them; "
-            "the others are shown for reasoning, not for support."
-        )
-    else:
-        lines.append(
-            "  → NONE is citable this cycle. A reallocation cannot be supported and "
-            "will be refused whatever it cites — this is a fact about the corpus, "
-            "not about your reading. Your contribution this month is the assessment "
-            "and any innovation you file."
+            f"{state})"
         )
     if context.passages:
         lines.append("")

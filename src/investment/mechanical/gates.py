@@ -383,43 +383,20 @@ def turnover_pct(current: Mapping[str, float], proposed: Mapping[str, float]) ->
     return sum(abs(proposed.get(t, 0.0) - current.get(t, 0.0)) for t in tickers) / 2.0
 
 
-def cited_invariant_eligible(
-    status: str,
-    weight_effective: float,
-    total_confrontations: int,
-    market_score: float,
-    active: bool,
-    *,
-    weight_min: float,
-    refuted_min: int,
-    refuted_score: float,
-) -> bool:
-    """UC8-B gate 6 eligibility for ONE cited invariant (docs/USE_CASES.md UC8-B
-    gate 6; docs/TASKS.md Phase 6). A reallocation may only lean on an invariant
-    that is:
-    - `status='integrated'` — belief is not enough, history is (ADR-006).
-      SETTLED at M8 (2026-07-30, measured on the live DB — MILESTONES.md M8):
-      integrated-only stays. Admitting high-weight 'proposed' was rejected
-      because `weight_effective` is dominated by the author-tier FLOOR, not by
-      evidence — it would take the citable set from 2 to 218/253, letting a real
-      allocation move lean on the 209 curator notes that carry no measurable
-      effect. The evidence-shaped variant (score >= theta and N >= N_min) is
-      principled but adds 0 citable invariants today; revisit once the corpus
-      has matured.
-    - heavy enough (`weight_effective >= weight_min`);
-    - NOT measurably refuted (`>= refuted_min` confrontations AND
-      `market_score < refuted_score` → ineligible, floor or not — a floored
-      weight must not smuggle a refuted invariant back in);
-    - ACTIVE now (its condition holds today, or is 'always'). A dormant
-      invariant describes a market that is not present, so it cannot back a
-      move made today."""
-    if status != "integrated":
-        return False
-    if weight_effective < weight_min:
-        return False
-    if total_confrontations >= refuted_min and market_score < refuted_score:
-        return False
-    return active
+# GATE 6 (`cited_invariant_eligible`) WAS HERE, and it is gone with the thing it
+# guarded (ADR-012, deleted 2026-08-14). It decided whether ONE invariant was
+# heavy enough, integrated, unrefuted and active enough for a REALLOCATION to
+# lean on. The Worker no longer allocates, `WorkerResult` carries no citation,
+# and nothing writes `proposal_cites` on the live path, so the gate had no
+# caller and the rule it enforced had nothing to enforce it against.
+#
+# What it decided is worth stating once, because it is where the question would
+# resume if the cognitive path ever gets a measurable output to cite from
+# (docs/IMPROVEMENTS.md I-46): belief was never enough, history was — M8 measured
+# on the live corpus that admitting high-weight 'proposed' invariants would take
+# the citable set from 2 to 218 of 253, because `weight_effective` is dominated
+# by the author-tier FLOOR rather than by evidence. Any future citation channel
+# inherits that finding, not a fresh start.
 
 
 def _inadmissible(

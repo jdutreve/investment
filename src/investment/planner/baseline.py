@@ -26,8 +26,15 @@ from investment.db.sqlite import InvestmentDB
 from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
-# ≤20 after dedup"). Integrated-only — a proposal may cite only integrated
-# invariants (UC8 gate 6), so the Worker is shown the same eligible set.
+# ≤20 after dedup"). Integrated-only — the filter OUTLIVED its original reason
+# and keeps a better one. It was "a proposal may cite only integrated
+# invariants (UC8 gate 6), so show the Worker the eligible set"; ADR-012 deleted
+# that gate, and the Worker cites nothing structurally any more. What remains is
+# the M8 measurement the gate was calibrated on: widening to high-weight
+# 'proposed' takes the set from 2 to 218 of 253, because `weight_effective` is
+# dominated by the author-tier FLOOR rather than by evidence. That would hand
+# the reading 209 curator notes of unmeasured belief, which is a worse context,
+# not a richer one — so the Worker still reads the corpus's SETTLED knowledge.
 BUCKET_K = 8
 INVARIANTS_CAP = 20
 RECENT_PROPOSALS = 3
