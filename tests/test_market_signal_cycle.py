@@ -22,6 +22,7 @@ import pytest
 
 from investment import market_signal_cycle as MSC
 from investment.chain import run_chain
+from investment.db.seed_data import PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import market_signal as MS
 from investment.mechanical import outcomes
@@ -29,7 +30,15 @@ from investment.mechanical.gates import Caps
 from investment.telegram.digest import build_digest
 from investment.writeback import writeback as W
 
-USER = {"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0}
+# The BINDING single-asset cap, read from the seed rather than typed. Every one
+# of these was the literal `50.0` until 2026-08-14, when the owner raised the cap
+# to 60 for the tight-flat book's SPY 60 — and four tests failed for asserting a
+# number the system no longer used. A cap the tests hard-code is a cap they stop
+# testing the day it moves.
+_SEEDED_CAP = next(
+    p["max_single_asset_pct"] for p in PORTFOLIOS if p["id"] == MS.STACK_PORTFOLIO_ID
+)
+USER = {"max_single_asset_pct": _SEEDED_CAP, "max_drawdown_pct": -25.0}
 
 # The fixture's slope sits at its own trailing median throughout, and
 # `slope >= median` reads STEEP — so the wide state this file exercises is
@@ -244,7 +253,7 @@ def test_build_targets_is_a_projection_of_the_walk() -> None:
 
 
 def test_market_signal_gates_exempt_the_trend_haven_but_bind_every_other_sleeve() -> None:
-    caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    caps = MS.Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
     allowed = frozenset(MS.STACK_TICKERS)
     # Risk-off: both sleeves redirected, IEF at 90 — passes, by ADR-007 (a).
     assert W.market_signal_gates({"IEF": 90.0, "IWN": 10.0}, {}, caps, allowed).passed
@@ -285,7 +294,7 @@ def test_no_reachable_book_state_can_be_refused() -> None:
     rather than 2^4 — a subset enumeration would have kept passing while
     covering a third of the reachable states. Derived from MA_WINDOWS now, so
     the next window added widens this test by itself."""
-    caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    caps = MS.Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
     allowed = frozenset(MS.STACK_TICKERS)
     checked = (*MS.TREND_SLEEVES, MS.TREND_HAVEN)
     n = len(MS.MA_WINDOWS)
@@ -307,7 +316,7 @@ def test_no_reachable_book_state_can_be_refused() -> None:
 def test_turnover_and_min_change_do_not_bind_a_book_switch() -> None:
     """The reallocation-blend knobs would block the strategy outright: the books
     barely overlap, so a switch is a ~90-100% turnover move against a 30% cap."""
-    caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    caps = MS.Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
     wide, steep = MS.BOOKS[WIDE_STEEP], MS.BOOKS[TIGHT_STEEP]
     from investment.mechanical.gates import turnover_pct
 
@@ -747,7 +756,7 @@ def test_a_malformed_held_book_is_refused_loudly_not_read_as_no_change() -> None
     Refused, not treated as "nothing held": a refusal is LOUD in the digest
     (ADR-009 renders a blocked decision with a 🚨), where a guessed incumbent
     would quietly misprice the +12w verdict."""
-    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    caps = Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
     allowed = frozenset(MS.STACK_TICKERS)
     target = dict(MS.BOOKS["credit-spread-tight-yield-curve-steep"])
 

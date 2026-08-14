@@ -45,7 +45,7 @@ original spelling because EventLog is append-only.
 **Books (concentrated pure-asset tilts; 50% sleeves — the single-asset cap was
 raised 40→50 for exactly this concentration, ADR-007 addendum 2026-07-20):**
 - `credit-spread-wide`: SPY 50 / IWN 40 / GLD 10
-- `credit-spread-tight-yield-curve-flat`: SPY 50 / GLD 40 / IWN 10
+- `credit-spread-tight-yield-curve-flat`: SPY 60 / GLD 40
 - `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 40 / IWN 10
 
 **Trend-following overlay:** every CHECKED sleeve — SPY, GLD and IWN since
@@ -1130,3 +1130,68 @@ a number rather than re-asked.
 instead of 2^4 and derives the count from `MA_WINDOWS` — the same test whose
 docstring warns that a hand-listed enumeration stops guarding the day the code
 grows, caught by that warning a second time.
+
+
+---
+
+## The equity dial, turned to 60 (2026-08-14, owner signature)
+
+The tight-flat book — the one the strategy holds 47.1% of the time — goes
+`SPY 50 / GLD 40 / IWN 10` to **`SPY 60 / GLD 40`**, which required the
+single-asset cap raised 50 -> 60.
+
+    pinned pair  11.28% / -15.73%  ->  11.60% / -16.50%
+    sortino      1.320             ->  1.342
+    turnover     unchanged at 63.2
+
+**This is a price, not a discovery.** The equity share is a monotone risk dial:
+
+    SPY 50 (was)  sortino 1.321  maxDD -15.73%  CAGR 11.34%
+    SPY 60        sortino 1.342  maxDD -16.50%  CAGR 11.66%   <- Sortino peak
+    SPY 70        sortino 1.323  maxDD -17.70%  CAGR 11.81%
+    SPY 80        sortino 1.289  maxDD -18.98%  CAGR 11.94%
+    SPY 90        sortino 1.245  maxDD -20.31%  CAGR 12.07%
+
+Each 10 points of SPY buys ~0.15pp of CAGR and costs ~1 point of drawdown, which
+is what equity does and not a signal. **60 is where Sortino turns**: past it the
+drawdown is paid for with no gain in return quality, so "more equity is better"
+is measurably false and 60 is the one point the data supports.
+
+It gives back 0.77 of the 4.9 points the graduated overlay had just bought.
+
+**Why not SPY 50 + VTI 20, which measured better still.** VTI is SPY in a second
+wrapper — 70% US equity wearing two tickers to satisfy a cap that counts
+tickers, the same factor-blindness that would have let `TLT 50 / IEF 40` through
+as 90% duration. It was also not equivalent to the honest version: two
+near-identical tickers exit on their OWN lines, giving the overlay four steps
+instead of two, and the proxy measures -20.00% of drawdown against SPY 70's
+-17.70%. The disguise changed the rule, not just the accounting.
+
+**Why the equity is US-only, tested rather than assumed.** MSCI World has no
+35-year ETF (URTH 2012, ACWI 2008), so it was reconstituted as SPY + EFA (MSCI
+EAFE, developed ex-US, 1991). Diversifying the sleeve DEEPENS the drawdown on
+every window:
+
+    SPY 60 / GLD 40  (taken)          sortino 1.342  maxDD -16.50%  CAGR 11.66%
+    SPY 45 / EFA 15 / GLD 40 (~World) sortino 1.328  maxDD -17.98%  CAGR 11.47%
+    SPY 30 / EFA 30 / GLD 40 (50/50)  sortino 1.287  maxDD -19.47%  CAGR 11.27%
+    EFA 60 / GLD 40 (ex-US only)      sortino 1.147  maxDD -22.61%  CAGR 10.81%
+
+Part of that is a window in which US equity beat the rest of the world, and the
+backtest cannot settle whether that repeats. But the DRAWDOWN effect is a
+correlation property rather than a performance one, and it holds on both halves:
+developed equity falls WITH US equity exactly when diversification would pay.
+The book's diversification is the 40% gold — across asset classes. A second
+equity region diversifies inside the factor that is already the dominant risk.
+
+### The cap is global, and that is the cost
+
+`user_profile.max_single_asset_pct` binds every book and every proposal; a
+per-portfolio rule may only be STRICTER. Raising it to 60 gives that headroom
+everywhere, so `ms-stack`, `ms-inflation-book` and the control arm move to 60
+while the other three books stay at 50 — they hold nothing above it, and leaving
+them stricter is the point of the stricter-only rule.
+
+`market_signal_gates` takes the stricter of THREE (user profile, `ms-stack`, the
+book), so all three had to move together or the gate would have refused the book
+the strategy holds 47% of the time.

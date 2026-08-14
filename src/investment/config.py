@@ -166,7 +166,12 @@ class Settings(BaseSettings):
     # SPY 50, the tight-yield-curve-steep one holds VCIT 50)
     # — that concentration is the source of the +2.5-vs-B edge; the 40 cap was
     # calibrated for the diversified Dalio portfolios it replaces as the live path.
-    user_max_single_asset_pct: float = 50.0
+    # 60 since 2026-08-14 (owner), 50 since the ADR-007 addendum, 40 before it.
+    # Raised for the tight-flat book's SPY 60, which is where the equity dial's
+    # Sortino peaks (mechanical/market_signal.py BOOKS). NOTE it is GLOBAL: a
+    # per-portfolio rule may only be stricter, so this is headroom every book
+    # and every proposal now has, not a permission scoped to one book.
+    user_max_single_asset_pct: float = 60.0
     user_benchmark: str = "all-weather-USD"
     user_phase: str = "accumulation"
     user_auto_validation_hours: int = 48

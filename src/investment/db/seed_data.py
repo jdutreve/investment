@@ -1675,9 +1675,13 @@ PORTFOLIOS: list[dict[str, object]] = [
         "enabled": False,
         "currency": "USD",
         "benchmark": "all-weather-USD",
-        "allocation": {"SPY": 50, "GLD": 40, "IWN": 10},
+        # SPY 60 since 2026-08-14 — the equity dial's Sortino peak. Its own cap
+        # follows to 60 because the market-signal gate takes the STRICTER of
+        # three (user, ms-stack, the book), so leaving it at 50 would refuse the
+        # book the strategy now holds 47% of the time.
+        "allocation": {"SPY": 60, "GLD": 40},
         "max_drawdown_rule": -25.0,
-        "max_single_asset_pct": 50.0,
+        "max_single_asset_pct": 60.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
         "trace": "Market-signal 'credit-spread-tight-yield-curve-flat' book (spread TIGHT, slope FLAT vs their "
@@ -1746,7 +1750,10 @@ PORTFOLIOS: list[dict[str, object]] = [
         "benchmark": "all-weather-USD",
         "allocation": {"SPY": 50, "IWN": 40, "GLD": 10},
         "max_drawdown_rule": -25.0,
-        "max_single_asset_pct": 50.0,
+        # 60 with the user profile (2026-08-14): this row is the stricter-of gate
+        # every book passes through, so a stack cap of 50 would veto SPY 60
+        # whatever the user profile says.
+        "max_single_asset_pct": 60.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
         "trace": "The market-signal monthly stack as ONE holdable series: signal "
@@ -1778,9 +1785,9 @@ PORTFOLIOS: list[dict[str, object]] = [
         "enabled": True,
         "currency": "USD",
         "benchmark": "all-weather-USD",
-        "allocation": {"SPY": 50, "GLD": 40, "IWN": 10},
+        "allocation": {"SPY": 60, "GLD": 40},
         "max_drawdown_rule": -25.0,
-        "max_single_asset_pct": 50.0,
+        "max_single_asset_pct": 60.0,
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
         "trace": "The market-signal stack with its SIGNAL LAYER REMOVED: the "

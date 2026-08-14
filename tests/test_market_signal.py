@@ -11,6 +11,7 @@ the overlay and the switch hysteresis at the edges the backtest exercised.
 import pandas as pd
 import pytest
 
+from investment.db.seed_data import PORTFOLIOS
 from investment.mechanical import market_signal
 from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import apply_trend_overlay, build_targets, classify_regime
@@ -18,6 +19,15 @@ from investment.mechanical.market_signal import apply_trend_overlay, build_targe
 # The book keys are deliberately verbose (ADR-007 third addendum: the Worker is
 # an LLM that reads them as semantic context). Aliased here so assertions stay
 # on one line and a typo in a 37-char literal cannot pass silently.
+# The BINDING single-asset cap, read from the seed rather than typed. Every one
+# of these was the literal `50.0` until 2026-08-14, when the owner raised the cap
+# to 60 for the tight-flat book's SPY 60 — and four tests failed for asserting a
+# number the system no longer used. A cap the tests hard-code is a cap they stop
+# testing the day it moves.
+_SEEDED_CAP = next(
+    p["max_single_asset_pct"] for p in PORTFOLIOS if p["id"] == market_signal.STACK_PORTFOLIO_ID
+)
+
 # SPLIT ON 2026-08-13: `WIDE` named one book when the wide branch ignored the
 # slope, and there are two now. The alias is gone rather than repointed — a name
 # that silently means "one of the two wide books" is how the first version of
@@ -67,8 +77,12 @@ def test_a_sleeve_below_one_line_of_two_moves_half() -> None:
     assert decision.trend["SPY"].share == 0.5
     assert decision.trend["SPY"].below  # "out" is still true at a half share
     assert decision.trend["GLD"].share == 0.0
-    # tight-flat is SPY 50 / GLD 40 / IWN 10 -> half of SPY's 50 goes to IEF.
-    assert decision.target == {"SPY": 25.0, "GLD": 40.0, "IWN": 10.0, "IEF": 25.0}
+    # Half of tight-flat's SPY weight goes to IEF, the rest of the book is held.
+    book = market_signal.BOOKS[TIGHT_FLAT]
+    expected = {t: w for t, w in book.items() if t != "SPY"}
+    expected["SPY"] = book["SPY"] / 2
+    expected[market_signal.TREND_HAVEN] = book["SPY"] / 2
+    assert decision.target == expected
 
 
 def test_wide_spread_reads_the_slope_too() -> None:
@@ -112,11 +126,14 @@ def test_overlay_redirects_below_trend_sleeve_to_haven() -> None:
 
 
 def test_overlay_merges_both_sleeves_into_haven() -> None:
-    # TIGHT_FLAT book SPY50/GLD40/IWN10 with BOTH below trend -> IEF piles to 90.
-    # (This is the >50 concentration the cap confrontation flags — pinned here so
-    # a future change to the overlay cannot silently alter it.)
-    out = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], {"SPY": 1.0, "GLD": 1.0})
-    assert out == {"IEF": 90.0, "IWN": 10.0}
+    """Both risky sleeves fully out -> the haven piles up past the single-asset
+    cap, which is legal only because the haven chain is exempt. Derived from the
+    book rather than typed: this asserted `IEF 90 / IWN 10` against a three-sleeve
+    tight-flat, and said nothing at all once that book became SPY 60 / GLD 40."""
+    book = market_signal.BOOKS[TIGHT_FLAT]
+    out = apply_trend_overlay(book, dict.fromkeys(book, 1.0))
+    assert out == {market_signal.TREND_HAVEN: sum(book.values())}
+    assert out[market_signal.TREND_HAVEN] > _SEEDED_CAP
 
 
 def test_overlay_noop_when_above_trend() -> None:
@@ -125,14 +142,15 @@ def test_overlay_noop_when_above_trend() -> None:
 
 
 def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
-    # ADR-007 addendum choice (a): the overlay's flight to safety can pile 90%
-    # into IEF; the single-asset cap does not bind that HAVEN concentration.
+    # ADR-007 addendum choice (a): the overlay's flight to safety piles the whole
+    # book into IEF; the single-asset cap does not bind that HAVEN concentration.
     from investment.mechanical.gates import Caps, concentration_ok
 
-    book = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], {"SPY": 1.0, "GLD": 1.0})
-    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
-    assert book == {"IEF": 90.0, "IWN": 10.0}
-    assert not concentration_ok(book, caps)  # 90 breaches the cap unexempted
+    held = market_signal.BOOKS[TIGHT_FLAT]
+    book = apply_trend_overlay(held, dict.fromkeys(held, 1.0))
+    caps = Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
+    assert book == {market_signal.TREND_HAVEN: 100.0}
+    assert not concentration_ok(book, caps)  # the pile breaches the cap unexempted
     assert concentration_ok(book, caps, exempt=frozenset({market_signal.TREND_HAVEN}))
 
 
@@ -149,7 +167,7 @@ def test_the_cash_fallback_is_exempt_too_or_the_flight_to_safety_is_unreachable(
 
     all_below = dict.fromkeys(("SPY", "GLD", "IWN", market_signal.TREND_HAVEN), 1.0)
     book = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], all_below)
-    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    caps = Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
 
     assert book == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
     assert not concentration_ok(book, caps)  # 100 breaches the cap unexempted
@@ -251,7 +269,7 @@ def test_cap_violations_is_empty_over_a_run_and_names_what_breaks() -> None:
     This is the BUILD-TIME confrontation, distinct from the live gate — it walks
     every target the run held, and its drawdown leg is the whole-window figure
     (live, the rule is a 36-month rolling alert that never blocks — ADR-009)."""
-    caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    caps = Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
     idx = pd.to_datetime(["2020-01-06", "2020-02-03"])
     # A risk-off run: both sleeves below trend, so IEF piles to 90 — the
     # concentration the trend-haven exemption exists for.

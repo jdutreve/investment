@@ -132,8 +132,20 @@ owner-arbitrated:
   three-window adoption this module usually demands — the owner took the trade
   knowing which half paid for it (docs/V1_STRATEGY.md).
 
-The pinned pair is therefore **11.28% / -15.73%**. The earlier figures are
-history, not targets. Any OTHER divergence from 11.28% is drift and must be
+- 2026-08-14, THE EQUITY DIAL TURNED UP (owner signature): the tight-flat book
+  goes SPY 50 / GLD 40 / IWN 10 -> **SPY 60 / GLD 40**, which needed the
+  single-asset cap raised 50 -> 60 (user profile, `ms-stack`, `ms-inflation-book`
+  and the control arm; the other books stay at 50, since a per-portfolio rule
+  may only be stricter). 11.28% -> **11.60%** CAGR, Sortino 1.320 -> **1.342**,
+  drawdown -15.73% -> **-16.50%**, turnover unchanged at 63.2.
+
+  NOT A DISCOVERY — A PRICE. The equity share is a monotone risk dial, and 60 is
+  simply where Sortino peaks before more equity starts buying return with pure
+  drawdown (see BOOKS). It gives back 0.77 of the 4.9 points the graduated
+  overlay had just bought, for 0.32pp of CAGR.
+
+The pinned pair is therefore **11.60% / -16.50%**. The earlier figures are
+history, not targets. Any OTHER divergence from 11.60% is drift and must be
 explained, which is what this module exists to guarantee.
 
 That sentence named 10.71% for two supersessions after 10.71% stopped being the
@@ -227,7 +239,30 @@ from investment.mechanical.replay import NavMetrics, nav_metrics, shadow_book_na
 BOOKS: dict[str, dict[str, float]] = {
     "credit-spread-wide-yield-curve-flat": {"IWN": 50.0, "SPY": 50.0},
     "credit-spread-wide-yield-curve-steep": {"SPY": 50.0, "IWN": 40.0, "GLD": 10.0},
-    "credit-spread-tight-yield-curve-flat": {"SPY": 50.0, "GLD": 40.0, "IWN": 10.0},
+    # SPY 60 SINCE 2026-08-14, up from SPY 50 / GLD 40 / IWN 10, and it needed
+    # the single-asset cap raised 50 -> 60 to be expressible at all. Measured
+    # against the graduated overlay as baseline, the equity share is a pure RISK
+    # DIAL — each 10 points of SPY buys ~0.15pp of CAGR and costs ~1 point of
+    # drawdown, monotonically, which is what equity does and not a signal:
+    #
+    #     SPY 50 (was)  sortino 1.321  maxDD -15.73%  CAGR 11.34%
+    #     SPY 60        sortino 1.342  maxDD -16.50%  CAGR 11.66%   <- Sortino peak
+    #     SPY 70        sortino 1.323  maxDD -17.70%  CAGR 11.81%
+    #     SPY 80        sortino 1.289  maxDD -18.98%  CAGR 11.94%
+    #     SPY 90        sortino 1.245  maxDD -20.31%  CAGR 12.07%
+    #
+    # 60 IS WHERE SORTINO TURNS. Past it the drawdown is paid for with no gain
+    # in return quality, so "more equity is better" is false and the owner took
+    # the one point the measurement supports rather than the most aggressive one.
+    #
+    # THE EQUITY IS US-ONLY, and that was tested rather than assumed. Splitting
+    # the sleeve toward MSCI World (SPY + EFA, the only developed-ex-US series
+    # with 35 years) DEEPENS the drawdown on every window — 1.328/-17.98% at
+    # ~World weights, 1.147/-22.61% at ex-US only — because developed equity
+    # falls WITH US equity exactly when diversification would pay. The book's
+    # diversification is the 40% gold, i.e. across asset classes; a second
+    # equity region diversifies inside the factor that is already the risk.
+    "credit-spread-tight-yield-curve-flat": {"SPY": 60.0, "GLD": 40.0},
     "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
 }
 
@@ -494,7 +529,7 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # in the same commit or turns the check red — which is the git gate ADR-006 does
 # not reach, held by a machine instead of by a memory.
 #
-# THE CAGR HERE IS 11.339% AND THE NOTE ABOVE SAYS 11.28%. That is not a third
+# THE CAGR HERE IS 11.659% AND THE NOTE ABOVE SAYS 11.60%. That is not a third
 # stale copy — it is the same run measured the only way a REFERENCE can be, and
 # building this check is what exposed the difference.
 #
@@ -504,9 +539,9 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # hold the last book to the end of whatever data exists today" — a figure that
 # MOVES every time a new price lands. Measured on the live DB, 2026-08-12:
 #
-#     priced to 2026-08-11 (free tail)  11.2789%   <- the signed figure
-#     priced to 2026-07-01 (bounded)    11.3389%
-#     max drawdown, both of them       -15.7255%
+#     priced to 2026-08-11 (free tail)  11.5973%   <- the signed figure
+#     priced to 2026-07-01 (bounded)    11.6585%
+#     max drawdown, both of them       -16.5004%
 #
 # A reference that drifts with the calendar cannot detect drift: pinned at the
 # free-tail value, this check would have cried wolf within about three months on
@@ -519,8 +554,8 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # OWNER CALL, stated rather than assumed: the prose figure stays as signed, and
 # if you prefer the machine to check the free-tail number instead, this is the
 # line to change — but it will then need re-pinning every quarter.
-PINNED_CAGR = 0.11339
-PINNED_MAX_DRAWDOWN = -0.15726
+PINNED_CAGR = 0.11659
+PINNED_MAX_DRAWDOWN = -0.16500
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
 #
