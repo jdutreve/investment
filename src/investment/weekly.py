@@ -215,7 +215,6 @@ def weekly_steps(
             runtime.worker_agent,
             runtime.planner_post,
             trigger=CHAIN_TRIGGER,
-            user_profile=user_profile,
             thresholds=thresholds,
             today=today,
             run_id=run_id,

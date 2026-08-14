@@ -169,7 +169,7 @@ async def test_every_cycle_is_knowledge_only(rig) -> None:  # type: ignore[no-un
     q, s, w, p = _overrides(pre, worker, post, _worker_output())
     with q, s, w, p:
         result = await run_decision_cycle(
-            db, pre, worker, post, trigger="weekly", user_profile=USER, thresholds=THRESHOLDS
+            db, pre, worker, post, trigger="weekly", thresholds=THRESHOLDS
         )
     assert result.post_result.regime_notes == "coherent"
     assert await db.query("SELECT id FROM proposal") == []  # nothing disposed

@@ -137,7 +137,7 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
 
     async def decision_step() -> None:
         holder["cycle"] = await run_decision_cycle(
-            db, pre, worker, post, trigger="monday", user_profile=USER, thresholds=THRESHOLDS
+            db, pre, worker, post, trigger="monday", thresholds=THRESHOLDS
         )
 
     async def digest_step() -> None:

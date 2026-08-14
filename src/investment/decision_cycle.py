@@ -188,28 +188,6 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
     return lines
 
 
-async def _book_row(db: InvestmentDB, portfolio_id: str) -> dict[str, float] | None:
-    """The book's CURRENT allocation, or None if the row is absent.
-
-    Read from `portfolio` rather than from the weekly snapshot: the snapshot is
-    a weekly run photograph, and this row moves the moment a reallocation passes
-    (`writeback._commit_reallocation`). Comparing a new proposal against a stale
-    incumbent would let the min-change and turnover gates judge against a book
-    that is no longer held — the same error `outcomes._incumbent_allocation`
-    exists to avoid on the scoring side.
-
-    None when the row is missing, which is a fresh database rather than an
-    error: the cycle is then knowledge-only, exactly as it was when no defender
-    existed."""
-    rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=portfolio_id)
-    if not rows:
-        return None
-    parsed = rows[0]["allocation"]
-    if isinstance(parsed, str):
-        parsed = json.loads(parsed)
-    return {str(k): float(v) for k, v in (parsed or {}).items()}
-
-
 def _not_citable_because(inv: dict[str, Any]) -> str | None:
     """Why gate 6 would refuse this invariant as support, or None if it would
     not — the SAME four clauses as `gates.cited_invariant_eligible`, stated in
@@ -436,16 +414,20 @@ async def run_decision_cycle(
     planner_post: PlannerPost,
     *,
     trigger: str,
-    user_profile: dict[str, Any],
     thresholds: dict[str, float],
     today: date | None = None,
     run_id: str | None = None,
     context: PlannerContext | None = None,
 ) -> UC8Result:
-    """Run one UC8 cycle end to end. Writeback only runs if the Worker proposed
-    a reallocation AND a defender exists to reallocate; otherwise the cycle is
-    knowledge-only (gate_outcome / proposal_id stay None). Returns everything
-    the digest renders.
+    """Run one UC8 cycle end to end: the three roles, the journalled reading and
+    the guardrailed knowledge commit. Returns everything the digest renders.
+
+    The cycle is KNOWLEDGE-ONLY since ADR-012 (`gate_outcome` / `proposal_id`
+    stay None on every path — see the paragraph below). `thresholds` therefore
+    reaches `commit_knowledge` rather than a gate, and `user_profile` is gone
+    from this signature: the binding caps had exactly one consumer here, the
+    reallocation disposition, and a parameter every caller still assembles for
+    a function that ignores it is a promise the code stopped keeping.
 
     `run_id` is the scheduled run's id (CLAUDE.md "Dev standards": one per
     scheduled run) and is stamped on the journalled reading. Optional because

@@ -39,7 +39,6 @@ OPENS = date(2008, 7, 1)
 CLOSES = date(2008, 10, 31)
 START = date(2005, 1, 1)
 END = date(2009, 12, 31)
-USER = {"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0}
 THRESHOLDS: dict[str, float] = {
     "rolling_window_days": 756.0,
     "ranking_tiebreak_window": 0.02,
@@ -294,7 +293,6 @@ async def _run(live: Path, tmp_path: Path, *, innovations: bool = False) -> Any:
             closes=CLOSES,
             inputs=inputs,
             make_agents=make_agents,
-            user_profile=USER,
             system_thresholds=THRESHOLDS,
         )
     return episode, bound

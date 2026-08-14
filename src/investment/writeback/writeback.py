@@ -1,33 +1,32 @@
-"""Writeback — the pure executor + mechanical proposal gates (docs/TASKS.md
-Phase 6; docs/USE_CASES.md UC8). "Worker proposes, Writeback disposes"
-(CLAUDE.md): the Worker's reallocation is validated by DETERMINISTIC gates here
-and only then persisted, EventLog-first (CLAUDE.md "EventLog" rule).
+"""Writeback — the pure executor (docs/TASKS.md Phase 6; docs/USE_CASES.md UC8).
+"Worker proposes, Writeback disposes" (CLAUDE.md), EventLog-first (CLAUDE.md
+"EventLog" rule).
 
-Two responsibilities: the reallocation DISPOSITION (the cooldown pre-gate, then
-gates 1-6, then commit the Proposal EventLog-first) and the knowledge COMMIT
-(`commit_knowledge`) — the guardrailed PostPlannerResult persisted to the graph:
-source='evaluation' confrontations (weight-moving, condition-gated), conviction
-nudges, coherent scenario-probability updates, and innovations (dedup +
-maturation). gate 6 (cited-invariant eligibility) and `effective_caps`
-(stricter-of user/portfolio caps) are the two gates the mechanical replay could
-not supply before M8 (mechanical/gates.py docstring).
+TWO RESPONSIBILITIES, AND NEITHER IS A COGNITIVE ALLOCATION:
 
-A THIRD disposition, `dispose_market_signal`, carries ADR-007's live monthly
-allocation decision: the mechanical stack proposes (mechanical/market_signal.py
-`walk_decisions`), the binding caps dispose, and the decision is journalled
-whether or not it moves money.
+- `dispose_market_signal` carries ADR-007's live monthly allocation decision:
+  the mechanical stack proposes (mechanical/market_signal.py `walk_decisions`),
+  the binding caps dispose, and the decision is journalled whether or not it
+  moves money. `effective_caps` (stricter-of user/portfolio caps) binds here.
+- `commit_knowledge` persists the guardrailed PostPlannerResult to the graph:
+  source='evaluation' confrontations (weight-moving, condition-gated),
+  conviction nudges, coherent scenario-probability updates, and innovations
+  (dedup + maturation).
 
-THE TWO DISPOSITIONS DO NOT OVERLAP, and gate 0 of `dispose_reallocation` is
-what makes that structural rather than incidental (docs/DECISIONS.md ADR-011):
-the mechanical allocation is SOVEREIGN, so a cognitive reallocation aimed at a
-`TIME_VARYING_PORTFOLIOS` row is refused before any merit gate runs. The Worker
-reads the mechanical decision, challenges it in prose, and routes a real
-disagreement through `innovations_proposed` — the audited channel that already
-matures mechanically under ADR-006 — never through the allocation itself.
+WHAT USED TO BE HERE AND IS NOT, because a docstring that still describes it
+would send the next reader looking for code that no longer exists:
 
-The UC8-A SWITCH disposition is deliberately absent: ADR-007 superseded the
-ranked defender/challenger duel, so no live cycle emits a switch. `switch_gates`
-(mechanical/gates.py) stays, because the retained-bridge replay still runs it.
+- the UC8-B REALLOCATION disposition (`dispose_reallocation`, its cooldown
+  pre-gate and gates 1-6) — deleted by ADR-012. The Worker does not allocate, so
+  there is nothing to gate. ADR-011's gate 0 refused any cognitive reallocation
+  aimed at a `TIME_VARYING_PORTFOLIOS` row; ADR-012 subsumes it by construction,
+  since no cognitive reallocation is expressible at all. A disagreement with the
+  mechanical decision goes through `innovations_proposed`, the audited channel
+  that matures under ADR-006, never through the allocation.
+- the UC8-A SWITCH disposition — superseded earlier by ADR-007's retirement of
+  the ranked defender/challenger duel. `switch_gates` and `reallocation_gates`
+  (mechanical/gates.py) both stay, because the retained-bridge replay runs them
+  mechanically; they have no caller on the live path.
 """
 
 import dataclasses

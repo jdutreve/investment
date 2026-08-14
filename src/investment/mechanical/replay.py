@@ -123,9 +123,13 @@ class PortfolioMeta:
     # docs/IMPROVEMENTS.md I-47, with its trigger: the replay builds its `Caps`
     # from `user_profile` alone (`load_inputs`), so its `switch_gates` applies
     # the USER cap to portfolios whose own rule is stricter (-15 on the 4s
-    # books, -10 on barbell), which is LOOSER than the live
-    # `writeback.dispose_reallocation`. Tightening it moves numbers ADR-007 was
-    # signed on; carrying the fields is what makes that change a one-liner.
+    # books, -10 on barbell), where `gates.effective_caps` takes the stricter of
+    # the two. The live comparison this was measured against —
+    # `writeback.dispose_reallocation` — no longer exists (ADR-012), so what is
+    # left is a divergence from the RULE rather than from a running caller:
+    # `dispose_market_signal` is the only live disposition and it does call
+    # `effective_caps`. Tightening it moves numbers ADR-007 was signed on;
+    # carrying the fields is what makes that change a one-liner.
     max_drawdown_rule: float | None = None
     max_single_asset_pct: float | None = None
 

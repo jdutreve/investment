@@ -42,7 +42,6 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from pydantic_ai import Agent
 
@@ -182,7 +181,6 @@ async def run_agentic_episode(
     closes: date,
     inputs: ReplayInputs,
     make_agents: Callable[[InvestmentDB], CognitiveAgents],
-    user_profile: dict[str, Any],
     system_thresholds: dict[str, float],
 ) -> EpisodeResult:
     """One episode: walk its monthly decision dates with the real cognitive
@@ -283,7 +281,6 @@ async def run_agentic_episode(
                 agents,
                 name=name,
                 as_of=as_of,
-                user_profile=user_profile,
                 system_thresholds=system_thresholds,
             )
             if isinstance(result, BaseException):
@@ -380,7 +377,6 @@ async def _cycle_with_retry(
     *,
     name: str,
     as_of: date,
-    user_profile: dict[str, Any],
     system_thresholds: dict[str, float],
 ) -> UC8Result | BaseException:
     """One date's cognitive cycle: FAIL FAST, THEN RETRY WHAT A RETRY CAN FIX.
@@ -439,7 +435,6 @@ async def _cycle_with_retry(
                     agents.worker,
                     agents.planner_post,
                     trigger=TRIGGER,
-                    user_profile=user_profile,
                     thresholds=system_thresholds,
                     today=as_of,
                     # The attempt is IN the run id: a retry writes its own
@@ -606,10 +601,6 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
     inputs = await load_inputs(db)
     rows = await db.query("SELECT key, value FROM system_thresholds")
     system_thresholds = {str(r["key"]): float(r["value"]) for r in rows}
-    profile = await db.query(
-        "SELECT max_drawdown_pct, max_single_asset_pct FROM user_profile LIMIT 1"
-    )
-    user_profile = dict(profile[0])
     await db.close()
 
     embedder = InProcessEmbedder(settings.embedding_model)
@@ -641,7 +632,6 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
                     closes=closes,
                     inputs=inputs,
                     make_agents=make_agents,
-                    user_profile=user_profile,
                     system_thresholds=system_thresholds,
                 )
             )

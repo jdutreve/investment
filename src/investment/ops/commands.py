@@ -381,7 +381,6 @@ async def run_cycle(runtime: AgentRuntime, *, today: date | None = None) -> Comm
                 runtime.worker_agent,
                 runtime.planner_post,
                 trigger=CYCLE_TRIGGER,
-                user_profile=dict(profile[0]),
                 thresholds=thresholds,
                 today=today,
             )

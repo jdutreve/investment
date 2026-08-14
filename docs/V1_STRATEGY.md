@@ -239,11 +239,14 @@ Planner baseline and rendered into the Worker's context.
 
 **"Nuances" is defined by ADR-011, and it is narrower than the word suggests.**
 The mechanical allocation is SOVEREIGN: the Worker can neither cancel it (no
-data path exists back into the cycle), nor delay it, nor adjust its weights
-(gate 0 of `dispose_reallocation` refuses any cognitive reallocation aimed at a
-`TIME_VARYING_PORTFOLIOS` row — until 2026-08-02 that separation held only
-because `ms-stack.defender` happens to be False, which **this Step 6 was
-scheduled to flip**). What the Worker contributes is the qualitative reading —
+data path exists back into the cycle), nor delay it, nor adjust its weights.
+ADR-011 held that line with gate 0 of `dispose_reallocation`, which refused any
+cognitive reallocation aimed at a `TIME_VARYING_PORTFOLIOS` row — and until
+2026-08-02 the separation held only because `ms-stack.defender` happens to be
+False, which **this Step 6 was scheduled to flip**. ADR-012 then made the point
+moot by deleting the cognitive allocation path itself: there is no reallocation
+to refuse, so the property holds by construction and the gate is gone with the
+function that carried it. What the Worker contributes is the qualitative reading —
 where the decision looks wrong, what the signal cannot see, which lighthouses
 argue against it — journalled and rendered, never applied. A disagreement with
 the INSTRUMENT rather than with the month goes through `innovations_proposed`
@@ -263,11 +266,12 @@ late): give the stack its own trading calendar — today it borrows the bridge
 defender's NAV index, so the adopted strategy cannot run without the bridge —
 and re-validate the pinned pair. Making the stack the defender is safe on the
 allocation side: ADR-011's gate 0 keys on `TIME_VARYING_PORTFOLIOS`, not on the
-defender flag. **But it leaves the Worker with no legal allocation target at
-all** — UC8-B becomes unreachable in full. Delete it, demote the bridge instead
-of retiring it, or give the Worker a capped satellite sleeve: the three futures
-are specified in docs/IMPROVEMENTS.md I-46 and must be settled in THIS plan,
-not during it. I-45 (+12w scoring was gross of the window's rebalances) was the
+defender flag. **The Worker's side of this is already settled** — ADR-012
+deleted the cognitive allocation path outright, so there is no lever left to
+lose a target, and I-46's three futures resolved to "accept it" before this step
+was reached (docs/IMPROVEMENTS.md I-46, dissolved 2026-08-14). What remains open
+is narrower and purely about the BENCHMARK: retire the bridge, or demote it and
+keep it as the mechanical comparison the stack is judged against. I-45 (+12w scoring was gross of the window's rebalances) was the
 other pre-condition and is **CLOSED 2026-08-14** — from here the outcome ledger
 stops being fixtures and becomes the go-live evidence, so its numbers had to be
 net without a footnote.

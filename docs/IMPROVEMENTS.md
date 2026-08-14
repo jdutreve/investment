@@ -1550,41 +1550,91 @@ It is, as of 2026-08-14 — which is the whole reason to spend ten minutes on a
 
 ## I-46 — After the bridge is retired, the Worker has no legal allocation target left
 
-**Why deferred:** the input that decides it has not arrived. The answer depends
-on whether the stack's edge reproduces in forward paper-mode, which is 6-18
-months of evidence away (docs/V1_STRATEGY.md Step 6). Deciding now means
-choosing between three futures when only one will happen.
+**✅ DISSOLVED 2026-08-14 — future (1) already happened, and not at Step 6.**
+ADR-012 (2026-08-09/11) removed the Worker's allocation lever outright:
+`WorkerResult` has no `reallocation_proposed`, `ReallocationProposal` and
+`dispose_reallocation` are deleted, and the cycle is knowledge-only on every
+path. So the question this item held open — *what do we do when the lever loses
+its last legal target?* — was answered by a decision taken for other reasons,
+three days after this was written and five months before Step 6 was due to
+decide it. Nothing here needs choosing.
 
-**What it is.** The Worker's only allocation lever is
+**What that leaves for the Step 6 plan is a DIFFERENT question**, and it should
+not inherit this one's framing: retire the bridge, or demote it and keep it as
+the mechanical benchmark? That is now purely about the benchmark and about the
+stack's calendar dependency (`market_signal_cycle` walks
+`replay._book_calendar`, i.e. the bridge defender's NAV index), with no Worker
+consequence at all. It stays recorded in docs/V1_STRATEGY.md Step 6.
+
+**Verified in the code on 2026-08-14, because a dead premise is not the same as
+a dead mechanism** — the audit found five leftovers, and the difference between
+them is what the owner still has to decide:
+
+- FIXED: `decision_cycle._book_row` (no caller), the `user_profile` parameter
+  threaded through `run_decision_cycle` → `run_agentic_episode` →
+  `_cycle_with_retry` and read from the DB for nobody, and four docstrings
+  naming `dispose_reallocation` / `_commit_reallocation` — including
+  `writeback`'s own module docstring, which still claimed the reallocation
+  disposition as one of its two responsibilities.
+- OPEN, and an owner call: the Worker's context still teaches CITATION. Every
+  invariant is rendered `[CITABLE]` / `[not citable: reason]`, followed by "A
+  reallocation MUST cite at least one of them" — for a field the schema no
+  longer has. `gates.cited_invariant_eligible` (gate 6) has no caller;
+  `decision_cycle._not_citable_because` exists only to render those flags; and
+  nothing writes `proposal_cites` on the live path, so `outcomes._confront_cited`
+  now confronts nothing there. Either citation is dead and all of it goes, or it
+  is re-pointed at `innovations_proposed` — which would give ADR-006 back a
+  confrontation source the live path has silently lost.
+- OPEN: five spec documents (ARCHITECTURE, USE_CASES, DATA_MODELS, TASKS,
+  EXAMPLE) still describe UC8-B in the present tense, ~28 references. One of
+  them is a COPY of the Worker's system prompt that disagrees with the shipped
+  prompt — the same shape as the 300-day window incident (commit 5c26f17).
+
+**Why it was deferred:** the input that decides it had not arrived. The answer
+depended on whether the stack's edge reproduces in forward paper-mode, which is
+6-18 months of evidence away (docs/V1_STRATEGY.md Step 6). Deciding then meant
+choosing between three futures when only one would happen — and in the event,
+the choice was made by a different decision entirely.
+
+**What it was.** The Worker's only allocation lever was
 `WorkerResult.reallocation_proposed`, applied by `decision_cycle` to whichever
-portfolio carries the `defender` flag. ADR-011's gate 0 refuses any target in
-`TIME_VARYING_PORTFOLIOS`, so the lever is legal only against the retained
+portfolio carried the `defender` flag. ADR-011's gate 0 refused any target in
+`TIME_VARYING_PORTFOLIOS`, so the lever was legal only against the retained
 bridge defender. Step 6 retires that bridge and makes the stack the defender —
-at which point the lever has no legal target at all, and UC8-B in full (the
-0.4/0.6 blend, gates 1-6, the cooldown, `proposal_cites`, the whole
-`ReallocationProposal` model) becomes unreachable. Not a bug: a consequence
-nobody decided. Gate 0 is CORRECT in that state — it just leaves half of UC8
-with nothing to do.
+at which point the lever would have had no legal target at all, and UC8-B in
+full (the 0.4/0.6 blend, gates 1-6, the cooldown, `proposal_cites`, the whole
+`ReallocationProposal` model) would have become unreachable. Not a bug: a
+consequence nobody decided. Gate 0 was CORRECT in that state — it just left half
+of UC8 with nothing to do.
 
-**The three futures:**
-1. **Accept it.** After Step 6 the Worker is a reader and an innovator only,
-   and UC8-B is DELETED (CLAUDE.md: "delete obsolete code, don't disable").
-   Cleanest, and consistent with ADR-011's logic taken to its end. Cost: the
-   cognitive path loses its only quantitative output, and the knowledge factory
-   has to carry the whole burden of proving the Worker earns its tokens.
+**The three futures, as they stood — (1) is what happened:**
+1. **Accept it.** The Worker is a reader and an innovator only, and UC8-B is
+   DELETED (CLAUDE.md: "delete obsolete code, don't disable"). Cleanest, and
+   consistent with ADR-011's logic taken to its end. Cost: the cognitive path
+   loses its only quantitative output, and the knowledge factory has to carry
+   the whole burden of proving the Worker earns its tokens. **Taken by ADR-012
+   on the strength of two days of M8b runs — six of the seven defects an audit
+   found were on the cognitive allocation path — not on the reasoning above.**
 2. **Demote rather than retire.** The bridge survives as the cognitive arm and
    the benchmark, permanently. Then "Step 6 retires the bridge" is wrong as
    written in V1_STRATEGY and must be reworded. Cost: two allocation paths
-   maintained forever, one of which nobody holds.
+   maintained forever, one of which nobody holds. *Half of this survives (1):
+   the bridge has no cognitive arm left to be, but retire-vs-demote as the
+   BENCHMARK is still open, and it is the residue Step 6 inherits.*
 3. **Give the Worker a legitimate lever elsewhere** — e.g. a satellite sleeve
    sized as a fraction of the stack, mechanically capped, that it may tilt.
    Cost: a new allocation surface, hence a new gate set and a new outcome
-   series, i.e. genuinely more system.
+   series, i.e. genuinely more system. *Not foreclosed by (1), only deferred: it
+   is the shape any future cognitive allocation would have to take, and ADR-006
+   would measure it rather than trust it.*
 
-**Trigger to revisit:** when forward paper-mode reaches its verdict on whether
-the bridge is retired at all — the same decision point, so this must be settled
-IN the Step 6 plan and not discovered during it. If the stack fails paper-mode
-the bridge stays and this item dissolves.
+**THE LESSON, which is why this entry is kept rather than deleted.** A deferred
+item names the world as it stood when it was written, and the trigger it waits
+for can be overtaken by a decision made elsewhere. Nothing connected ADR-012 to
+this item at the time — the ADR records what it removed and this entry kept
+describing the removed thing as live for five days. The audit above only
+happened because Step 6 planning re-read it. **When an ADR deletes a mechanism,
+grep IMPROVEMENTS for the mechanism's name in the same commit.**
 
 ---
 

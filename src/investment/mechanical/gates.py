@@ -436,7 +436,11 @@ def _inadmissible(
 
     The two well-formedness checks are deliberately NOT called "gate 0", a name
     ADR-011 already owns across five documents for the mechanical-sovereignty
-    check in `writeback.dispose_reallocation`. They assert the two arguments are
+    check that used to open `writeback.dispose_reallocation` — deleted with the
+    rest of the cognitive allocation path by ADR-012, which is a reason to leave
+    the name alone rather than to reuse it: the documents still say gate 0, and
+    a reader arriving through them must not find a different check wearing it.
+    They assert the two arguments are
     books at all, because the merit gates are comparisons and a NaN or a short
     leg is invisible to every one of them. BOTH sides are guarded — the merit
     gates measure the target AGAINST the incumbent, so a NaN in `current` blinds

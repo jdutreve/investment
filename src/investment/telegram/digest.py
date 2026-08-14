@@ -573,10 +573,13 @@ async def _latest_proposal(
     proposal["current_allocation"] = _json_map(current.get("allocation")) if current else {}
     # PREFER THE PROPOSAL'S OWN DIFF. The ranking lookup above is a weekly run
     # photograph and misses the target entirely once it is not a ranked
-    # defender — and worse, since 2026-08-08 an accepted reallocation MOVES the
-    # book it targets (`writeback._commit_reallocation`), so by digest time the
-    # portfolio row already holds the NEW allocation and any "before" read from
-    # live state would render a change of nothing.
+    # defender — and worse, between 2026-08-08 and ADR-012 an accepted
+    # reallocation MOVED the book it targeted (`writeback._commit_reallocation`,
+    # deleted with the rest of the cognitive path), so by digest time the
+    # portfolio row already held the NEW allocation and any "before" read from
+    # live state rendered a change of nothing. The rows this renders are now
+    # historical, which makes the reconstruction below more necessary rather
+    # than less: nothing will ever recompute them.
     #
     # `gap.allocation_diff` is written inside the same transaction as the
     # proposal and is immutable, so `current = proposed - diff` is the one
