@@ -451,9 +451,20 @@ async def test_proposal_records_the_full_audit_record(db: InvestmentDB) -> None:
         assert signal["knowable_at"] <= context["decision_date"]
 
     overlay = context["trend_overlay"]
-    assert overlay["window_days"] == "/".join(str(w) for w in MS.MA_WINDOWS)
+    # A NEW FIELD, not a widened one: `window_days` was an int on every row
+    # written before 2026-08-14, and emitting "150/300" under that name would
+    # have changed a committed field's type in place.
+    assert overlay["windows_days"] == list(MS.MA_WINDOWS)
+    assert "window_days" not in overlay
     assert "SPY" in overlay["below_trend"]  # the fixture drives SPY under its MA
-    assert overlay["sleeves"]["SPY"]["price"] < overlay["sleeves"]["SPY"]["moving_average"]
+    # Every line the journal shows is one the price is actually BELOW — the
+    # invariant `TrendRead.breached` exists for, since the old single
+    # `moving_average` field showed the slowest line and a half-out sleeve
+    # journalled price > moving_average beside below=True.
+    assert overlay["sleeves"]["SPY"]["breached"]
+    assert all(
+        overlay["sleeves"]["SPY"]["price"] < ma for ma in overlay["sleeves"]["SPY"]["breached"]
+    )
     # ...and the overlay actually moved the money it said it moved.
     assert "SPY" not in context["target_allocation"]
     assert context["target_allocation"][MS.TREND_HAVEN] >= MS.BOOKS[context["held_book"]]["SPY"]

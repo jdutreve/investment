@@ -61,7 +61,6 @@ from investment.mechanical.market_signal import (
     MA_WINDOWS,
     STACK_PORTFOLIO_ID,
     TREND_FALLBACK_HAVEN,
-    TREND_HAVEN,
     Decision,
 )
 from investment.mechanical.rule_revision import (
@@ -411,7 +410,12 @@ def _market_signal_reasoning(decision: Decision, held_allocation: dict[str, floa
     # the target printed in the very next clause on the four 2022 dates where
     # IEF was itself below its line. Same defect as `describe_rule()` the same
     # week (93e7abd), in the text the OWNER reads to place the order.
-    haven = TREND_FALLBACK_HAVEN if TREND_HAVEN in below else TREND_HAVEN
+    # FROM THE DECISION, not recomputed here. This read `TREND_HAVEN in below`,
+    # which is `share > 0` — so once the overlay became graduated (2026-08-14) a
+    # haven below one line of two made this sentence announce a move to cash
+    # while the target printed two lines down stayed in IEF. `Decision.haven`
+    # applies the same >= 1.0 test `apply_trend_overlay` does.
+    haven = decision.haven
     # AND THE WINDOW IS INTERPOLATED, for the same reason one clause up: "200d"
     # was typed here and outlived the window by a day (2026-08-11, 200 -> 300),
     # putting a false number in the sentence the owner reads to place the order.

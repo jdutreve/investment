@@ -159,7 +159,14 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
     # Worker read one number in the state block and another in the generated rule
     # text below — the fourth stale-rule-text defect, this time contradicting
     # `describe_rule` inside a single prompt.
-    window = overlay.get("window_days") or "/".join(str(w) for w in MA_WINDOWS)
+    # BOTH SHAPES, because both are in the log. `window_days` was an int on
+    # every row until 2026-08-14; the graduated overlay writes `windows_days` as
+    # a list instead of changing that field's type under committed history. A
+    # row carries one or the other, and an old row must still render.
+    windows = overlay.get("windows_days")
+    window = "/".join(str(w) for w in windows) if windows else overlay.get("window_days")
+    if not window:
+        window = "/".join(str(w) for w in MA_WINDOWS)
     lines.append(
         f"  {window}d trend overlay: {', '.join(below)} below trend, redirected to the haven"
         if below

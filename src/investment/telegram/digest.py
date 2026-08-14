@@ -217,7 +217,14 @@ def _market_signal_block(
     # The window off the decision's OWN payload, like every other number in this
     # block: a hand-typed "200d" outlived the window itself by a day. Falls back
     # to the live constant for payloads written before the field existed.
-    window = overlay.get("window_days") or "/".join(str(w) for w in MA_WINDOWS)
+    # BOTH SHAPES, because both are in the log. `window_days` was an int on
+    # every row until 2026-08-14; the graduated overlay writes `windows_days` as
+    # a list instead of changing that field's type under committed history. A
+    # row carries one or the other, and an old row must still render.
+    windows = overlay.get("windows_days")
+    window = "/".join(str(w) for w in windows) if windows else overlay.get("window_days")
+    if not window:
+        window = "/".join(str(w) for w in MA_WINDOWS)
     lines.append(
         f"   {window}d overlay: {', '.join(below)} below trend"
         if below

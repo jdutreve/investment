@@ -1791,11 +1791,15 @@ PORTFOLIOS: list[dict[str, object]] = [
         "phase": "accumulation",
         "fx_usd_exposure": 100.0,
         "trace": "The market-signal stack with its SIGNAL LAYER REMOVED: the "
-        "credit-spread-tight-yield-curve-flat book frozen, the same 300d trend "
-        "overlay and IEF/cash haven chain, the same ADR-010 cost rate. It exists "
-        "to answer whether the credit/slope read earns its complexity — measured "
-        "2026-08-13, it earns +0.24pp CAGR and +0.20 Sortino, not the +3.80 the "
-        "pivot was signed on against a passive benchmark.",
+        "credit-spread-tight-yield-curve-flat book frozen, the same graduated "
+        "trend overlay and IEF/cash haven chain, the same ADR-010 cost rate. It "
+        "exists to answer whether the credit/slope read earns its complexity. "
+        "Measured 2026-08-14 over 1991-2026: stack 11.58% CAGR / 1.330 Sortino "
+        "/ -16.50% against control 10.50% / 1.158 / -16.50%, i.e. the signal "
+        "earns +1.08pp and +0.172 — not the +3.80 the pivot was signed on "
+        "against a PASSIVE benchmark, which is the comparison this row replaces. "
+        "Restate this only from a fresh measurement: it named 300d and +0.24pp "
+        "for a day after both stopped being true.",
     },
 ]
 

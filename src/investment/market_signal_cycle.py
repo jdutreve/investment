@@ -283,16 +283,24 @@ def build_market_context(
             },
         },
         "trend_overlay": {
-            # The WINDOWS, plural and rendered, since the overlay votes across
-            # them (2026-08-14). Journalled as text so a reader of an old row
-            # sees the shape the rule had that week, not today's.
-            "window_days": "/".join(str(w) for w in MA_WINDOWS),
+            # A NEW FIELD RATHER THAN A WIDENED ONE. `window_days` was an int
+            # for every row ever written; emitting "150/300" under that name
+            # would have changed a committed field's TYPE in place, so a reader
+            # would meet an int or a string depending on the row's age and
+            # neither would be wrong to expect the other. Old rows keep their
+            # int under the old name, new rows carry the list under the new one,
+            # and readers below take whichever is present.
+            "windows_days": list(MA_WINDOWS),
             "below_trend": list(decision.below_trend),
             "sleeves": {
                 ticker: {
                     "price": read.price,
-                    "moving_average": read.moving_average,
                     "moving_averages": list(read.moving_averages),
+                    # The lines it is actually BELOW — see `TrendRead.breached`.
+                    # A single "moving_average" here showed the SLOWEST line, so
+                    # a half-out sleeve journalled price > moving_average beside
+                    # below=True.
+                    "breached": list(read.breached),
                     "share": read.share,
                     "below": read.below,
                     # WHY it is below, when the two numbers beside it do not say

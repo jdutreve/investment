@@ -151,6 +151,10 @@ owner-arbitrated:
   63.9. It rejects on the full sample and on 2009-2026 and is marginally
   positive on 1991-2008.
 
+  It rejects on the full sample and on 2009-2026 and ADOPTS on 1991-2008, which
+  is MIXED — the sample-artefact signal this project usually treats as a
+  refusal, and treats as one here too.
+
   It is INSURANCE on the book in force today. `tight-steep` is 90% fixed income
   and holds VCIT 50 with nothing watching it; it has been held 61 times in 8
   episodes and seven of the eight had FALLING rates, so the sample cannot price
@@ -297,11 +301,20 @@ BOOKS: dict[str, dict[str, float]] = {
 # VCIT JOINED 2026-08-14, AND IT IS THE ONE CHANGE IN THIS MODULE THE
 # MEASUREMENT ARGUES AGAINST. It is an owner conviction call, recorded as one.
 #
-# WHAT THE MEASUREMENT SAYS, in full and not selectively: adding VCIT rejects on
-# all three windows against the current rule — full 1991-2026 Sortino
-# 1.342 -> 1.330 and CAGR 11.66% -> 11.58%, valid 2009-2026 1.333 -> 1.321, with
-# the drawdown UNCHANGED everywhere. On the train half it is marginally positive
-# (1.367 -> 1.373). The 2026-08-09 sweep rejected it too, on the older rule.
+# WHAT THE MEASUREMENT SAYS, in full and not selectively: adding VCIT REJECTS ON
+# TWO WINDOWS OF THREE and ADOPTS on the first half. Deltas of adding it, with
+# the drawdown unchanged on all three:
+#
+#     full  1991-2026   sortino -0.0118  cagr -0.0008  calmar -0.0046   reject
+#     train 1991-2008   sortino +0.0060  cagr +0.0005  calmar +0.0041   ADOPT
+#     valid 2009-2026   sortino -0.0123  cagr -0.0010  calmar -0.0060   reject
+#
+# An earlier draft of this note said "rejects on all three windows" and then, two
+# sentences later, that the train half was positive. Both cannot be true; the
+# table above is what was measured.
+#
+# It is still a refusal overall — mixed is not adopted here, and the 2026-08-09
+# sweep rejected it too on the older rule.
 #
 # WHAT THE MEASUREMENT CANNOT SAY. VCIT is 50% of the tight-steep book, which is
 # 90% fixed income and is the book in force today. That book has been held 61
@@ -789,12 +802,19 @@ class TrendRead:
         return self.share > 0.0
 
     @property
-    def moving_average(self) -> float | None:
-        """The SLOWEST line that has warmed up — what a one-number rendering
-        should show, since it is the one the old single-window rule used and the
-        one a reader comparing against `price` expects. None during warm-up."""
-        ready = [ma for ma in self.moving_averages if ma is not None]
-        return ready[-1] if ready else None
+    def breached(self) -> tuple[float, ...]:
+        """The lines this sleeve is actually BELOW — the ones that produced
+        `share`, and the only moving averages a renderer may show next to
+        `price` without contradicting itself.
+
+        REPLACED `moving_average`, which returned the slowest warmed-up line and
+        was a lie in exactly the state the graduated overlay exists to express:
+        a sleeve below its 150d but above its 300d reads share 0.5 and
+        `below=True`, and that property handed the renderer the 300d — so the
+        owner saw `price > moving_average` beside "below trend". The same defect
+        as the digest line that said "redirected to IEF" while the target was
+        cash, in the field built to explain the decision."""
+        return tuple(ma for ma in self.moving_averages if ma is not None and self.price < ma)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -824,6 +844,20 @@ class Decision:
     trend: dict[str, TrendRead]  # per TREND_SLEEVES sleeve
     target: dict[str, float]  # post-overlay effective allocation
     changed: bool
+
+    @property
+    def haven(self) -> str:
+        """Where THIS decision's redirects actually went.
+
+        The same test `apply_trend_overlay` applies — the haven is abandoned for
+        cash only when it is FULLY out — and it exists because the owner-facing
+        sentence in `writeback` recomputed it from `below_trend`, i.e. from
+        `share > 0`. With a graduated overlay those differ: a haven below one
+        line of two is "below trend" and is still the destination, so the digest
+        announced a move to cash while the allocation printed on the next line
+        stayed in IEF. One property, two callers, no way to disagree."""
+        read = self.trend.get(TREND_HAVEN)
+        return TREND_FALLBACK_HAVEN if read is not None and read.share >= 1.0 else TREND_HAVEN
 
     @property
     def below_trend(self) -> tuple[str, ...]:

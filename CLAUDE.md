@@ -8,7 +8,7 @@ V2 adds auto-execution and learning from real performance.
 
 > **ADR-007 pivot (accepted 2026-07-20) — read `docs/V1_STRATEGY.md`.** V1's
 > ADOPTED allocation strategy is now the **market-signal monthly countercyclical
-> stack** (market-priced credit-spread/slope regime → 3 concentrated books +
+> stack** (market-priced credit-spread/slope regime → 4 concentrated books +
 > trend overlay, MONTHLY cadence), not the seeded Dalio 4-quadrant
 > portfolio rotation. **The non-negotiables below that describe the weekly
 > chain, FAVORS, the ranking rule, scenario-driven UC8 and the reallocation
@@ -186,8 +186,11 @@ order (M4).
 `calmar_rolling < 1.0` → demoted to bottom. Breaching the user drawdown rule
 keeps the row ranked but excludes it from defender role and proposal candidacy.
 
-**Binding caps** — `user_profile.max_single_asset_pct` (**50%**, raised from 40%
-by the ADR-007 addendum for the deliberately concentrated market-signal books) and
+**Binding caps** — `user_profile.max_single_asset_pct` (**60%** since 2026-08-14
+for the tight-flat book's SPY 60, where the equity dial's Sortino peaks; 50 by
+the ADR-007 addendum, 40 before it. It binds the largest ASSET CLASS of an
+allocation, not the largest ticker — `SPY 50 / VTI 20` is 70% of one exposure —
+and `/cap <pct>` moves it) and
 `max_drawdown_pct` (**-25%**, raised from -15% by ADR-007 for the
 accumulation-horizon market-signal stack; it bounds the STACK's realized drawdown,
 not each book standalone) bind the defender role and ALL proposal candidacy;

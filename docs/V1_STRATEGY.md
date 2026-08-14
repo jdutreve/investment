@@ -31,9 +31,10 @@ docs/STRATEGY_COMPARISON.md).
 
 **Regime signal (market-priced, contemporaneous — replaces the lagged CPI/GDP
 detector for allocation):**
-- credit spread `BAA10Y` vs its 10y trailing median: WIDE → `credit-spread-wide`;
-- if TIGHT, slope `T10Y2Y` vs its 10y trailing median: FLAT → `credit-spread-tight-yield-curve-flat`,
-  STEEP → `credit-spread-tight-yield-curve-steep`.
+The two indicators are read INDEPENDENTLY and their 2x2 names the state (since
+2026-08-14; the wide branch used to return before consulting the slope):
+- credit spread `BAA10Y` vs its 10y trailing median → WIDE or TIGHT;
+- slope `T10Y2Y` vs its own 10y trailing median → STEEP or FLAT.
 
 Books are named after the SIGNAL STATE that selects them, never after a macro
 regime (ADR-007 third addendum, 2026-07-20 — renamed from
@@ -42,27 +43,32 @@ formerly called "inflation" averages CPI YoY 2.99 vs 2.23 for the one formerly
 called "growth" (docs/IMPROVEMENTS.md I-39). The seeded entity IDs keep their
 original spelling because EventLog is append-only.
 
-**Books (concentrated pure-asset tilts; 50% sleeves — the single-asset cap was
-raised 40→50 for exactly this concentration, ADR-007 addendum 2026-07-20):**
-- `credit-spread-wide`: SPY 50 / IWN 40 / GLD 10
+**Books (concentrated pure-asset tilts). The single-asset cap was raised 40→50
+for that concentration (ADR-007 addendum) and 50→60 on 2026-08-14 for the
+tight-flat book; it binds an ASSET CLASS, not a ticker.** Restate these only
+from `mechanical/market_signal.py BOOKS`, which is the authority:
+- `credit-spread-wide-yield-curve-flat`: IWN 50 / SPY 50
+- `credit-spread-wide-yield-curve-steep`: SPY 50 / IWN 40 / GLD 10
 - `credit-spread-tight-yield-curve-flat`: SPY 60 / GLD 40
 - `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 40 / IWN 10
 
-**Trend-following overlay:** every CHECKED sleeve — SPY, GLD and IWN since
-2026-08-07 — is redirected to IEF by the FRACTION of its moving averages it has
-fallen below (GRADUATED since 2026-08-14: two lines, so a sleeve is held in
-full, half out, or fully out), and IEF is checked too: when the haven is below
-ALL of its own lines the destination becomes cash. (This is the drawdown control; it carries -24% →
-without it the stack is -50%.) In risk-off several sleeves can redirect at once,
+**Trend-following overlay:** every CHECKED sleeve — SPY, GLD, IWN, and VCIT
+since 2026-08-14 — is redirected to IEF by the FRACTION of its moving averages
+it has fallen below (GRADUATED since 2026-08-14: two lines, so a sleeve is held
+in full, half out, or fully out), and IEF is checked too: when the haven is
+below ALL of its own lines the destination becomes cash. This is the drawdown
+control, and it is what carries the stack's -16.50% against the -51.80% the same
+book runs unhedged. In risk-off several sleeves can redirect at once,
 concentrating the haven to ~90-100%; the haven CHAIN — IEF and the cash fallback
 — is therefore EXEMPT from the single-asset cap (ADR-007 addendum choice (a),
 extended to cash 2026-08-08 — it is a deliberate safety redirect, not a
 conviction bet).
 
-The WINDOW is deliberately not named here. It is a measured knob
-(`MA_WINDOW_DAYS`, 300 since 2026-08-11 and 200 before it), and every copy of it
-in prose has gone stale within a day of it moving; `mechanical/market_signal.py`
-holds the value and `describe_rule()` states it to the Worker.
+The WINDOWS are deliberately not named here. They are a measured knob
+(`MA_WINDOWS`, two lines since 2026-08-14; one 300-day line from 2026-08-11 and
+200 before it), and every copy of the value in prose has gone stale within a day
+of it moving; `mechanical/market_signal.py` holds it and `describe_rule()`
+states it to the Worker.
 
 **Cadence: MONTHLY.** No VIX crisis overlay (measured to hurt at monthly
 cadence: 7.57%/-25%).
@@ -74,11 +80,14 @@ Read "The attribution" too before quoting the "+3.80 vs B" as the strategy's
 edge: B is a PASSIVE benchmark with zero turnover, so it never earned any of the
 bias the stack did, and the margin absorbs the whole of it.
 
-The CURRENT pinned pair is **11.57% CAGR / -20.61%**
-(Sortino 1.30, turnover 53.7), and `mechanical/market_signal.py` is its
+The CURRENT pinned pair is **11.53% CAGR / -16.50%**
+(Sortino 1.330, turnover 63.9), and `mechanical/market_signal.py` is its
 authority — it carries every supersession with its date, its measurement and its
 owner signature. Do not restate it here: this file has quoted a superseded pair
-as "the" performance three times.
+as "the" performance FOUR times now, the fourth caught by the owner on
+2026-08-14 along with the cap, the book count and the overlay window in this
+same header. The instruction is not working; the only reliable copy is the
+module, and `drift_violations` is what enforces it.
 
 The table below is the **2026-08-02 state, kept as history** (live DB, 1991-2026,
 net of Saxo's real 23 bps per order, vs B = risk-parity All Weather, B net of the
@@ -89,7 +98,7 @@ same cost, ADR-010). Three changes have landed since — the overlay completion
 |---|---|
 | CAGR | 11.14%/yr (+3.80 vs B, both sides net — both halves of the split independently) |
 | Sortino | 1.09 (B: 0.92) |
-| Max drawdown (daily) | **-23.8%** (breached the -15% rule then in force; the cap is -25% since ADR-007 and the drawdown is -20.61% today, i.e. compliant) |
+| Max drawdown (daily) | **-23.8%** (breached the -15% rule then in force; the cap is -25% since ADR-007 and the stack has been compliant since; for TODAY's drawdown read the module, not this history row) |
 | Changes | 2.8/yr |
 | Fee drag | **0.66 pt/yr** measured (gross 11.80% → net 11.14%) |
 
@@ -443,6 +452,7 @@ recorded; the switch is not thrown.
 
 Today's finding said the drawdown belongs to the overlay, so the overlay's
 parameters are where a drawdown improvement could come from. `MA_WINDOW_DAYS`
+(as the single-window knob was then called)
 (200) had never been confronted with an alternative.
 
     ma_window_days   sortino            maxDD                cagr    turnover  verdict
@@ -791,6 +801,7 @@ and measured on 2026-08-13, with the two layers switched independently:
     SIGNAL = spread level vs 10y median + slope + CONFIRM_DECISIONS hysteresis
              + SPREAD_SPEED_VETO + SPREAD_STRESS_SLEEVE_GATE
     TREND  = the MA_WINDOW_DAYS overlay per sleeve + the IEF/cash haven chain
+             (a single 300-day line at the time; two graduated lines since 2026-08-14)
 
     D  signal ON,  trend ON    the live stack
     C  signal ON,  trend OFF   book rotation alone

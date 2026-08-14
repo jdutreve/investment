@@ -519,7 +519,10 @@ def test_the_sleeve_gate_empties_equity_on_credit_stress_and_says_why(
     assert all(on.trend[t].credit_gated for t in market_signal.EQUITY_SLEEVES)
     assert not on.trend["GLD"].credit_gated  # not equity, not gated
     # the audit trail explains itself: below, yet priced above its own average
-    assert on.trend["SPY"].below and on.trend["SPY"].price > (on.trend["SPY"].moving_average or 0)
+    # It is out with NO line breached — the gate, not the price. `breached` is
+    # empty, which is exactly what a renderer needs to avoid printing
+    # "price > moving_average" beside "below trend".
+    assert on.trend["SPY"].below and on.trend["SPY"].breached == ()
 
 
 def test_the_gate_is_idle_when_the_spread_is_wide_but_calm(
@@ -668,7 +671,7 @@ def test_the_stress_gate_reaches_sleeves_the_200d_does_not_check(
     # tight-steep is VCIT 50 / IEF 40 / IWN 10; the gate empties IWN and VCIT.
     assert decision.target == {"IEF": 100.0}
     assert decision.trend["VCIT"].credit_gated  # it explains itself
-    assert decision.trend["VCIT"].price > (decision.trend["VCIT"].moving_average or 0)
+    assert decision.trend["VCIT"].breached == ()  # out by the gate, not by price
 
     # ...and with the gate off (veto still on, so the book is the same), VCIT is
     # held at book weight: it is NOT trend-checked, only stress-gated.
@@ -777,3 +780,66 @@ def test_the_control_arm_is_seeded_and_declared_time_varying() -> None:
     assert row["allocation"] == {
         t: int(w) for t, w in market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK].items()
     }
+
+
+def test_a_half_out_haven_is_not_announced_as_cash() -> None:
+    """THE OWNER-FACING BUG the graduated overlay introduced (found 2026-08-14).
+
+    `writeback` built its sentence from `below_trend`, which is `share > 0`. Once
+    a sleeve could be HALF out, a haven below one line of two was "below trend"
+    and the digest announced "redirected to cash" — while `apply_trend_overlay`
+    only abandons IEF at a FULL share, so the allocation printed on the next line
+    was still in IEF. The text the owner reads to place the order contradicted
+    the number beside it, which is the same defect as the 2026-08-08 line that
+    said "redirected to IEF" while the target was cash.
+
+    `Decision.haven` is now the single rule and both callers read it."""
+    assert len(market_signal.MA_WINDOWS) == 2
+    fast, slow = market_signal.MA_WINDOWS
+    idx = pd.to_datetime(["2022-03-01"])
+    tickers = (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+
+    def decide(haven_below_fast: bool, haven_below_slow: bool) -> market_signal.Decision:
+        mas = {
+            fast: {
+                t: pd.Series([2000.0 if (t == "IEF" and haven_below_fast) else 100.0], index=idx)
+                for t in tickers
+            },
+            slow: {
+                t: pd.Series([2000.0 if (t == "IEF" and haven_below_slow) else 100.0], index=idx)
+                for t in tickers
+            },
+        }
+        return market_signal.walk_decisions(
+            dates=idx,
+            spread=pd.Series([1.2], index=idx),
+            slope=pd.Series([0.5], index=idx),
+            spread_median=pd.Series([1.8], index=idx),
+            slope_median=pd.Series([1.0], index=idx),
+            moving_averages=mas,
+            prices={t: pd.Series([1000.0], index=idx) for t in tickers},
+            spread_speed=pd.Series([0.0], index=idx),
+        )[0]
+
+    half = decide(haven_below_fast=True, haven_below_slow=False)
+    assert half.trend["IEF"].share == 0.5
+    assert half.trend["IEF"].below  # it IS below trend...
+    assert half.haven == market_signal.TREND_HAVEN  # ...and still the destination
+
+    whole = decide(haven_below_fast=True, haven_below_slow=True)
+    assert whole.trend["IEF"].share == 1.0
+    assert whole.haven == market_signal.TREND_FALLBACK_HAVEN
+
+
+def test_the_decisions_haven_is_the_one_the_overlay_actually_used() -> None:
+    """Structural, not exemplary: whatever `Decision.haven` says must be a key of
+    the target the same decision produced, on every reachable haven state. A
+    sentence derived from one rule and an allocation from another is how the two
+    disagreed in the first place."""
+    book = market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK]
+    n = len(market_signal.MA_WINDOWS)
+    for k in range(n + 1):
+        shares = dict.fromkeys(book, 1.0) | {market_signal.TREND_HAVEN: k / n}
+        target = market_signal.apply_trend_overlay(book, shares)
+        haven = market_signal.TREND_FALLBACK_HAVEN if k / n >= 1.0 else market_signal.TREND_HAVEN
+        assert haven in target, (k, target)
