@@ -58,7 +58,7 @@ from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
     CONFIRM_DECISIONS,
     HAVEN_EXEMPT,
-    MA_WINDOW_DAYS,
+    MA_WINDOWS,
     STACK_PORTFOLIO_ID,
     TREND_FALLBACK_HAVEN,
     TREND_HAVEN,
@@ -416,9 +416,11 @@ def _market_signal_reasoning(decision: Decision, held_allocation: dict[str, floa
     # was typed here and outlived the window by a day (2026-08-11, 200 -> 300),
     # putting a false number in the sentence the owner reads to place the order.
     parts.append(
-        f"{MA_WINDOW_DAYS}d overlay: {', '.join(below)} below trend -> redirected to {haven}."
+        f"{'/'.join(str(w) for w in MA_WINDOWS)}d overlay: {', '.join(below)} "
+        f"below trend -> redirected to {haven}."
         if below
-        else f"{MA_WINDOW_DAYS}d overlay: no sleeve below trend, the book is held as designed."
+        else f"{'/'.join(str(w) for w in MA_WINDOWS)}d overlay: no sleeve below trend, "
+        "the book is held as designed."
     )
     parts.append(f"Held {held_allocation or '(nothing yet)'} -> target {decision.target}.")
     return " ".join(parts)

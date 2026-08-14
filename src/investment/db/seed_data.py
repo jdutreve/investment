@@ -373,6 +373,25 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # well-formed credit-spread claim already has a handle: `credit_spread` is
     # aliased to BAA10Y in SIGNAL_ALIASES.
     #
+    # RE-VERIFIED 2026-08-14 (third time the question has been asked — the M8b
+    # Worker twice, then the owner): BAMLH0A0HYM2 still returns 787 points from
+    # 2023-08-15. The restriction is current, not a stale note.
+    #
+    # AND THE OBTAINABLE ALTERNATIVE WAS MEASURED, so the answer stops resting on
+    # availability alone. Baa MINUS Aaa (DBAA - DAAA, 10189 daily points from
+    # 1986, no ICE licence) is the purer CREDIT-QUALITY spread: both legs are
+    # corporate and of similar duration, so the Treasury leg and most of the
+    # duration mismatch cancel — exactly the mixture BAA10Y is criticised for
+    # carrying. Substituted as the credit signal with everything else unchanged:
+    #
+    #     full 1991-2026   sortino 1.237 -> 1.081   CAGR 11.27% -> 10.17%  reject
+    #     train            trade-off (better drawdown, much worse sortino/CAGR)
+    #     valid            sortino 1.076 -> 1.043   CAGR  9.48% ->  8.93%  reject
+    #
+    # The theoretical objection is sound and the correction does not pay:
+    # removing the duration/liquidity mixture removes information with it.
+    # BAA10Y stays for a MEASURED reason now, not for want of an alternative.
+    #
     # BAA10Y is IG- not HY-grade but carries the same credit-
     # stress cycle, is daily from 1986 (before the ~1991 floor), and is not
     # ICE-licensed. DATA-LAYER availability only: wiring it into regime

@@ -33,7 +33,7 @@ from typing import Any
 from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.market_signal import MA_WINDOW_DAYS, describe_rule
+from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
@@ -159,7 +159,7 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
     # Worker read one number in the state block and another in the generated rule
     # text below — the fourth stale-rule-text defect, this time contradicting
     # `describe_rule` inside a single prompt.
-    window = overlay.get("window_days") or MA_WINDOW_DAYS
+    window = overlay.get("window_days") or "/".join(str(w) for w in MA_WINDOWS)
     lines.append(
         f"  {window}d trend overlay: {', '.join(below)} below trend, redirected to the haven"
         if below

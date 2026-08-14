@@ -60,7 +60,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "trend_haven": "TREND_HAVEN",
     "trend_fallback_haven": "TREND_FALLBACK_HAVEN",
     "confirm_decisions": "CONFIRM_DECISIONS",
-    "ma_window_days": "MA_WINDOW_DAYS",
+    "ma_windows": "MA_WINDOWS",
     "median_window_days": "MEDIAN_WINDOW_DAYS",
     "spread_speed_veto": "SPREAD_SPEED_VETO",
     "spread_speed_wide_trigger": "SPREAD_SPEED_WIDE_TRIGGER",
@@ -78,7 +78,10 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     "trend_haven": "where a below-trend sleeve is redirected",
     "trend_fallback_haven": "where it goes when the haven is itself below trend",
     "confirm_decisions": "consecutive agreeing decisions before a book change",
-    "ma_window_days": "the trend overlay's moving-average window",
+    "ma_windows": (
+        "the trend overlay's moving-average windows, a LIST — one vote each, so a sleeve "
+        "below k of n lines moves k/n of its weight (e.g. [150, 300]; [300] is all-or-nothing)"
+    ),
     "median_window_days": "the trailing window the signal's medians use",
     # The lookback is INTERPOLATED, not typed: these three descriptions state the
     # units a model must write its candidate in, so a hand-typed "30 days" that
@@ -136,7 +139,12 @@ def describe_testable_parameters() -> str:
 _TICKER_KNOBS = frozenset(
     {"trend_haven", "trend_fallback_haven", "trend_sleeves", "stress_gated_sleeves"}
 )
-_COUNT_KNOBS = frozenset({"confirm_decisions", "ma_window_days", "median_window_days"})
+_COUNT_KNOBS = frozenset({"confirm_decisions", "median_window_days"})
+# Knobs whose value is a LIST of positive whole numbers. `ma_windows` joined on
+# 2026-08-14 when the overlay became graduated: it used to be one integer, and a
+# revision naming a bare int must fail loudly rather than be silently wrapped —
+# "300" and "[300]" are the same rule, but "[150, 300]" is not "150".
+_COUNT_LIST_KNOBS = frozenset({"ma_windows"})
 # A threshold in the spread's own units, so any finite number is expressible —
 # including a negative one, which vetoes only while spreads are TIGHTENING and
 # is a perfectly good thing to measure and reject.
@@ -232,6 +240,16 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
             isinstance(value, int) and not isinstance(value, bool) and value > 0
         ):
             bad[knob] = f"expected a positive whole number, got {value!r}"
+        elif knob in _COUNT_LIST_KNOBS and not (
+            isinstance(value, list | tuple)
+            and value
+            and all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in value)
+        ):
+            # A BARE INT MUST FAIL rather than be wrapped: the graduated overlay
+            # reads this as a list of voters, so 300 and [300] are the same rule
+            # but [150, 300] is not 150, and silently wrapping would let a model
+            # propose a window when it meant a set of them.
+            bad[knob] = f"expected a non-empty list of positive whole numbers, got {value!r}"
     return bad
 
 

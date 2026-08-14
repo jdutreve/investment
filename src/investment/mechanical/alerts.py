@@ -51,7 +51,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import DRIFT_EVENT
 from investment.mechanical.market_signal import (
     CREDIT_SPREAD,
-    MA_WINDOW_DAYS,
+    MA_WINDOWS,
     STACK_PORTFOLIO_ID,
     STACK_TICKERS,
     YIELD_SLOPE,
@@ -177,7 +177,8 @@ async def market_data_freshness_alert(db: InvestmentDB, today: date | None = Non
         level="critical",
         code="market_data_stale",
         message=(
-            f"Stack price data stops at {latest}, {age} days ago. The {MA_WINDOW_DAYS}d trend "
+            f"Stack price data stops at {latest}, {age} days ago. The "
+            f"{'/'.join(str(w) for w in MA_WINDOWS)}d trend "
             "overlay — the stack's only downside control — cannot see past that date, and "
             "the decision cycle will keep reporting a normal month while blind."
         ),

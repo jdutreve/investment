@@ -240,7 +240,7 @@ def _measurement(sortino_delta: float, drawdown_delta: float) -> rule_revision.R
     NavMetrics rather than stubbed, so `verdict` is computed by the real property."""
     base = NavMetrics(cagr=0.10, sortino=1.0, calmar=0.5, max_drawdown=-0.20)
     return rule_revision.RevisionMeasurement(
-        overrides={"ma_window_days": 100},
+        overrides={"ma_windows": [100, 200]},
         baseline=base,
         variant=dataclasses.replace(
             base,
@@ -279,7 +279,7 @@ async def test_a_measured_bad_rule_revision_is_CLOSED_not_left_to_rot(
         return _measurement(-0.07, -0.025)
 
     monkeypatch.setattr(writeback, "measure_revision", _measured)
-    result = PostPlannerResult(innovations=[_revision({"ma_window_days": 100})])
+    result = PostPlannerResult(innovations=[_revision({"ma_windows": [100, 200]})])
     assert await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None) == 1
 
     row = (await db.query("SELECT status, enabled, trace FROM strategy WHERE id='strat-rev'"))[0]
@@ -295,7 +295,7 @@ async def test_a_measured_TRADE_OFF_stays_open_and_carries_its_exchange(
 ) -> None:
     """THE FOURTH VERDICT (owner decision, 2026-08-13).
 
-    -0.07 of Sortino for +2.5pp of drawdown is the `ma_window_days=125` shape —
+    -0.07 of Sortino for +2.5pp of drawdown is the `ma_windows` shape —
     the largest safety gain ever measured on this stack, refused by Pareto and,
     until now, CLOSED under the same word as a revision that made everything
     worse. The owner never saw it.
@@ -313,7 +313,7 @@ async def test_a_measured_TRADE_OFF_stays_open_and_carries_its_exchange(
         return _measurement(-0.07, +0.025)
 
     monkeypatch.setattr(writeback, "measure_revision", _measured)
-    result = PostPlannerResult(innovations=[_revision({"ma_window_days": 125})])
+    result = PostPlannerResult(innovations=[_revision({"ma_windows": [125, 250]})])
     assert await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None) == 1
 
     row = (await db.query("SELECT status, trace FROM strategy WHERE id='strat-rev'"))[0]
@@ -342,7 +342,7 @@ async def test_a_measured_GOOD_revision_stays_proposed_because_the_gate_is_git(
         return _measurement(+0.05, +0.03)
 
     monkeypatch.setattr(writeback, "measure_revision", _measured)
-    result = PostPlannerResult(innovations=[_revision({"ma_window_days": 100})])
+    result = PostPlannerResult(innovations=[_revision({"ma_windows": [100, 200]})])
     await commit_innovations(db, result, today=date(2026, 8, 8), embedder=None)
 
     row = (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]

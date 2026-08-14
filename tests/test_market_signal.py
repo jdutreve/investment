@@ -28,6 +28,49 @@ TIGHT_FLAT = "credit-spread-tight-yield-curve-flat"
 TIGHT_STEEP = "credit-spread-tight-yield-curve-steep"
 
 
+def _frames(one: dict[str, pd.Series]) -> dict[int, dict[str, pd.Series]]:
+    """The same moving-average frame under EVERY `MA_WINDOWS` line.
+
+    These fixtures set a sleeve unambiguously above or below its average, and
+    the graduated overlay only splits a sleeve when its windows DISAGREE — so
+    repeating one frame keeps every existing assertion about full redirects
+    exactly as it was, while `test_a_sleeve_below_one_line_of_two_moves_half`
+    covers the state the change actually adds."""
+    return dict.fromkeys(market_signal.MA_WINDOWS, one)
+
+
+def test_a_sleeve_below_one_line_of_two_moves_half() -> None:
+    """THE STATE THE GRADUATED OVERLAY ADDS (2026-08-14). One line breached out
+    of two moves half the sleeve; the rest is held. Before this the overlay was
+    all-or-nothing on a single 300d line, which is what made it late AND violent
+    — it waited for the slow average and then moved the whole weight at once."""
+    assert len(market_signal.MA_WINDOWS) == 2  # the shares below assume it
+    fast, slow = market_signal.MA_WINDOWS
+    idx = pd.to_datetime(["2020-03-02"])
+    tickers = (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+    # SPY below its FAST line only; everything else comfortably above both.
+    mas = {
+        fast: {t: pd.Series([2000.0 if t == "SPY" else 100.0], index=idx) for t in tickers},
+        slow: {t: pd.Series([100.0], index=idx) for t in tickers},
+    }
+    decision = market_signal.walk_decisions(
+        dates=idx,
+        spread=pd.Series([1.2], index=idx),  # tight
+        slope=pd.Series([0.5], index=idx),  # flat
+        spread_median=pd.Series([1.8], index=idx),
+        slope_median=pd.Series([1.0], index=idx),
+        moving_averages=mas,
+        prices={t: pd.Series([1000.0], index=idx) for t in tickers},
+        spread_speed=pd.Series([0.0], index=idx),
+    )[0]
+
+    assert decision.trend["SPY"].share == 0.5
+    assert decision.trend["SPY"].below  # "out" is still true at a half share
+    assert decision.trend["GLD"].share == 0.0
+    # tight-flat is SPY 50 / GLD 40 / IWN 10 -> half of SPY's 50 goes to IEF.
+    assert decision.target == {"SPY": 25.0, "GLD": 40.0, "IWN": 10.0, "IEF": 25.0}
+
+
 def test_wide_spread_reads_the_slope_too() -> None:
     # Spread above its 10y median -> WIDE, and since the 2x2 the slope then
     # picks WHICH wide book. Before 2026-08-13 both of these returned one key.
@@ -64,7 +107,7 @@ def test_missing_median_defaults_to_wide_credit() -> None:
 
 def test_overlay_redirects_below_trend_sleeve_to_haven() -> None:
     # wide-steep book SPY50/IWN40/GLD10 with SPY below its MA -> SPY's 50 to IEF.
-    out = apply_trend_overlay(market_signal.BOOKS[WIDE_STEEP], frozenset({"SPY"}))
+    out = apply_trend_overlay(market_signal.BOOKS[WIDE_STEEP], {"SPY": 1.0})
     assert out == {"IEF": 50.0, "IWN": 40.0, "GLD": 10.0}
 
 
@@ -72,13 +115,13 @@ def test_overlay_merges_both_sleeves_into_haven() -> None:
     # TIGHT_FLAT book SPY50/GLD40/IWN10 with BOTH below trend -> IEF piles to 90.
     # (This is the >50 concentration the cap confrontation flags — pinned here so
     # a future change to the overlay cannot silently alter it.)
-    out = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], frozenset({"SPY", "GLD"}))
+    out = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], {"SPY": 1.0, "GLD": 1.0})
     assert out == {"IEF": 90.0, "IWN": 10.0}
 
 
 def test_overlay_noop_when_above_trend() -> None:
     for book in market_signal.BOOKS.values():
-        assert apply_trend_overlay(book, frozenset()) == book
+        assert apply_trend_overlay(book, {}) == book
 
 
 def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
@@ -86,7 +129,7 @@ def test_trend_haven_is_exempt_from_single_asset_cap() -> None:
     # into IEF; the single-asset cap does not bind that HAVEN concentration.
     from investment.mechanical.gates import Caps, concentration_ok
 
-    book = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], frozenset({"SPY", "GLD"}))
+    book = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], {"SPY": 1.0, "GLD": 1.0})
     caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
     assert book == {"IEF": 90.0, "IWN": 10.0}
     assert not concentration_ok(book, caps)  # 90 breaches the cap unexempted
@@ -104,7 +147,7 @@ def test_the_cash_fallback_is_exempt_too_or_the_flight_to_safety_is_unreachable(
     to make (the ADR-009 argument, transferred to the concentration leg)."""
     from investment.mechanical.gates import Caps, concentration_ok
 
-    all_below = frozenset({"SPY", "GLD", "IWN", market_signal.TREND_HAVEN})
+    all_below = dict.fromkeys(("SPY", "GLD", "IWN", market_signal.TREND_HAVEN), 1.0)
     book = apply_trend_overlay(market_signal.BOOKS[TIGHT_FLAT], all_below)
     caps = Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
 
@@ -123,7 +166,7 @@ def test_build_targets_emits_only_on_change() -> None:
     spread_med = pd.Series([1.8, 1.8], index=idx)
     slope_med = pd.Series([1.0, 1.0], index=idx)
     # prices ABOVE their MA -> no trend redirect, book stays the plain credit-spread-wide book.
-    mas = {t: pd.Series([1.0, 1.0], index=idx) for t in market_signal.TREND_SLEEVES}
+    mas = _frames({t: pd.Series([1.0, 1.0], index=idx) for t in market_signal.TREND_SLEEVES})
     prices = {t: pd.Series([1000.0, 1000.0], index=idx) for t in ("SPY", "IWN", "GLD")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0]]
@@ -143,7 +186,7 @@ def _steady_switch_frame(
     slope_med = pd.Series([1.0] * len(idx), index=idx)
     # Prices ABOVE their MA: the overlay is a no-op, so these tests isolate the
     # hysteresis and assert against the plain books.
-    mas = {t: pd.Series([1.0] * len(idx), index=idx) for t in market_signal.TREND_SLEEVES}
+    mas = _frames({t: pd.Series([1.0] * len(idx), index=idx) for t in market_signal.TREND_SLEEVES})
     prices = {
         t: pd.Series([1000.0] * len(idx), index=idx) for t in ("SPY", "IWN", "GLD", "VCIT", "IEF")
     }
@@ -179,7 +222,7 @@ def test_build_targets_resets_the_count_when_the_candidate_flickers() -> None:
     slope = pd.Series([1.0, 2.0, 1.0, 2.0, 2.0], index=idx)
     spread_med = pd.Series([1.8] * 5, index=idx)
     slope_med = pd.Series([1.0] * 5, index=idx)
-    mas = {t: pd.Series([1000.0] * 5, index=idx) for t in market_signal.TREND_SLEEVES}
+    mas = _frames({t: pd.Series([1000.0] * 5, index=idx) for t in market_signal.TREND_SLEEVES})
     prices = {t: pd.Series([1.0] * 5, index=idx) for t in ("SPY", "IWN", "GLD", "VCIT", "IEF")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0]]  # only 2 consecutive at the end, short of 3
@@ -193,7 +236,9 @@ def test_trend_overlay_is_not_damped_by_the_hysteresis() -> None:
     slope = pd.Series([1.0, 1.0], index=idx)
     spread_med = pd.Series([1.8, 1.8], index=idx)
     slope_med = pd.Series([1.0, 1.0], index=idx)
-    mas = {"SPY": pd.Series([1.0, 1000.0], index=idx), "GLD": pd.Series([1.0, 1.0], index=idx)}
+    mas = _frames(
+        {"SPY": pd.Series([1.0, 1000.0], index=idx), "GLD": pd.Series([1.0, 1.0], index=idx)}
+    )
     prices = {t: pd.Series([1.0, 1.0], index=idx) for t in ("SPY", "IWN", "GLD", "IEF")}
     targets = build_targets(idx, spread, slope, spread_med, slope_med, mas, prices)
     assert list(targets) == [idx[0], idx[1]]
@@ -241,11 +286,11 @@ def test_the_overlay_checks_the_haven_it_redirects_into() -> None:
     book = market_signal.BOOKS[WIDE_STEEP]  # SPY 50 / IWN 40 / GLD 10
 
     # haven healthy: the classic redirect, everything lands in IEF
-    healthy = market_signal.apply_trend_overlay(book, frozenset({"SPY", "IWN", "GLD"}))
+    healthy = market_signal.apply_trend_overlay(book, dict.fromkeys(("SPY", "IWN", "GLD"), 1.0))
     assert healthy == {market_signal.TREND_HAVEN: 100.0}
 
     # haven below trend too: cash instead, which cannot fall
-    below = frozenset({"SPY", "IWN", "GLD", market_signal.TREND_HAVEN})
+    below = dict.fromkeys(("SPY", "IWN", "GLD", market_signal.TREND_HAVEN), 1.0)
     stressed = market_signal.apply_trend_overlay(book, below)
     assert stressed == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
 
@@ -256,7 +301,7 @@ def test_a_book_holding_the_haven_moves_it_too_when_it_fails_the_test() -> None:
     the same decision."""
     # VCIT 50 / IEF 40 / IWN 10
     steep = market_signal.BOOKS[TIGHT_STEEP]
-    out = market_signal.apply_trend_overlay(steep, frozenset({"IWN", market_signal.TREND_HAVEN}))
+    out = market_signal.apply_trend_overlay(steep, {"IWN": 1.0, market_signal.TREND_HAVEN: 1.0})
     assert out[market_signal.TREND_FALLBACK_HAVEN] == pytest.approx(50.0)  # IEF 40 + IWN 10
     assert out["VCIT"] == pytest.approx(50.0)
 
@@ -306,7 +351,8 @@ def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
     for sleeve in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN):
         assert sleeve in text, f"{sleeve} is trend-checked but undescribed"
     assert market_signal.TREND_FALLBACK_HAVEN in text
-    assert str(market_signal.MA_WINDOW_DAYS) in text
+    for window in market_signal.MA_WINDOWS:
+        assert str(window) in text
     assert str(market_signal.CONFIRM_DECISIONS) in text
     assert f"{market_signal.MEDIAN_WINDOW_DAYS // 252}-year" in text
     # The books are the decision's whole output — all three, with their weights.
@@ -422,10 +468,12 @@ def test_the_sleeve_gate_empties_equity_on_credit_stress_and_says_why(
         spread_median=pd.Series([2.0], index=idx),
         slope_median=pd.Series([1.0], index=idx),
         # every sleeve comfortably ABOVE its 200d, so nothing is redirected by price
-        moving_averages={
-            t: pd.Series([100.0], index=idx)
-            for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
-        },
+        moving_averages=_frames(
+            {
+                t: pd.Series([100.0], index=idx)
+                for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+            }
+        ),
         prices={
             t: pd.Series([200.0], index=idx)
             for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
@@ -465,10 +513,12 @@ def test_the_gate_is_idle_when_the_spread_is_wide_but_calm(
         slope=pd.Series([1.0], index=idx),
         spread_median=pd.Series([2.0], index=idx),
         slope_median=pd.Series([1.0], index=idx),
-        moving_averages={
-            t: pd.Series([100.0], index=idx)
-            for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
-        },
+        moving_averages=_frames(
+            {
+                t: pd.Series([100.0], index=idx)
+                for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
+            }
+        ),
         prices={
             t: pd.Series([200.0], index=idx)
             for t in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN)
@@ -535,7 +585,7 @@ def _stated(value: object, text: str) -> bool:
     accepted alongside the raw number.
 
     THE DIVISION MUST BE EXACT, and it was not — `value // 252` accepted the
-    QUOTIENT of any window, so `MA_WINDOW_DAYS = 300` was satisfied by the digit
+    QUOTIENT of any window, so `MA_WINDOWS = (150, 300)` is satisfied by the digit
     "1" appearing anywhere in the prose, which it always does (the rule text is
     numbered "1."). The one knob whose staleness this test exists to catch was
     therefore unguarded on the very day the window moved, and the stale "200d"
@@ -585,7 +635,7 @@ def test_the_stress_gate_reaches_sleeves_the_200d_does_not_check(
         slope=pd.Series([2.0], index=idx),  # steep -> the VCIT-holding book
         spread_median=pd.Series([2.3], index=idx),
         slope_median=pd.Series([1.0], index=idx),
-        moving_averages={t: pd.Series([100.0], index=idx) for t in tickers},
+        moving_averages=_frames({t: pd.Series([100.0], index=idx) for t in tickers}),
         prices={t: pd.Series([200.0], index=idx) for t in tickers},  # all ABOVE their 200d
         spread_speed=pd.Series([1.43], index=idx),  # widening hard
     )[0]
@@ -604,7 +654,7 @@ def test_the_stress_gate_reaches_sleeves_the_200d_does_not_check(
         slope=pd.Series([2.0], index=idx),
         spread_median=pd.Series([2.3], index=idx),
         slope_median=pd.Series([1.0], index=idx),
-        moving_averages={t: pd.Series([100.0], index=idx) for t in tickers},
+        moving_averages=_frames({t: pd.Series([100.0], index=idx) for t in tickers}),
         prices={t: pd.Series([200.0], index=idx) for t in tickers},
         spread_speed=pd.Series([1.43], index=idx),
     )[0]
@@ -636,7 +686,7 @@ def test_the_control_arm_freezes_its_book_and_emits_only_on_change() -> None:
     would have re-classified on every date; the control has nothing to classify
     with, which is the experiment."""
     idx, mas, prices = _flat_frame(3)
-    targets = market_signal.trend_baseline_targets(idx, mas, prices)
+    targets = market_signal.trend_baseline_targets(idx, _frames(mas), prices)
     assert list(targets) == [idx[0]]
     assert targets[idx[0]] == market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK]
 
@@ -658,8 +708,8 @@ def test_the_control_arm_runs_the_same_overlay_and_the_same_haven_chain() -> Non
     IEF-then-cash fallback — or the attribution would be measuring two different
     overlays and crediting the difference to the signal."""
     idx, mas, prices = _flat_frame(1)
-    prices["SPY"] = pd.Series([50.0], index=idx)  # SPY alone below its line
-    targets = market_signal.trend_baseline_targets(idx, mas, prices)
+    prices["SPY"] = pd.Series([50.0], index=idx)  # SPY alone below BOTH its lines
+    targets = market_signal.trend_baseline_targets(idx, _frames(mas), prices)
     book = market_signal.BOOKS[market_signal.TREND_BASELINE_BOOK]
     assert targets[idx[0]][market_signal.TREND_HAVEN] == book["SPY"]
 
@@ -668,7 +718,7 @@ def test_the_control_arm_runs_the_same_overlay_and_the_same_haven_chain() -> Non
     # because it calls `apply_trend_overlay` rather than reimplementing it.
     for ticker in ("SPY", "GLD", "IWN", "IEF"):
         prices[ticker] = pd.Series([50.0], index=idx)
-    fled = market_signal.trend_baseline_targets(idx, mas, prices)
+    fled = market_signal.trend_baseline_targets(idx, _frames(mas), prices)
     assert fled[idx[0]] == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
 
 

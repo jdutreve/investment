@@ -74,7 +74,7 @@ from investment.mechanical.market_signal import (
     CONFIRM_DECISIONS,
     COST_BPS,
     CREDIT_SPREAD,
-    MA_WINDOW_DAYS,
+    MA_WINDOWS,
     MEDIAN_WINDOW_DAYS,
     YIELD_SLOPE,
     Decision,
@@ -283,12 +283,17 @@ def build_market_context(
             },
         },
         "trend_overlay": {
-            "window_days": MA_WINDOW_DAYS,
+            # The WINDOWS, plural and rendered, since the overlay votes across
+            # them (2026-08-14). Journalled as text so a reader of an old row
+            # sees the shape the rule had that week, not today's.
+            "window_days": "/".join(str(w) for w in MA_WINDOWS),
             "below_trend": list(decision.below_trend),
             "sleeves": {
                 ticker: {
                     "price": read.price,
                     "moving_average": read.moving_average,
+                    "moving_averages": list(read.moving_averages),
+                    "share": read.share,
                     "below": read.below,
                     # WHY it is below, when the two numbers beside it do not say
                     # so. `SPREAD_STRESS_SLEEVE_GATE` marks a sleeve below with a

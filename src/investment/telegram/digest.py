@@ -16,7 +16,7 @@ from typing import Any
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import WORKER_READING_EVENT
 from investment.mechanical.alerts import Alert, collect_alerts
-from investment.mechanical.market_signal import MA_WINDOW_DAYS, STACK_PORTFOLIO_ID
+from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
 from investment.writeback.recurrence import NOTABLE_RECURRENCE
@@ -217,7 +217,7 @@ def _market_signal_block(
     # The window off the decision's OWN payload, like every other number in this
     # block: a hand-typed "200d" outlived the window itself by a day. Falls back
     # to the live constant for payloads written before the field existed.
-    window = overlay.get("window_days") or MA_WINDOW_DAYS
+    window = overlay.get("window_days") or "/".join(str(w) for w in MA_WINDOWS)
     lines.append(
         f"   {window}d overlay: {', '.join(below)} below trend"
         if below

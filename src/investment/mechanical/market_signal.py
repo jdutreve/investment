@@ -6,9 +6,9 @@ the approach; docs/V1_STRATEGY.md carries the attribution). Named neutrally here
 The strategy the pivot adopted (docs/V1_STRATEGY.md): a market-priced,
 CONTEMPORANEOUS regime read (credit spread + yield slope, no CPI/GDP lag) picks
 one of three CONCENTRATED books, and a trend-following overlay
-(`MA_WINDOW_DAYS`) redirects every checked sleeve — and the haven itself — to
-intermediate Treasuries when it falls below its own moving average, or to cash
-when the haven is the one that fell. Decision cadence is MONTHLY
+(`MA_WINDOWS`) redirects every checked sleeve — and the haven itself — to
+intermediate Treasuries, by the FRACTION of its moving averages the sleeve has
+fallen below, or to cash when the haven has fallen below all of its own. Decision cadence is MONTHLY
 (docs/V1_STRATEGY.md "Why monthly").
 
 ANTI-DRIFT (the point of this module): the numbers that earned the pivot — 9.85%
@@ -115,8 +115,25 @@ owner-arbitrated:
   cannot afford. It is also the only moment the break in comparability is cheap,
   since no forward evidence exists yet to be broken.
 
-The pinned pair is therefore **11.21% / -20.61%**. The earlier figures are
-history, not targets. Any OTHER divergence from 11.21% is drift and must be
+- 2026-08-14, THE GRADUATED OVERLAY (owner signature): one 300-day line becomes
+  two, 150 and 300, each breached line moving HALF the sleeve instead of all of
+  it. 11.21% -> **11.28%** CAGR, Sortino 1.237 -> **1.320**, Calmar 0.547 ->
+  **0.721**, and the drawdown -20.61% -> **-15.73%**, turnover 53.0 -> 63.2.
+
+  FOUR AND NINE TENTHS POINTS OF DRAWDOWN AT UNCHANGED RETURN, and it is the
+  only drawdown lever two days of searching found: no book configuration moves
+  that number at all (seven tested, identical to the basis point), and every
+  other overlay family — neutral bands, N-day confirmation, single-window
+  retuning, and the paper's own daily read — measured worse. See MA_WINDOWS.
+
+  AN ERA BET, SIGNED AS ONE. The whole gain is post-2009 (the covid trough); on
+  1991-2008 it costs 0.87pp of CAGR and improves nothing. It adopts on the full
+  sample and on the second half and REJECTS on the first, so it is not the clean
+  three-window adoption this module usually demands — the owner took the trade
+  knowing which half paid for it (docs/V1_STRATEGY.md).
+
+The pinned pair is therefore **11.28% / -15.73%**. The earlier figures are
+history, not targets. Any OTHER divergence from 11.28% is drift and must be
 explained, which is what this module exists to guarantee.
 
 That sentence named 10.71% for two supersessions after 10.71% stopped being the
@@ -372,7 +389,26 @@ MEDIAN_MIN_DAYS = 252
 # 175 and 225 also adopted on the full sample and were REFUSED, each failing the
 # half it was not fitted to — the out-of-sample split earning its keep on its
 # first outing.
-MA_WINDOW_DAYS = 300
+#
+# TWO WINDOWS SINCE 2026-08-14 (owner signature), and the change is the OVERLAY'S
+# SHAPE rather than its length: a sleeve is read against EVERY window here and
+# each one breached redirects an equal share of it, so exposure steps 100/50/0
+# instead of 100/0. The single 300-day line was all-or-nothing — it waited for
+# the slow average and then moved the whole sleeve at once.
+#
+#     full 1991-2026   sortino 1.237 -> 1.321   maxDD -20.61% -> -15.73%   CAGR 11.27% -> 11.34%
+#     train 1991-2008  sortino 1.465 -> 1.365   maxDD unchanged            CAGR 13.21% -> 12.34%
+#     valid 2009-2026  sortino 1.076 -> 1.296   maxDD -20.61% -> -15.73%   CAGR  9.48% -> 10.45%
+#
+# 4.9 POINTS OF DRAWDOWN AT UNCHANGED RETURN, and it is the only drawdown lever
+# two days of searching found — the books cannot move that number at all (seven
+# configurations, identical to the basis point) and every other overlay family
+# (neutral bands, N-day confirmation, single-window retuning) measured worse.
+#
+# IT IS AN ERA BET AND MUST BE READ AS ONE: the whole gain is post-2009 (the
+# covid trough), and on 1991-2008 it costs 0.87pp of CAGR while improving nothing.
+# Signed as a trade-off the owner took, not as a free lunch (docs/V1_STRATEGY.md).
+MA_WINDOWS: tuple[int, ...] = (150, 300)
 
 # Every ticker any book can hold — what `run_market_signal` must load prices for. The
 # bug that once crippled this stack (docs/STRATEGY_COMPARISON.md correction note)
@@ -458,7 +494,7 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # in the same commit or turns the check red — which is the git gate ADR-006 does
 # not reach, held by a machine instead of by a memory.
 #
-# THE CAGR HERE IS 11.269% AND THE NOTE ABOVE SAYS 11.21%. That is not a third
+# THE CAGR HERE IS 11.339% AND THE NOTE ABOVE SAYS 11.28%. That is not a third
 # stale copy — it is the same run measured the only way a REFERENCE can be, and
 # building this check is what exposed the difference.
 #
@@ -468,9 +504,9 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # hold the last book to the end of whatever data exists today" — a figure that
 # MOVES every time a new price lands. Measured on the live DB, 2026-08-12:
 #
-#     priced to 2026-08-11 (free tail)  11.2094%   <- the signed figure
-#     priced to 2026-07-01 (bounded)    11.2691%
-#     max drawdown, both of them       -20.6125%
+#     priced to 2026-08-11 (free tail)  11.2789%   <- the signed figure
+#     priced to 2026-07-01 (bounded)    11.3389%
+#     max drawdown, both of them       -15.7255%
 #
 # A reference that drifts with the calendar cannot detect drift: pinned at the
 # free-tail value, this check would have cried wolf within about three months on
@@ -483,8 +519,8 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # OWNER CALL, stated rather than assumed: the prose figure stays as signed, and
 # if you prefer the machine to check the free-tail number instead, this is the
 # line to change — but it will then need re-pinning every quarter.
-PINNED_CAGR = 0.11269
-PINNED_MAX_DRAWDOWN = -0.20612
+PINNED_CAGR = 0.11339
+PINNED_MAX_DRAWDOWN = -0.15726
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
 #
@@ -500,6 +536,13 @@ PINNED_MAX_DRAWDOWN = -0.20612
 # start dates its spread was 0.00% (mechanical/rule_revision.py), so it moves
 # when the STRATEGY moves and essentially never otherwise.
 DRIFT_TOLERANCE_PP = 0.1
+
+
+def _windows_text() -> str:
+    """`MA_WINDOWS` as prose — "150/300". Generated, like everything else in
+    `describe_rule`: a hand-typed window has gone stale within a day of moving,
+    three times."""
+    return "/".join(str(w) for w in MA_WINDOWS)
 
 
 def describe_rule(caps: Caps | None = None) -> str:
@@ -573,7 +616,7 @@ def describe_rule(caps: Caps | None = None) -> str:
             f"({SPREAD_STRESS_SLEEVE_GATE:g} per\n"
             f"     {SPREAD_SPEED_LOOKBACK_DAYS} days), these sleeves "
             f"({', '.join(STRESS_GATED_SLEEVES)}) are sent to the\n"
-            f"     haven whatever their own {MA_WINDOW_DAYS}d says.\n"
+            f"     haven whatever their own {_windows_text()} lines say.\n"
         )
     return (
         "THE MECHANICAL RULE THAT DECIDED THIS MONTH (market-signal stack)\n"
@@ -586,12 +629,14 @@ def describe_rule(caps: Caps | None = None) -> str:
         f"{books}\n"
         f"  2. A book change is applied only after {CONFIRM_DECISIONS} consecutive\n"
         "     monthly decisions agree (hysteresis against boundary flip-flop).\n"
-        f"  3. {MA_WINDOW_DAYS}-day trend overlay: {', '.join(checked)} — and ONLY\n"
-        f"     these — are checked against their own {MA_WINDOW_DAYS}d moving average,\n"
-        "     both read at the PREVIOUS close (the rule decides on what was knowable\n"
-        "     before the order goes in, so the price you see here is yesterday's).\n"
-        f"     Whichever sleeve is below is redirected to {TREND_HAVEN}; and when\n"
-        f"     {TREND_HAVEN} is ITSELF below its own line, the destination becomes\n"
+        f"  3. GRADUATED trend overlay on {_windows_text()}-day moving averages:\n"
+        f"     {', '.join(checked)} — and ONLY these — are checked against EACH of\n"
+        f"     their own lines, and every line breached moves 1/{len(MA_WINDOWS)} of that\n"
+        "     sleeve to the haven. So a sleeve is held in full, half out, or fully out —\n"
+        "     not all-or-nothing. Price and lines are read at the PREVIOUS close (the\n"
+        "     rule decides on what was knowable before the order goes in).\n"
+        f"     What is redirected goes to {TREND_HAVEN}; and when {TREND_HAVEN} is ITSELF\n"
+        f"     below EVERY one of its lines, the destination becomes\n"
         f"     {TREND_FALLBACK_HAVEN} instead — including the {TREND_HAVEN} a book\n"
         "     already holds. Sleeves outside the checked set are held at book\n"
         "     weight whatever their own trend does.\n"
@@ -628,15 +673,36 @@ class TrendRead:
     decision is worse than no journal."""
 
     price: float
-    moving_average: float | None  # None before MA_WINDOW_DAYS of history
-    below: bool
-    # WHY it is below, when the price alone does not say so. A sleeve redirected
-    # by `SPREAD_STRESS_SLEEVE_GATE` reads `below=True` with a price ABOVE its
-    # moving average, and a reader comparing the two numbers would call that a
-    # bug. Recording the cause is the same discipline as the digest line that
-    # said "redirected to IEF" while the target was cash (fixed 2026-08-08): a
+    # ONE PER `MA_WINDOWS` LINE, in that order; None before a line has warmed up.
+    moving_averages: tuple[float | None, ...]
+    # The FRACTION of the sleeve redirected: one vote per breached line, so two
+    # windows give 0 / 0.5 / 1. Replaced the boolean `below` on 2026-08-14 when
+    # the overlay became graduated — a bool cannot say "half out", and a rule
+    # that moves half a sleeve needs a journal that can record it.
+    share: float
+    # WHY it is out, when the price alone does not say so. A sleeve redirected
+    # by `SPREAD_STRESS_SLEEVE_GATE` reads share 1.0 with a price ABOVE every
+    # moving average, and a reader comparing the numbers would call that a bug.
+    # Recording the cause is the same discipline as the digest line that said
+    # "redirected to IEF" while the target was cash (fixed 2026-08-08): a
     # journal that contradicts the decision is worse than no journal.
     credit_gated: bool = False
+
+    @property
+    def below(self) -> bool:
+        """Any weight redirected at all. Kept as the word every reader outside
+        this module already uses (the digest, the Worker context, the logs):
+        they ask "is this sleeve out", and the graduated answer belongs to the
+        overlay, not to the sentence describing it."""
+        return self.share > 0.0
+
+    @property
+    def moving_average(self) -> float | None:
+        """The SLOWEST line that has warmed up — what a one-number rendering
+        should show, since it is the one the old single-window rule used and the
+        one a reader comparing against `price` expects. None during warm-up."""
+        ready = [ma for ma in self.moving_averages if ma is not None]
+        return ready[-1] if ready else None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -839,23 +905,37 @@ def classify_regime(
     return f"credit-spread-{'wide' if wide or fast else 'tight'}-yield-curve-{curve}"
 
 
-def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) -> dict[str, float]:
-    """Redirect each TREND_SLEEVES weight to the haven when that sleeve is below
-    its moving average. Weights merge additively — if a book already holds the
-    haven (the credit-spread-tight-yield-curve-steep book holds IEF), a
-    redirected sleeve adds to it.
+def apply_trend_overlay(book: Mapping[str, float], shares: Mapping[str, float]) -> dict[str, float]:
+    """Redirect each redirectable sleeve to the haven, by the FRACTION `shares`
+    gives it. Weights merge additively — if a book already holds the haven (the
+    credit-spread-tight-yield-curve-steep book holds IEF), a redirected sleeve
+    adds to it.
+
+    GRADUATED SINCE 2026-08-14: `shares` maps ticker -> 0..1 where it used to be
+    a set of tickers that were fully out. A sleeve below one of two lines moves
+    half its weight and keeps the rest, which is the whole point of the change
+    (see MA_WINDOWS). A share of 0 or 1 reproduces the old set exactly.
 
     THE HAVEN IS CHOSEN BY THE SAME TEST it applies to everything else: when
-    TREND_HAVEN is itself in `below_trend`, the destination becomes
-    TREND_FALLBACK_HAVEN. `below_trend` therefore carries the haven's own read
-    as well as the sleeves' — see `walk_decisions`, which computes it for
-    `TREND_SLEEVES + (TREND_HAVEN,)`.
+    TREND_HAVEN is itself FULLY out, the destination becomes TREND_FALLBACK_HAVEN.
+    `shares` therefore carries the haven's own read as well as the sleeves' — see
+    `walk_decisions`, which computes it for `TREND_SLEEVES + (TREND_HAVEN,)`.
+
+    THE DESTINATION IS BINARY WHILE THE ORIGIN IS GRADUATED, and that asymmetry
+    is measured rather than overlooked. Splitting the flight by the haven's own
+    share — half to IEF, half to cash when IEF is below one line of two — was
+    measured on 2026-08-14 and is a wash: the drawdown is identical (-15.73%),
+    Sortino and CAGR move inside the 0.71% noise floor, and turnover rises. Same
+    result the haven check itself gave in August ("C ALONE DOES NOTHING"), for
+    the same mechanical reason: the haven's half-state is rare and, over a month
+    of holding, cash and IEF barely differ. Recorded here so the question is
+    answered by a number the next time it is asked.
 
     A book that HOLDS the haven as a sleeve (steep: IEF 40) also has that weight
     moved when the haven is below trend — it is the same asset failing the same
     test, and leaving it in place while refusing to redirect INTO it would be
     incoherent."""
-    haven = TREND_FALLBACK_HAVEN if TREND_HAVEN in below_trend else TREND_HAVEN
+    haven = TREND_FALLBACK_HAVEN if shares.get(TREND_HAVEN, 0.0) >= 1.0 else TREND_HAVEN
     adjusted: dict[str, float] = {}
     for ticker, weight in book.items():
         # REDIRECTABLE = trend-checked OR stress-gated. The second half was
@@ -863,14 +943,25 @@ def apply_trend_overlay(book: Mapping[str, float], below_trend: frozenset[str]) 
         # could mark VCIT below, and this loop then ignored it because VCIT is
         # not in the checked set, so the gate measured as exactly zero. One
         # implausible number, two places to fix.
-        redirected = ticker in below_trend and ticker in (
-            *TREND_SLEEVES,
-            TREND_HAVEN,
-            *STRESS_GATED_SLEEVES,
+        share = (
+            shares.get(ticker, 0.0)
+            if ticker in (*TREND_SLEEVES, TREND_HAVEN, *STRESS_GATED_SLEEVES)
+            else 0.0
         )
-        destination = haven if redirected else ticker
-        adjusted[destination] = adjusted.get(destination, 0.0) + float(weight)
+        moved = float(weight) * share
+        kept = float(weight) - moved
+        # `> _EPSILON`, not `> 0`: a share of exactly 1.0 leaves a float residue
+        # that would otherwise seed a 1e-14 sleeve into every target, and those
+        # rows reach the digest, the caps and the Proposal payload.
+        if kept > _EPSILON:
+            adjusted[ticker] = adjusted.get(ticker, 0.0) + kept
+        if moved > _EPSILON:
+            adjusted[haven] = adjusted.get(haven, 0.0) + moved
     return adjusted
+
+
+# Weight below which a sleeve is not a position but float noise (see above).
+_EPSILON = 1e-9
 
 
 def advance_hysteresis(
@@ -899,13 +990,16 @@ def walk_decisions(
     slope: pd.Series,
     spread_median: pd.Series,
     slope_median: pd.Series,
-    moving_averages: Mapping[str, pd.Series],
+    moving_averages: Mapping[int, Mapping[str, pd.Series]],
     prices: Mapping[str, pd.Series],
     spread_speed: pd.Series | None = None,
 ) -> list[Decision]:
     """Walk the decision clock and record EVERY decision — the full journal.
 
-    The trend overlay is NOT damped: it re-reads the moving average on every
+    `moving_averages` is keyed by WINDOW then by ticker since 2026-08-14 — one
+    frame per `MA_WINDOWS` line, because the overlay now votes across them.
+
+    The trend overlay is NOT damped: it re-reads every moving average on every
     decision, so the drawdown control keeps reacting while a book switch waits
     out its confirmation window."""
     decisions: list[Decision] = []
@@ -927,9 +1021,12 @@ def walk_decisions(
         # sound (see that function). It is reported in `trend` alongside the
         # sleeves, so the digest and the Worker see the same read the rule used.
         trend = {
-            ticker: _trend_read(_at(prices[ticker], t), _at(moving_averages[ticker], t))
+            ticker: _trend_read(
+                _at(prices[ticker], t),
+                [_at(moving_averages[w][ticker], t) for w in moving_averages],
+            )
             for ticker in (*TREND_SLEEVES, TREND_HAVEN)
-            if ticker in prices and ticker in moving_averages
+            if ticker in prices and all(ticker in frame for frame in moving_averages.values())
         }
         # THE CREDIT GATE, applied to the READS rather than beside them, so the
         # journalled trend and the book that follows from it cannot disagree.
@@ -961,23 +1058,26 @@ def walk_decisions(
                 for ticker in STRESS_GATED_SLEEVES:
                     read = trend.get(ticker)
                     if read is not None:
+                        # FULLY out, whatever the lines said: the gate overrides
+                        # the price read rather than adding a vote to it.
                         trend[ticker] = dataclasses.replace(
-                            read, below=True, credit_gated=not read.below
+                            read, share=1.0, credit_gated=read.share < 1.0
                         )
                     elif ticker in prices:
                         trend[ticker] = TrendRead(
                             price=_at(prices[ticker], t),
-                            moving_average=_at(moving_averages[ticker], t)
-                            if ticker in moving_averages
-                            else None,
-                            below=True,
+                            moving_averages=tuple(
+                                _opt(_at(frame[ticker], t)) if ticker in frame else None
+                                for frame in moving_averages.values()
+                            ),
+                            share=1.0,
                             credit_gated=True,
                         )
         # `ticker`, not `t` — `t` is the decision date in this scope, and while
         # a generator expression has its own, reusing the name here reads as a
         # shadow to anyone auditing the walk.
         book = apply_trend_overlay(
-            BOOKS[held], frozenset(ticker for ticker, read in trend.items() if read.below)
+            BOOKS[held], {ticker: read.share for ticker, read in trend.items()}
         )
         decisions.append(
             Decision(
@@ -1005,7 +1105,7 @@ def build_targets(
     slope: pd.Series,
     spread_median: pd.Series,
     slope_median: pd.Series,
-    moving_averages: Mapping[str, pd.Series],
+    moving_averages: Mapping[int, Mapping[str, pd.Series]],
     prices: Mapping[str, pd.Series],
     spread_speed: pd.Series | None = None,
 ) -> dict[pd.Timestamp, dict[str, float]]:
@@ -1033,12 +1133,23 @@ def _at(series: pd.Series, t: pd.Timestamp) -> float:
     return float("nan") if value is None else float(value)
 
 
-def _trend_read(price: float, moving_average: float) -> TrendRead:
-    """One sleeve's overlay read. A missing MA (warm-up) is NOT below trend —
-    the overlay stays out of the way until it has MA_WINDOW_DAYS to speak with, the
-    same "unmeasured is not bad" rule `gates.drawdown_ok` applies."""
-    ma = _opt(moving_average)
-    return TrendRead(price=price, moving_average=ma, below=ma is not None and price < ma)
+def _trend_read(price: float, moving_averages: Sequence[float]) -> TrendRead:
+    """One sleeve's overlay read across every `MA_WINDOWS` line.
+
+    `share` is the FRACTION of the sleeve the overlay redirects: one vote per
+    window, so two windows give 0 / 0.5 / 1. A missing average (warm-up) is NOT
+    below trend and NOT a vote — the overlay stays out of the way until a line
+    has enough history to speak, the same "unmeasured is not bad" rule
+    `gates.drawdown_ok` applies. A sleeve whose windows have ALL failed to warm
+    up therefore reads share 0.0 rather than dividing by zero."""
+    lines = tuple(_opt(ma) for ma in moving_averages)
+    ready = [ma for ma in lines if ma is not None]
+    breached = sum(1 for ma in ready if price < ma)
+    return TrendRead(
+        price=price,
+        moving_averages=lines,
+        share=breached / len(ready) if ready else 0.0,
+    )
 
 
 def _opt(value: float) -> float | None:
@@ -1257,7 +1368,7 @@ class StackSeries:
     spread_median: pd.Series
     slope_median: pd.Series
     spread_speed: pd.Series
-    moving_averages: dict[str, pd.Series]
+    moving_averages: dict[int, dict[str, pd.Series]]
     # The signal series that are ABSENT, empty when both are present. Carried
     # rather than raised on, because only one of the two arms depends on them —
     # see the note at the assignment.
@@ -1330,9 +1441,14 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # instrument's previous close is its own previous close, whether or not the
     # defender's NAV index happens to have that day.
     decision_prices = {t: p.shift(1) for t, p in prices.items()}
+    # ONE FRAME PER `MA_WINDOWS` LINE since 2026-08-14 — the overlay votes across
+    # them, so they are built together and shifted together.
     moving_averages = {
-        ticker: prices[ticker].rolling(MA_WINDOW_DAYS, min_periods=MA_WINDOW_DAYS).mean().shift(1)
-        for ticker in (*TREND_SLEEVES, TREND_HAVEN)
+        window: {
+            ticker: prices[ticker].rolling(window, min_periods=window).mean().shift(1)
+            for ticker in (*TREND_SLEEVES, TREND_HAVEN)
+        }
+        for window in MA_WINDOWS
     }
     # Computed unconditionally and cheap: the walk ignores it while
     # SPREAD_SPEED_VETO is None, and computing it only when the knob is set
@@ -1401,7 +1517,7 @@ async def run_market_signal(
 
 def trend_baseline_targets(
     dates: Sequence[pd.Timestamp],
-    moving_averages: Mapping[str, pd.Series],
+    moving_averages: Mapping[int, Mapping[str, pd.Series]],
     prices: Mapping[str, pd.Series],
     book: Mapping[str, float] | None = None,
 ) -> dict[pd.Timestamp, dict[str, float]]:
@@ -1423,14 +1539,15 @@ def trend_baseline_targets(
     targets: dict[pd.Timestamp, dict[str, float]] = {}
     previous: dict[str, float] | None = None
     for t in dates:
-        below = frozenset(
-            ticker
+        shares = {
+            ticker: _trend_read(
+                _at(prices[ticker], t),
+                [_at(moving_averages[w][ticker], t) for w in moving_averages],
+            ).share
             for ticker in (*TREND_SLEEVES, TREND_HAVEN)
-            if ticker in prices
-            and ticker in moving_averages
-            and _trend_read(_at(prices[ticker], t), _at(moving_averages[ticker], t)).below
-        )
-        target = apply_trend_overlay(held, below)
+            if ticker in prices and all(ticker in frame for frame in moving_averages.values())
+        }
+        target = apply_trend_overlay(held, shares)
         if target != previous:
             targets[t] = target
         previous = target

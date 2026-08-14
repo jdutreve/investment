@@ -49,9 +49,10 @@ raised 40→50 for exactly this concentration, ADR-007 addendum 2026-07-20):**
 - `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 40 / IWN 10
 
 **Trend-following overlay:** every CHECKED sleeve — SPY, GLD and IWN since
-2026-08-07 — is redirected to IEF whenever that asset is below its own moving
-average, and IEF is checked too: when the haven is itself below trend the
-destination becomes cash. (This is the drawdown control; it carries -24% →
+2026-08-07 — is redirected to IEF by the FRACTION of its moving averages it has
+fallen below (GRADUATED since 2026-08-14: two lines, so a sleeve is held in
+full, half out, or fully out), and IEF is checked too: when the haven is below
+ALL of its own lines the destination becomes cash. (This is the drawdown control; it carries -24% →
 without it the stack is -50%.) In risk-off several sleeves can redirect at once,
 concentrating the haven to ~90-100%; the haven CHAIN — IEF and the cash fallback
 — is therefore EXEMPT from the single-asset cap (ADR-007 addendum choice (a),
@@ -996,3 +997,136 @@ forward evidence exists yet to be broken.
 separation, and it was written because wiring the fix changed the live rule with
 the entire suite staying green. Nothing held it; nothing would have noticed it
 being undone.
+
+
+---
+
+## Following the source, checked against it (2026-08-14)
+
+The owner's instruction was to respect Verdad's method rather than search for a
+portfolio that works in every era — a regime-conditional allocator is supposed
+to be conditional. Re-read against `docs/Countercyclical+Investing`, the
+implementation deviates in three places. Two of the deviations are ours and
+measure BETTER; the third is a data wall.
+
+**1. The primary indicator — the one real gap, and it is closed by measurement
+rather than by preference.** The paper uses the HIGH-YIELD spread. We use
+BAA10Y. `BAMLH0A0HYM2` still returns **787 points from 2023-08-15** (verified
+2026-08-14; ICE restricted historical redistribution), so the paper's own signal
+cannot be backtested at all. The closest obtainable improvement — Baa MINUS Aaa,
+a pure credit-quality spread with 10189 points from 1986 — was substituted and
+measured WORSE on all three windows (full: CAGR 11.27% -> 10.17%, Sortino
+1.237 -> 1.081, reject). The theoretical objection to BAA10Y is sound; removing
+the mixture removes information with it. `db/seed_data.py` carries the table.
+
+**2. The trend overlay — ours deviates and wins.** The paper monitors DAILY with
+a five-day confirmation ("whenever ETF prices dipped below their 200-day moving
+average for five days in a row"). Ours reads once per monthly decision. Measured:
+
+    full 1991-2026                    sortino    maxDD    CAGR   turn
+    our monthly overlay, 300d           1.237  -20.61%  11.27%   53.0
+    the paper's 200d + 5-day confirm    1.001  -20.17%   9.10%  134.9
+    best of that family (300d, 10-day)  1.110  -19.14%  10.06%   99.2
+
+The confirmation filter does its job — daily with NO confirmation scores 0.662 —
+but daily monitoring costs 135 of turnover against 53, which is ~2pp/yr at
+ADR-010's 23 bps. The paper's backtest is gross of trading costs; ours is not,
+and that is the whole difference.
+
+**3. The Dalio regime as a signal — refused by the source itself.** The paper
+uses the four quadrants to understand WHICH assets work, never as a trading
+signal, and says so: *"These periods are defined in hindsight, according to the
+most recent revisions, and are thus useful for understanding the past but would
+not have been useful as trading signals at the time."* Our own detector agrees
+when measured point-in-time — mean detection lag 34 days, max 63, and all four
+quadrants invert their asset ranking between the halves. The credit spread and
+the curve ARE the contemporaneous, market-priced proxies for those quadrants;
+that substitution is the design, not a shortcut.
+
+**On the 15.8% CAGR.** It is measured over 50 years from 1970; ours is 35 years
+from 1991. The paper states that the strategy underperforms a 100% equity
+portfolio when the S&P returns more than 15%/yr and outperforms below it — which
+describes much of our window and none of the 1970s. Add ADR-010's 0.66pp/yr of
+real trading cost and the ~0.6pp of look-ahead removed on 2026-08-13, neither of
+which the paper carries. The gap is mostly window and accounting, not
+implementation.
+
+**One thing this bought that was not the goal.** Under Baa-Aaa — a credit signal
+never used to build it — `wide-flat` still ranks IWN and SPY first on BOTH halves
+and gold negative on both, while `wide-steep` still inverts. The 2x2 split of
+2026-08-13 reproduces on an independent indicator, which is stronger evidence
+than the split-sample test that justified it.
+
+
+---
+
+## The graduated overlay (2026-08-14, owner signature)
+
+The single moving average was all-or-nothing: it waited for the slow line and
+then moved the whole sleeve at once, which is what made it both LATE and
+VIOLENT. It now reads each checked sleeve against TWO lines — 150 and 300 days —
+and every line breached moves half the sleeve.
+
+    exposure per sleeve      above both lines   below the fast one   below both
+                                    held             half out        fully out
+
+    pinned pair    11.21% / -20.61%   ->   11.28% / -15.73%
+    sortino        1.237              ->   1.320
+    calmar         0.547              ->   0.721
+    turnover       53.0               ->   63.2
+
+**4.9 points of drawdown at unchanged return.** It is the only drawdown lever
+two days of searching produced, and the search was wide: no book configuration
+moves that number at all (seven tested, identical to the basis point), and every
+other overlay family measured worse — neutral bands of 1/2/3% (reject on all
+three windows), an N-day confirmation (reject, and it makes the drawdown WORSE),
+single-window retuning (125 and 150 adopt only on the half they are fitted to),
+and the source paper's own daily read with a five-day filter (1.001 Sortino
+against our 1.237, drowned by 135 of turnover at ADR-010's 23 bps).
+
+**It is an era bet and it is signed as one.** It adopts on the full sample and on
+2009-2026, and REJECTS on 1991-2008 where it costs 0.87pp of CAGR and improves
+nothing — the entire drawdown gain is the covid trough. This is not the clean
+three-window adoption the project usually requires, and the owner took the trade
+knowing which half pays for it.
+
+### Two things deliberately NOT taken
+
+**The equity-heavy tight-flat book.** `SPY 50 / VTI 20 / GLD 30` measured better
+still (+0.85pp of CAGR), and VTI is SPY in a second wrapper — 70% US equity
+wearing two tickers to satisfy a cap that counts tickers. That is the same
+factor-blindness that would have let `TLT 50 / IEF 40` through as 90% duration,
+and it is refused for the same reason. Retested with a genuinely different second
+sleeve (EFA, international developed), the book change adds nothing over the
+overlay alone: 1.327 against 1.321 Sortino, inside the noise floor. **The books
+are untouched and the universe gains no ticker.**
+
+**A graduated HAVEN.** The overlay reads IEF against both lines, but the
+destination stays binary — cash only when IEF is below both. Splitting the
+flight by the haven's own share was measured the same day and is a wash:
+identical drawdown, Sortino and CAGR inside the 0.71% noise floor, more
+turnover. The same answer the haven check itself gave in August ("C ALONE DOES
+NOTHING"), for the same reason: the haven's half-state is rare and, over a month
+of holding, cash and IEF barely differ. Recorded so the question is answered by
+a number rather than re-asked.
+
+### What the rule now produces, state by state
+
+    wide-flat  (IWN 50 / SPY 50)
+      calm                          IWN 50 / SPY 50
+      SPY below the fast line       IWN 50 / SPY 25 / IEF 25
+      SPY below both                IWN 50 / IEF 50
+      SPY and IWN both fully out    IEF 100
+      everything out, IEF too       cash 100
+
+    tight-flat  (SPY 50 / GLD 40 / IWN 10)
+      calm                          SPY 50 / GLD 40 / IWN 10
+      SPY below the fast line       GLD 40 / SPY 25 / IEF 25 / IWN 10
+      SPY below both                IEF 50 / GLD 40 / IWN 10
+      SPY and IWN both fully out    IEF 60 / GLD 40
+      everything out, IEF too       cash 100
+
+`test_no_reachable_book_state_can_be_refused` now enumerates 3^4 states per book
+instead of 2^4 and derives the count from `MA_WINDOWS` — the same test whose
+docstring warns that a hand-listed enumeration stops guarding the day the code
+grows, caught by that warning a second time.

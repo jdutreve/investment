@@ -56,7 +56,11 @@ def _decision(
     """A Decision built directly, for the disposition tests — they exercise the
     gates and the commit, not the walk that produced the numbers."""
     trend = {
-        t: MS.TrendRead(price=100.0, moving_average=110.0 if t in below else 90.0, below=t in below)
+        t: MS.TrendRead(
+            price=100.0,
+            moving_averages=tuple(110.0 if t in below else 90.0 for _ in MS.MA_WINDOWS),
+            share=1.0 if t in below else 0.0,
+        )
         for t in MS.TREND_SLEEVES
     }
     return MS.Decision(
@@ -274,17 +278,24 @@ def test_no_reachable_book_state_can_be_refused() -> None:
     the book to 100% cash, it was refused by the single-asset cap, and it hit
     four of the seven 2022 dates on the M8b run of 2026-08-08 — a state this
     test asserted was unreachable while the strategy reached it monthly. A
-    guard that enumerates by hand stops guarding the day the code grows."""
+    guard that enumerates by hand stops guarding the day the code grows.
+
+    AND IT GREW AGAIN ON 2026-08-14. The graduated overlay gives each sleeve
+    `len(MA_WINDOWS) + 1` shares instead of two, so the space is 3^4 per book
+    rather than 2^4 — a subset enumeration would have kept passing while
+    covering a third of the reachable states. Derived from MA_WINDOWS now, so
+    the next window added widens this test by itself."""
     caps = MS.Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
     allowed = frozenset(MS.STACK_TICKERS)
     checked = (*MS.TREND_SLEEVES, MS.TREND_HAVEN)
+    n = len(MS.MA_WINDOWS)
+    shares = [k / n for k in range(n + 1)]
     states = [
-        (book, frozenset(below))
+        (book, dict(zip(checked, combo, strict=True)))
         for book in MS.BOOKS
-        for r in range(len(checked) + 1)
-        for below in itertools.combinations(checked, r)
+        for combo in itertools.product(shares, repeat=len(checked))
     ]
-    assert len(states) == len(MS.BOOKS) * 2 ** len(checked)
+    assert len(states) == len(MS.BOOKS) * (n + 1) ** len(checked)
     for book, below in states:
         target = MS.apply_trend_overlay(MS.BOOKS[book], below)
         assert W.market_signal_gates(target, {}, caps, allowed).passed, (book, below)
@@ -431,7 +442,7 @@ async def test_proposal_records_the_full_audit_record(db: InvestmentDB) -> None:
         assert signal["knowable_at"] <= context["decision_date"]
 
     overlay = context["trend_overlay"]
-    assert overlay["window_days"] == MS.MA_WINDOW_DAYS
+    assert overlay["window_days"] == "/".join(str(w) for w in MS.MA_WINDOWS)
     assert "SPY" in overlay["below_trend"]  # the fixture drives SPY under its MA
     assert overlay["sleeves"]["SPY"]["price"] < overlay["sleeves"]["SPY"]["moving_average"]
     # ...and the overlay actually moved the money it said it moved.
@@ -567,7 +578,7 @@ async def test_decision_then_digest_through_the_chain_runner(db: InvestmentDB) -
     # The WINDOW comes from the constant, not from a literal: this line asserted
     # "200d overlay" and went on passing for a day after the window moved to 300,
     # because it was pinning the same stale string the digest was printing.
-    assert f"{MS.MA_WINDOW_DAYS}d overlay: SPY below trend" in text
+    assert f"{'/'.join(str(w) for w in MS.MA_WINDOWS)}d overlay: SPY below trend" in text
     assert f"{MS.TREND_HAVEN} 0→50" in text  # the overlay's redirect, in the move line
     assert "Paper-tests in progress: 1" in text
 
