@@ -334,25 +334,32 @@ def test_every_risky_sleeve_is_trend_checked() -> None:
         assert risky <= set(market_signal.TREND_SLEEVES), f"unchecked risky sleeve in {holdings}"
 
 
-def test_vcit_stays_outside_the_overlay_and_that_was_measured() -> None:
-    """VCIT is 50% of the steep book and IS capable of falling — on 2026-08-08
-    it sat below its own 200d line while real yields rose at accelerating speed,
-    which looks exactly like the IWN gap fixed the same morning.
+def test_vcit_is_under_the_overlay_against_the_measurement() -> None:
+    """REVERSED 2026-08-14 by an owner conviction call, and this test records
+    that it goes AGAINST the measurement rather than pretending otherwise.
 
-    It was measured rather than argued (`mechanical/rule_revision.py`, 35y):
-    adding it moved CAGR 10.72% -> 10.65%, Sortino 1.17 -> 1.16, and the
-    drawdown NOT AT ALL (-20.61% both ways), for more turnover. REJECTED on the
-    acceptance test, both legs.
+    This file asserted `"VCIT" not in TREND_SLEEVES` and cited a clean 35-year
+    rejection for it. That rejection still stands: adding VCIT rejects on the
+    full sample and on 2009-2026 (Sortino 1.342 -> 1.330, CAGR 11.66% -> 11.58%,
+    drawdown unchanged) and is marginally positive only on 1991-2008.
 
-    The reason is the useful part. VCIT is investment-grade corporate credit:
-    its drawdowns are shallow, so exiting below trend avoids a small loss AND
-    misses the recovery, paying 23 bps each way. IWN is small-cap value with
-    real crash beta, where the overlay catches something worth catching.
+    What the rejection cannot see is why the owner overrode it. VCIT is 50% of
+    the tight-steep book — 90% fixed income, in force today — and that book was
+    held 61 times across 8 episodes of which SEVEN had falling rates. Frozen to
+    it through a 2022, the rule loses 8.85% with VCIT unguarded and 4.66% with
+    it checked, and at the trough the unguarded book sits at VCIT 50 / cash 50.
+    A backtest cannot price insurance against a loss its sample does not hold.
 
-    So the membership rule is neither "asset class" nor "can it fall" — both
-    were tried and both were wrong. It is CAN IT FALL FAR ENOUGH THAT AVOIDING
-    IT BEATS THE WHIPSAW. Re-measure before adding a sleeve; do not reason it."""
-    assert "VCIT" not in market_signal.TREND_SLEEVES
+    So the membership rule is no longer "can it fall far enough that avoiding it
+    beats the whipsaw" — that question was measured and answered NO for VCIT.
+    It is now that, OR the sleeve carries a risk the sample cannot speak to.
+    The second clause is a judgement, it is the owner's, and it should be argued
+    again before it is extended to a third sleeve."""
+    assert "VCIT" in market_signal.TREND_SLEEVES
+    # ...and it is trend-checked WITHOUT becoming stress-gated: the credit gate
+    # was measured separately and rejected on every window (2026-08-11), and one
+    # override does not carry the other.
+    assert "VCIT" not in market_signal.STRESS_GATED_SLEEVES
 
 
 def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:

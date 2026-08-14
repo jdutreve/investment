@@ -144,8 +144,26 @@ owner-arbitrated:
   drawdown (see BOOKS). It gives back 0.77 of the 4.9 points the graduated
   overlay had just bought, for 0.32pp of CAGR.
 
-The pinned pair is therefore **11.60% / -16.50%**. The earlier figures are
-history, not targets. Any OTHER divergence from 11.60% is drift and must be
+- 2026-08-14, VCIT UNDER THE OVERLAY (owner signature) — **the one supersession
+  in this list that the measurement ARGUES AGAINST**, and it is recorded as a
+  conviction call rather than dressed as a finding. 11.60% -> **11.53%** CAGR,
+  Sortino 1.342 -> **1.330**, drawdown unchanged at -16.50%, turnover 63.2 ->
+  63.9. It rejects on the full sample and on 2009-2026 and is marginally
+  positive on 1991-2008.
+
+  It is INSURANCE on the book in force today. `tight-steep` is 90% fixed income
+  and holds VCIT 50 with nothing watching it; it has been held 61 times in 8
+  episodes and seven of the eight had FALLING rates, so the sample cannot price
+  the risk. Frozen to that book through a 2022, the rule loses 8.85% unguarded
+  and 4.66% guarded — half — and at the trough the unguarded book sits at
+  VCIT 50 / cash 50 with the overlay unable to reach the half that is falling.
+  The premium is at the noise floor; the payout is 4.2 points in a shape the
+  record does not contain. See TREND_SLEEVES for the full argument, including
+  the part that says a backtest cannot price this and the Pareto test was right
+  on its own terms.
+
+The pinned pair is therefore **11.53% / -16.50%**. The earlier figures are
+history, not targets. Any OTHER divergence from 11.53% is drift and must be
 explained, which is what this module exists to guarantee.
 
 That sentence named 10.71% for two supersessions after 10.71% stopped being the
@@ -276,7 +294,46 @@ BOOKS: dict[str, dict[str, float]] = {
 # whole premise is that credit is impaired kept maximum exposure to the most
 # credit-sensitive equity sleeve there is. Every RISKY sleeve is now checked;
 # the haven is handled separately below.
-TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD", "IWN")
+# VCIT JOINED 2026-08-14, AND IT IS THE ONE CHANGE IN THIS MODULE THE
+# MEASUREMENT ARGUES AGAINST. It is an owner conviction call, recorded as one.
+#
+# WHAT THE MEASUREMENT SAYS, in full and not selectively: adding VCIT rejects on
+# all three windows against the current rule — full 1991-2026 Sortino
+# 1.342 -> 1.330 and CAGR 11.66% -> 11.58%, valid 2009-2026 1.333 -> 1.321, with
+# the drawdown UNCHANGED everywhere. On the train half it is marginally positive
+# (1.367 -> 1.373). The 2026-08-09 sweep rejected it too, on the older rule.
+#
+# WHAT THE MEASUREMENT CANNOT SAY. VCIT is 50% of the tight-steep book, which is
+# 90% fixed income and is the book in force today. That book has been held 61
+# times across 8 episodes, and SEVEN OF THE EIGHT had FALLING rates — from -16bp
+# to -122bp on the 10-year. The eighth is the current one, at +20bp. So its
+# 6.99% CAGR, 1.05 Sharpe and -4.87% drawdown were all earned in a falling-rate
+# world, and the sample contains no observation of it under duration stress.
+#
+# The counterfactual it cannot price, measured on the rule with the book frozen:
+#
+#     2022 rate shock (+231bp)   VCIT unguarded  -8.85%  (trough -10.1%)
+#                                VCIT checked    -4.66%  (trough  -6.2%)
+#
+# Half the loss. And at the deepest point the unguarded book sat at VCIT 50 /
+# cash 50 — the overlay had moved IEF and IWN out and could not touch the rest.
+#
+# THE SHAPE THAT HURTS IS NOT "A RATE SHOCK". 1994 (+200bp) and 2013 (+129bp)
+# both leave this book positive, because the flight to quality bids its
+# Treasuries. It is the 2022 shape specifically: rates up, spreads wider and
+# equities down together, with no haven bid.
+#
+# SO THIS IS INSURANCE, AND A BACKTEST CANNOT PRICE INSURANCE AGAINST A LOSS ITS
+# SAMPLE DOES NOT CONTAIN. The premium is ~0.012 of Sortino and 0.08pp of CAGR,
+# which is at the measured noise floor (0.71% of Sortino ~ 0.010); the payout is
+# 4.2 points in the one configuration the record lacks. The Pareto test refuses
+# it correctly on its own terms, and its own terms are what is being overridden.
+#
+# The earlier reasoning this replaces was sound and stays true where it applies:
+# VCIT's drawdowns are usually shallow, so exiting below trend avoids a small
+# loss AND misses the recovery, twice paying 23 bps. That is why it costs
+# something in 34 of 35 years. The owner is buying the 35th.
+TREND_SLEEVES: tuple[str, ...] = ("SPY", "GLD", "IWN", "VCIT")
 
 # The EQUITY members of the checked set — the sleeves credit stress transmits to
 # first. GLD is trend-checked but is not equity, and the distinction is what the
@@ -529,7 +586,7 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # in the same commit or turns the check red — which is the git gate ADR-006 does
 # not reach, held by a machine instead of by a memory.
 #
-# THE CAGR HERE IS 11.659% AND THE NOTE ABOVE SAYS 11.60%. That is not a third
+# THE CAGR HERE IS 11.582% AND THE NOTE ABOVE SAYS 11.53%. That is not a third
 # stale copy — it is the same run measured the only way a REFERENCE can be, and
 # building this check is what exposed the difference.
 #
@@ -539,8 +596,8 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # hold the last book to the end of whatever data exists today" — a figure that
 # MOVES every time a new price lands. Measured on the live DB, 2026-08-12:
 #
-#     priced to 2026-08-11 (free tail)  11.5973%   <- the signed figure
-#     priced to 2026-07-01 (bounded)    11.6585%
+#     priced to 2026-08-11 (free tail)  11.5305%   <- the signed figure
+#     priced to 2026-07-01 (bounded)    11.5824%
 #     max drawdown, both of them       -16.5004%
 #
 # A reference that drifts with the calendar cannot detect drift: pinned at the
@@ -554,7 +611,7 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # OWNER CALL, stated rather than assumed: the prose figure stays as signed, and
 # if you prefer the machine to check the free-tail number instead, this is the
 # line to change — but it will then need re-pinning every quarter.
-PINNED_CAGR = 0.11659
+PINNED_CAGR = 0.11582
 PINNED_MAX_DRAWDOWN = -0.16500
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
@@ -1076,10 +1133,17 @@ def walk_decisions(
         #
         # A gated sleeve outside the checked set gets a read of its own, marked
         # `credit_gated`, so the journal explains a redirect the overlay never
-        # ordered. It does NOT become trend-checked: only the stress condition
-        # can move it, never its own price against its average — which is the
-        # distinction the measurement says matters, since adding VCIT to the
-        # trend overlay was rejected on every window.
+        # ordered. Being stress-gated does NOT make a sleeve trend-checked: the
+        # two memberships are separate sets and each was measured on its own.
+        #
+        # VCIT WAS THIS COMMENT'S EXAMPLE UNTIL 2026-08-14 and is no longer one:
+        # it joined `TREND_SLEEVES` that day on an owner conviction call (see
+        # that constant), so it now has both reads. It is still NOT in
+        # `STRESS_GATED_SLEEVES` — gating the credit sleeve was measured
+        # separately and rejected on every window, and one override does not
+        # carry the other. The branch below stays because the DISTINCTION is
+        # real and a future knob can put a sleeve in one set and not the other;
+        # it is simply no longer exercised by the default configuration.
         if SPREAD_STRESS_SLEEVE_GATE is not None and spread_speed is not None:
             median = _at(spread_median, t)
             speed = _at(spread_speed, t)

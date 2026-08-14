@@ -1226,3 +1226,51 @@ binding, one was owner-settable and the other needed a `.env` edit plus a full
 re-seed. Found the day the cap actually had to move. It touches the user profile
 only — per-portfolio rules may only be stricter, and raising a book's own cap
 stays a seed change, which is where that decision belongs.
+
+
+## VCIT under the overlay — the one call measurement argues against (2026-08-14)
+
+Every other change in this file was adopted because the history endorsed it.
+This one was adopted although the history refuses it, and it is recorded that
+way on purpose.
+
+    pinned pair  11.60% / -16.50%  ->  11.53% / -16.50%
+    sortino      1.342             ->  1.330
+    turnover     63.2              ->  63.9
+
+    full 1991-2026   sortino 1.342 -> 1.330   CAGR 11.66% -> 11.58%   reject
+    train 1991-2008  sortino 1.367 -> 1.373   CAGR 12.55% -> 12.60%   (positive)
+    valid 2009-2026  sortino 1.333 -> 1.321   CAGR 10.87% -> 10.77%   reject
+
+**Why the sample cannot judge it.** VCIT is 50% of `tight-steep` — 90% fixed
+income, and the book in force today. That book has been held 61 times across 8
+episodes, and SEVEN OF THE EIGHT had FALLING rates (-16bp to -122bp on the
+10-year). The eighth is the current one, at +20bp. Its measured 6.99% CAGR, 1.05
+Sharpe and -4.87% drawdown were all earned in a falling-rate world.
+
+**What it is insuring against**, measured with the book frozen and the rule
+running:
+
+    2022 rate shock (+231bp)   VCIT unguarded   -8.85%   trough -10.1%
+                               VCIT checked     -4.66%   trough  -6.2%
+
+Half the loss. At the deepest point the unguarded book sits at `VCIT 50 /
+cash 50`: the overlay had moved IEF and IWN out and could not reach the rest.
+
+**And the danger is narrower than "a rate shock".** 1994 (+200bp) and 2013
+(+129bp) both leave this book positive, because the flight to quality bids its
+Treasuries. It is the 2022 shape specifically — rates up, spreads wider and
+equities down together, with no haven bid.
+
+**The doctrine point.** A backtest cannot price insurance against a loss its
+sample does not contain. The premium here is ~0.012 of Sortino and 0.08pp of
+CAGR — at the measured noise floor of 0.71% — and the payout is 4.2 points in
+the one configuration the record lacks. The Pareto test refuses it correctly on
+its own terms; its own terms are what the owner overrode, and the fourth verdict
+does not rescue it either, since nothing improves inside the sample.
+
+The membership rule for `TREND_SLEEVES` therefore changed. It was "can this
+sleeve fall far enough that avoiding it beats the whipsaw" — measured, and
+answered NO for VCIT. It is now that OR the sleeve carries a risk the sample
+cannot speak to. The second clause is a judgement, not a measurement, and it
+should be argued again before a third sleeve is admitted under it.
