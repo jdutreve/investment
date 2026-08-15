@@ -19,7 +19,7 @@ import pytest
 from investment.config import Settings
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives
-from investment.mechanical import catchup
+from investment.mechanical import catchup, ratios
 
 TODAY = date(2026, 8, 10)
 LOOKBACK = 30
@@ -318,3 +318,38 @@ async def test_a_macro_series_is_never_chained(db: InvestmentDB) -> None:
 
     rebased = catchup.rebase_onto(fetched, slope, chain=False)
     assert list(rebased) == [-0.2, 0.4]  # as fetched, sign intact
+
+
+async def test_a_rebuilt_nav_that_starts_later_prunes_the_head_it_no_longer_covers(
+    db: InvestmentDB,
+) -> None:
+    """`persist_nav` writes with INSERT OR REPLACE, so a series that starts
+    LATER than a previous run's would leave the older rows behind — and they are
+    not stale, they are a DIFFERENT series: every NAV is indexed to 100 at its
+    own first date, so the join shows a fabricated jump back to 100.
+
+    Real on 2026-08-15: the market-signal stack's calendar moved from 1991-10-29
+    to 1993-11-01 and left ~500 rows of a walk that priced a frozen sleeve.
+
+    The TAIL is deliberately left alone — a run that ends early is a data outage,
+    and deleting on that signal would let one bad fetch erase good history."""
+    index = pd.bdate_range("1991-10-29", periods=400)
+    await _store(db, "^IRX", pd.Series(2.0, index=index))
+
+    long_nav = pd.Series(100.0 + pd.Series(range(len(index)), index=index) * 0.1, index=index)
+    await ratios.persist_nav(db, "ms-stack", long_nav, window=60)
+    rows = await db.query(
+        "SELECT ts FROM portfolio_nav WHERE portfolio_id = 'ms-stack' ORDER BY ts"
+    )
+    assert len(rows) == len(index)
+
+    # The same book, rebuilt on a clock that opens 200 days later.
+    short = index[200:]
+    short_nav = pd.Series(100.0 + pd.Series(range(len(short)), index=short) * 0.1, index=short)
+    await ratios.persist_nav(db, "ms-stack", short_nav, window=60)
+
+    rows = await db.query(
+        "SELECT ts FROM portfolio_nav WHERE portfolio_id = 'ms-stack' ORDER BY ts"
+    )
+    assert len(rows) == len(short)
+    assert rows[0]["ts"] == short[0].date().isoformat()

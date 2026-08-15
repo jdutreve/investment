@@ -398,6 +398,27 @@ async def persist_nav(
     )
     rows = _nav_rows(portfolio_id, "USD", frame)
     await db.append_ts_batch("portfolio_nav", rows)
+    # PRUNE THE HEAD THIS REBUILD NO LONGER COVERS. The write is INSERT OR
+    # REPLACE, so a series that now STARTS LATER than a previous run's leaves
+    # the older rows behind — and they are not merely stale, they are a
+    # different series: every NAV is indexed to 100 at its own first date, so
+    # the join would show a fabricated jump back to 100 and every window
+    # spanning it would measure a move nobody made.
+    #
+    # Real as of 2026-08-15: the market-signal stack's calendar moved from
+    # 1991-10-29 to 1993-11-01 (`market_signal.stack_calendar`), leaving ~500
+    # rows of a walk that priced a frozen IWN sleeve.
+    #
+    # THE HEAD ONLY, never the tail. A run that ends EARLY is a data outage —
+    # `alerts.signal_freshness_alert` reports it — and deleting on that signal
+    # would let one bad fetch erase good history. Truncation at the front is a
+    # deliberate change of what the series IS; truncation at the back is a
+    # symptom.
+    await db.command(
+        "DELETE FROM portfolio_nav WHERE portfolio_id = :pid AND ts < :first",
+        pid=portfolio_id,
+        first=nav.index[0].date().isoformat(),
+    )
     return NavBackfillResult(portfolio_id, len(rows), nav.index[0].date().isoformat())
 
 
