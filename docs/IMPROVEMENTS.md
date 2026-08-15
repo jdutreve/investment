@@ -1821,6 +1821,42 @@ above is what was taken (declare a tolerance, re-base when a change earns it),
 and the remaining watch is unchanged: a divergence past 0.2pp at any re-seed
 means the ground has moved further than restatement noise explains.
 
+**A second symptom of the same restatement, found 2026-08-15 building the
+dashboard's Stack page.** The half-closed watch above bounds the RESTATEMENT'S
+effect on an AGGREGATE (CAGR, drawdown, ±0.2pp) — this is the same root cause
+showing up as a THRESHOLD FLIP on one specific, already-journalled decision,
+which is a different kind of consequence, not a bigger one.
+
+Re-running `run_market_signal` on the live database for the 2026-08-03 decision
+— already journalled with `target_allocation {VCIT: 50, cash: 40, IWN: 10}`,
+`below_trend: [GLD, IEF]` — now returns `{VCIT: 25, cash: 65, IWN: 10}`,
+`below_trend: (GLD, VCIT, IEF)`. VCIT has crossed to the other side of its
+300-day moving average between the live run and this replay, changing the
+GRADUATED OVERLAY's redirection share for that date, not just its NAV. The
+result is stable across replay end-dates (`end=2026-08-03` and `end=2026-08-15`
+agree), so it is not a look-ahead artefact of this repro — it is the stored
+VCIT/IEF closes that moved, exactly the restatement I-48 already names for
+SPY/IWN/VCIT/IEF ("~15 on 31.4M, ≈0.5 ppm").
+
+**Why this is worse than the CAGR drift, and worth its own watch.** A ±0.04pp
+CAGR shift is noise no one reads a decision from. A sleeve crossing its trend
+line is not noise — it is the exact bit the graduated overlay's redirection
+share is computed FROM, so a restatement small enough to be invisible in the
+aggregate can still flip what a REPLAY says a PAST decision's target should
+have been, while the row already journalled in `event_log` (and therefore every
+proposal, gate check and digest line built from it) keeps the value computed
+live, on the day, from the pre-restatement close. The two are not reconciled by
+anything today: nothing detects the flip, and nothing marks the journalled row
+as resting on a close that has since moved.
+
+**Not investigated further** (owner decision, 2026-08-15): noted here rather
+than chased now. The next person to pick this up should start by checking
+whether `below_trend` actually flips on a LIVE re-run (not just this one-shot
+replay) close to a real decision date, and whether `journal_drift`'s existing
+±0.2pp aggregate tolerance would ever have caught a threshold flip this way —
+it is built to watch the CAGR, not the classification a single decision rests
+on, so the answer may well be no.
+
 ---
 
 ## I-49 — The replay's regime as-of is blind to the open regime, and reads closure before it was knowable
