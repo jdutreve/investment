@@ -61,7 +61,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "trend_fallback_haven": "TREND_FALLBACK_HAVEN",
     "confirm_decisions": "CONFIRM_DECISIONS",
     "ma_windows": "MA_WINDOWS",
-    "median_window_days": "MEDIAN_WINDOW_DAYS",
+    "median_window_years": "MEDIAN_WINDOW_YEARS",
     "spread_speed_veto": "SPREAD_SPEED_VETO",
     "spread_speed_wide_trigger": "SPREAD_SPEED_WIDE_TRIGGER",
     "spread_stress_sleeve_gate": "SPREAD_STRESS_SLEEVE_GATE",
@@ -82,7 +82,7 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "the trend overlay's moving-average windows, a LIST — one vote each, so a sleeve "
         "below k of n lines moves k/n of its weight (e.g. [150, 300]; [300] is all-or-nothing)"
     ),
-    "median_window_days": "the trailing window the signal's medians use",
+    "median_window_years": "how many YEARS the signal's trailing medians look back",
     # The lookback is INTERPOLATED, not typed: these three descriptions state the
     # units a model must write its candidate in, so a hand-typed "30 days" that
     # outlived `SPREAD_SPEED_LOOKBACK_DAYS` would have the Worker proposing
@@ -139,7 +139,7 @@ def describe_testable_parameters() -> str:
 _TICKER_KNOBS = frozenset(
     {"trend_haven", "trend_fallback_haven", "trend_sleeves", "stress_gated_sleeves"}
 )
-_COUNT_KNOBS = frozenset({"confirm_decisions", "median_window_days"})
+_COUNT_KNOBS = frozenset({"confirm_decisions", "median_window_years"})
 # Knobs whose value is a LIST of positive whole numbers. `ma_windows` joined on
 # 2026-08-14 when the overlay became graduated: it used to be one integer, and a
 # revision naming a bare int must fail loudly rather than be silently wrapped —

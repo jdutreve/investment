@@ -120,16 +120,18 @@ async def _seed(db: InvestmentDB) -> None:
 
 
 async def _seed_defender(db: InvestmentDB) -> None:
-    """The bridge defender and its NAV rows.
+    """The bridge defender, its NAV rows, and the user profile.
 
-    Not incidental scaffolding — a REAL dependency of the live path, pinned here
-    so it cannot be forgotten: `run_market_signal` takes its trading calendar
-    from `replay._book_calendar`, i.e. from the defender's NAV index, and both
-    the monthly decision dates and the signal alignment step on that calendar.
-    Deliberate (it is what keeps the live clock identical to the backtest's), but
-    it means the market-signal path cannot run on a DB with no NAV-backfilled
-    defender — which matters when the retained Dalio bridge is eventually
-    retired (docs/V1_STRATEGY.md Step 6)."""
+    THE CALENDAR DEPENDENCY THIS ONCE CARRIED IS GONE (2026-08-15, Step 6 item
+    1). Until then `run_market_signal` took its trading calendar from
+    `replay._book_calendar` — the defender's NAV index — so the adopted strategy
+    could not run on a database where the bridge had never been seeded. It now
+    builds its own clock from its own sleeves (`market_signal.stack_calendar`),
+    which `test_the_stack_decides_without_any_bridge_at_all` pins.
+
+    What is still seeded here is the `user_profile` the binding caps are read
+    from, plus a defender the RANKING path wants. The NAV rows are now inert for
+    the stack and kept only because other assertions in this file read them."""
     await db.command(
         "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
         "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
@@ -339,6 +341,26 @@ async def test_an_absent_signal_series_refuses_the_run_instead_of_defaulting(
     await db.command("DELETE FROM market_data WHERE ticker = :t", t=absent)
     with pytest.raises(ValueError, match=f"missing signal series.*{absent}"):
         await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+
+
+async def test_the_stack_decides_without_any_bridge_at_all(db: InvestmentDB) -> None:
+    """STEP 6, ITEM 1: the adopted strategy no longer needs the retained bridge
+    to exist (docs/V1_STRATEGY.md; `market_signal.stack_calendar`).
+
+    Until 2026-08-15 the walk stepped on the bridge defender's NAV index, so a
+    database with no defender — or one whose defender had never been
+    NAV-backfilled — could not run the ADOPTED path at all. The clock now comes
+    from the stack's own five sleeves, and this deletes every bridge row to
+    prove it: no defender portfolio, no `portfolio_nav`. The `user_profile`
+    stays, because the binding caps are a real dependency and always were."""
+    await _market(db, spread=1.0, slope=2.0)
+    await db.command("DELETE FROM portfolio WHERE id = 'def-pf'")
+    await db.command("DELETE FROM portfolio_nav")
+
+    result = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+
+    assert result.emitted, result.gate_outcome
+    assert result.decision.target  # a real book, decided on the stack's own clock
 
 
 # -- the live transaction ----------------------------------------------------

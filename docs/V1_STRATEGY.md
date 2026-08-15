@@ -260,11 +260,11 @@ the drift `mechanical/market_signal.py` exists to prevent.
 forward evidence over ~6-18 months, each proposal scored at +12w. The +2.5
 edge either reproduces on unseen data or it was in-sample. Only here does the
 stack stop being a hypothesis. This is also when the old-design bridge can be
-retired, if the forward evidence holds. **Two things must be done in that same
-commit** (both recorded when they were found, so they cannot be rediscovered
-late): give the stack its own trading calendar — today it borrows the bridge
-defender's NAV index, so the adopted strategy cannot run without the bridge —
-and re-validate the pinned pair. Making the stack the defender is safe on the
+retired, if the forward evidence holds. **The two prerequisites are DONE
+(2026-08-15)**: the stack has its own trading calendar and no longer needs the
+bridge to run, and the pinned pair was re-validated in the same commit — see
+"The calendar, and the frozen sleeve" below, which is also where the two defects
+that work uncovered are recorded. Making the stack the defender is safe on the
 allocation side: ADR-011's gate 0 keys on `TIME_VARYING_PORTFOLIOS`, not on the
 defender flag. **The Worker's side of this is already settled** — ADR-012
 deleted the cognitive allocation path outright, so there is no lever left to
@@ -1288,3 +1288,104 @@ sleeve fall far enough that avoiding it beats the whipsaw" — measured, and
 answered NO for VCIT. It is now that OR the sleeve carries a risk the sample
 cannot speak to. The second clause is a judgement, not a measurement, and it
 should be argued again before a third sleeve is admitted under it.
+
+---
+
+## The calendar, and the frozen sleeve (2026-08-15, owner signature)
+
+**Step 6 item 1** asked for one thing — give the stack its own trading calendar,
+so the adopted strategy stops borrowing the retained bridge's clock and can run
+without it. Measuring it first, before changing anything, turned up a defect
+that had nothing to do with calendars and mattered more.
+
+### What the record actually contained
+
+`replay.shadow_book_nav` applied a sleeve's return only `if pd.notna(r)`. A
+sleeve whose price series had not STARTED was therefore carried **frozen** — no
+gain, no loss, not even the risk-free rate — while still counting in the NAV.
+
+    17 of 418 monthly decisions   1991-10-29 -> 1993-02-01
+    book held                     credit-spread-wide-yield-curve-flat
+    frozen weight                 50% (IWN, whose proxy DFSVX starts 1993-03-01)
+
+Sixteen months of the record measured a book nobody could have held, half of it
+a constant. `db/seed_data.py` had said of that proxy: "a book holding IWN starts
+1993, which the ragged-start NAV synthesis handles" — true of
+`ratios.synthesize_nav`, which indexes from the first date ALL constituents are
+priced, and false of `shadow_book_nav`, which takes its calendar as an argument.
+A sentence that was true of the only engine that existed when it was written.
+
+**The distortion was conservative**, which is luck rather than mitigation:
+removing the unpriced period moves CAGR 11.5305% -> 11.7208% and Sortino
+1.324 -> 1.333 on the old clock. It understated the stack.
+
+### The calendar swap is not a refactor
+
+The stack's own calendar — every date all five sleeves are priced — opens
+1993-11-01 (VCIT's proxy VFICX). After that date it differs from the bridge's by
+**16 days out of 8201**, and by ONE decision date (2000-07-05 vs 2000-07-03).
+
+That was enough to move **45 monthly book choices and 0.26pp of CAGR**, because
+`MEDIAN_WINDOW_DAYS = 2520` counted ROWS. The 2520th row back is a different
+DATE on each clock, so the reference the signal classifies against depended on
+which calendar measured it.
+
+### Three changes, in the order they were measured
+
+    A  today: rows, bridge clock, 1991    cagr 11.5305%  sortino 1.324  418 decisions
+    B  time-based median, same clock      cagr 11.5305%  sortino 1.324  418 decisions
+    C  B + the stack's own clock          cagr 11.4583%  sortino 1.290  393 decisions
+
+**B is bit-identical to A** — same CAGR, same Sortino, same 418 decisions, same
+book counts — because a dense daily calendar puts 2520 rows and 3650 days in the
+same place. That is what makes the median change safe to ship beside the
+calendar it exists to protect.
+
+And it does protect it: with a time window the two clocks agree **exactly**
+wherever both hold a full ten years. Median gap from 2004 on is 0.0009 mean /
+0.015 max, and book disagreements from 2004 on are **zero**. All 54 of them sit
+before 2004, where the stack clock genuinely has less history to take a ten-year
+median over. That is history missing, not an artefact — and it is the honest
+price of starting the record where the sleeves exist.
+
+`MEDIAN_WINDOW_DAYS = 2520` is therefore now `MEDIAN_WINDOW_YEARS = 10`, and the
+rename is deliberate: the knob is `rule_revision`-testable, and a Worker
+proposing "5" must mean five years.
+
+### The re-pinned pair
+
+    PINNED_WINDOW      1991-01-01 -> 2026-07-01   becomes  1993-11-01 -> 2026-07-01
+    PINNED_CAGR        11.582%                    becomes  11.513%
+    PINNED_MAX_DRAWDOWN -16.500%                  unchanged to five digits
+    decisions          418                        becomes  393
+    sortino 1.296, turnover 66.2
+
+The record is 32 years rather than 35, and **the three it loses are the three it
+never really had**. Requesting an earlier start is harmless — the calendar
+truncates it, and 1991-01-01 and 1993-11-01 produce the identical 393 decisions
+— but the constant should state what is measured.
+
+### The second instance, found by the refusal itself
+
+`shadow_book_nav` now REFUSES a target holding a sleeve whose series has not
+begun, rather than freezing it. Run against the retained bridge, it refused
+immediately: `compute_context` priced every static reference book from
+1991-10-29, and `4s-rising-growth-equities` holds 10% EFA whose proxy starts
+1991-12-30. The same defect, in the benchmark this time. Each static book is now
+measured over the period it could actually be held.
+
+**The bridge's own numbers did not move**: A 6.7544%/-17.5163%, B
+7.2375%/-21.6496%, 15 monthly switches, the same defensive pole
+(`barbell-defensive`, w=0.35), the same matched-risk arm (6.3988%/-17.2375%) and
+the same best static (`permanent-balanced`) before and after. The affected book
+was neither the pole nor the best, so the correction is real and its effect on
+the M6 evidence is nil — verified rather than assumed.
+
+### What this does NOT close
+
+I-47 (the replay's caps ignore per-portfolio rules) and I-49 (the replay's
+regime as-of is blind to the open regime) both name "the next time the M6 replay
+is re-run" as their trigger. The replay WAS re-run here, read-only, to verify
+this change moved nothing — and neither item was taken, because closing them
+moves the bridge's numbers and this commit's job was to prove they were
+untouched. The trigger stands; the next re-run is theirs.

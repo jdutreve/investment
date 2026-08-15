@@ -468,11 +468,35 @@ BOOK_PORTFOLIO_IDS: dict[str, str] = {
     "credit-spread-tight-yield-curve-steep": "ms-slowdown-book",
 }
 
-# The market-signal series and their trailing-median lookbacks. ~10y median
-# (2520 trading days) with a 1y warm-up floor, matching the backtest.
+# The market-signal series and their trailing-median lookbacks: a 10-year
+# median with a 1-year warm-up floor, matching the backtest.
 CREDIT_SPREAD = "BAA10Y"
 YIELD_SLOPE = "T10Y2Y"
-MEDIAN_WINDOW_DAYS = 2520
+
+# TEN YEARS, COUNTED IN TIME AND NO LONGER IN ROWS (2026-08-15, owner signature).
+#
+# This was `MEDIAN_WINDOW_DAYS = 2520` — 2520 ROWS of whatever index the series
+# had been reindexed onto. The rename is deliberate and the unit change is the
+# whole point: a row-counted window makes the signal's own REFERENCE depend on
+# the calendar it is measured on, and Step 6 was about to change that calendar.
+#
+# MEASURED BEFORE CHANGING IT (docs/V1_STRATEGY.md "The calendar, and the frozen
+# sleeve"): the bridge clock and the stack clock differ by 16 days in 8201 and
+# by ONE decision date — yet they disagreed on 45 monthly book choices and
+# 0.26pp of CAGR, because the 2520th row back is a different DATE on each clock.
+# Under a time window the two agree exactly wherever both hold a full ten years:
+# median gap from 2004 on is 0.0009 mean / 0.015 max, and book disagreements
+# from 2004 on are ZERO. Everything left is the stack clock genuinely knowing
+# less before 2004, which is history missing rather than an artefact.
+#
+# It is a NO-OP on the clock the pinned pair was measured on — same CAGR, same
+# Sortino, same 418 decisions, same book counts — because a dense daily calendar
+# puts 2520 rows and 3650 days in the same place. That is what makes it safe to
+# ship in the same commit as the calendar it protects.
+#
+# Years rather than days because the knob is `rule_revision`-testable and a
+# Worker proposing "5" must mean five years, not five days.
+MEDIAN_WINDOW_YEARS = 10
 MEDIAN_MIN_DAYS = 252
 # THE TREND WINDOW, 300 since 2026-08-11 (owner signature) and 200 before it.
 #
@@ -583,7 +607,20 @@ CONFIRM_DECISIONS = 3
 # window `run_market_signal` defaults to" and could only do so by copying it.
 # Same shape as every other defect this module has fixed — a fact stated in
 # several places, with nothing making them agree.
-PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
+#
+# THE START MOVED FROM 1991-01-01 TO 1993-11-01 (2026-08-15, owner signature),
+# and it is a correction rather than a shortening. The stack now walks its own
+# calendar (`stack_calendar`), which opens the day all five sleeves are priced —
+# VCIT's proxy VFICX starts 1993-11-01. What the 25 months before it contained
+# was not history: it was 17 monthly decisions holding `credit-spread-wide-yield-
+# curve-flat`, a book that is 50% IWN, while IWN had no price at all. The old
+# engine carried that half FROZEN (see `replay._refuse_unpriced_sleeves`), so
+# the record's opening two years measured a book nobody could have held.
+#
+# Requesting an earlier start is harmless — the calendar truncates it, and both
+# 1991-01-01 and 1993-11-01 produce the same 393 decisions — but the constant
+# should state what is MEASURED, not what was once hoped for.
+PINNED_WINDOW: tuple[date, date] = (date(1993, 11, 1), date(2026, 7, 1))
 
 # THE PINNED PAIR, AS CONSTANTS AND NO LONGER AS PROSE.
 #
@@ -628,7 +665,21 @@ PINNED_WINDOW: tuple[date, date] = (date(1991, 1, 1), date(2026, 7, 1))
 # OWNER CALL, stated rather than assumed: the prose figure stays as signed, and
 # if you prefer the machine to check the free-tail number instead, this is the
 # line to change — but it will then need re-pinning every quarter.
-PINNED_CAGR = 0.11582
+# RE-PINNED 2026-08-15 (owner signature) — 0.11582 -> 0.11513, drawdown
+# unchanged to five digits. Three changes landed together and this is their
+# combined, bounded result over the corrected window:
+#
+#   1. the stack walks its OWN calendar instead of the bridge defender's;
+#   2. an unpriced sleeve is REFUSED instead of carried frozen, which is what
+#      removes the 1991-1993 fiction the old start rested on;
+#   3. the trailing medians count TIME instead of rows — a no-op on the old
+#      clock (identical CAGR, Sortino and 418 decisions), and what stops the
+#      signal's reference from depending on which calendar measures it.
+#
+# 393 decisions over 1993-11-01 -> 2026-07-01, turnover 66.2, Sortino 1.296.
+# The record is 32 years rather than 35, and the three it loses are the three it
+# never really had.
+PINNED_CAGR = 0.11513
 PINNED_MAX_DRAWDOWN = -0.16500
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
@@ -732,7 +783,7 @@ def describe_rule(caps: Caps | None = None) -> str:
         # "three books" was written here when there were three, and the fourth
         # arrived on 2026-08-13 — the same defect this whole function exists to
         # repair, one line below the sentence that repairs it. Counted now.
-        f"  1. Credit spread (BAA10Y) vs its {MEDIAN_WINDOW_DAYS // 252}-year trailing\n"
+        f"  1. Credit spread (BAA10Y) vs its {MEDIAN_WINDOW_YEARS}-year trailing\n"
         f"     median, and yield slope (T10Y2Y) vs its own, select ONE of {len(BOOKS)} books\n"
         "     (the two indicators are read independently — their 2x2 names the state):\n"
         f"{books}\n"
@@ -1512,6 +1563,27 @@ class StackSeries:
     missing_signals: list[str] = dataclasses.field(default_factory=list)
 
 
+def stack_calendar(prices: Mapping[str, pd.Series]) -> pd.DatetimeIndex:
+    """THE STACK'S OWN TRADING CALENDAR: every date on which all five sleeves
+    are priced (docs/V1_STRATEGY.md Step 6, item 1).
+
+    The same all-constituents-priced rule `ratios.synthesize_nav` applies, and
+    for the same reason — a book cannot be priced on a day one of its sleeves
+    has no price. VCIT's proxy starts 1993-11-01 and IWN's 1993-03-01, so this
+    calendar opens 1993-11-01 where the bridge defender's opened 1991-10-29.
+    Those 25 months are not lost information: they were never priceable, and
+    what the stack did with them before this existed was worse (see
+    `replay.shadow_book_nav`, which used to carry an unpriced sleeve FROZEN).
+
+    THIS IS WHAT DETACHES THE ADOPTED STRATEGY FROM THE RETAINED BRIDGE. Until
+    2026-08-15 the walk stepped on `replay._book_calendar` — the NAV index of
+    the bridge defender's portfolio — so the adopted strategy could not run on a
+    database where the bridge had never been seeded or NAV-backfilled. It now
+    depends on nothing but its own sleeves' prices."""
+    frame = pd.DataFrame({ticker: series for ticker, series in prices.items()})
+    return pd.DatetimeIndex(frame.sort_index().dropna(how="any").index)
+
+
 async def load_series(db: InvestmentDB) -> StackSeries:
     """Read and derive everything both arms decide on.
 
@@ -1519,8 +1591,6 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     no series, and holding one flat at 0% is the bug that once crippled this
     stack. A missing SIGNAL series is recorded instead: it disables the stack
     (`run_market_signal` refuses) and is irrelevant to the control arm."""
-    inputs = await replay.load_inputs(db)
-    calendar = replay._book_calendar(inputs)
     rf = await ratios.load_rf_daily(db)
 
     prices = {t: await ratios.load_price(db, t) for t in LOADABLE_TICKERS}
@@ -1530,6 +1600,12 @@ async def load_series(db: InvestmentDB) -> StackSeries:
         # The exact failure the correction note warns about — refuse to run a
         # stack silently missing a sleeve rather than hold it flat at 0%.
         raise ValueError(f"market-signal stack missing price series for {sorted(missing)}")
+
+    # The stack's OWN clock, built from the sleeves it can actually hold — not
+    # the bridge defender's NAV index. Both arms still share it (the control arm
+    # reads the same `StackSeries`), so `A - B` still cannot be an artefact of a
+    # calendar difference.
+    calendar = stack_calendar({t: prices[t] for t in STACK_TICKERS})
 
     # Keep the RAW series alongside the calendar-aligned one: the ffill that
     # carries a stale print forward is right for the decision (it is what was
@@ -1564,8 +1640,12 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     ]
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()
-    spread_median = spread.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
-    slope_median = slope.rolling(MEDIAN_WINDOW_DAYS, min_periods=MEDIAN_MIN_DAYS).median()
+    # `'<n>D'` is a TIME window (see MEDIAN_WINDOW_YEARS); `min_periods` stays a
+    # count of observations, because "enough data to trust a median" is a
+    # question about observations and not about elapsed time.
+    window = f"{365 * MEDIAN_WINDOW_YEARS}D"
+    spread_median = spread.rolling(window, min_periods=MEDIAN_MIN_DAYS).median()
+    slope_median = slope.rolling(window, min_periods=MEDIAN_MIN_DAYS).median()
     # Both DECISION-TIME views, shifted together so a sleeve's price and its own
     # line are always read as of the same close (see `decision_prices`). Shifting
     # only one of the two would compare today's price to yesterday's average,

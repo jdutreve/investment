@@ -379,7 +379,7 @@ def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
     for window in market_signal.MA_WINDOWS:
         assert str(window) in text
     assert str(market_signal.CONFIRM_DECISIONS) in text
-    assert f"{market_signal.MEDIAN_WINDOW_DAYS // 252}-year" in text
+    assert f"{market_signal.MEDIAN_WINDOW_YEARS}-year" in text
     # The books are the decision's whole output — all three, with their weights.
     for name, holdings in market_signal.BOOKS.items():
         assert name in text

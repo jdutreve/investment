@@ -48,7 +48,7 @@ import argparse
 import asyncio
 import dataclasses
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from typing import Any, cast
 
@@ -189,6 +189,79 @@ class ReplayInputs:
 # -- pure core: the shadow book --------------------------------------------
 
 
+def priced_calendar(
+    prices: Mapping[str, pd.Series],
+    tickers: Iterable[str],
+) -> pd.DatetimeIndex:
+    """The dates on which EVERY named non-cash ticker is priced.
+
+    One implementation of "when can this basket be valued at all", because there
+    are now three callers who must answer it identically: the market-signal
+    stack's own trading calendar (`market_signal.stack_calendar`), the replay's
+    static reference books (`compute_context`), and — by the same rule stated in
+    a different place — `ratios.synthesize_nav`, which drops any date where a
+    constituent is missing. Cash is skipped: it needs no price.
+
+    An EMPTY result means "this basket cannot be priced" — some named sleeve has
+    no series at all. An ALL-CASH basket constrains nothing and is the caller's
+    to special-case: "no dates" and "every date" are opposite answers, and an
+    empty index cannot tell them apart."""
+    named = [t for t in tickers if t != ratios.CASH_TICKER]
+    frames = {t: prices[t] for t in named if t in prices and not prices[t].empty}
+    if not frames or len(frames) < len(named):
+        return pd.DatetimeIndex([])
+    frame = pd.DataFrame(dict(frames))
+    return pd.DatetimeIndex(frame.sort_index().dropna(how="any").index)
+
+
+def _refuse_unpriced_sleeves(
+    targets: Mapping[pd.Timestamp, Mapping[str, float]],
+    prices: Mapping[str, pd.Series],
+) -> None:
+    """Raise if a target holds a sleeve whose series has not STARTED by then.
+
+    THE SILENT DEFECT THIS REPLACES (measured 2026-08-15, docs/V1_STRATEGY.md
+    "The calendar, and the frozen sleeve"). The stepper below applies a sleeve's
+    return only `if pd.notna(r)`, so a sleeve with no price on a date was carried
+    FROZEN — no gain, no loss, not even the risk-free rate — while still counting
+    in the NAV. On the live database that hit 17 of the market-signal stack's 418
+    monthly decisions (1991-10-29 to 1993-02-01): the `credit-spread-wide-yield-
+    curve-flat` book is 50% IWN, and IWN's proxy starts 1993-03-01. Half the
+    book was a constant, and the record read it as a result.
+
+    `db/seed_data.py` said of that proxy: "a book holding IWN starts 1993, which
+    the ragged-start NAV synthesis handles". True of `ratios.synthesize_nav`,
+    which indexes from the first date ALL constituents are priced — and false
+    here, because this engine takes its calendar as an argument. A sentence that
+    was true of the only engine that existed when it was written.
+
+    NOT every NaN is this defect, which is why the check is a precondition on
+    the TARGETS rather than a test inside the day loop: a mid-series gap (an
+    instrument that did not trade on a day the calendar has) is legitimately a
+    0% day, and freezing it there is correct. What cannot be right is holding a
+    sleeve that does not yet exist."""
+    for when, target in sorted(targets.items()):
+        for ticker, weight in target.items():
+            if ticker == ratios.CASH_TICKER or not weight:
+                continue
+            series = prices.get(ticker)
+            # `first_valid_index` is typed as a broad scalar union by
+            # pandas-stubs; on a price series indexed by dates it is a Timestamp.
+            first = (
+                None
+                if series is None or series.empty
+                else cast("pd.Timestamp | None", series.first_valid_index())
+            )
+            if first is None or first > when:
+                raise ValueError(
+                    f"shadow_book_nav: target dated {when.date()} holds {weight:g}% "
+                    f"{ticker}, whose series starts "
+                    f"{'never' if first is None else first.date()} — a sleeve that "
+                    "does not exist yet cannot be held, and carrying it frozen is "
+                    "what this refusal replaces"
+                )
+
+
 def shadow_book_nav(
     targets: Mapping[pd.Timestamp, Mapping[str, float]],
     prices: Mapping[str, pd.Series],
@@ -228,6 +301,7 @@ def shadow_book_nav(
     index = calendar[calendar >= change_dates[0]]
     if len(index) < 2:
         return pd.Series(dtype=float), 0.0
+    _refuse_unpriced_sleeves(targets, prices)
 
     returns = {t: p.reindex(index).pct_change() for t, p in prices.items()}
     rf_aligned = rf.reindex(index).ffill().fillna(0.0)
@@ -989,8 +1063,27 @@ def compute_context(inputs: ReplayInputs, result: ReplayResult) -> ReplayContext
         return None
 
     def static(allocation: Mapping[str, float]) -> NavMetrics:
+        # EACH BOOK ON ITS OWN RAGGED START, which is `ratios.synthesize_nav`'s
+        # rule and was not this function's until 2026-08-15. The replay calendar
+        # opens on the DEFENDER's first fully-priced day (1991-10-29), and
+        # `4s-rising-growth-equities` holds 10% EFA whose proxy starts
+        # 1991-12-30 — so this priced two months of a book carrying a frozen
+        # sleeve, silently, exactly as the market-signal stack did over 1991-1993
+        # (see `_refuse_unpriced_sleeves`, which is what made this visible: it
+        # refused, and the refusal was right). Intersecting first means the book
+        # is measured over the period it could actually be held.
+        non_cash = [t for t in allocation if t != ratios.CASH_TICKER]
+        # An all-cash book constrains no date (`priced_calendar`'s empty result
+        # would say the opposite), so it keeps the whole calendar.
+        sub = (
+            calendar
+            if not non_cash
+            else calendar.intersection(priced_calendar(inputs.prices, allocation))
+        )
+        if len(sub) < 2:
+            return NavMetrics(None, None, None, None)
         nav, _ = shadow_book_nav(
-            {pd.Timestamp(calendar[0]): dict(allocation)}, inputs.prices, inputs.rf, 0.0, calendar
+            {pd.Timestamp(sub[0]): dict(allocation)}, inputs.prices, inputs.rf, 0.0, sub
         )
         return nav_metrics(nav, inputs.rf)
 

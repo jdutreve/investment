@@ -1702,9 +1702,24 @@ ever being re-run, this closes as moot along with `switch_gates` itself.
 
 ## I-48 — The stack's pinned pair is not reproducible: a FIXED backtest anchor fed by a ROLLING data window
 
-**Why deferred:** the fix is a choice between two defensible policies, and both
-re-date the numbers ADR-007 was signed on. That is an owner arbitration, not a
-tidy-up.
+**✅ HALF CLOSED 2026-08-15 — the anchor no longer slides.** The stack builds
+its own calendar from its own five sleeves (`market_signal.stack_calendar`), so
+`HISTORY_START` stopped being an anchor and became a REQUEST: the walk asks for
+"the beginning of what exists" and gets a start fixed by VFICX's 1993-11-01
+inception, a date that does not move with the calendar. The fixed-anchor /
+rolling-backfill mismatch this item named is therefore gone, and the pair was
+re-pinned to 11.5129%/-16.5004% over 1993-11-01 -> 2026-07-01 in the same commit
+(docs/V1_STRATEGY.md "The calendar, and the frozen sleeve").
+
+**What is NOT closed:** the second half, Yahoo's retroactive restatement of
+adjusted closes. That is why `drift_violations` keeps a tolerance rather than
+demanding equality — the 2026-08-03 re-seed moved CAGR by 0.04pp with 418
+IDENTICAL decisions, which is the ground moving under a fixed marker and has
+nothing to do with where the window starts.
+
+**Why it was deferred:** the fix was a choice between two defensible policies,
+and both re-dated the numbers ADR-007 was signed on. That is an owner
+arbitration, not a tidy-up — and it was arbitrated on 2026-08-15.
 
 **What it is.** Two independent facts, measured on the 2026-08-03 re-seed:
 
@@ -1747,11 +1762,13 @@ Runs with `end=2026-07-17` and `end=today` both give 11.10% with 418 decisions.
   recorded re-base at each seed — cheapest, and it makes the anti-drift check
   say what it actually verifies.
 
-**Trigger to revisit:** before Step 6 (forward paper-mode), because from there
-the stack's live record is compared against the backtested pair and "11.14%"
-has to mean something exact. Sooner if the divergence exceeds 0.2pp at any
-re-seed — that would mean the sliding start has begun eating a real regime,
-not just warm-up.
+**The trigger that fired:** before Step 6 (forward paper-mode), because from
+there the stack's live record is compared against the backtested pair and the
+figure has to mean something exact. It does now — 11.5129% over a window whose
+start is a property of the DATA rather than of a literal. The third resolution
+above is what was taken (declare a tolerance, re-base when a change earns it),
+and the remaining watch is unchanged: a divergence past 0.2pp at any re-seed
+means the ground has moved further than restatement noise explains.
 
 ---
 

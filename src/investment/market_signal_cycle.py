@@ -40,15 +40,20 @@ decision needs is already persistent and append-only:
 A state table would be a fourth copy of facts that already exist, and the one
 that could silently drift from the other three.
 
-KNOWN DEPENDENCY, stated because it will bite later. The trading calendar this
-walks — and therefore the monthly decision dates and the signal alignment —
-comes from `replay._book_calendar`, i.e. from the NAV index of the RETAINED
-BRIDGE's defender portfolio. That is deliberate today: it is what keeps the live
-clock bit-identical to the backtest's, and re-deriving the calendar from the
-stack's own prices would move the pinned 11.26%/-23.8% and need re-validation.
-But it means the ADOPTED strategy cannot run on a DB with no NAV-backfilled
-Dalio defender, so retiring the bridge (docs/V1_STRATEGY.md Step 6) must first
-give the stack its own calendar, re-validating the numbers in the same commit.
+THE BRIDGE DEPENDENCY IS GONE (2026-08-15, Step 6 item 1). This walked
+`replay._book_calendar` — the NAV index of the RETAINED BRIDGE's defender — so
+the ADOPTED strategy could not run on a database where the bridge had never been
+seeded or NAV-backfilled. It now builds its own clock from its own five sleeves
+(`market_signal.stack_calendar`), and
+`test_the_stack_decides_without_any_bridge_at_all` deletes every bridge row to
+prove it.
+
+The swap was NOT free and was not pretended to be: it opened the record on
+1993-11-01 (VCIT's proxy) instead of 1991-10-29, re-pinned the pair to
+11.5129%/-16.5004%, and came with two findings recorded in docs/V1_STRATEGY.md
+("The calendar, and the frozen sleeve") — a sleeve held before it had any price,
+and a trailing median that counted rows and therefore depended on the calendar
+measuring it.
 
 CADENCE. Monthly (docs/V1_STRATEGY.md "Why monthly"). The decision date is
 `replay.decision_dates(..., 'monthly')` — the first trading day of the month,
@@ -75,7 +80,7 @@ from investment.mechanical.market_signal import (
     COST_BPS,
     CREDIT_SPREAD,
     MA_WINDOWS,
-    MEDIAN_WINDOW_DAYS,
+    MEDIAN_WINDOW_YEARS,
     YIELD_SLOPE,
     Decision,
     DriftCheck,
@@ -109,10 +114,22 @@ STRATEGY_ID = "market-signal-stack"
 # never itself run a 35-year backtest (telegram/digest.py).
 DRIFT_EVENT = "MarketSignalDriftEvent"
 
-# 1991 is the backtest's start (35y of ALFRED first-release vintages via the
-# HISTORY_PROXIES splice). The live walk starts there too: the hysteresis state
-# and the 10y trailing medians are path-dependent, so a short window would not
-# reproduce the book the backtest says is held today.
+# WHERE THE LIVE WALK STARTS — and since 2026-08-15 it is a REQUEST, not an
+# anchor. The stack builds its own calendar from its own five sleeves
+# (`market_signal.stack_calendar`), which opens 1993-11-01 where VCIT's proxy
+# begins, so asking for 1991 and asking for 1993-11 produce the identical 393
+# decisions. Kept at the earlier date deliberately: the request should say "from
+# the beginning of what exists", and the data decides where that is.
+#
+# The walk must still start at the beginning and not at a recent slice: the
+# hysteresis state and the 10-year trailing medians are path-dependent, so a
+# short window would not reproduce the book the backtest says is held today.
+#
+# This also settles the half of I-48 that mattered. The complaint was a FIXED
+# anchor fed by a ROLLING backfill (`seed` fetches `today - 35y`), so the walk
+# asked for 1991 and silently got whatever the last re-seed left. It now asks
+# for whatever exists and gets a start fixed by VFICX's 1993-11-01 inception —
+# a date that does not slide with the calendar.
 HISTORY_START = date(1991, 1, 1)
 
 # The pinned 36M window (DATA_MODELS "Calculation conventions"), the one every
@@ -272,13 +289,13 @@ def build_market_context(
             CREDIT_SPREAD: {
                 "value": decision.spread,
                 "trailing_median": decision.spread_median,
-                "median_window_days": MEDIAN_WINDOW_DAYS,
+                "median_window_years": MEDIAN_WINDOW_YEARS,
                 "knowable_at": _knowable_at(raw_series.get(CREDIT_SPREAD, _EMPTY), decision.date),
             },
             YIELD_SLOPE: {
                 "value": decision.slope,
                 "trailing_median": decision.slope_median,
-                "median_window_days": MEDIAN_WINDOW_DAYS,
+                "median_window_years": MEDIAN_WINDOW_YEARS,
                 "knowable_at": _knowable_at(raw_series.get(YIELD_SLOPE, _EMPTY), decision.date),
             },
         },

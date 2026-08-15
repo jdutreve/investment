@@ -64,6 +64,67 @@ def test_shadow_book_matches_synthesize_nav() -> None:
     pd.testing.assert_series_equal(actual, expected)
 
 
+def test_a_sleeve_that_does_not_exist_yet_is_refused_not_frozen() -> None:
+    """The defect measured on the live database on 2026-08-15: the stepper
+    applied a return only `if pd.notna(r)`, so a sleeve whose series had not
+    STARTED was carried frozen — no gain, no loss, not even rf — while counting
+    in the NAV. 17 of the stack's 418 monthly decisions held
+    `credit-spread-wide-yield-curve-flat` (50% IWN) before IWN had a price.
+
+    A refusal, not a repair: there is no honest number to substitute for a
+    price that does not exist, and the caller's job is to walk a calendar where
+    its book can be valued (`priced_calendar`)."""
+    index = pd.bdate_range("1991-10-29", periods=400)
+    prices = {"SPY": _prices(index, 0.0004, 1), "IWN": _prices(index[200:], 0.0004, 2)}
+    rf = pd.Series(0.0001, index=index)
+
+    with pytest.raises(ValueError, match="IWN"):
+        shadow_book_nav(
+            {index[0]: {"SPY": 50.0, "IWN": 50.0}}, prices, rf, cost_bps=0.0, calendar=index
+        )
+
+    # ...and the same book IS priceable once its sleeve exists.
+    nav, _ = shadow_book_nav(
+        {index[200]: {"SPY": 50.0, "IWN": 50.0}}, prices, rf, cost_bps=0.0, calendar=index
+    )
+    assert not nav.empty
+
+
+def test_a_gap_inside_a_series_still_freezes_and_does_not_raise() -> None:
+    """The distinction the refusal above rests on. An instrument that did not
+    trade on a day the calendar carries is legitimately a 0% day, and the NaN
+    that represents it must keep freezing the sleeve. Only a series that has not
+    begun is a sleeve nobody could hold."""
+    index = pd.bdate_range("1991-10-29", periods=300)
+    spy = _prices(index, 0.0004, 1)
+    gapped = spy.drop(spy.index[150:155])  # a five-day hole, mid-series
+    rf = pd.Series(0.0001, index=index)
+
+    nav, _ = shadow_book_nav(
+        {index[0]: {"SPY": 100.0}}, {"SPY": gapped}, rf, cost_bps=0.0, calendar=index
+    )
+    assert len(nav) == len(index)
+    assert nav.notna().all()
+
+
+def test_priced_calendar_is_the_dates_every_sleeve_has_a_price() -> None:
+    """One rule, three callers (`market_signal.stack_calendar`,
+    `compute_context`'s reference books, and `ratios.synthesize_nav` stating it
+    in its own words). Cash imposes nothing; a sleeve with no series at all
+    makes the basket unpriceable, which is NOT the same answer as an all-cash
+    basket's and is why the caller special-cases that one."""
+    index = pd.bdate_range("1991-10-29", periods=300)
+    prices = {"SPY": _prices(index, 0.0004, 1), "IWN": _prices(index[100:], 0.0004, 2)}
+
+    both = replay.priced_calendar(prices, ["SPY", "IWN", "cash"])
+    assert both[0] == index[100]
+    assert len(both) == 200
+
+    assert list(replay.priced_calendar(prices, ["SPY", "cash"])) == list(index)
+    assert replay.priced_calendar(prices, ["SPY", "GLD"]).empty  # GLD has no series
+    assert replay.priced_calendar(prices, ["cash"]).empty  # the caller's to read
+
+
 def test_shadow_book_charges_20bps_on_a_full_switch() -> None:
     """docs/TASKS.md Task 9.1 step 4: cost = `sum(|delta weight|) x cost_bps`,
     the UN-halved sum ("= 2 x turnover; do NOT also x2"). A full switch has
