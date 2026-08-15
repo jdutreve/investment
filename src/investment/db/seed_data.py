@@ -700,6 +700,20 @@ FRAMEWORKS: list[dict[str, object]] = [
         "trace": "Reference framework; not yet active in V1.",
     },
     {
+        # NOT A LENS, and that is why it is disabled: a framework here
+        # "interprets markets and designs strategies", and buying the index
+        # interprets nothing. It exists because `portfolio.framework_id` is NOT
+        # NULL and a passive yardstick has to live somewhere — filing SPY under
+        # `4seasons` or `market-signal` would attribute it to a design it does
+        # not follow, which is worse than a framework with one member.
+        "id": "passive",
+        "name": "Passive (no view)",
+        "enabled": False,
+        "accuracy": None,
+        "trace": "Home for benchmark books that express no market view. Holds "
+        "`spy-USD`; carries no strategy and never will.",
+    },
+    {
         "id": "market-signal",
         "name": "Market-Signal Countercyclical",
         "description": "Market-priced credit-spread + yield-slope regime selecting "
@@ -1806,6 +1820,55 @@ PORTFOLIOS: list[dict[str, object]] = [
         "Restate this only from a fresh measurement: it named 300d and +0.24pp "
         "for a day after both stopped being true.",
     },
+    {
+        # THE SECOND BENCHMARK (owner, 2026-08-15), on the same footing as
+        # `all-weather-USD` and deliberately in a different SHAPE. All Weather
+        # is a NAV under a reserved id that no ranking shows and only the CLI
+        # export reads; this is a ranked Portfolio, because a yardstick nobody
+        # sees measures nothing — the same argument that made `ms-trend-baseline`
+        # a row rather than a study on 2026-08-13.
+        #
+        # It is the opponent the attribution names: over 1991-2026 static SPY
+        # beats the stack by 0.68pp of CAGR and loses Sortino, Calmar and 13
+        # points of drawdown, breaching the -25% rule by a wide margin — so it
+        # wins the only comparison that ignores risk, and is inadmissible under
+        # the owner's own cap. Both halves of that sentence are worth seeing
+        # every week rather than being remembered from a document.
+        #
+        # NOT time-varying: constant weights, so `ratios.backfill_nav` prices it
+        # like any static book, and it stays out of TIME_VARYING_PORTFOLIOS.
+        #
+        # NO `holds` EDGE, on purpose: it implements no strategy, so
+        # `primary_strategy_id` resolves to NULL exactly as `ms-trend-baseline`'s
+        # does. Its caps are the USER's own values rather than stricter ones,
+        # which is the honest statement that this row adds no rule of its own.
+        #
+        # WHAT KEEPS IT OUT IS GATE 4, NOT THE FLAG, and the distinction matters
+        # to anyone reading the digest: `excluded_from_candidacy` keys on the
+        # DRAWDOWN rule alone (CLAUDE.md's ranking rule, `breaches_drawdown_rule`),
+        # so this row usually carries no flag at all. It is refused where a
+        # challenger is actually judged — `switch_gates`' concentration leg,
+        # which a 100% book cannot pass under a 60% cap. Ranked, and unable to
+        # be proposed: what a benchmark is.
+        "id": "spy-USD",
+        "name": "SPY (the market, bought and held)",
+        "framework_id": "passive",
+        "defender": False,
+        "enabled": True,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 100},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 60.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "The passive alternative, seeded so every weekly ranking states "
+        "what the whole apparatus is worth against simply owning the index. Net "
+        "of ADR-010's 23 bps like every other NAV, which costs it nothing: a "
+        "single sleeve never drifts from its target, so it never rebalances and "
+        "never trades. SPY rather than VTI because it is the stack's own equity "
+        "sleeve, so the comparison isolates the RULE and not the instrument.",
+    },
 ]
 
 # Portfolios whose allocation VARIES over time, so their NAV cannot be built by
@@ -1821,6 +1884,20 @@ PORTFOLIOS: list[dict[str, object]] = [
 # Worker cannot retarget a mechanically-driven control arm, which is the whole
 # point of a control.
 TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-baseline"})
+
+# Portfolios seeded as YARDSTICKS: ranked every week so the owner sees what the
+# apparatus is worth against them, and never held. They are exempt from the
+# "every seeded allocation fits the binding caps" invariant, because measuring
+# an alternative you would refuse to buy is the whole point of a benchmark —
+# `spy-USD` is 100% one asset against a 60% cap, and the cap is what keeps it
+# out of the defender role and out of proposal candidacy by itself
+# (`gates.effective_caps`, `snapshots.build_snapshot`'s exclusion flag).
+#
+# NAMED rather than left as a test exception, so the next reader meeting a
+# seeded row that breaches a cap can tell "deliberate yardstick" from "seed
+# bug". `all-weather-USD` is not here: it is not a `portfolio` row at all, which
+# is the difference this set exists to make visible.
+BENCHMARK_PORTFOLIOS: frozenset[str] = frozenset({"spy-USD"})
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("4s-balanced-defender", "four-seasons-rp", True),

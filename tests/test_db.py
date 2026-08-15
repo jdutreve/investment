@@ -27,6 +27,7 @@ from investment.db.schema import (
 )
 from investment.db.seed_data import (
     BACKED_BY_EDGES,
+    BENCHMARK_PORTFOLIOS,
     DESIGNED_FOR_EDGES,
     FRAMEWORKS,
     HOLDS_EDGES,
@@ -221,9 +222,49 @@ async def test_seed_idempotent_two_runs(tmp_path: Path) -> None:
         await db.close()
 
 
+async def test_a_seeded_benchmark_can_be_ranked_but_never_proposed(tmp_path: Path) -> None:
+    """The yardstick contract (`BENCHMARK_PORTFOLIOS`, owner 2026-08-15): a
+    benchmark is ENABLED so the weekly ranking shows it, and unable to be
+    proposed so nobody can be handed it as a switch.
+
+    What enforces the second half is gate 4's concentration leg, not the
+    `excluded_from_candidacy` flag — that flag keys on the DRAWDOWN rule alone,
+    so a benchmark will usually carry none. Pinned here because the two are easy
+    to confuse when reading a digest, and because a future benchmark seeded
+    INSIDE the caps would be silently proposable."""
+    import json
+
+    from investment.mechanical.gates import concentration_ok, effective_caps
+
+    settings = _test_settings(tmp_path)
+    await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
+    db = InvestmentDB(settings.db_path)
+    try:
+        profile = dict((await db.query("SELECT * FROM user_profile LIMIT 1"))[0])
+        rows = await db.query(
+            "SELECT id, enabled, defender, allocation, max_single_asset_pct, "
+            "max_drawdown_rule FROM portfolio WHERE id IN "
+            "(" + ", ".join(f"'{pid}'" for pid in sorted(BENCHMARK_PORTFOLIOS)) + ")"
+        )
+        assert len(rows) == len(BENCHMARK_PORTFOLIOS)
+        for row in rows:
+            assert row["enabled"], row["id"]  # ranked every week
+            assert not row["defender"], row["id"]  # never the thing being defended
+            caps = effective_caps(profile, dict(row))
+            assert not concentration_ok(json.loads(row["allocation"]), caps), row["id"]
+    finally:
+        await db.close()
+
+
 async def test_seed_allocations_respect_binding_caps(tmp_path: Path) -> None:
     """Every seeded portfolio/scenario allocation sums to 100 and respects
-    the binding 40% single-asset cap (REVISION_NOTES 'Risk rules')."""
+    the binding single-asset cap (REVISION_NOTES 'Risk rules').
+
+    EXCEPT the yardsticks (`BENCHMARK_PORTFOLIOS`), and the exception is the
+    rule working rather than a hole in it: `spy-USD` is 100% one asset against a
+    60% cap, which is exactly what keeps a benchmark ranked and never held. The
+    sum-to-100 half still binds — an allocation that does not sum is a seed bug
+    whatever the row is for."""
     import json
 
     settings = _test_settings(tmp_path)
@@ -233,6 +274,8 @@ async def test_seed_allocations_respect_binding_caps(tmp_path: Path) -> None:
         for row in await db.query("SELECT id, allocation, max_single_asset_pct FROM portfolio"):
             allocation = json.loads(row["allocation"])
             assert abs(sum(allocation.values()) - 100) < 1e-9, row["id"]
+            if str(row["id"]) in BENCHMARK_PORTFOLIOS:
+                continue
             assert max(allocation.values()) <= row["max_single_asset_pct"], row["id"]
         for row in await db.query("SELECT id, target_allocation FROM scenario"):
             allocation = json.loads(row["target_allocation"])
