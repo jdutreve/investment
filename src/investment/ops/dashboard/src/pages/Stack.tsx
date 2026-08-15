@@ -240,9 +240,19 @@ export function Stack() {
       {/* RETURN AND SHARPE, ON EVERY FRONT (CLAUDE.md "Binding caps" neighbor
           rule, extended here 2026-08-15): this page showed the decision but
           never what the stack earned. Same four indicators as the Ranking
-          row, read off the same portfolio row the ranking job wrote. */}
+          row, read off the same portfolio row the ranking job wrote.
+          3y RETURN, NOT 1y (owner correction, same day): Sortino/Sharpe/Calmar
+          are the 756-trading-day (3y) rolling window; pairing them with a 1y
+          return compares two different periods and made the stack read as the
+          worst performer on the Ranking page when its 3y figure agrees with
+          its Sortino. 1y stays as the tile's `sub` line — recency, not a
+          competing headline. */}
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
-        <Tile label="1y return" value={pct(data.stack_portfolio?.return_1y)} />
+        <Tile
+          label="3y return"
+          value={pct(data.stack_portfolio?.return_3y)}
+          sub={`1y ${pct(data.stack_portfolio?.return_1y)}`}
+        />
         <Tile label="Sharpe" value={num(data.stack_portfolio?.sharpe_rolling)} />
         <Tile label="Sortino" value={num(data.stack_portfolio?.sortino_rolling)} />
         <Tile label="Calmar" value={num(data.stack_portfolio?.calmar_rolling)} />
@@ -317,10 +327,11 @@ export function Stack() {
               <tr>
                 <th>Book</th>
                 <th>Base allocation</th>
-                <th className="num">1y return</th>
+                <th className="num">3y return</th>
                 <th className="num">Sharpe</th>
                 <th className="num">Sortino</th>
                 <th className="num">Calmar</th>
+                <th className="num muted">1y return</th>
               </tr>
             </thead>
             <tbody>
@@ -343,10 +354,11 @@ export function Stack() {
                         .map(([ticker, w]) => `${ticker} ${weight(w)}`)
                         .join(" · ") || "—"}
                     </td>
-                    <td className="num">{pct(book.return_1y)}</td>
+                    <td className="num">{pct(book.return_3y)}</td>
                     <td className="num">{num(book.sharpe_rolling)}</td>
                     <td className="num">{num(book.sortino_rolling)}</td>
                     <td className="num">{num(book.calmar_rolling)}</td>
+                    <td className="num muted">{pct(book.return_1y)}</td>
                   </tr>
                 );
               })}

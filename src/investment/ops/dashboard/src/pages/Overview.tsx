@@ -107,7 +107,13 @@ function DefenderCard({ defender }: { defender: Row | null }) {
             </Link>
           </div>
           <div className="grid cols-4" style={{ marginTop: 10 }}>
-            <Tile label="1y return" value={pct(s(defender, "return_1y"))} />
+            {/* 3y, matched to Sortino/Sharpe/Calmar's 756-day window; 1y rides
+                as recency context (owner, 2026-08-15). */}
+            <Tile
+              label="3y return"
+              value={pct(s(defender, "return_3y"))}
+              sub={`1y ${pct(s(defender, "return_1y"))}`}
+            />
             <Tile label="Sortino" value={num(s(defender, "sortino_rolling"))} />
             <Tile label="Sharpe" value={num(s(defender, "sharpe_rolling"))} />
             <Tile label="Calmar" value={num(s(defender, "calmar_rolling"))} />

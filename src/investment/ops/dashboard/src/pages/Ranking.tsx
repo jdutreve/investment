@@ -22,12 +22,23 @@ import { nav, num, pct, signClass } from "../format";
  *               defender role and from proposal candidacy
  * The last two both bar candidacy but by different mechanisms, and benchmark
  * carries no flag at all — the flag on the snapshot means the drawdown one.
+ *
+ * THE RETURN COLUMN IS 3y, NOT 1y — owner correction, 2026-08-15: "la durée du
+ * rendement doit être calée sur celle du risque". Sortino/Sharpe/Calmar/Max DD
+ * are computed on the pinned 756-TRADING-DAY rolling window (CLAUDE.md
+ * "Mechanical calculations"), which is exactly 3 calendar years (756 / 252).
+ * Putting `return_1y` in the same row made `ms-stack` read as the worst
+ * performer on the table — a single noisy year beside three-year risk figures
+ * — when its 3y figure and its Sortino agree with each other. `return_1y`
+ * stays, muted and separate, as the recency signal it actually is; it is not
+ * sortable, so it cannot be mistaken for a ranking dimension the way the
+ * period-matched columns are.
  */
 
-type SortKey = "rank" | "return_1y" | "sortino_rolling" | "sharpe_rolling" | "calmar_rolling";
+type SortKey = "rank" | "return_3y" | "sortino_rolling" | "sharpe_rolling" | "calmar_rolling";
 
 const COLUMNS: Array<{ key: SortKey; label: string }> = [
-  { key: "return_1y", label: "1y return" },
+  { key: "return_3y", label: "3y return" },
   { key: "sortino_rolling", label: "Sortino" },
   { key: "sharpe_rolling", label: "Sharpe" },
   { key: "calmar_rolling", label: "Calmar" },
@@ -135,6 +146,9 @@ export function Ranking() {
                     </th>
                   ))}
                   <th className="num">Max DD</th>
+                  <th className="num muted" title="Recency only — a single noisy year, not a ranking dimension">
+                    1y return
+                  </th>
                   <th className="num">NAV</th>
                   <th>Recommendation</th>
                 </tr>
@@ -149,13 +163,14 @@ export function Ranking() {
                       </Link>
                       <Badges row={row} benchmarks={data.benchmark_ids} />
                     </td>
-                    <td className={`num ${signClass(row.return_1y)}`}>{pct(row.return_1y)}</td>
+                    <td className={`num ${signClass(row.return_3y)}`}>{pct(row.return_3y)}</td>
                     <td className="num">{num(row.sortino_rolling)}</td>
                     <td className="num">{num(row.sharpe_rolling)}</td>
                     <td className="num">{num(row.calmar_rolling)}</td>
                     <td className={`num ${signClass(row.max_drawdown)}`}>
                       {pct(row.max_drawdown)}
                     </td>
+                    <td className="num muted">{pct(row.return_1y)}</td>
                     <td className="num">{nav(row.nav)}</td>
                     <td className="muted">{String(row.recommendation ?? "—")}</td>
                   </tr>

@@ -123,7 +123,14 @@ export function PortfolioDetail() {
       </div>
 
       <div className="grid cols-4" style={{ marginBottom: 14 }}>
-        <Tile label="1y return" value={pct(snap?.return_1y ?? p.return_1y)} />
+        {/* 3y, not 1y — matched to the 756-trading-day (3y) rolling window
+            Sortino/Sharpe/Calmar/Max DD share (CLAUDE.md; owner, 2026-08-15).
+            1y rides along as recency context, not as a competing headline. */}
+        <Tile
+          label="3y return"
+          value={pct(snap?.return_3y ?? p.return_3y)}
+          sub={`1y ${pct(snap?.return_1y ?? p.return_1y)}`}
+        />
         <Tile label="Sortino" value={num(snap?.sortino_rolling ?? p.sortino_rolling)} />
         <Tile label="Sharpe" value={num(snap?.sharpe_rolling ?? p.sharpe_rolling)} />
         <Tile label="Calmar" value={num(snap?.calmar_rolling ?? p.calmar_rolling)} />
@@ -165,7 +172,8 @@ export function PortfolioDetail() {
                   <th className="num">Rank</th>
                   <th className="num">Sortino</th>
                   <th className="num">Calmar</th>
-                  <th className="num">1y</th>
+                  <th className="num">3y</th>
+                  <th className="num muted">1y</th>
                   <th>Recommendation</th>
                 </tr>
               </thead>
@@ -176,7 +184,8 @@ export function PortfolioDetail() {
                     <td className="num">{String(row.rank)}</td>
                     <td className="num">{num(row.sortino_rolling)}</td>
                     <td className="num">{num(row.calmar_rolling)}</td>
-                    <td className="num">{pct(row.return_1y)}</td>
+                    <td className="num">{pct(row.return_3y)}</td>
+                    <td className="num muted">{pct(row.return_1y)}</td>
                     <td className="muted">{String(row.recommendation ?? "—")}</td>
                   </tr>
                 ))}
