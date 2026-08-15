@@ -98,6 +98,20 @@ uv run python -m investment.seed     # UC0, safe to re-run
 uv run python -m investment.main     # the agent, in the foreground
 ```
 
+The agent serves the **dashboard** at http://127.0.0.1:8765 alongside the
+Telegram bot and the scheduler. Its React front is built once, and only when
+the source changes:
+
+```bash
+cd src/investment/ops/dashboard && npm install && npm run build
+```
+
+`node_modules` and `dist/` are gitignored (build-time only, 128MB of
+dependencies for 16 source files), so a fresh clone runs the two commands
+above. Skipping them costs only the browser front: the agent, the API, the
+Telegram bot and `invest` all work without it, and the page itself answers with
+the exact build command until it exists.
+
 `deploy/` carries the LaunchAgent and the install/inspect/uninstall commands.
 **The first start is not a dry run** — the weekly chain is due on a database
 that has never run one, so it decides the month's allocation and emits the

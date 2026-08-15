@@ -101,19 +101,33 @@ async def _append_decision(
 # -- reads ------------------------------------------------------------------
 
 
-async def status(runtime: AgentRuntime) -> CommandResult:
-    """What the agent is doing and how current it is.
+@dataclasses.dataclass(frozen=True)
+class StatusFacts:
+    """Is it alive, and how current is what it knows.
 
-    Deliberately short: this is the message read on a phone to answer "is it
-    alive and did it run". The full picture is the digest, and the numbers
-    behind it are `invest sql`."""
+    SPLIT OUT OF `status` FOR THE THIRD FRONT (M10). The chat fronts want one
+    short message; the dashboard header wants the same five facts as fields, and
+    the one thing it must not do is parse them back out of the sentence built
+    for a phone. So the facts are gathered once and rendered separately —
+    Telegram and the CLI through `status`, the browser as JSON. A sixth fact
+    added here reaches all three, which is the property the ranking row lost for
+    three days in August (`ranking` below says what that cost).
+
+    `running` is None when the lock is free rather than the string "idle": a
+    front decides how to say "nothing is running", and a header that wants to
+    hide the row entirely should not have to compare against a word."""
+
+    running: str | None
+    last_chain: str | None
+    market_data: str | None
+    last_ranking: str | None
+    last_decision: str | None
+
+
+async def status_facts(runtime: AgentRuntime) -> StatusFacts:
+    """The five freshness facts, read from the rows the jobs wrote."""
     db = runtime.db
     marker = await db.query("SELECT last_chain_success FROM detector_state WHERE id = 'singleton'")
-    last_chain = (
-        str(marker[0]["last_chain_success"])
-        if marker and marker[0]["last_chain_success"]
-        else "never"
-    )
     data = await db.query("SELECT MAX(ts) AS ts FROM market_data")
     snapshot = await db.query("SELECT MAX(date) AS d FROM portfolio_weekly_snapshot")
     decision = await db.query(
@@ -121,18 +135,36 @@ async def status(runtime: AgentRuntime) -> CommandResult:
         "ORDER BY id DESC LIMIT 1"
     )
     holder = runtime.lock.holder
-    running = (
-        f"{holder.name} since {holder.since.isoformat(timespec='seconds')}" if holder else "idle"
+    return StatusFacts(
+        running=(
+            f"{holder.name} since {holder.since.isoformat(timespec='seconds')}" if holder else None
+        ),
+        last_chain=(
+            str(marker[0]["last_chain_success"])
+            if marker and marker[0]["last_chain_success"]
+            else None
+        ),
+        market_data=str(data[0]["ts"]) if data and data[0]["ts"] else None,
+        last_ranking=str(snapshot[0]["d"]) if snapshot and snapshot[0]["d"] else None,
+        last_decision=str(decision[0]["event_date"]) if decision else None,
     )
+
+
+async def status(runtime: AgentRuntime) -> CommandResult:
+    """What the agent is doing and how current it is.
+
+    Deliberately short: this is the message read on a phone to answer "is it
+    alive and did it run". The full picture is the digest, and the numbers
+    behind it are `invest sql`."""
+    facts = await status_facts(runtime)
     return CommandResult(
         ok=True,
         message=(
-            f"🤖 {running}\n"
-            f"last chain: {last_chain}\n"
-            f"market data: {data[0]['ts'] if data and data[0]['ts'] else 'none'}\n"
-            f"last ranking: {snapshot[0]['d'] if snapshot and snapshot[0]['d'] else 'none'}\n"
-            f"last allocation decision: "
-            f"{decision[0]['event_date'] if decision else 'none'}"
+            f"🤖 {facts.running or 'idle'}\n"
+            f"last chain: {facts.last_chain or 'never'}\n"
+            f"market data: {facts.market_data or 'none'}\n"
+            f"last ranking: {facts.last_ranking or 'none'}\n"
+            f"last allocation decision: {facts.last_decision or 'none'}"
         ),
     )
 

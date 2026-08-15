@@ -1055,8 +1055,8 @@ EventLog, actions, SQL console) ship after M10, once daily use has an opinion.
 - [ ] cross-front equivalence tests green (bot vs dashboard vs CLI) — same
       numbers AND same `n/a`s, not merely the same order
 - [ ] API without token → 403; `invest` offline matrix behaves
-- [ ] agent stopped → every read page still renders in full; every write
-      control disabled with the reason
+- [ ] agent stopped → `invest` reads still work (it opens the file itself);
+      the dashboard reports a connection error rather than empty tables
 - [ ] a blocked market-signal decision renders unmistakably differently from a
       month that did not move
 - [ ] daily-use comfort: YOUR verdict after a week (judged on Phases 1–3)

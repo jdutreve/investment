@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Investment Agent</title>
+    <!--
+      THE OPS TOKEN CROSSES HERE, and nowhere else. `ops/api.py::_serve_index`
+      replaces the placeholder when it serves this file. It is safe in the HTML
+      because a cross-origin page cannot READ our HTML (fetch is blocked by CORS,
+      an iframe by the same-origin policy); an endpoint that handed the token out,
+      or a .js file carrying it, would NOT be safe, because <script src> is exempt
+      from CORS. Left as the literal placeholder when Vite serves this file
+      directly, in which case every API call is a deliberate 403.
+    -->
+    <meta name="ops-token" content="__OPS_TOKEN__" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

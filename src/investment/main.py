@@ -80,6 +80,7 @@ from investment.corpus.watcher import InboxWatcher
 from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
 from investment.delivery import deliver, outbox_path
+from investment.ops.api import start_api
 from investment.ops.run_lock import AlreadyRunning, RunLock
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
@@ -368,11 +369,18 @@ async def run_agent(settings: Settings) -> None:
     ]
     scheduler.start()
     bot_running = await _start_bot(bot)
+    # The browser front (M10, ADR-005). In-process like the bot and for the same
+    # reasons — one connection, one run-lock, one command layer — and started
+    # AFTER the bot so a port already in use is reported with the rest of the
+    # fronts up rather than before any of them.
+    api = await start_api(runtime)
     logger.info(
-        "agent up: db=%s tz=%s inbox=%s (chain due-on-start check running)",
+        "agent up: db=%s tz=%s inbox=%s dashboard=http://127.0.0.1:%d "
+        "(chain due-on-start check running)",
         settings.db_path,
         settings.tz,
         settings.inbox_path,
+        settings.local_api_port,
     )
     try:
         # DUE-ON-START, before waiting: a laptop opened on Tuesday must not wait
@@ -381,6 +389,11 @@ async def run_agent(settings: Settings) -> None:
         await stop.wait()
     finally:
         logger.info("shutting down")
+        # FIRST, before the bot and the scheduler: it is the only front that can
+        # still be accepting a request, and `cleanup` waits for the in-flight
+        # ones. Stopping it last would let a browser start a command against a
+        # runtime whose pieces are already closing.
+        await api.cleanup()
         if bot_running:
             if bot.updater is not None:
                 await bot.updater.stop()

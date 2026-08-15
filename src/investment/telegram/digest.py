@@ -11,7 +11,7 @@ reads as weights, not percentages — matching the EXAMPLE template).
 
 import json
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, TypedDict
 
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import WORKER_READING_EVENT
@@ -594,12 +594,45 @@ async def _latest_proposal(
     return proposal
 
 
-async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
-    """The weekly digest rendered from the DB alone (docs/MILESTONES.md M8:
-    "digest rendered in terminal"). Mechanical and read-only — every input is a
-    committed row, so the digest can be re-rendered for any past Monday's state
-    without re-running the cognitive cycle, and the M9 Telegram send and the M10
-    dashboard both call THIS rather than reassembling the payload themselves.
+class DigestInputs(TypedDict):
+    """Everything `render_digest` needs, and the contract the dashboard reads.
+
+    A TypedDict rather than a loose dict, because this is the structure that
+    makes "the fronts agree" a TYPE ERROR rather than a convention. M10's
+    Overview page is specified as the digest with a better layout, and the two
+    could only stay identical for as long as someone kept two assemblies in
+    step by hand — which is precisely the failure the 2026-08-15 pass fixed on
+    the ranking row (the digest carried return and Sharpe for three days while
+    the phone and the CLI did not). One assembly, one set of fields, checked:
+    add a field here and `render_digest` must take it, drop one and the API
+    stops serving it in the same commit.
+    """
+
+    regime: dict[str, Any]
+    global_liquidity: dict[str, Any]
+    ranking: list[dict[str, Any]]
+    invariants: list[dict[str, Any]]
+    proposal: dict[str, Any] | None
+    scoreboard: dict[str, Any]
+    defender_metrics: dict[str, Any] | None
+    alerts: list[Alert]
+    stack: dict[str, Any] | None
+    market_signal: dict[str, Any] | None
+    worker_reading: dict[str, Any] | None
+    recurring: list[dict[str, Any]]
+
+
+async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
+    """Assemble the digest's inputs from committed rows alone.
+
+    SPLIT OUT OF `build_digest` for M10 (ADR-005). `build_digest`'s own
+    docstring already promised that "the M9 Telegram send and the M10 dashboard
+    both call THIS rather than reassembling the payload themselves" — but it
+    returned TEXT, and a browser page cannot lay out a rendered string. So the
+    assembly and the rendering are now two functions: Telegram renders these
+    inputs, the dashboard serves them as JSON, and neither owns a second set of
+    queries. Every number on both fronts therefore comes from the same read of
+    the same row.
 
     The invariants shown are the heaviest INTEGRATED ones (what the ranking is
     allowed to lean on), which is also the set gate 6 admits."""
@@ -624,7 +657,7 @@ async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
         n=DIGEST_INVARIANTS,
     )
     defender = next((r for r in ranking if r.get("defender")), None)
-    return render_digest(
+    return DigestInputs(
         regime=dict(regime_rows[0]) if regime_rows else {},
         global_liquidity=dict(liquidity_rows[0]) if liquidity_rows else {},
         ranking=[dict(r) for r in ranking],
@@ -638,6 +671,13 @@ async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
         worker_reading=await _latest_worker_reading(db),
         recurring=await _recurring_themes(db),
     )
+
+
+async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
+    """The weekly digest as text (docs/MILESTONES.md M8: "digest rendered in
+    terminal"). Mechanical and read-only, so any past Sunday's state re-renders
+    without re-running the cognitive cycle."""
+    return render_digest(**await collect_digest_inputs(db, today))
 
 
 async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:

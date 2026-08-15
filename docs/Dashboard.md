@@ -77,10 +77,18 @@ layer, the run-lock, the CLI and the bot. What this spec adds: `ops/api.py`
   No dashboard-only write path, no direct `UPDATE`, no side channel around the
   gates and the audit trail.
 - **Reads direct, writes through the agent.** SQLite WAL gives concurrent
-  readers for free, so pages read the live DB file read-only. Writes go only
-  through the running agent's serialized asyncio path. **Agent down → every
-  read page still works in full; every write control is visibly disabled with
-  the reason, never silently inert.**
+  readers for free, so read endpoints use their OWN read-only connection and
+  never queue behind the writer's executor. Writes go only through the agent's
+  serialized asyncio path (ADR-004: one writer).
+- **Agent down means NO DASHBOARD, and that is not a gap.** The offline matrix
+  in docs/TASKS.md Phase 6ter ("reads still work") is about the **`invest`
+  CLI**, which opens the DB file itself. The browser front is served *by* the
+  agent process, so when the agent is down there is no HTTP server to answer —
+  a dashboard that survived its own server would have to be a second process,
+  which ADR-005 refuses and the ADR-005 amendment kept refusing. `invest` is
+  the agent-down front; this one is not. What the dashboard must instead never
+  do is *look* alive while the agent is not: a failed fetch renders as a
+  connection error, never as an empty table.
 - **`X-Ops-Token` on every API call**, read from `~/data/investment/ops_token`
   (chmod 600). Binding to 127.0.0.1 does *not* stop a web page from POSTing to
   it; the custom header forces a CORS preflight that fails cross-origin. No
@@ -145,8 +153,8 @@ layer, the run-lock, the CLI and the bot. What this spec adds: `ops/api.py`
   browser showing real data from `~/data/investment/investment.db`.
 - Every figure on the Overview matches that week's Telegram digest field for
   field — same numbers, same `n/a`s, same alert set in the same order.
-- With the agent stopped, the Overview still renders in full and the header
-  says the agent is down.
+- With the agent stopped, the page reports a connection error and says to use
+  `invest` — it never renders an empty table as though the data were empty.
 - No token → 403 on every endpoint, and the page renders the refusal rather
   than a blank panel.
 - A section with no data yet ("the chain has not run") renders an explicit
@@ -332,8 +340,8 @@ actually reads before placing an order by hand.
   message the CLI gives.
 - The console refuses `ATTACH`, `PRAGMA` and every mutation; a query over a
   248k-row table returns capped, not hung.
-- With the agent stopped: the note box still works (it is a filesystem drop),
-  and every DB-mutating control is disabled with the explicit refusal.
+- A command that fails renders the agent's own refusal text, verbatim — the
+  front never composes its own explanation of a refusal it did not make.
 
 ## Final success criteria
 

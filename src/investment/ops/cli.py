@@ -10,7 +10,6 @@ writes only ever go through the running agent — see docs/DECISIONS.md).
 """
 
 import argparse
-import contextlib
 import dataclasses
 import json
 import os
@@ -22,6 +21,7 @@ from typing import Any
 from investment.config import Settings
 from investment.market.regime import RegimeThresholds, SeriesHistory
 from investment.market.regime import audit as regime_audit
+from investment.ops.rows import connect_readonly, unnest_json_columns
 
 _STATUS_ENTITY_COUNTS = (
     "framework",
@@ -65,28 +65,8 @@ def _value(text: str) -> str:
     return _c(text, _Ansi.BOLD, _Ansi.CYAN)
 
 
-def _connect_readonly(db_path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
-    return con
-
-
-def _unnest_json_columns(row: dict[str, Any]) -> dict[str, Any]:
-    """Columns stored as JSON1 TEXT (MAP/STRING[], DATA_MODELS.md 'Physical
-    mapping') come back from SQLite as JSON-encoded strings; parse them back
-    into native lists/dicts so --json nests them instead of double-encoding
-    (`"tags": "[\\"a\\"]"` -> `"tags": ["a"]`)."""
-    result: dict[str, Any] = {}
-    for key, value in row.items():
-        if isinstance(value, str) and value[:1] in "[{":
-            with contextlib.suppress(ValueError):
-                value = json.loads(value)
-        result[key] = value
-    return result
-
-
 def cmd_sql(db_path: Path, query: str, as_json: bool) -> None:
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     try:
         rows = con.execute(query).fetchall()
     except sqlite3.Error as e:
@@ -98,7 +78,7 @@ def cmd_sql(db_path: Path, query: str, as_json: bool) -> None:
     if as_json:
         print(
             json.dumps(
-                [_unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
+                [unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
             )
         )
         return
@@ -137,7 +117,7 @@ def cmd_invariants(
     weight_effective DESC, the same conviction ordering the Worker reads."""
     where = []
     params: dict[str, str] = {}
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     if regime is not None:
         where.append("EXISTS (SELECT 1 FROM json_each(invariant.tags) WHERE value = :regime_tag)")
         params["regime_tag"] = f"regime:{_resolve_regime_type_id(con, regime)}"
@@ -165,7 +145,7 @@ def cmd_invariants(
     if as_json:
         print(
             json.dumps(
-                [_unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
+                [unnest_json_columns(dict(row)) for row in rows], indent=2, ensure_ascii=False
             )
         )
         return
@@ -183,7 +163,7 @@ def cmd_invariants(
 
 
 def cmd_status(db_path: Path, as_json: bool) -> None:
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     try:
         defender = con.execute("SELECT id, name FROM portfolio WHERE defender = 1").fetchone()
         last_chain = con.execute(
@@ -250,14 +230,14 @@ def _fetch_regime_rows(con: sqlite3.Connection, history: bool) -> list[dict[str,
 def cmd_regime(db_path: Path, history: bool, as_json: bool) -> None:
     """docs/MILESTONES.md M3 DoV `invest regime --history` — episodes ranked
     chronologically (or just the current one, without --history)."""
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     try:
         rows = _fetch_regime_rows(con, history)
     finally:
         con.close()
 
     if as_json:
-        print(json.dumps([_unnest_json_columns(row) for row in rows], indent=2, ensure_ascii=False))
+        print(json.dumps([unnest_json_columns(row) for row in rows], indent=2, ensure_ascii=False))
         return
 
     if not rows:
@@ -288,7 +268,7 @@ def cmd_regime_audit(db_path: Path, as_json: bool) -> None:
     from-scratch replay of the full market_data history via the pure
     `regime.audit()` (no `InvestmentDB`: reads stay on the CLI's read-only
     connection, per ADR-005)."""
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     try:
         threshold_rows = [
             dict(row) for row in con.execute("SELECT key, value FROM system_thresholds").fetchall()
@@ -343,7 +323,7 @@ def _sparkline(values: list[float], width: int = 60) -> str:
 def cmd_ranking(db_path: Path, snapshot_date: str | None, as_json: bool) -> None:
     """docs/TASKS.md Task 6ter.2 `invest ranking [--date D]` — the latest (or
     a given date's) portfolio_weekly_snapshot table."""
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     try:
         if snapshot_date is None:
             latest = con.execute("SELECT MAX(date) AS d FROM portfolio_weekly_snapshot").fetchone()
@@ -366,7 +346,7 @@ def cmd_ranking(db_path: Path, snapshot_date: str | None, as_json: bool) -> None
         con.close()
 
     if as_json:
-        print(json.dumps([_unnest_json_columns(row) for row in rows], indent=2, ensure_ascii=False))
+        print(json.dumps([unnest_json_columns(row) for row in rows], indent=2, ensure_ascii=False))
         return
 
     if not rows:
@@ -398,7 +378,7 @@ def cmd_ranking(db_path: Path, snapshot_date: str | None, as_json: bool) -> None
 def cmd_nav(db_path: Path, portfolio_id: str, as_json: bool) -> None:
     """docs/TASKS.md Task 6ter.2 `invest nav <portfolio_id>` — NAV series +
     terminal sparkline (docs/MILESTONES.md M4)."""
-    con = _connect_readonly(db_path)
+    con = connect_readonly(db_path)
     try:
         rows = [
             dict(row)
