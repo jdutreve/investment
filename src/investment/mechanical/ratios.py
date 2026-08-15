@@ -12,6 +12,7 @@ Monday 08:00 catch-up job only — UC6 reads it, it does not append").
 """
 
 import dataclasses
+import logging
 import math
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -21,6 +22,8 @@ import numpy as np
 import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
+
+logger = logging.getLogger(__name__)
 
 ALL_WEATHER_ID = "all-weather-USD"
 CASH_TICKER = "cash"
@@ -414,12 +417,37 @@ async def persist_nav(
     # would let one bad fetch erase good history. Truncation at the front is a
     # deliberate change of what the series IS; truncation at the back is a
     # symptom.
-    await db.command(
-        "DELETE FROM portfolio_nav WHERE portfolio_id = :pid AND ts < :first",
+    #
+    # AND IT IS LOGGED, because this function cannot tell a deliberate head from
+    # an accidental one. A constituent whose fetch came back truncated makes the
+    # synthesized NAV start later, and this would then delete real history — the
+    # loss is recoverable (the series is wholly derived, so the next good run
+    # rebuilds it) but a WEEK of rankings would read return_3y/5y off a stump. A
+    # span guard cannot separate the two cases: the legitimate one that prompted
+    # this — the stack's calendar moving to 1993-11-01 — is itself a shortening.
+    # So the deletion is never silent, and the log line is what makes an
+    # unexpected one findable (CLAUDE.md: "a bound whose consumption is not
+    # logged cannot be re-derived").
+    first = nav.index[0].date().isoformat()
+    pruned = await db.query(
+        "SELECT COUNT(*) AS n FROM portfolio_nav WHERE portfolio_id = :pid AND ts < :first",
         pid=portfolio_id,
-        first=nav.index[0].date().isoformat(),
+        first=first,
     )
-    return NavBackfillResult(portfolio_id, len(rows), nav.index[0].date().isoformat())
+    if pruned and int(pruned[0]["n"]):
+        logger.warning(
+            "%s: NAV now starts %s — pruning %d earlier row(s) of a series indexed to a "
+            "different base date",
+            portfolio_id,
+            first,
+            int(pruned[0]["n"]),
+        )
+        await db.command(
+            "DELETE FROM portfolio_nav WHERE portfolio_id = :pid AND ts < :first",
+            pid=portfolio_id,
+            first=first,
+        )
+    return NavBackfillResult(portfolio_id, len(rows), first)
 
 
 async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValuation]:

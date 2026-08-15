@@ -362,6 +362,29 @@ def test_vcit_is_under_the_overlay_against_the_measurement() -> None:
     assert "VCIT" not in market_signal.STRESS_GATED_SLEEVES
 
 
+def test_the_stack_calendar_is_where_every_sleeve_is_priced() -> None:
+    """Step 6 item 1: the stack walks its OWN clock, not the bridge defender's
+    NAV index (`market_signal.stack_calendar`). The rule is the same one
+    `ratios.synthesize_nav` applies — a book cannot be priced on a day one of
+    its sleeves has no price — and the consequence is the record opening
+    1993-11-01, where VCIT's proxy begins.
+
+    A day one sleeve MISSES is excluded even when it sits mid-history: the
+    calendar is where the whole book is valuable, not where most of it is."""
+    index = pd.bdate_range("1993-11-01", periods=200)
+    full = pd.Series(100.0, index=index)
+    prices = {t: full.copy() for t in market_signal.STACK_TICKERS}
+    prices["VCIT"] = full[50:]  # the sleeve that starts latest, as in reality
+    prices["IWN"] = full.drop(index[120])  # and one with a hole mid-history
+    prices["SHY"] = full.copy()  # a haven CANDIDATE, loaded but not a sleeve
+
+    calendar = market_signal.stack_calendar(prices)
+
+    assert calendar[0] == index[50]
+    assert index[120] not in calendar
+    assert len(calendar) == 200 - 50 - 1
+
+
 def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
     """`describe_rule` promises the Worker a description that cannot go stale.
     It went stale in six hours: the sleeve list interpolated, the sentence

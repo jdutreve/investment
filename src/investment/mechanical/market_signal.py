@@ -1565,7 +1565,9 @@ class StackSeries:
 
 def stack_calendar(prices: Mapping[str, pd.Series]) -> pd.DatetimeIndex:
     """THE STACK'S OWN TRADING CALENDAR: every date on which all five sleeves
-    are priced (docs/V1_STRATEGY.md Step 6, item 1).
+    are priced (docs/V1_STRATEGY.md Step 6, item 1). `prices` may carry more
+    than the sleeves — the haven CANDIDATES are loaded beside them — and this
+    reads `STACK_TICKERS` out of it, so no caller has to know the subset.
 
     The same all-constituents-priced rule `ratios.synthesize_nav` applies, and
     for the same reason — a book cannot be priced on a day one of its sleeves
@@ -1579,9 +1581,15 @@ def stack_calendar(prices: Mapping[str, pd.Series]) -> pd.DatetimeIndex:
     2026-08-15 the walk stepped on `replay._book_calendar` — the NAV index of
     the bridge defender's portfolio — so the adopted strategy could not run on a
     database where the bridge had never been seeded or NAV-backfilled. It now
-    depends on nothing but its own sleeves' prices."""
-    frame = pd.DataFrame({ticker: series for ticker, series in prices.items()})
-    return pd.DatetimeIndex(frame.sort_index().dropna(how="any").index)
+    depends on nothing but its own sleeves' prices.
+
+    A NAME OVER `replay.priced_calendar`, not a second implementation. This
+    carried its own copy of the rule for a few hours on the day both were
+    written, while `priced_calendar`'s docstring already claimed to be the one
+    implementation and named this function as a caller — a sentence that was
+    aspirational rather than true. What this adds is the STACK's meaning: which
+    tickers, and why that start date."""
+    return replay.priced_calendar(prices, STACK_TICKERS)
 
 
 async def load_series(db: InvestmentDB) -> StackSeries:
@@ -1605,7 +1613,7 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # the bridge defender's NAV index. Both arms still share it (the control arm
     # reads the same `StackSeries`), so `A - B` still cannot be an artefact of a
     # calendar difference.
-    calendar = stack_calendar({t: prices[t] for t in STACK_TICKERS})
+    calendar = stack_calendar(prices)
 
     # Keep the RAW series alongside the calendar-aligned one: the ffill that
     # carries a stale print forward is right for the decision (it is what was

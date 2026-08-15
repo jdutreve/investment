@@ -193,8 +193,14 @@ A *pairwise* "tied within 0.02" test is NOT transitive (1.00/1.015/1.03: A ties
 B, B ties C, C beats A) — it admits no consistent order and the result follows
 row order; grouping makes the key `(group, −calmar, −max_drawdown)`, a total
 order (M4).
-`calmar_rolling < 1.0` → demoted to bottom. Breaching the user drawdown rule
-keeps the row ranked but excludes it from defender role and proposal candidacy.
+`calmar_rolling < 1.0` → demoted to bottom. TWO things keep a row ranked while
+barring it from the defender role and proposal candidacy, and they are separate
+rules with separate mechanisms: breaching the user DRAWDOWN rule (stamped on the
+snapshot as `excluded_from_candidacy`, `snapshots.breaches_drawdown_rule`), and
+being a BENCHMARK (`seed_data.BENCHMARK_PORTFOLIOS` = `all-weather-USD`,
+`spy-USD` — refused by kind in the challenger search, and carrying no flag,
+since the flag means the drawdown one). A yardstick is ranked so it is seen and
+never proposed so it cannot be bought.
 
 **Binding caps** — `user_profile.max_single_asset_pct` (**60%** since 2026-08-14
 for the tight-flat book's SPY 60, where the equity dial's Sortino peaks; 50 by
@@ -220,10 +226,11 @@ blend, which is now its only cognitive-free caller (ADR-012).
 
 **Trading costs (ADR-010)** — ONE rate, `ratios.TRADING_COST_BPS` = **23 bps
 per order** (Saxo actual; no FX leg, every portfolio is USD in a USD account),
-charged to EVERY NAV including the benchmark and including the monthly
-drift-rebalance. `system_thresholds.replay_cost_bps` must equal it: a replay
-that validates a strategy and a ranking that compares it have to charge the
-same rate.
+charged to EVERY NAV — the BENCHMARKS included (both of them since 2026-08-15),
+the temporary NAVs that score a proposal at +12w included (I-45), and the
+monthly drift-rebalance included. `system_thresholds.replay_cost_bps` must equal
+it: a replay that validates a strategy and a ranking that compares it have to
+charge the same rate.
 
 **THE WORKER DOES NOT ALLOCATE (ADR-012)** — it READS the market-signal
 decision and contributes a qualitative reading, invariants, rule revisions and

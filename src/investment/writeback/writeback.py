@@ -45,7 +45,6 @@ from investment.mechanical.gates import (
     ALLOCATION_SUM_TOLERANCE,
     Caps,
     GateOutcome,
-    ProposalThresholds,
     allocation_well_formed,
     concentration_ok,
     effective_caps,
@@ -107,18 +106,6 @@ _STRATEGY_INNOVATION_TYPES = frozenset({"new_strategy", "strategy_revision"})
 # states "unproven" — the probation verdict, not the spec, decides its fate.
 DEFAULT_FRAMEWORK = "4seasons"
 DEFAULT_CONVICTION = 50.0
-
-
-def proposal_thresholds(thresholds: dict[str, float]) -> ProposalThresholds:
-    """Read the named proposal knobs out of the system_thresholds map."""
-    return ProposalThresholds(
-        sortino_gap_min=thresholds["proposal_sortino_gap_min"],
-        calmar_min=thresholds["proposal_calmar_min"],
-        min_allocation_change_pts=thresholds["proposal_min_allocation_change_pts"],
-        max_turnover_pct=thresholds["proposal_max_turnover_pct"],
-        blend_scenario_weight=thresholds["blend_scenario_weight"],
-        blend_favors_weight=thresholds["blend_favors_weight"],
-    )
 
 
 async def portfolio_caps(db: InvestmentDB, portfolio_id: str) -> dict[str, Any] | None:

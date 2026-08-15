@@ -36,6 +36,7 @@ from investment.db.seed_data import (
     REGIME_TYPES,
     SCENARIOS,
     STRATEGIES,
+    benchmarks_first,
 )
 from investment.db.sqlite import InvestmentDB
 from investment.seed import run_seed
@@ -220,6 +221,27 @@ async def test_seed_idempotent_two_runs(tmp_path: Path) -> None:
         assert defenders[0]["n"] == 1
     finally:
         await db.close()
+
+
+def test_benchmarks_are_built_before_the_portfolios_that_measure_against_them() -> None:
+    """`benchmarks_first` carries an ORDERING CONSTRAINT, not a preference:
+    `ratios._vs_benchmark` reads All Weather's persisted NAV back to compute
+    every other portfolio's delta, so a run that built the others first would
+    write a column of nulls on a fresh database.
+
+    Both NAV builders walk the list through here, which is what let All Weather
+    stop being an out-of-loop special case in each of them (seed step 12 and
+    `catchup.refresh_nav` both did it, three lines under a docstring calling a
+    second producer of one series a smell)."""
+    ordered = benchmarks_first(PORTFOLIOS)
+
+    assert {str(p["id"]) for p in ordered} == {str(p["id"]) for p in PORTFOLIOS}
+    leading = [str(p["id"]) for p in ordered[: len(BENCHMARK_PORTFOLIOS)]]
+    assert set(leading) == BENCHMARK_PORTFOLIOS
+    # Everything else keeps the order it was seeded in — the function moves the
+    # benchmarks, it does not re-sort the file.
+    rest = [str(p["id"]) for p in ordered[len(BENCHMARK_PORTFOLIOS) :]]
+    assert rest == [str(p["id"]) for p in PORTFOLIOS if str(p["id"]) not in BENCHMARK_PORTFOLIOS]
 
 
 async def test_the_seeded_benchmarks_are_ranked_and_hold_no_strategy(tmp_path: Path) -> None:
