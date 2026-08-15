@@ -73,6 +73,16 @@ function LatestDecision({ decision }: { decision: StackDecision }) {
   const below = (overlay.below_trend ?? []) as string[];
   const windows = (overlay.windows_days ?? null) as number[] | null;
   const window = windows ? windows.join("/") : String(overlay.window_days ?? "—");
+  const sleeves = (overlay.sleeves ?? {}) as Record<string, Row>;
+  const decisionDate = typeof p.decision_date === "string" ? p.decision_date : null;
+  // MONTHLY CADENCE means a below/above reading can be days to weeks stale by
+  // the time it is read — a sleeve can cross back the other way in the
+  // meantime without the decision re-running (it only does monthly). Flagged
+  // rather than silently trusted, because a reading close to a threshold reads
+  // as fact until someone checks the date and finds it is three weeks old.
+  const daysSinceDecision = decisionDate
+    ? Math.floor((Date.now() - new Date(decisionDate).getTime()) / 86_400_000)
+    : null;
 
   return (
     <div className="card">
@@ -153,11 +163,30 @@ function LatestDecision({ decision }: { decision: StackDecision }) {
                   </tr>
                 ))}
                 <tr>
-                  <td colSpan={2}>{window}d trend overlay</td>
-                  <td colSpan={2} className="muted">
-                    {below.length ? `${below.join(", ")} below trend` : "clear"}
+                  <td colSpan={4} style={{ paddingTop: 12, fontWeight: 600 }}>
+                    {window}d trend overlay — as of {date(decisionDate)}
+                    {daysSinceDecision !== null && daysSinceDecision > 0 ? (
+                      <span className="muted" style={{ fontWeight: 400 }}>
+                        {" "}
+                        ({daysSinceDecision}d ago — a sleeve can cross back before the next
+                        monthly decision reads it)
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
+                {Object.entries(sleeves).map(([ticker, read]) => (
+                  <tr key={ticker}>
+                    <td className="mono">
+                      {ticker}
+                      {below.includes(ticker) ? (
+                        <span className="badge excluded">below</span>
+                      ) : null}
+                    </td>
+                    <td className="num">{num(read.price, 0)}</td>
+                    <td className="muted">vs {window}d avg {num(read.moving_average, 0)}</td>
+                    <td className="muted mono">knowable {date(read.knowable_at)}</td>
+                  </tr>
+                ))}
                 {hysteresis.pending_book ? (
                   <tr>
                     <td colSpan={2}>Pending switch</td>
