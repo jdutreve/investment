@@ -1034,15 +1034,32 @@ re-seeding on the strength of a note.**
 
 ---
 
-## M10 — Full ops + hardening (1 d — Phase 6ter)
+## M10 — Full ops + hardening (2–3 d — Phase 6ter)
 
-Dashboard 8 pages, `invest` full CLI over the API, X-Ops-Token,
-idempotency, async jobs (commands.py and run-lock exist since M9).
+`ops/api.py` (does NOT exist yet — X-Ops-Token, JSON reads, `POST /api/cmd`,
+async jobs), `invest` full CLI over the API, and the dashboard's **Phases 1–3**:
+shell + Overview, Ranking & portfolios, and the market-signal stack. Spec with
+per-phase success criteria: docs/Dashboard.md. `commands.py` and the run-lock
+exist since M9.
+
+**Re-budgeted from 1 day (2026-08-15), for two reasons found while writing the
+spec.** The 1-day estimate read "commands.py and run-lock exist" and assumed the
+API did too — it does not, and `ops/dashboard/` is an empty directory. And the
+page list this milestone pointed at was written before ADR-007: it had no page
+for the market-signal stack, which is the only thing that now allocates, so the
+milestone would have shipped a dashboard that could not show the decision the
+owner acts on. Dashboard Phases 4–6 (invariants, knowledge, proposals/outcomes,
+EventLog, actions, SQL console) ship after M10, once daily use has an opinion.
 
 **Definition of Verified**
-- [ ] cross-front equivalence tests green (bot vs dashboard vs CLI)
+- [ ] cross-front equivalence tests green (bot vs dashboard vs CLI) — same
+      numbers AND same `n/a`s, not merely the same order
 - [ ] API without token → 403; `invest` offline matrix behaves
-- [ ] daily-use comfort: YOUR verdict after a week
+- [ ] agent stopped → every read page still renders in full; every write
+      control disabled with the reason
+- [ ] a blocked market-signal decision renders unmistakably differently from a
+      month that did not move
+- [ ] daily-use comfort: YOUR verdict after a week (judged on Phases 1–3)
 
 ---
 

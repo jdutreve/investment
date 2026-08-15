@@ -288,7 +288,7 @@ not root scripts — no path ambiguity.
 │       │   ├── api.py            ← aiohttp localhost API (127.0.0.1:8765)
 │       │   ├── commands.py       ← ONE command layer (Telegram/CLI/dashboard)
 │       │   ├── cli.py            ← `invest` console script
-│       │   └── dashboard/        ← server-rendered pages + inline SVG
+│       │   └── dashboard/        ← React+TS source, built to static assets
 │       └── telegram/
 │           ├── digest.py         ← weekly digest renderer
 │           └── bot.py            ← UC9 chat + proposal/innovation callbacks
@@ -1780,8 +1780,8 @@ serves a localhost-only API + the dashboard. See DECISIONS.md ADR-005.
 - ALWAYS AVAILABLE, agent up or down: `feed` and `note` (FILESYSTEM drops
   into the inbox — not DB writes; the watcher's first scan drains them at
   next start) and `backup` (reads the source file).
-- AGENT REQUIRED: DB-mutating commands (accept/reject proposals,
-  enable/disable, drawdown), manual runs, and `chat` (LLM keys live in the
+- AGENT REQUIRED: DB-mutating commands (enable/disable, drawdown, cap —
+  there is no accept/reject, ADR-006), manual runs, and `chat` (LLM keys live in the
   agent) — all through the localhost API → `ops/commands.py` → serialized
   asyncio write path. Agent stopped → explicit refusal message.
 
@@ -1811,10 +1811,10 @@ an executor (the API/watcher/bot stay responsive); progress is visible via
   the Telegram bot handlers — the bot becomes a thin front too).
 
 **`ops/commands.py` invariants:**
-- **Idempotent across fronts**: acting on an already-decided item (a
-  proposal accepted on the dashboard, then `/accept` on Telegram) returns
-  its current state — "already accepted via dashboard at 10:42" — and
-  appends NO second UserDecisionEvent.
+- **Idempotent across fronts**: acting on a state already reached (the cap
+  set to 60 on the dashboard, then `/cap 60` on Telegram) returns its
+  current state — "the concentration cap is already 60%" — and appends NO
+  second UserDecisionEvent.
 - **Run-lock (single-flight)**: {catchup, chain, uc8, replay} share one
   lock — a concurrent request is refused with "already running: <step>".
   Covers the Monday chain vs manual runs vs the ad-hoc UC9 UC8.
@@ -1855,31 +1855,44 @@ OPS
 
 ### Task 6ter.3 — `ops/dashboard/` — local web dashboard
 
-Served by the same aiohttp server at `http://127.0.0.1:8765`. No build
-step, no CDN: server-rendered HTML + vanilla JS `fetch` on the JSON API;
-charts as server-generated inline SVG (NAV lines, weight timelines).
-Pages:
+Served by the same aiohttp server at `http://127.0.0.1:8765`, as **static
+assets built by Vite from React + TypeScript** (ADR-005 amendment, M10): no
+CDN, no dev server in the shipped path, same-origin with the API so the
+`X-Ops-Token` scheme holds. **The features and the per-phase success criteria
+live in docs/Dashboard.md** — that file is the spec, this task is the API and
+command-layer contract underneath it. Pages:
 
-1. **Overview** — regime (type, confidence, tags), defender + NAV
-   sparkline, scoreboard, pending proposals, last chain run.
+1. **Overview** — alerts (critical first), regime (type, confidence, tags),
+   market-signal stack standing, defender + NAV sparkline, scoreboard,
+   latest proposal, last chain run.
 2. **Ranking & portfolios** — snapshot table (sortable), portfolio detail
-   with NAV chart and allocation.
-3. **Invariants** — filterable table (tag/status/author/weight); detail =
+   with NAV chart and allocation grouped by asset class.
+3. **Market-signal stack** — the LIVE allocation path (ADR-007): decision
+   timeline off `MarketSignalDecisionEvent`, signal reads vs their 10y
+   medians with `knowable_at`, trend overlay, hysteresis, the binding cap
+   actually applied, the gate outcome (a blocked decision rendered LOUD),
+   and the Worker's reading of it with its own decision date.
+4. **Invariants** — filterable table (tag/status/author/weight); detail =
    description, provenance, SUPPORTS passages, BACKED_BY strategies,
-   confrontation timeline, weight_effective curve.
-4. **Knowledge** — documents/passages browser + semantic search box.
-5. **Proposals & outcomes** — pending (with ACCEPT/REJECT buttons →
-   /api/cmd), history with verdicts, hit-rate chart.
-6. **EventLog** — filterable audit tail (type, source_uc, date).
-7. **SQL console** — read-only textarea → table (the power-user escape
+   confrontation timeline, weight_effective curve. Three verdicts, never
+   two: `proposed` reads as INSUFFICIENT EVIDENCE (ADR-006).
+5. **Knowledge** — documents/passages browser + semantic search box.
+6. **Proposals & outcomes** — the ledger with +12w verdicts, hit-rate,
+   paper-tests in progress, strategies in probation. **No ACCEPT/REJECT
+   buttons: ADR-006 removed the user gate, so a proposal that passes its
+   gates IS the paper-test** (`ops/commands.py` documents that absence).
+7. **EventLog** — filterable audit tail (type, source_uc, date), ULID order.
+8. **SQL console** — read-only textarea → table (the power-user escape
    hatch; same guard as /api/sql).
-8. **Actions panel** — proposal accept/reject, strategy
-   enable/disable, drawdown rule, feed/note upload, manual runs.
+9. **Actions panel** — the owner's rules and only those: strategy
+   enable/disable, drawdown rule, concentration cap, feed/note upload,
+   manual runs with the run-lock holder shown while held.
 
-**Done when:** with the agent running, `invest status` answers in <1s;
-an ACCEPT click on the dashboard produces UserDecisionEvent → Writeback
-(same rows as the Telegram button); with the agent stopped, reads still
-work and writes fail with the explicit message.
+**Done when:** with the agent running, `invest status` answers in <1s; a
+cap or drawdown change on the dashboard produces the same
+UserDecisionEvent → row as the Telegram `/cap` command, and repeating it
+from the other front appends NO second event; with the agent stopped,
+reads still work and writes fail with the explicit message.
 
 ---
 

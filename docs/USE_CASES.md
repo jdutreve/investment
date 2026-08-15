@@ -662,14 +662,21 @@ Examples:
   "How has the defender ranked over the last 8 weeks?"
 ```
 
-Proposal buttons ([ACCEPT PAPER-TEST]/[REJECT]) are handled by the same bot:
-callbacks set `Proposal.user_response` via Writeback, with a
-UserDecisionEvent appended first. Innovations (new invariants/strategies)
-have NO button — they integrate mechanically and are only reported (ADR-006).
-On [REJECT] the bot prompts for an optional one-line reason →
-`Proposal.rejection_reason` (fed back into the Worker's context and the
-switch cooldown rule). Pending proposals auto-expire after
-`proposal_expiry_days` (14).
+**There are NO proposal buttons, on any front** — this paragraph specified
+[ACCEPT PAPER-TEST]/[REJECT] callbacks until ADR-006 removed the
+user-validation gate, and the amendment at the top of UC8 has said so since
+M8 while this text kept describing them. A proposal that passes its gates IS
+the paper-test: `writeback._insert_market_signal_proposal` sets
+`paper_started` for that reason, `Proposal.user_response` and
+`rejection_reason` are columns nothing writes, and `proposal_expiry_days`
+retired with them (`mechanical/catchup.py`). Innovations (new
+invariants/strategies) never had a button either — they integrate
+mechanically and are only reported (ADR-006).
+
+What the owner still decides, and it is the whole list: the drawdown rule,
+the concentration cap, and whether a strategy is enabled. Those are
+preferences, not theses; the agent adjudicates theses and never these
+(`ops/commands.py`).
 
 **Output:** UserDecisionEvent → EventLog.
 **User action:** This IS the user action UC.

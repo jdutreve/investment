@@ -299,9 +299,14 @@ docs/DATA_MODELS.md.
   secret in logs or EventLog payloads. Pre-commit: ruff, mypy, secret scan.
 - Schema: `CREATE TABLE IF NOT EXISTS` for V1; first post-go-live change
   starts a numbered migration convention.
-- Dashboard (`ops/dashboard/`): server-rendered HTML + vanilla JS, no
-  bundler/CDN/SPA; escape all rendered text; semantic HTML; server-side SVG
-  charts; errors surfaced, never swallowed. Spec: docs/TASKS.md Phase 6ter.
+- Dashboard (`ops/dashboard/`): **Vite + React + TypeScript, built to static
+  assets served by the agent's own aiohttp process** (ADR-005 amendment
+  2026-08-15 — the "no build step / no new framework" clause is retired, the
+  no-CDN and one-runtime-process clauses are not). Same-origin, so the
+  `X-Ops-Token` model is unchanged; no dev server in the shipped path; escape
+  all rendered text; errors surfaced, never swallowed. Spec: docs/Dashboard.md
+  (features + success criteria, phased) and docs/TASKS.md Phase 6ter (API and
+  command-layer contract).
 
 ## Git
 

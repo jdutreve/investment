@@ -418,13 +418,17 @@ Proposal {
   reasoning           : STRING  -- Worker reasoning; for reallocation, must cite
                                 --   the delta blend inputs (scenario target +
                                 --   FAVORS anchor) and supporting invariants
-  user_response       : STRING  -- 'pending' | 'accepted' | 'rejected' | 'expired'
-                                --   auto-set to 'expired' after
-                                --   proposal_expiry_days (system_thresholds, 14)
-  rejection_reason    : STRING  -- optional free text captured by the bot on
-                                --   [REJECT]; fed back into
-                                --   PlannerContext.recent_proposals
-  paper_started       : DATE    -- set when user accepts a paper-test
+  user_response       : STRING  -- DEAD since ADR-006 removed the user gate.
+                                --   Nothing writes it; it kept the values
+                                --   'pending'|'accepted'|'rejected'|'expired'
+                                --   and the expiry sweep that set the last one.
+                                --   Column retained, behaviour retired.
+  rejection_reason    : STRING  -- DEAD with it (there is no [REJECT]). Still
+                                --   READ by PlannerContext.recent_proposals,
+                                --   where it can only ever be NULL.
+  paper_started       : DATE    -- set by writeback when the proposal passes
+                                --   every gate — that IS the paper-test
+                                --   (ADR-006), no acceptance involved
   outcome             : MAP     -- {proposed_return, incumbent_return,
                                 --   verdict: 'won'|'lost'|'pending'} — written
                                 --   by evaluate_proposals() at
@@ -895,7 +899,7 @@ CREATE TABLE IF NOT EXISTS system_thresholds (...);
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
 -- Seed includes regime thresholds, rolling window (756d), recency half-life,
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
--- proposal_expiry_days,
+-- proposal_expiry_days (seeded but UNWIRED — ADR-006, see mechanical/catchup.py),
 -- invariant_min_confrontations (N_min, 3) and invariant_time_validation_score
 --   (θ, 0.60) — the time-validation verdict gate (ARCHITECTURE "Birth
 --   maturation"). NOT calibrated by the Phase 9 replay, despite the family

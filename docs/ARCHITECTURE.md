@@ -1146,10 +1146,13 @@ Seeds      → runs UC0 once at install
 Feeds      → PDFs, URLs, one-line notes (Telegram, `invest feed/note`, drop)
 Challenges → questions theses via UC9 chat (Telegram or `invest chat`)
 Reads      → weekly digest (push) | dashboard http://127.0.0.1:8765 —
-             ranking, invariants + confrontation timelines, proposals &
-             scoreboard, EventLog, semantic search, read-only SQL console
-Arbitrates → accepts/rejects paper-mode Proposals only (buttons, CLI,
-             dashboard — one command layer, ADR-005); invariant/strategy
-             integration is mechanical, reported not arbitrated (ADR-006)
+             the market-signal decision (the live allocation path), ranking,
+             invariants + confrontation timelines, proposals & scoreboard,
+             EventLog, semantic search, read-only SQL console
+Places     → the orders, by hand, from the digest or the dashboard — V1
+             executes nothing (ADR-006). There is NO proposal accept/reject
+             gate: a proposal that passes its gates IS the paper-test, and
+             invariant/strategy integration is likewise mechanical, reported
+             not arbitrated (ADR-006)
 Defines    → drawdown rule, concentration, strategy enabled flag
 ```

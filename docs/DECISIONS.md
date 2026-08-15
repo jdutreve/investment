@@ -172,8 +172,9 @@ SQLite file, while open, is not an interface. Meanwhile the single-writer
 rule must survive any new write path.
 
 **Decision.** One command layer, three fronts:
-- `ops/commands.py` — every user action (accept/reject proposals, feed,
-  note, enable/disable, drawdown, manual runs) = validate →
+- `ops/commands.py` — every user action (feed, note, enable/disable,
+  drawdown, cap, manual runs — accept/reject was listed here until ADR-006
+  removed the user gate; see that module's docstring) = validate →
   UserDecisionEvent → Writeback. The Telegram bot, the `invest` CLI and
   the dashboard are thin clients of this layer.
 - **Reads direct, writes through the agent**: SQLite WAL gives concurrent
@@ -182,6 +183,8 @@ rule must survive any new write path.
   aiohttp API (127.0.0.1:LOCAL_API_PORT). Agent down → read-only mode.
 - Dashboard: server-rendered HTML + vanilla fetch + inline SVG — no build
   step, no CDN, no new framework (aiohttp is already a dependency).
+  *(Half-superseded by the M10 amendment below: the CDN and one-process
+  clauses hold, the build-step and framework clauses do not.)*
 - Power-user escape hatch: read-only SQL console (keyword blacklist,
   LIMIT 5000 sanity cap — the Worker's 20-row cap is a guardrail for the
   LLM, not for the human owner).
@@ -194,6 +197,36 @@ every API call — localhost binding alone does not stop browser CSRF;
 command layer idempotent across fronts; single-flight run-lock over
 {catchup, chain, uc8, replay}; long ops are async jobs; `feed`/`note`/
 `backup` stay available agent-down (filesystem/read-only operations).
+
+**Amendment (M10, 2026-08-15, owner decision) — the browser front gets a
+build step.** The original decision bundled four separate refusals into one
+line: no build step, no CDN, no new framework, no second process. Only three
+of them were load-bearing, and writing the dashboard spec is what separated
+them. The dashboard is now **Vite + React + TypeScript compiled to STATIC
+ASSETS, served by the agent's own aiohttp process** on 127.0.0.1:8765.
+
+What changes: a build step, and React as a dependency of the front (not of the
+agent). What does NOT change, and these are the clauses that carried the
+security and operational properties: nothing is fetched from a CDN; the runtime
+is still ONE process, so there is no dev server in the shipped path and no
+second thing to start; and the page is still SAME-ORIGIN with the API, which is
+what makes the `X-Ops-Token` scheme work at all — a cross-origin front would
+need CORS, and the custom header's protection is precisely that a cross-origin
+preflight fails.
+
+The reason is the one this ADR already gives for existing. It was written
+because "Telegram alone is a narrow pipe (no tables, no charts)" — and the
+dashboard's job is the pipe that is not narrow: eight data-dense pages of
+filterable tables, sortable rankings and time series. Hand-rolling that in
+vanilla JS is hand-rolling what a mature library does well, which is the
+opposite of this project's "prefer proven/boring over clever". The refusal was
+aimed at gratuitous framework weight in the AGENT; it was never a thesis about
+rendering tables.
+
+**This amendment scopes to the dashboard front only.** No build step enters the
+Python side: `ops/api.py`, `ops/commands.py`, the CLI and the bot stay exactly
+as they are, and the API contract is unchanged — the front that consumes it
+merely got better tools. Spec, phased with success criteria: docs/Dashboard.md.
 
 ---
 
