@@ -475,6 +475,68 @@ async def test_regime_events_frozen_across_confidence_or_tag_update(tmp_path: Pa
         await db.close()
 
 
+async def test_a_closed_regimes_updated_at_is_frozen_at_the_print_that_closed_it(
+    tmp_path: Path,
+) -> None:
+    """`replay.RegimeInstance.closed_at` IS this column, and it is derived
+    rather than stored on the strength of exactly this property: only the
+    CURRENT regime is ever refreshed (`RegimeUpdate` is built from `current`),
+    so once a regime is closed its `updated_at` stops moving and keeps meaning
+    "the print that made this closure knowable" (I-49).
+
+    Without this test the derivation is a convention: any future writer that
+    touches a closed row would silently re-date the replay's whole
+    point-in-time FAVORS filter."""
+    db = InvestmentDB(_settings_db(tmp_path))
+    try:
+        await _seed_minimal(db)
+
+        async def print_at(ts: str, growth: float, cpi: float, vix: float = 12.0) -> None:
+            for ticker, cls, values in (
+                ("GROWTH_COMPOSITE", "MACRO", {"level": 100.0, "speed": growth}),
+                ("CPIAUCSL", "MACRO", {"level": 3.0, "speed": cpi}),
+                ("^VIX", "VOLATILITY", {"level": vix, "speed": 0.0}),
+            ):
+                await db.append_ts(
+                    "market_data",
+                    datetime.fromisoformat(ts + "T00:00:00+00:00"),
+                    {"ticker": ticker, "asset_class": cls, "currency": "USD"},
+                    {"acceleration": 0.0, **values},
+                )
+
+        # Three rising/rising prints commit a regime, three falling/rising ones
+        # commit its successor — which is what CLOSES the first.
+        for ts in ("2020-01-15", "2020-02-15", "2020-03-15"):
+            await print_at(ts, 2.0, 0.3)
+        await regime.detect(db)
+        # Enough falling prints to turn the SMOOTHED speed (4-month window) and
+        # then confirm the flip — three would move the raw print and not the
+        # direction the detector classifies on.
+        for month in range(4, 12):
+            await print_at(f"2020-{month:02d}-15", -2.0, 0.3)
+        await regime.detect(db)
+
+        closed = await db.query("SELECT id, end_date, updated_at FROM regime WHERE is_current = 0")
+        assert closed, "the successor should have closed the first regime"
+        row = closed[0]
+        assert row["end_date"] is not None
+        closed_at = str(row["updated_at"])
+        # The closing print is LATER than the retroactive end — that gap is the
+        # confirmation window I-49 exists about.
+        assert closed_at > str(row["end_date"])
+
+        # A later print that only refreshes the CURRENT regime's tags must not
+        # touch the closed row's `updated_at`.
+        await print_at("2020-07-15", -2.0, 0.3, vix=40.0)
+        assert await regime.detect(db) == []  # an update, not a new episode
+        after = (await db.query("SELECT updated_at FROM regime WHERE id = :id", id=str(row["id"])))[
+            0
+        ]
+        assert str(after["updated_at"]) == closed_at
+    finally:
+        await db.close()
+
+
 async def _detect_and_current_events(db: InvestmentDB) -> list[str]:
     await regime.detect(db)
     row = (await db.query("SELECT events FROM regime WHERE is_current = 1"))[0]

@@ -118,11 +118,19 @@ _PRUNE: tuple[tuple[str, str], ...] = (
 # regime that looked open at the old t may have closed inside the interval, and a
 # newly confirmed regime takes over `is_current`.
 _REGIME_ASOF_REPAIRS: tuple[tuple[str, str], ...] = (
-    # A regime open at t must LOOK open at t. `end_date` is the retroactive
-    # close, so a regime confirmed before t but closed after it would otherwise
-    # hand the Worker the date its own regime ends (the `end_date`-knowability
-    # half of I-49, closed here for the agentic path).
-    ("regime", "UPDATE regime SET end_date = NULL WHERE date(end_date) > :t"),
+    # A regime open at t must LOOK open at t, and "open at t" means its CLOSURE
+    # was not yet knowable — not merely that its retroactive `end_date` is in
+    # the future.
+    #
+    # THIS KEYED ON `end_date` UNTIL 2026-08-15 and closed only half of the half
+    # it claimed (I-49). A regime whose end_date fell BEFORE t was left closed
+    # even when the three confirming prints that made the closure knowable
+    # landed after t — so the Worker read, as settled history, a regime nobody
+    # on that date knew had ended. `updated_at` on a closed row IS that
+    # confirming print (`market.regime._commit_regime` writes both in one
+    # transaction), and it is always later than `end_date`, so keying on it
+    # subsumes the old rule instead of replacing it.
+    ("regime", "UPDATE regime SET end_date = NULL WHERE date(updated_at) > :t"),
     # `is_current` marks 2026's current regime. As-of t it is the latest VISIBLE
     # one — the same `max(created_at, id)` rule replay.py resolves the as-of
     # regime with, so the two paths cannot disagree.

@@ -277,6 +277,10 @@ def _inputs(*, panel_dates: pd.DatetimeIndex, challenger_sortino: float) -> Repl
         scenarios=[],
         prescribed={},
         caps=Caps(max_single_asset_pct=100.0, max_drawdown_pct=-15.0),
+        # No portfolio carries its own rule here, so `caps_for` returns the
+        # user's for both — the I-47 behaviour a test that wants otherwise
+        # overrides explicitly (see `test_a_challengers_own_drawdown_rule_binds`).
+        portfolio_caps={},
         allowed_tickers=frozenset({"SPY", "TLT", "cash"}),
         initial_defender_id="defender",
     )
@@ -369,11 +373,79 @@ def test_replay_point_in_time() -> None:
     pd.testing.assert_series_equal(clean_result.nav_agent_follow, leaked_result.nav_agent_follow)
 
 
+def test_the_regime_asof_sees_the_one_the_system_is_actually_in() -> None:
+    """I-49, the other half. `_load_regimes` filtered to CLOSED instances —
+    right for `_favors_asof`, which aggregates completed periods, and wrong for
+    this one, which answers "what would the live detector have shown on that
+    Monday". The regime the system is IN is open by definition, so every date
+    after the last closure ran under the previous label."""
+    dates = pd.DatetimeIndex(pd.bdate_range("2000-01-03", periods=500))
+    closed = RegimeInstance(
+        "r1",
+        "stagflation",
+        pd.Timestamp("2000-01-10"),
+        pd.Timestamp("2000-06-01"),
+        pd.Timestamp("2000-02-10"),
+        pd.Timestamp("2000-08-01"),
+    )
+    open_now = RegimeInstance(
+        "r2",
+        "rising-growth-falling-inflation",
+        pd.Timestamp("2000-06-01"),
+        None,  # still running
+        pd.Timestamp("2000-08-01"),
+        None,  # and therefore not closed
+    )
+    inputs = dataclasses.replace(
+        _inputs(panel_dates=dates, challenger_sortino=0.5), regimes=[closed, open_now]
+    )
+
+    # Before the open regime was confirmed, the closed one is the latest known.
+    assert replay._regime_asof(inputs, pd.Timestamp("2000-07-01")) == "stagflation"
+    # After it, the OPEN one is what the detector shows — the label that used to
+    # be invisible here.
+    assert (
+        replay._regime_asof(inputs, pd.Timestamp("2000-09-01")) == "rising-growth-falling-inflation"
+    )
+    # ...and it never leaks into FAVORS, which still needs a knowable closure.
+    assert replay._favors_asof(inputs, "rising-growth-falling-inflation", dates[-1]) is None
+
+
+def test_a_challengers_own_drawdown_rule_binds_where_the_user_cap_would_pass() -> None:
+    """I-47: gate 4 binds the CHALLENGER, so the caps that apply are the
+    stricter of the user's and that portfolio's own. The replay judged every
+    candidate against `user_profile` alone, which made it LOOSER than the rule
+    on exactly the books the bridge switches between (-15 on the 4s books, -10
+    on barbell)."""
+    dates = pd.DatetimeIndex(pd.bdate_range("2000-01-03", periods=500))
+    base = _inputs(panel_dates=dates, challenger_sortino=2.0)
+    ranked = replay.rank_portfolios(replay._valuation_rows_asof(base, "defender", dates[-1]), 0.02)
+    challenger = next(rr for rr in ranked if rr.row.portfolio_id == "challenger")
+    defender = next(rr for rr in ranked if rr.row.defender)
+    mature = {"challenger", "defender"}
+
+    # The user's -15% passes the challenger's -8% drawdown...
+    assert (
+        replay._best_challenger(ranked, defender, base, THRESHOLDS.proposal, mature) == "challenger"
+    )
+    # ...and its OWN -5% rule does not, though nothing about the row changed.
+    stricter = dataclasses.replace(
+        base,
+        portfolio_caps={
+            "challenger": Caps(max_single_asset_pct=100.0, max_drawdown_pct=-5.0),
+        },
+    )
+    assert replay._best_challenger(ranked, defender, stricter, THRESHOLDS.proposal, mature) is None
+    assert challenger.row.max_drawdown == pytest.approx(-0.08)  # the row itself is unchanged
+
+
 def test_favors_asof_ignores_regimes_not_yet_confirmed() -> None:
     """FAVORS as-of t aggregates ONLY over instances `created_at <= t AND
-    end_date < t`. `created_at` is the CONFIRMING PRINT — a regime that began
+    closed_at <= t`. Both are CONFIRMING PRINTS: a regime that began
     (start_date) before t but was confirmed after it must stay invisible, else
-    the `regime_confirm_prints` hysteresis window leaks."""
+    the `regime_confirm_prints` hysteresis window leaks — and a regime whose
+    retroactive `end_date` fell before t stays invisible too until the prints
+    that made its CLOSURE knowable have landed (I-49)."""
     dates = pd.DatetimeIndex(pd.bdate_range("2000-01-03", periods=500))
     inputs = dataclasses.replace(
         _inputs(panel_dates=dates, challenger_sortino=0.51),
@@ -384,13 +456,17 @@ def test_favors_asof_ignores_regimes_not_yet_confirmed() -> None:
                 start_date=pd.Timestamp("2000-01-10"),
                 end_date=pd.Timestamp("2000-06-01"),
                 created_at=pd.Timestamp("2000-09-01"),  # confirmed 3 months later
+                closed_at=pd.Timestamp("2000-09-15"),  # its successor confirmed later still
             )
         ],
         backtests=[replay.BacktestRow("four-seasons-rp", "r1", 1.2)],
     )
     # Closed (end_date) but NOT yet confirmed -> invisible.
     assert replay._favors_asof(inputs, "stagflation", pd.Timestamp("2000-07-01")) is None
-    # Confirmed and closed -> visible.
+    # Confirmed, and its retroactive end is long past — but the closure itself
+    # was not knowable until 09-15, so it is STILL invisible (I-49).
+    assert replay._favors_asof(inputs, "stagflation", pd.Timestamp("2000-09-05")) is None
+    # Closure knowable -> visible.
     assert (
         replay._favors_asof(inputs, "stagflation", pd.Timestamp("2000-10-01")) == "four-seasons-rp"
     )
@@ -407,6 +483,7 @@ def test_pit_assertions_catch_a_backdated_confirmation() -> None:
         pd.Timestamp("2000-01-10"),
         pd.Timestamp("2000-06-01"),
         pd.Timestamp("2000-02-10"),
+        pd.Timestamp("2000-08-01"),
     )
     inputs = dataclasses.replace(_inputs(panel_dates=dates, challenger_sortino=0.5), regimes=[good])
     assert replay.pit_assertions(inputs, [pd.Timestamp("2000-05-01")])
@@ -467,6 +544,7 @@ def test_favors_leg_never_pulls_toward_another_strategy() -> None:
                 "stagflation",
                 pd.Timestamp("2000-01-10"),
                 pd.Timestamp("2000-06-01"),
+                pd.Timestamp("2000-06-15"),
                 pd.Timestamp("2000-06-15"),
             )
         ],
@@ -572,6 +650,7 @@ def test_regime_signal_switches_to_the_designed_book_on_a_confirmed_flip() -> No
                 pd.Timestamp("2001-02-05"),
                 pd.Timestamp("2001-12-01"),
                 pd.Timestamp("2001-05-07"),
+                pd.Timestamp("2001-12-01"),
             )
         ],
     )
@@ -605,6 +684,7 @@ def test_regime_signal_holds_when_no_book_is_designed_for_the_regime() -> None:
                 pd.Timestamp("2000-02-07"),
                 pd.Timestamp("2001-12-01"),
                 pd.Timestamp("2000-05-01"),
+                pd.Timestamp("2001-12-01"),
             )
         ],
     )
@@ -642,6 +722,7 @@ def test_regime_signal_veto_gates_still_block_a_designed_book() -> None:
                 pd.Timestamp("2000-02-07"),
                 pd.Timestamp("2001-12-01"),
                 pd.Timestamp("2000-05-01"),
+                pd.Timestamp("2001-12-01"),
             )
         ],
     )

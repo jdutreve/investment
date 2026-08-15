@@ -139,13 +139,29 @@ class RegimeInstance:
     regime_id: str
     regime_type_id: str
     start_date: pd.Timestamp
-    end_date: pd.Timestamp
+    end_date: pd.Timestamp | None
     created_at: pd.Timestamp
-    """`created_at` = the confirming print's date = when this regime became
-    KNOWN. THE PIT visibility key (see module docstring). `start_date` is
-    back-dated to the DATA and must never be used for visibility — it is
-    carried here only so `pit_assertions` can check the two against each
-    other."""
+    closed_at: pd.Timestamp | None
+    """THREE DATES AND ONLY TWO OF THEM ARE VISIBILITY KEYS.
+
+    `created_at` = the confirming print's date = when this regime became KNOWN.
+    `closed_at` = when its CLOSURE became known, which is the confirming print of
+    the SUCCESSOR — `None` while the regime is open. Both are PIT keys.
+
+    `start_date` and `end_date` are back-dated to the DATA and must never be used
+    for visibility. `end_date` in particular is the RETROACTIVE end: a regime
+    that ended in March is only known to have ended once
+    `regime_confirm_prints` prints of the next regime have confirmed it, roughly
+    two months later. Filtering on it reads an aggregate over a regime nobody
+    yet knew had closed (I-49). They are carried so `pit_assertions` can check
+    the pairs against each other.
+
+    `closed_at` is DERIVED, not stored: for a closed regime it is the row's
+    `updated_at`, which `market.regime._commit_regime` writes as the confirming
+    print's ts in the same transaction that sets `end_date`. That is safe
+    because the only other writer of `updated_at` — the confidence/tags refresh
+    — builds its update from `current` alone, so a CLOSED regime's `updated_at`
+    never moves again. `test_regime.py` pins that."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -181,9 +197,26 @@ class ReplayInputs:
     backtests: list[BacktestRow]
     scenarios: list[ScenarioMeta]
     prescribed: dict[str, dict[str, float]]
+    # The USER's caps, and the fallback for a portfolio this harness has never
+    # heard of. `caps_for` is what the gates must use — see I-47 below.
     caps: Caps
+    # THE BINDING CAPS PER PORTFOLIO (I-47, closed 2026-08-15): the stricter of
+    # the user's rule and the portfolio's own, which is what CLAUDE.md pins and
+    # what `writeback.dispose_market_signal` applies live. This harness used one
+    # `Caps` built from `user_profile` alone for every gate call, so it judged a
+    # challenger against -25% while its own `max_drawdown_rule` said -15% (the
+    # four 4s books, `permanent-balanced`, `momentum-macro-rotation`) or -10%
+    # (`barbell-defensive`) — LOOSER than the rule, on exactly the portfolios
+    # the bridge switches between.
+    portfolio_caps: dict[str, Caps]
     allowed_tickers: frozenset[str]
     initial_defender_id: str
+
+    def caps_for(self, portfolio_id: str) -> Caps:
+        """The caps binding THIS portfolio. Falls back to the user's own for an
+        id with no meta, which is the same answer `gates.effective_caps` gives
+        for a portfolio carrying no rule of its own."""
+        return self.portfolio_caps.get(portfolio_id, self.caps)
 
 
 # -- pure core: the shadow book --------------------------------------------
@@ -551,16 +584,21 @@ def decision_dates(
 
 def _favors_asof(inputs: ReplayInputs, regime_type_id: str, t: pd.Timestamp) -> str | None:
     """The top-FAVORS strategy for `regime_type_id` KNOWABLE at t: re-aggregate
-    the `backtest` rows over regime instances confirmed AND closed before t
-    (`created_at <= t AND end_date < t`), never the live `favors` edges (which
-    aggregate the whole 35y — reading them would leak the future into every
-    decision).
+    the `backtest` rows over regime instances whose CLOSURE was known by t
+    (`closed_at <= t`), never the live `favors` edges (which aggregate the whole
+    35y — reading them would leak the future into every decision).
 
-    `end_date` is the RETROACTIVE end, and a closure only becomes knowable once
-    `regime_confirm_prints` prints of the next regime confirm it — so for that
-    hysteresis window this reads an aggregate over a regime nobody yet knew had
-    closed. A small ADR-003 violation, deferred to I-49 (it needs a `closed_at`
-    column, and moving it re-dates the M6 numbers).
+    THE FILTER WAS `end_date < t` UNTIL 2026-08-15 (I-49). `end_date` is the
+    RETROACTIVE end, and a closure only becomes knowable once
+    `regime_confirm_prints` prints of the NEXT regime confirm it — roughly two
+    months later. So for every hysteresis window this aggregated over a regime
+    nobody yet knew had closed: an ADR-003 vintage violation, small in effect
+    and unambiguous in kind. `closed_at` (see `RegimeInstance`) is that
+    confirming print, so the test is now the same one a live Monday would apply.
+
+    `created_at <= t` is implied — a regime cannot close before it is known —
+    and kept explicit because the two keys answer different questions and a
+    reader should not have to derive one from the other.
 
     Ranked on mean `sortino_rolling`, matching `backtests.aggregate_metrics`'
     equal-weight-per-instance aggregation and the ranking rule's primary key.
@@ -572,7 +610,10 @@ def _favors_asof(inputs: ReplayInputs, regime_type_id: str, t: pd.Timestamp) -> 
     visible = {
         r.regime_id
         for r in inputs.regimes
-        if r.regime_type_id == regime_type_id and r.created_at <= t and r.end_date < t
+        if r.regime_type_id == regime_type_id
+        and r.created_at <= t
+        and r.closed_at is not None
+        and r.closed_at <= t
     }
     if not visible:
         return None
@@ -590,7 +631,14 @@ def _favors_asof(inputs: ReplayInputs, regime_type_id: str, t: pd.Timestamp) -> 
 def _regime_asof(inputs: ReplayInputs, t: pd.Timestamp) -> str | None:
     """The regime type KNOWN at t = the most recently CONFIRMED instance
     (`created_at <= t`), which is what the live detector would have been
-    showing on that Monday."""
+    showing on that Monday.
+
+    OPEN INSTANCES INCLUDED, since 2026-08-15. `_load_regimes` used to filter
+    them out for `_favors_asof`'s benefit, so the regime the system was actually
+    IN — open by definition — was invisible here, and every decision date after
+    the last closure ran under the previous regime's label. A look-BEHIND rather
+    than a look-ahead, and conservative, but a divergence from the live detector
+    all the same (I-49)."""
     visible = [r for r in inputs.regimes if r.created_at <= t]
     if not visible:
         return None
@@ -789,9 +837,7 @@ def run_replay(
                 inputs, ranked, defender_row, t, mature, thresholds.proposal
             )
         else:
-            challenger = _best_challenger(
-                ranked, defender_row, inputs.caps, thresholds.proposal, mature
-            )
+            challenger = _best_challenger(ranked, defender_row, inputs, thresholds.proposal, mature)
             if challenger is None:
                 pending_challenger, pending_count = None, 0
             else:
@@ -864,7 +910,7 @@ def run_replay(
 def _best_challenger(
     ranked: Sequence[RankedRow],
     defender: RankedRow,
-    caps: Caps,
+    inputs: ReplayInputs,
     thresholds: ProposalThresholds,
     mature: set[str],
 ) -> str | None:
@@ -875,10 +921,15 @@ def _best_challenger(
 
     `mature` = the portfolios past the `MIN_CANDIDACY_OBS` floor as-of t; an
     immature row stays ranked but cannot challenge (same shape as the drawdown
-    rule's ranked-but-not-proposable)."""
+    rule's ranked-but-not-proposable).
+
+    CAPS ARE PER CANDIDATE (I-47), which is why this takes `inputs` rather than
+    one `Caps`: gate 4 binds the CHALLENGER, so the rule that applies is the
+    challenger's own — the stricter of its `max_drawdown_rule` and the user's."""
     for rr in ranked:
         if rr.row.defender or rr.row.portfolio_id not in mature:
             continue
+        caps = inputs.caps_for(rr.row.portfolio_id)
         if gates.switch_gates(rr, defender, caps, thresholds).passed:
             return rr.row.portfolio_id
     return None
@@ -909,9 +960,11 @@ def _designed_challenger(
             continue
         if row.calmar_rolling is None or row.calmar_rolling < thresholds.calmar_min:
             continue
-        if not gates.concentration_ok(row.allocation, inputs.caps):
+        # The NOMINEE's own binding caps, not the user's alone (I-47).
+        caps = inputs.caps_for(row.portfolio_id)
+        if not gates.concentration_ok(row.allocation, caps):
             continue
-        if not gates.drawdown_ok(row.max_drawdown, inputs.caps):
+        if not gates.drawdown_ok(row.max_drawdown, caps):
             continue
         change = gates.max_allocation_change_pts(defender.row.allocation, row.allocation)
         if change < thresholds.min_allocation_change_pts:
@@ -971,8 +1024,9 @@ def _reallocation_target(
     )
 
     proposed = gates.blend_allocation(held, scenario_target, favors_target, thresholds)
+    # The DEFENDER's own binding caps — this proposal moves ITS book (I-47).
     outcome = gates.reallocation_gates(
-        held, proposed, inputs.caps, thresholds, inputs.allowed_tickers
+        held, proposed, inputs.caps_for(defender_id), thresholds, inputs.allowed_tickers
     )
     return proposed if outcome.passed else None
 
@@ -1163,6 +1217,19 @@ async def load_inputs(db: InvestmentDB) -> ReplayInputs:
         raise ValueError("replay: no user_profile — the binding caps are not optional")
 
     allowed = await db.query("SELECT ticker FROM allowed_tickers WHERE active = 1")
+    user_profile = dict(caps_rows[0])
+    # ONE call to the same `effective_caps` the live disposition uses, per
+    # portfolio, so replay and live cannot disagree about what binds (I-47).
+    portfolio_caps = {
+        pid: gates.effective_caps(
+            user_profile,
+            {
+                "max_single_asset_pct": meta.max_single_asset_pct,
+                "max_drawdown_rule": meta.max_drawdown_rule,
+            },
+        )
+        for pid, meta in portfolios.items()
+    }
 
     return ReplayInputs(
         panel=panel,
@@ -1177,6 +1244,7 @@ async def load_inputs(db: InvestmentDB) -> ReplayInputs:
             max_single_asset_pct=float(caps_rows[0]["max_single_asset_pct"]),
             max_drawdown_pct=float(caps_rows[0]["max_drawdown_pct"]),
         ),
+        portfolio_caps=portfolio_caps,
         # The synthetic 'cash' sleeve has no allowed_tickers row (it accrues at
         # rf_daily rather than being fetched — db/seed_data.py) but is a legal
         # sleeve of every seeded portfolio.
@@ -1235,24 +1303,33 @@ async def _load_panel(db: InvestmentDB, portfolio_id: str) -> pd.DataFrame:
 
 
 async def _load_regimes(db: InvestmentDB) -> list[RegimeInstance]:
-    """Closed instances only — an ongoing regime is not a completed period, and
-    FAVORS aggregates over completed ones (`backtests._completed_regimes`).
+    """EVERY instance, open ones included, each carrying both PIT keys.
 
-    That filter suits `_favors_asof` and NOT `_regime_asof`, which reads the
-    same list: the regime the system is currently IN is open by definition, so
-    every decision date after the last closure is taken under a stale label
-    (I-49, with the `end_date`-as-knowability defect in `_favors_asof`)."""
+    This loaded closed instances only until 2026-08-15 (I-49), which suited
+    `_favors_asof` — FAVORS aggregates over completed periods
+    (`backtests._completed_regimes`) — and silently broke `_regime_asof`, which
+    reads the same list: the regime the system is currently IN is open by
+    definition, so every decision date after the last closure was taken under a
+    stale label. One list serving two questions, filtered for one of them.
+
+    Each consumer now states its own rule instead: `_favors_asof` requires a
+    KNOWABLY closed regime (`closed_at <= t`), `_regime_asof` takes the latest
+    visible one whether open or shut."""
     rows = await db.query(
-        "SELECT id, regime_type_id, start_date, end_date, created_at FROM regime "
-        "WHERE end_date IS NOT NULL ORDER BY start_date, id"
+        "SELECT id, regime_type_id, start_date, end_date, created_at, updated_at FROM regime "
+        "ORDER BY start_date, id"
     )
     return [
         RegimeInstance(
             regime_id=str(r["id"]),
             regime_type_id=str(r["regime_type_id"]),
             start_date=pd.Timestamp(str(r["start_date"])),
-            end_date=pd.Timestamp(str(r["end_date"])),
+            end_date=None if r["end_date"] is None else pd.Timestamp(str(r["end_date"])),
             created_at=pd.Timestamp(str(r["created_at"])),
+            # See `RegimeInstance`: `updated_at` on a CLOSED row is the
+            # confirming print that closed it, written in the same transaction
+            # as `end_date` and never touched again.
+            closed_at=None if r["end_date"] is None else pd.Timestamp(str(r["updated_at"])),
         )
         for r in rows
     ]

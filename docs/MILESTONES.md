@@ -305,6 +305,17 @@ decides the final gate thresholds.
 own-strategy FAVORS guard, scenario hysteresis, maturity floor; all measured
 on the real 35y, `mechanical/replay.py` + `calibration.py`):**
 
+> **RE-MEASURED 2026-08-15, and the verdict below is unchanged.** Two deferred
+> point-in-time defects were closed together (docs/IMPROVEMENTS.md I-47, I-49),
+> both of which were held back precisely because they re-date this evidence. At
+> ADR-010's 23 bps the replay now reads **A 6.7772% monthly / 6.6745% weekly vs
+> B 7.2375%**, drawdown -17.5163% vs -21.6496%, 15 monthly and 33 weekly
+> switches. The 2026-07-16 headline below is at the old 10 bps rate, so it is
+> not directly comparable; what IS comparable is the shape, and it holds — a
+> risk reducer, not a return generator, with A's drawdown four points shallower
+> than B's. The whole movement belongs to I-49 (±0.02pp, sign flipping with
+> cadence); I-47's stricter per-portfolio caps changed no number at all.
+
 - **Headline** (seeded thresholds, weekly, 10 bps): agent-follow 6.83%/y vs
   hold-defender 7.27%/y — edge **-0.44 pts/y**; Sortino **1.024 vs 0.952**;
   Calmar 0.391 vs 0.337; max drawdown **-17.5% vs -21.6%**; hit-rate +12w

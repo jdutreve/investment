@@ -1387,7 +1387,8 @@ immediately: `compute_context` priced every static reference book from
 1991-12-30. The same defect, in the benchmark this time. Each static book is now
 measured over the period it could actually be held.
 
-**The bridge's own numbers did not move**: A 6.7544%/-17.5163%, B
+**The bridge's own numbers did not move** — *for THIS change; I-47/I-49 moved A
+by ±0.02pp later the same day, see docs/MILESTONES.md M6* — A 6.7544%/-17.5163%, B
 7.2375%/-21.6496%, 15 monthly switches, the same defensive pole
 (`barbell-defensive`, w=0.35), the same matched-risk arm (6.3988%/-17.2375%) and
 the same best static (`permanent-balanced`) before and after. The affected book

@@ -262,9 +262,15 @@ async def _prune_retired_series(db: InvestmentDB) -> dict[str, Any]:
 
     Safe by construction: nothing FKs to `allowed_tickers`, and every row
     removed is reconstructible from seed_data + the network by the same run
-    that prunes it. Scope is the RETIRED-TICKER half of I-30 only; the
-    re-dated-duplicate half (M2SL's overlapping copies) needs the
-    authoritative-backfill design and stays deferred."""
+    that prunes it.
+
+    Scope is the RETIRED-TICKER half of I-30. The re-dated-duplicate half —
+    M2SL's overlapping copies — is `_write_series_authoritatively`'s job and was
+    built in the same milestone; this docstring said it "stays deferred" until
+    2026-08-15, which was true when written and false the moment its sibling
+    landed. Measured on the live DB that day: M2SL holds 418 rows at 12.0/year,
+    exactly 35 years of monthly prints, and every other series sits at its
+    nominal density."""
     keep = sorted({str(t["ticker"]) for t in ALLOWED_TICKERS} | set(DERIVED_SIGNALS))
     placeholders = ", ".join(f":k{i}" for i in range(len(keep)))
     params = {f"k{i}": t for i, t in enumerate(keep)}

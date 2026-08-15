@@ -603,13 +603,30 @@ deletes the gold invariant's own signal). Pruned live: BIL 4810 rows,
 EURUSD=X 5867, JPY=X 7701 (18378 total). Regression:
 `test_m5_prune_removes_ghosts_but_spares_derived_signals`.
 
-**STILL DEFERRED — the RE-DATING half** (the second bullet below): a change
-to `availability_lag_days`/source/frequency re-dates a series and writes NEW
-rows beside the orphaned old ones, INSIDE a still-allowed ticker (M2SL: 1768
-rows where 35y monthly ≈ 420). Pruning by ticker cannot see that — it needs
-the authoritative-backfill design at the end of this item. Not urgent, for
-the original reason: `GLOBAL_LIQUIDITY` is rebuilt in-memory from fresh
-fetches, so no consumer reads the stale M2SL copies today.
+**✅ CLOSED 2026-08-15 — the RE-DATING half was built at M5 too, and this note
+never followed.** `seed._write_series_authoritatively` makes `market_data`
+MIRROR the source for each successfully-fetched ticker: it DELETES the ticker's
+rows before writing the fresh series, so a changed `availability_lag_days` moves
+a series instead of duplicating it. It carries the guard this item asked for
+("never delete on a hunch") — the delete is abandoned, and reported, when the
+fetched date SPAN no longer covers the stored one, so a truncated vendor
+response degrades to the old additive behaviour rather than wiping 35 years.
+Three tests pin it (`test_seed_m5.py`).
+
+**Verified on the live DB 2026-08-15**, since a fix nobody measured is a claim:
+M2SL holds **418 rows at 12.0/year** where this item recorded 1768 at 7-day
+spacing, and every series sits at its nominal density — 12/yr monthly, 52/yr
+weekly, ~251/yr daily. The overlapping copies are gone.
+
+**What remains, and it is smaller than what closed.** The weekly catch-up writes
+only a bounded recent window (`catchup.refresh_series` — deliberately, so a
+weekly run does not re-download 35 years), so a lag change would still duplicate
+INSIDE that window until the next re-seed repairs it. Bounded, self-healing, and
+not worth a second mechanism.
+
+**Trigger for that residue:** the next `availability_lag_days` change — re-seed
+the affected ticker rather than waiting for the weekly path to converge, because
+it will not.
 
 **Why it was deferred (M4):** found while verifying the NAV engine against
 external sources; owner call to log rather than fix, since it did not affect
@@ -658,9 +675,10 @@ Not a blanket `DELETE FROM market_data WHERE ticker=?`: `target_start` is
 `today − 35y` and moves forward every run, so delete-then-insert would discard
 the oldest year of real history on each seed.
 
-**Required guard (the reason this is not a 10-minute job).** An authoritative
-delete is only safe if the fresh series is TRUSTWORTHY, and step 9 cannot
-currently tell a complete fetch from a truncated one. Its per-ticker
+**Required guard (the reason this is not a 10-minute job)** — SPECIFIED HERE,
+BUILT AS `_SPAN_TOLERANCE`, and the design below is what shipped. An
+authoritative delete is only safe if the fresh series is TRUSTWORTHY, and step 9
+could not then tell a complete fetch from a truncated one. Its per-ticker
 `except → continue` catches a fetch that FAILS; it does nothing about a fetch
 that SUCCEEDS with partial data (Yahoo does return short/partial histories on
 a bad day). Fresh-but-truncated + authoritative-delete = permanent loss of
@@ -1651,8 +1669,10 @@ If/when adding from this list, prioritize by dependency and impact:
 1. ~~I-20 (PMI source)~~ — **resolved**: GROWTH_COMPOSITE shipped in V1.
 2. ~~I-23 (retrospective learning)~~ — **promoted**: shipped in V1 as
    `outcomes.py` (unified improvement cycle).
-3. **I-30** (authoritative backfill) — a correctness fix on real stored data,
-   not a feature; do it before go-live or at the next ticker/lag change.
+3. ~~**I-30** (authoritative backfill)~~ — **closed**: the retired-ticker half at
+   M5, the re-dating half by `seed._write_series_authoritatively` in the same
+   milestone, verified on the live DB 2026-08-15. Only a bounded, self-healing
+   residue on the weekly catch-up path remains, with its own trigger.
 3-bis. ~~**I-45** (+12w scoring is gross)~~ — **closed 2026-08-14**: the
    scoring NAVs pay `replay_cost_bps` like every other NAV, so ADR-010's wording
    and the code agree before the outcome ledger stops being fixtures.
@@ -1670,9 +1690,31 @@ If/when adding from this list, prioritize by dependency and impact:
 
 ## I-47 — The replay's caps ignore per-portfolio rules, so it is LOOSER than live Writeback
 
-**Why deferred:** closing it moves numbers ADR-007 was signed on. The replay is
-what validated the adopted strategy and what calibrates the thresholds, so a
-gate change there re-dates the evidence — that is an owner call, not a tidy-up.
+**✅ CLOSED 2026-08-15 — and it moved NOTHING, which is itself the finding.**
+`ReplayInputs` now carries `portfolio_caps`, built by the same
+`gates.effective_caps` the live disposition calls, and `caps_for(portfolio_id)`
+is what the three gate sites read: the two challenger selectors and the
+reallocation target.
+
+The caps really are stricter — every bridge portfolio binds tighter than the
+user's 60% / -25% (the four 4s books and `momentum-macro-rotation` at 40% /
+-15%, `permanent-balanced` at 30% / -15%, `barbell-defensive` at 40% / -10%) —
+and the replay's headline is **identical** with them applied: monthly A 6.7772%,
+weekly A 6.6745%, same 15/33 switches, same proposals, before and after. Gates
+1-3 (outrank, Sortino gap, the 1.5 Calmar floor) decide first, and no challenger
+that got past them ever sat in the -15%..-25% band where the two rules disagree.
+
+**So the evidence signed under the looser cap was not contaminated** — the
+divergence was real as a RULE and empty as a MEASUREMENT. Recorded that way
+because the opposite claim would have been the tempting one: a fix that changes
+no number is easy to describe as unnecessary, and what makes it necessary is
+that the rule now governs future runs on data nobody has seen.
+
+**Why it was deferred:** closing it was expected to move numbers ADR-007 was
+signed on. The replay is what validated the adopted strategy and what calibrates
+the thresholds, so a gate change there re-dates the evidence — an owner call,
+not a tidy-up. The expectation turned out to be wrong, which could only be
+established by doing it.
 
 **What it is.** CLAUDE.md pins that the binding caps are "the stricter of"
 `user_profile` and the portfolio's own rule, and `writeback.dispose_reallocation`
@@ -1783,9 +1825,42 @@ means the ground has moved further than restatement noise explains.
 
 ## I-49 — The replay's regime as-of is blind to the open regime, and reads closure before it was knowable
 
-**Why deferred:** both halves change what the replay decides on some Mondays,
-so closing them re-dates the M6 evidence and the pinned pair — the same reason
-I-47 waits, and the same re-validation pays for both.
+**✅ CLOSED 2026-08-15, and it carries the whole movement of this pair.**
+Measured on the live database, closing I-47 and I-49 together against closing
+neither:
+
+    monthly   A 6.7544% -> 6.7772%   (+0.023pp)   switches 15, proposals 47 (both unchanged)
+    weekly    A 6.6934% -> 6.6745%   (-0.019pp)   switches 33, proposals 120 -> 117
+    drawdown  -17.5163% unchanged; B and the context arms unchanged throughout
+
+Attributed one at a time, I-47 accounts for **none** of it: the numbers with
+I-49 alone are identical to the numbers with both. Everything above is the
+point-in-time repair, and its sign changes with cadence — a look-BEHIND
+correction is not a directional edge, which is what one would expect and is
+worth having measured rather than assumed.
+
+**What changed in the code.** `_load_regimes` loads every instance, open ones
+included, and each carries `closed_at` — the confirming print of its SUCCESSOR,
+derived from `regime.updated_at`, which `market.regime._commit_regime` writes in
+the same transaction as `end_date` and which no later writer touches (only the
+CURRENT regime is ever refreshed; `test_regime.py` pins that, so the derivation
+cannot quietly become a convention). `_favors_asof` gates on `closed_at <= t`;
+`_regime_asof` now sees the regime the system is actually IN.
+
+**A third site, found while closing it.** `db/as_of_snapshot.py`'s repair rule
+claimed to close "the `end_date`-knowability half of I-49 for the agentic path"
+and keyed on `end_date > t` — which reopens a regime whose retroactive end lies
+ahead, and leaves closed the one whose end lies behind while its confirmation
+does not. It keys on `updated_at` now, which subsumes the old test since a
+closure is always confirmed after the end it back-dates.
+
+**No schema change was needed**, against this item's own spec ("record a
+`closed_at` on `regime`"): the column already existed under another name,
+written PIT-correctly at the only moment that matters.
+
+**Why it was deferred:** both halves change what the replay decides on some
+Mondays, so closing them re-dates the M6 evidence — the same reason I-47 waited,
+and the same re-validation paid for both.
 
 **What it is.** Two distinct point-in-time defects on the FAVORS leg of the
 blend, found together:
@@ -1810,9 +1885,12 @@ on it, and give `_regime_asof` the open regime — a second query, or a
 `load_regimes(closed_only: bool)` split so the two callers stop sharing a list
 whose filter suits only one of them. Then re-run M6 and re-record the numbers.
 
-**Trigger to revisit:** with I-47, whenever the M6 replay is next re-run —
-paying the re-validation once for both. Sooner if the FAVORS leg's calibrated
-weight is ever used to justify a live decision rather than to benchmark one.
+**The trigger that fired:** with I-47, whenever the M6 replay is next re-run —
+paying the re-validation once for both, which is exactly how it was spent on
+2026-08-15. The spec above is what shipped, except for the `closed_at` column:
+it was DERIVED from `regime.updated_at` instead, because that column already
+holds the confirming print and adding a second one would have been a migration
+buying a copy of a fact.
 
 ---
 

@@ -49,23 +49,32 @@ async def _seed(db: InvestmentDB) -> None:
             lv=level,
         )
 
-    # Three regimes: one confirmed and closed before t; one confirmed before t
-    # but closed AFTER it (the end_date leak); one confirmed after t. `is_current`
-    # is seeded WRONG on purpose — on the 2026 regime, as the live DB has it.
+    # Four regimes straddling t. `updated_at` is the CLOSING print — the date
+    # the closure became knowable — which for a closed regime is always later
+    # than its retroactive `end_date` (`market.regime._commit_regime` writes
+    # both in one transaction). `is_current` is seeded WRONG on purpose, on the
+    # 2026 regime, as the live DB has it.
     regimes = (
-        ("r-old", "2007-01-01", "2007-12-31", "2007-02-01", 0),
-        ("r-open", "2008-07-16", "2009-06-30", "2008-08-15", 0),
-        ("r-future", "2009-01-01", None, "2009-02-01", 1),
+        # closed before t, and known to be: it stays closed
+        ("r-old", "2007-01-01", "2007-12-31", "2007-02-01", "2008-03-31", 0),
+        # retroactively ended before t, but the confirming prints land AFTER it:
+        # at t nobody knew it had ended (I-49's knowability half)
+        ("r-lagging", "2008-01-15", "2008-08-01", "2008-02-15", "2008-11-30", 0),
+        # ends well after t — the older `end_date > t` case
+        ("r-open", "2008-07-16", "2009-06-30", "2008-08-15", "2009-09-30", 0),
+        # confirmed after t: invisible entirely
+        ("r-future", "2009-01-01", None, "2009-02-01", "2009-02-01", 1),
     )
-    for rid, start, end, created, current in regimes:
+    for rid, start, end, created, updated, current in regimes:
         await cmd(
             "INSERT INTO regime (id, regime_type_id, start_date, end_date, is_current, "
-            "trace, created_at, updated_at) VALUES (:id, 'stag', :s, :e, :c, 'tr', :ca, :ca)",
+            "trace, created_at, updated_at) VALUES (:id, 'stag', :s, :e, :c, 'tr', :ca, :ua)",
             id=rid,
             s=start,
             e=end,
             c=current,
             ca=created,
+            ua=updated,
         )
 
     # A portfolio carrying 2026 indicators, and a FAVORS edge aggregating 35y —
@@ -147,7 +156,7 @@ async def test_world_rows_after_t_are_gone(live: Path, tmp_path: Path) -> None:
         assert [r["ts"] for r in prices] == ["2008-09-30"]
 
         regimes = await db.query("SELECT id FROM regime ORDER BY id")
-        assert [r["id"] for r in regimes] == ["r-old", "r-open"]  # r-future invisible
+        assert [r["id"] for r in regimes] == ["r-lagging", "r-old", "r-open"]  # r-future invisible
 
         # Pruned on the DOMAIN date: the 2008-dated regime event was knowable at
         # t even though it was appended in 2026 by the backfill.
@@ -177,9 +186,13 @@ async def test_open_regime_looks_open_and_is_current_is_recomputed(
     try:
         rows = await db.query("SELECT id, end_date, is_current FROM regime ORDER BY id")
         by_id = {str(r["id"]): r for r in rows}
-        # Closed BEFORE t: the closure was knowable, it stays.
+        # Closed BEFORE t and KNOWN to be: it stays closed.
         assert by_id["r-old"]["end_date"] == "2007-12-31"
-        # Closed AFTER t: at t nobody knew this regime would end (I-49).
+        # Ended before t on paper, but its confirming prints landed after t — so
+        # at t it still looked open. This is the half the `end_date` rule missed
+        # and the reason the repair keys on `updated_at` (I-49).
+        assert by_id["r-lagging"]["end_date"] is None
+        # Ends after t: nobody knew this regime would end at all.
         assert by_id["r-open"]["end_date"] is None
         assert by_id["r-old"]["is_current"] == 0
         assert by_id["r-open"]["is_current"] == 1  # latest VISIBLE, not 2026's
@@ -225,7 +238,7 @@ async def test_the_live_database_is_untouched(live: Path, tmp_path: Path) -> Non
     db = InvestmentDB(live)
     try:
         assert len(await db.query("SELECT ts FROM market_data")) == 2
-        assert len(await db.query("SELECT id FROM regime")) == 3
+        assert len(await db.query("SELECT id FROM regime")) == 4
         assert len(await db.query("SELECT id FROM event_log")) == 2
     finally:
         await db.close()
@@ -290,7 +303,7 @@ async def test_advancing_tops_up_the_world(live: Path, tmp_path: Path) -> None:
         assert [r["ts"] for r in prices] == ["2008-09-30", "2008-10-02"]
 
         regimes = await db.query("SELECT id FROM regime ORDER BY id")
-        assert [r["id"] for r in regimes] == ["r-future", "r-old", "r-open"]
+        assert [r["id"] for r in regimes] == ["r-future", "r-lagging", "r-old", "r-open"]
         # and the backtest that hangs off the newly visible regime comes with it
         rows = await db.query("SELECT id FROM backtest ORDER BY id")
         assert [r["id"] for r in rows] == ["bt-future", "bt-visible"]
@@ -301,12 +314,20 @@ async def test_advancing_tops_up_the_world(live: Path, tmp_path: Path) -> None:
 async def test_advancing_re_dates_the_regime_as_of_the_new_t(live: Path, tmp_path: Path) -> None:
     """`end_date` was blanked at build time. A closure that became knowable
     inside the interval must come BACK — reading the snapshot's own NULL cannot
-    tell 'still open' from 'closed, and we hid it'."""
+    tell 'still open' from 'closed, and we hid it'.
+
+    `r-lagging` is the row that makes this precise: it ended 2008-08-01, before
+    the first t, but its confirming prints landed 2008-11-30 — inside the
+    interval. Under the old `end_date` rule it was never hidden in the first
+    place; under the knowability rule it is hidden at t and restored here."""
     db = await _advanced(live, tmp_path)
     try:
         rows = await db.query("SELECT id, end_date, is_current FROM regime ORDER BY id")
         by_id = {str(r["id"]): r for r in rows}
-        assert by_id["r-open"]["end_date"] == "2009-06-30"  # knowable by LATER
+        assert by_id["r-lagging"]["end_date"] == "2008-08-01"  # knowable by LATER
+        # Ends 2009-06-30 but is only CONFIRMED closed on 2009-09-30, past LATER:
+        # still open as far as this snapshot may know.
+        assert by_id["r-open"]["end_date"] is None
         assert by_id["r-future"]["end_date"] is None  # genuinely open
         assert by_id["r-future"]["is_current"] == 1  # confirmed inside the interval
         assert by_id["r-open"]["is_current"] == 0
