@@ -50,7 +50,7 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await conn.command(
         "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
         "allocation, max_drawdown_rule, max_single_asset_pct, phase, trace, updated_at) VALUES "
-        "('ms-stack', 'Stack', '4s', 1, 1, 'USD', 'SPY', '{\"SPY\": 0.6, \"IEF\": 0.4}', "
+        "('ms-stack', 'Stack', '4s', 1, 1, 'USD', 'SPY', '{\"SPY\": 60, \"IEF\": 40}', "
         "-25.0, 60.0, 'accumulation', 't', '2026-01-01')"
     )
     for day in range(1, 8):
@@ -72,7 +72,7 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
         "allocation, max_drawdown_rule, max_single_asset_pct, phase, return_1y, sharpe_rolling, "
         "sortino_rolling, calmar_rolling, trace, updated_at) VALUES "
         "('ms-slowdown-book', 'Slowdown Book', '4s', 0, 0, 'USD', 'SPY', "
-        "'{\"VCIT\": 0.5, \"IEF\": 0.4}', -25.0, 60.0, 'accumulation', 0.072, 0.25, 0.36, 0.77, "
+        "'{\"VCIT\": 50, \"IEF\": 40}', -25.0, 60.0, 'accumulation', 0.072, 0.25, 0.36, 0.77, "
         "'t', '2026-01-01')"
     )
     await conn.append_event(
@@ -83,14 +83,14 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
             "decision_date": SNAPSHOT_DATE,
             "held_book": "credit-spread-tight-yield-curve-steep",
             "gate": "passed",
-            "held_allocation": {"VCIT": 0.5, "IEF": 0.4},
-            "target_allocation": {"VCIT": 0.5, "IEF": 0.4},
+            "held_allocation": {"VCIT": 50, "IEF": 40},
+            "target_allocation": {"VCIT": 50, "IEF": 40},
         },
     )
     await conn.command(
         "INSERT INTO portfolio_weekly_snapshot (date, portfolio_id, defender, framework_id, "
         "allocation, rank, sortino_rolling, calmar_rolling, market_context, recommendation, "
-        "trace) VALUES (:d, 'ms-stack', 1, '4s', '{\"SPY\": 0.6}', 1, 1.4, 1.2, '{}', "
+        "trace) VALUES (:d, 'ms-stack', 1, '4s', '{\"SPY\": 60}', 1, 1.4, 1.2, '{}', "
         "'maintain', 't')",
         d=SNAPSHOT_DATE,
     )
@@ -194,7 +194,7 @@ async def test_ranking_keeps_the_stored_order_and_lists_its_dates(
     assert payload["available_dates"] == [SNAPSHOT_DATE]
     assert [r["rank"] for r in payload["rows"]] == [1]
     # JSON columns arrive as objects, not as double-encoded strings.
-    assert payload["rows"][0]["allocation"] == {"SPY": 0.6}
+    assert payload["rows"][0]["allocation"] == {"SPY": 60}
 
 
 async def test_a_missing_portfolio_is_404_not_an_empty_page(client: TestClient[Any, Any]) -> None:

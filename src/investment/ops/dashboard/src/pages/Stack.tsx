@@ -287,6 +287,7 @@ export function Stack() {
             <thead>
               <tr>
                 <th>Book</th>
+                <th>Base allocation</th>
                 <th className="num">1y return</th>
                 <th className="num">Sharpe</th>
                 <th className="num">Sortino</th>
@@ -296,11 +297,22 @@ export function Stack() {
             <tbody>
               {data.books.map((book) => {
                 const held = heldState !== "blocked" && book.signal_state === heldBook;
+                const allocation = (book.allocation ?? {}) as Record<string, number>;
                 return (
                   <tr key={book.id}>
                     <td>
                       {String(book.name ?? book.id)}
                       {held ? <span className="badge defender">held</span> : null}
+                    </td>
+                    <td className="mono muted">
+                      {/* The RAW, static weights this book is defined with — not
+                          what the stack currently targets. The two differ
+                          whenever the trend overlay redirects a sleeve to the
+                          haven; see the note below and "The order to place"
+                          above, where cash 40 replaces this row's IEF 40. */}
+                      {Object.entries(allocation)
+                        .map(([ticker, w]) => `${ticker} ${weight(w)}`)
+                        .join(" · ") || "—"}
                     </td>
                     <td className="num">{pct(book.return_1y)}</td>
                     <td className="num">{num(book.sharpe_rolling)}</td>
@@ -314,7 +326,13 @@ export function Stack() {
         </div>
         <div className="paper-note">
           Disabled portfolios, shadow-tracked for comparison — the stack switches between
-          these allocations rather than holding them as separate positions.
+          these allocations rather than holding them as separate positions. A book&apos;s
+          return here is what ALWAYS holding its raw allocation would have earned; the
+          stack&apos;s own return above is what it actually did, which differs whenever it
+          held a DIFFERENT book during the window, or the trend overlay redirected a sleeve
+          of this one to cash (as it currently does — compare this row&apos;s allocation to
+          &quot;the order to place&quot; above). Each switch between books also costs 46bps
+          that a static book never pays.
         </div>
       </div>
 

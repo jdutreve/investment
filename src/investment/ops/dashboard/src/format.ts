@@ -50,9 +50,20 @@ export function nav(value: unknown): string {
   return isNum(value) ? Math.round(value).toLocaleString("en-US") : NA;
 }
 
-/** A weight (0-1) as the owner reads it in an allocation: 0.6 -> "60". */
+/*
+ * ALLOCATION MAPS ARE ALREADY 0-100, not a fraction — DATA_MODELS pins it
+ * explicitly ("`allocation` MAPs are percent weights summing to 100"), unlike
+ * every OTHER weight-like field in this schema, which is a 0-1 fraction
+ * (CLAUDE.md: "weight-like fields are 0-1 fractions everywhere" — the one
+ * named exception is this one). The first version of this formatter followed
+ * the general rule and multiplied by 100, which is correct for nothing this
+ * app actually calls it on: every call site passes a `portfolio.allocation`
+ * entry or a decision's `held_allocation`/`target_allocation` — both
+ * `allocation` MAPs. A live `{"VCIT": 50, "cash": 40, "IWN": 10}` rendered as
+ * "5000 / 4000 / 1000" until this was caught against real data.
+ */
 export function weight(value: unknown): string {
-  return isNum(value) ? String(Math.round(value * 100)) : NA;
+  return isNum(value) ? String(Math.round(value)) : NA;
 }
 
 export function date(value: unknown): string {
