@@ -126,8 +126,15 @@ export interface StackDecision {
   payload: Row;
 }
 
+export interface BookRow extends Row {
+  signal_state: string;
+  id: string;
+}
+
 export interface StackPayload {
   decisions: StackDecision[];
   nav: NavPoint[];
   profile: Row | null;
+  stack_portfolio: Row | null;
+  books: BookRow[];
 }

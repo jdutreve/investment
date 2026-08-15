@@ -4,7 +4,7 @@ import { get, type Row, type StackDecision, type StackPayload } from "../api";
 import { Tile } from "../components/Bits";
 import { NavChart } from "../components/NavChart";
 import { ErrorState } from "../components/States";
-import { date, num, weight } from "../format";
+import { date, num, pct, weight } from "../format";
 
 /*
  * THE LIVE ALLOCATION PATH (ADR-007). This is the page the original 8-page spec
@@ -193,6 +193,8 @@ export function Stack() {
 
   const latest = data.decisions[0];
   const drawdownRule = data.profile?.max_drawdown_pct;
+  const heldState = latest ? outcomeOf(latest.payload) : null;
+  const heldBook = latest ? String(latest.payload.held_book ?? "") : null;
 
   return (
     <div className={isFetching ? "stale" : undefined}>
@@ -204,6 +206,17 @@ export function Stack() {
             throughout — V1 executes nothing, the owner places these orders by hand.
           </p>
         </div>
+      </div>
+
+      {/* RETURN AND SHARPE, ON EVERY FRONT (CLAUDE.md "Binding caps" neighbor
+          rule, extended here 2026-08-15): this page showed the decision but
+          never what the stack earned. Same four indicators as the Ranking
+          row, read off the same portfolio row the ranking job wrote. */}
+      <div className="grid cols-4" style={{ marginBottom: 14 }}>
+        <Tile label="1y return" value={pct(data.stack_portfolio?.return_1y)} />
+        <Tile label="Sharpe" value={num(data.stack_portfolio?.sharpe_rolling)} />
+        <Tile label="Sortino" value={num(data.stack_portfolio?.sortino_rolling)} />
+        <Tile label="Calmar" value={num(data.stack_portfolio?.calmar_rolling)} />
       </div>
 
       {latest ? (
@@ -256,6 +269,52 @@ export function Stack() {
             One row per decision date — holding months included, so a month that did not move
             is visibly a decision rather than a gap.
           </div>
+        </div>
+      </div>
+
+      {/*
+       * THE FOUR BOOKS THE STACK SWITCHES BETWEEN, each with its own
+       * performance. They are DISABLED portfolios — the stack holds one
+       * allocation at a time rather than four positions — so they never
+       * appear in /api/ranking, which lists enabled rows only. Without this
+       * table there was no way to see how the held book compares to the
+       * other three, or what any of them have actually returned.
+       */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <h2>The four books</h2>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Book</th>
+                <th className="num">1y return</th>
+                <th className="num">Sharpe</th>
+                <th className="num">Sortino</th>
+                <th className="num">Calmar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.books.map((book) => {
+                const held = heldState !== "blocked" && book.signal_state === heldBook;
+                return (
+                  <tr key={book.id}>
+                    <td>
+                      {String(book.name ?? book.id)}
+                      {held ? <span className="badge defender">held</span> : null}
+                    </td>
+                    <td className="num">{pct(book.return_1y)}</td>
+                    <td className="num">{num(book.sharpe_rolling)}</td>
+                    <td className="num">{num(book.sortino_rolling)}</td>
+                    <td className="num">{num(book.calmar_rolling)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="paper-note">
+          Disabled portfolios, shadow-tracked for comparison — the stack switches between
+          these allocations rather than holding them as separate positions.
         </div>
       </div>
 

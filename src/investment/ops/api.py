@@ -53,7 +53,7 @@ from aiohttp import web
 
 from investment.db.seed_data import BENCHMARK_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
+from investment.mechanical.market_signal import BOOK_PORTFOLIO_IDS, STACK_PORTFOLIO_ID
 from investment.ops import commands
 from investment.ops.rows import unnest_json_columns
 from investment.ops.run_lock import AlreadyRunning
@@ -263,13 +263,31 @@ async def handle_stack(request: web.Request) -> web.Response:
     nine nothing at all. `MarketSignalDecisionEvent` has one row per decision
     date, moved or not, blocked or not — which is exactly what makes a HOLDING
     month distinguishable from a BLOCKED one on the page
-    (`telegram/digest._market_signal_block` makes the same argument)."""
+    (`telegram/digest._market_signal_block` makes the same argument).
+
+    RETURN AND SHARPE, ON THIS FRONT TOO, and on the four BOOKS underneath the
+    stack — not only on the ranking (owner, 2026-08-15, after the first visual
+    pass: the stack page showed the decision but never what it earned). The four
+    books (`BOOK_PORTFOLIO_IDS`) are disabled portfolios — the stack switches
+    between their allocations rather than holding them as separate positions —
+    so they carry real Sortino/Sharpe/Calmar/return rows but never surface in
+    `/api/ranking`, which lists enabled portfolios only. Sent here, alongside the
+    stack's own row, so the owner can see how the held book compares to the
+    other three without four extra round trips to `/api/portfolio`."""
     runtime = request.app[RUNTIME]
     decisions = await _rows(
         runtime.db,
         "SELECT id, event_date, payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 60",
         t=MARKET_SIGNAL_EVENT,
     )
+    portfolio_ids = [STACK_PORTFOLIO_ID, *BOOK_PORTFOLIO_IDS.values()]
+    placeholders = ", ".join(f":p{i}" for i in range(len(portfolio_ids)))
+    portfolios = await _rows(
+        runtime.db,
+        f"SELECT * FROM portfolio WHERE id IN ({placeholders})",
+        **{f"p{i}": pid for i, pid in enumerate(portfolio_ids)},
+    )
+    by_id = {str(row["id"]): row for row in portfolios}
     return json_response(
         {
             "decisions": decisions,
@@ -277,6 +295,15 @@ async def handle_stack(request: web.Request) -> web.Response:
             "profile": next(
                 iter(await _rows(runtime.db, "SELECT * FROM user_profile LIMIT 1")), None
             ),
+            "stack_portfolio": by_id.get(STACK_PORTFOLIO_ID),
+            # Signal-state key alongside its portfolio row, so the page can label
+            # each book and mark the one the current decision holds without
+            # re-deriving `BOOK_PORTFOLIO_IDS` in TypeScript.
+            "books": [
+                {"signal_state": state, **by_id[pid]}
+                for state, pid in BOOK_PORTFOLIO_IDS.items()
+                if pid in by_id
+            ],
         }
     )
 

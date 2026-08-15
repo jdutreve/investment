@@ -61,6 +61,33 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
             nav=100.0 + day,
         )
     await conn.command(
+        "UPDATE portfolio SET return_1y = 0.042, sharpe_rolling = 1.11, "
+        "sortino_rolling = 1.63, calmar_rolling = 1.94 WHERE id = 'ms-stack'"
+    )
+    # One of the four books the stack switches between — DISABLED, since the
+    # stack holds one allocation at a time rather than four positions, and
+    # never surfaces in `portfolio_weekly_snapshot` (ranking) for that reason.
+    await conn.command(
+        "INSERT INTO portfolio (id, name, framework_id, defender, enabled, currency, benchmark, "
+        "allocation, max_drawdown_rule, max_single_asset_pct, phase, return_1y, sharpe_rolling, "
+        "sortino_rolling, calmar_rolling, trace, updated_at) VALUES "
+        "('ms-slowdown-book', 'Slowdown Book', '4s', 0, 0, 'USD', 'SPY', "
+        "'{\"VCIT\": 0.5, \"IEF\": 0.4}', -25.0, 60.0, 'accumulation', 0.072, 0.25, 0.36, 0.77, "
+        "'t', '2026-01-01')"
+    )
+    await conn.append_event(
+        type="MarketSignalDecisionEvent",
+        source_uc="UC8",
+        source_id=None,
+        payload={
+            "decision_date": SNAPSHOT_DATE,
+            "held_book": "credit-spread-tight-yield-curve-steep",
+            "gate": "passed",
+            "held_allocation": {"VCIT": 0.5, "IEF": 0.4},
+            "target_allocation": {"VCIT": 0.5, "IEF": 0.4},
+        },
+    )
+    await conn.command(
         "INSERT INTO portfolio_weekly_snapshot (date, portfolio_id, defender, framework_id, "
         "allocation, rank, sortino_rolling, calmar_rolling, market_context, recommendation, "
         "trace) VALUES (:d, 'ms-stack', 1, '4s', '{\"SPY\": 0.6}', 1, 1.4, 1.2, '{}', "
@@ -189,6 +216,30 @@ async def test_nav_thinning_keeps_the_first_and_last_points(
     assert len(series) < len(full)
     assert series[0]["ts"] == full[0]["ts"]
     assert series[-1]["ts"] == full[-1]["ts"]
+
+
+async def test_stack_carries_return_and_sharpe_for_itself_and_its_books(
+    client: TestClient[Any, Any],
+) -> None:
+    """Owner feedback (2026-08-15, after the first visual pass): the Stack page
+    showed the decision but never what it earned, on the stack or on the other
+    books it could have held. Both are in this one payload — no page should
+    need four extra round trips to `/api/portfolio` to draw the comparison."""
+    app = cast(web.Application, client.app)
+    payload = await (await client.get("/api/stack", headers=_auth(app))).json()
+
+    assert payload["stack_portfolio"]["return_1y"] == pytest.approx(0.042)
+    assert payload["stack_portfolio"]["sharpe_rolling"] == pytest.approx(1.11)
+
+    books = {b["signal_state"]: b for b in payload["books"]}
+    assert "credit-spread-tight-yield-curve-steep" in books
+    held = books["credit-spread-tight-yield-curve-steep"]
+    assert held["id"] == "ms-slowdown-book"
+    assert held["return_1y"] == pytest.approx(0.072)
+    assert held["sharpe_rolling"] == pytest.approx(0.25)
+    # A book with no row in this throwaway DB (three of the four were never
+    # inserted) is simply absent, not a null-filled placeholder row.
+    assert len(books) == 1
 
 
 # -- writes: one command layer, and nothing else ----------------------------
