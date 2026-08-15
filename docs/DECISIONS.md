@@ -1092,3 +1092,81 @@ thing that moves:
 addenda, ADR-009's alert-never-block scope, ADR-010's single cost rate,
 ADR-011/012's mechanical sovereignty, and the M6 mechanical premise gate as a
 STOP point in MILESTONES.
+
+---
+
+## ADR-014 — The retained bridge is PERMANENT: demoted, never retired
+
+**Status:** accepted 2026-08-15 (owner decision, Step 6 item 3).
+
+**Context.** ADR-007 kept the Dalio 4-quadrant design alive as a "retained
+bridge" — fallback, benchmark, and framework-agnostic knowledge factory — with
+an explicit end date: "the bridge is not deleted until forward paper-mode earns
+the switch" (CLAUDE.md), and docs/V1_STRATEGY.md Step 6 said the bridge "can be
+retired, if the forward evidence holds". Step 6 reached that decision point with
+two of its three inputs already settled and the third turning out to be
+something else entirely.
+
+**What was already settled when the question came up.**
+
+- The Worker's side (I-46) dissolved on 2026-08-14: ADR-012 had deleted the
+  cognitive allocation path, so "retiring the bridge leaves the Worker with no
+  legal target" describes a lever that no longer exists.
+- The stack's dependency on the bridge ended on 2026-08-15: it walks its own
+  calendar (`market_signal.stack_calendar`) and runs on a database where no
+  bridge row exists, which a test pins by deleting them all.
+- The benchmark role passed to `ms-trend-baseline` on 2026-08-13. The
+  attribution measured the credit/slope signal's marginal worth at **+0.24pp of
+  CAGR and +0.20 of Sortino over the trend overlay alone**, so Step 6 must judge
+  the stack against the trend-only control arm, not against the Dalio books. On
+  the 2026-08-14 ranking that control arm sits FIRST, ahead of the stack
+  (Sortino 1.841 vs 1.664 over 36 months) — a more demanding benchmark than the
+  one it replaces.
+
+So on the three grounds ADR-007 named — lever, dependency, benchmark — the
+bridge had already stopped being load-bearing.
+
+**The reason it stays anyway, and it was written nowhere.**
+`outcomes.strategy_probation_check` judges an innovation-born strategy on its
+FAVORS standing **against the median of its peers** in the current regime. Five
+strategies exist and four of them are the bridge's (`four-seasons-rp`,
+`permanent-browne`, `barbell-taleb`, `momentum-macro`). Retiring the bridge
+leaves the peer median equal to the candidate's only rival — the stack itself —
+so ADR-006's promise that a new strategy is MEASURED rather than believed would
+degrade to a comparison with one thing. The knowledge factory, which ADR-007
+called framework-agnostic and expected to survive the pivot untouched, turns out
+to depend on a POPULATION, and the bridge is where the population lives.
+
+**Decision.** The retained bridge is permanent. It is DEMOTED — it is not an
+allocation path, not a fallback anyone will switch back to, and not the
+benchmark — and it is not deleted. What it is, from here:
+
+1. **The FAVORS peer set** that makes strategy probation a measurement.
+2. **Seven ranked comparators** that keep the stack's weekly claim falsifiable
+   at the cost of some CPU.
+3. **The M6 A/B harness** (`replay.py`), an offline CLI and not a chain step.
+
+**The defender flag does not move.** Making the stack the defender was the
+obvious half of "demote" and it is refused, for a mechanical reason:
+`replay.load_inputs` picks the defender BY THAT FLAG and makes it the B arm, so
+flipping it would turn M6's A/B into stack-versus-stack and empty the harness of
+meaning. If the flag is ever wanted on the stack, the harness needs an explicit
+"bridge defender" parameter first, in the same commit.
+
+**What this changes in the documents.** "Until forward paper-mode earns the
+switch" (CLAUDE.md) and "this is when the old-design bridge can be retired"
+(V1_STRATEGY Step 6) are both now wrong as written and are corrected. Step 6's
+build work is complete; what remains of it is time.
+
+**What this does not touch.** ADR-006's maturation, ADR-007's stack, ADR-009's
+alert-never-block scope, ADR-010's single rate, ADR-011/012's mechanical
+sovereignty. Nothing here revives the cognitive allocation path: the bridge's
+defender is mechanical (`replay.py` applies the 0.4/0.6 blend through
+`blend_allocation` + `reallocation_gates`), which is what makes it a clean
+comparator — two mechanical policies, no LLM variance inside either.
+
+**The condition under which this is revisited**, stated so it is not a
+permanent article of faith: the day strategy probation has another way to find
+peers — a population of innovation-born strategies large enough to judge each
+other, or a probation rule that does not need a median — the cost/benefit
+changes and deletion becomes discussable again. Not before.

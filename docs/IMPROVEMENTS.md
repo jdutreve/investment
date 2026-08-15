@@ -1559,12 +1559,15 @@ its last legal target?* — was answered by a decision taken for other reasons,
 three days after this was written and five months before Step 6 was due to
 decide it. Nothing here needs choosing.
 
-**What that leaves for the Step 6 plan is a DIFFERENT question**, and it should
-not inherit this one's framing: retire the bridge, or demote it and keep it as
-the mechanical benchmark? That is now purely about the benchmark and about the
-stack's calendar dependency (`market_signal_cycle` walks
-`replay._book_calendar`, i.e. the bridge defender's NAV index), with no Worker
-consequence at all. It stays recorded in docs/V1_STRATEGY.md Step 6.
+**What that left for the Step 6 plan was a DIFFERENT question** — retire the
+bridge or demote it — and it was **settled the next day by ADR-014: permanent,
+demoted, never retired.** Both of this item's framings turned out wrong. It was
+not about the Worker (ADR-012), and it was not about the benchmark either
+(`ms-trend-baseline` took that role on 2026-08-13, and the calendar dependency
+ended on 2026-08-15). What keeps the bridge is that its four strategies ARE the
+peer set `outcomes.strategy_probation_check` computes a median against — so
+retiring it would quietly turn ADR-006's measurement of a new strategy into a
+comparison with one rival.
 
 **Verified in the code on 2026-08-14, because a dead premise is not the same as
 a dead mechanism** — the audit found five leftovers, and the difference between
@@ -1618,9 +1621,12 @@ of UC8 with nothing to do.
 2. **Demote rather than retire.** The bridge survives as the cognitive arm and
    the benchmark, permanently. Then "Step 6 retires the bridge" is wrong as
    written in V1_STRATEGY and must be reworded. Cost: two allocation paths
-   maintained forever, one of which nobody holds. *Half of this survives (1):
-   the bridge has no cognitive arm left to be, but retire-vs-demote as the
-   BENCHMARK is still open, and it is the residue Step 6 inherits.*
+   maintained forever, one of which nobody holds. **Also taken, by ADR-014 —
+   for a third reason neither this list nor Step 6 had thought of.** It survives
+   as neither the cognitive arm (ADR-012 removed it) nor the benchmark
+   (`ms-trend-baseline` is the opponent that matters), but as the FAVORS peer
+   population. The rewording this option predicted was owed did land, in
+   V1_STRATEGY and CLAUDE.md both.
 3. **Give the Worker a legitimate lever elsewhere** — e.g. a satellite sleeve
    sized as a fraction of the stack, mechanically capped, that it may tilt.
    Cost: a new allocation surface, hence a new gate set and a new outcome
@@ -1694,9 +1700,12 @@ matching `ValuationRow` fields. Closing this is switching `switch_gates` onto
 validation and re-recording the numbers.
 
 **Trigger to revisit:** whenever the M6 replay numbers are next re-run for
-another reason (so the re-validation is paid once), or before the bridge is
-retired — whichever comes first. If the bridge is retired without the replay
-ever being re-run, this closes as moot along with `switch_gates` itself.
+another reason, so the re-validation is paid once. The second half of this
+trigger — "or before the bridge is retired" — is void: ADR-014 makes the bridge
+permanent, so this item will never close as moot and `switch_gates` will never
+go with it. It fired once already on 2026-08-15 and was deliberately not taken:
+that re-run existed to prove the stack's new calendar moved the bridge's numbers
+by nothing, and closing this would have moved them.
 
 ---
 

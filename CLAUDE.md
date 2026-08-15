@@ -11,13 +11,23 @@ V2 adds auto-execution and learning from real performance.
 > stack** (market-priced credit-spread/slope regime → 4 concentrated books +
 > trend overlay, MONTHLY cadence), not the seeded Dalio 4-quadrant
 > portfolio rotation. **The non-negotiables below that describe the weekly
-> chain, FAVORS, the ranking rule, scenario-driven UC8 and the reallocation
-> blend still hold, but as the RETAINED BRIDGE** (fallback + benchmark +
-> framework-agnostic knowledge factory), NOT the live allocation path — the
-> bridge is not deleted until forward paper-mode earns the switch (ADR-007,
-> V1_STRATEGY.md "Impact map"). Where a rule below governs allocation, the
+> chain, FAVORS and the ranking rule still hold, but as the RETAINED BRIDGE**,
+> NOT the live allocation path. Where a rule below governs allocation, the
 > market-signal stack path in V1_STRATEGY supersedes it; where it governs the caps,
 > the caps still bind (stricter-of enforcement is unchanged).
+>
+> **ADR-014 (2026-08-15) — the bridge is PERMANENT, demoted and never retired.**
+> The earlier wording ("not deleted until forward paper-mode earns the switch")
+> promised a deletion that will not come: the three grounds for it all dissolved
+> (the Worker's lever with ADR-012, the calendar dependency when the stack got
+> its own clock, the benchmark role when `ms-trend-baseline` took it), and what
+> keeps the bridge is a reason nobody had written down — it is the FAVORS PEER
+> SET that makes `outcomes.strategy_probation_check` a measurement instead of a
+> comparison with one rival. Its scenario-driven UC8 and cognitive reallocation
+> blend are gone regardless (ADR-012); the 0.4/0.6 blend survives as pure
+> mechanics inside `replay.py`. The `defender` flag stays on
+> `4s-balanced-defender`, because `replay.load_inputs` reads that flag to build
+> M6's B arm.
 
 ## Documentation map — load on demand
 

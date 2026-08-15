@@ -259,22 +259,35 @@ the drift `mechanical/market_signal.py` exists to prevent.
 **Step 6 — M9 go live in PAPER-MODE (forward). THE real gate.** Accumulate
 forward evidence over ~6-18 months, each proposal scored at +12w. The +2.5
 edge either reproduces on unseen data or it was in-sample. Only here does the
-stack stop being a hypothesis. This is also when the old-design bridge can be
-retired, if the forward evidence holds. **The two prerequisites are DONE
-(2026-08-15)**: the stack has its own trading calendar and no longer needs the
-bridge to run, and the pinned pair was re-validated in the same commit — see
-"The calendar, and the frozen sleeve" below, which is also where the two defects
-that work uncovered are recorded. Making the stack the defender is safe on the
-allocation side: ADR-011's gate 0 keys on `TIME_VARYING_PORTFOLIOS`, not on the
-defender flag. **The Worker's side of this is already settled** — ADR-012
-deleted the cognitive allocation path outright, so there is no lever left to
-lose a target, and I-46's three futures resolved to "accept it" before this step
-was reached (docs/IMPROVEMENTS.md I-46, dissolved 2026-08-14). What remains open
-is narrower and purely about the BENCHMARK: retire the bridge, or demote it and
-keep it as the mechanical comparison the stack is judged against. I-45 (+12w scoring was gross of the window's rebalances) was the
-other pre-condition and is **CLOSED 2026-08-14** — from here the outcome ledger
-stops being fixtures and becomes the go-live evidence, so its numbers had to be
-net without a footnote.
+stack stop being a hypothesis. **The build work of this step is DONE
+(2026-08-15); what remains is time.** The stack has its own trading calendar and
+no longer needs the bridge to run, and the pinned pair was re-validated in the
+same commit — see "The calendar, and the frozen sleeve" below, which is also
+where the two defects that work uncovered are recorded.
+
+**The bridge is NOT retired here — ADR-014 makes it permanent**, demoted rather
+than deleted. The three grounds this step assumed would decide it had all
+dissolved (the Worker's lever with ADR-012, the calendar dependency with the
+stack's own clock, the benchmark role with `ms-trend-baseline`), and the reason
+it stays turned out to be one nobody had written down: it is the FAVORS peer set
+that makes `strategy_probation_check` a measurement rather than a comparison
+with one rival.
+
+**The defender flag stays on `4s-balanced-defender`**, and that is a mechanical
+constraint rather than nostalgia: `replay.load_inputs` picks the defender BY the
+flag and makes it the B arm, so moving it to the stack would turn M6's A/B into
+stack-versus-stack. The harness needs an explicit "bridge defender" parameter
+before that flag can move (ADR-014).
+
+I-45 (+12w scoring was gross of the window's rebalances) was the other
+pre-condition and is **CLOSED 2026-08-14** — from here the outcome ledger stops
+being fixtures and becomes the go-live evidence, so its numbers had to be net
+without a footnote.
+
+**What Step 6 now waits on is only evidence**: ~6-18 months of forward
+decisions, each scored at +12w, judged against `ms-trend-baseline` on the
+SORTINO margin (+0.15 to +0.20, clear of the noise floor) rather than on the
+~0.2pp CAGR gap, which no such horizon can resolve.
 
 **Step 7 — V2 auto-execution**, only after forward validation earns it.
 
