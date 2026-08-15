@@ -63,7 +63,7 @@ def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[st
     return lines
 
 
-def _ranking_block(ranking: list[dict[str, Any]], *, row_returns: bool = False) -> list[str]:
+def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
     """The ranked table, with the two markers of CLAUDE.md's "Ranking rule" —
     which are SEPARATE rules and must not be conflated into one warning:
     `calmar_rolling < 1.0` MOVES the row to the bottom, while a drawdown breach
@@ -83,7 +83,7 @@ def _ranking_block(ranking: list[dict[str, Any]], *, row_returns: bool = False) 
     # watching ONE portfolio compound over time, which is why it is here at all.
     lines = [
         "",
-        "🏆 Portfolio ranking (Sortino USD, rolling 36M):",
+        "🏆 Portfolio ranking (Sortino USD, rolling 36M — return and Sharpe on every row):",
         "   (NAV = base 100 at each portfolio's own inception — compare a row to "
         "itself over time, never to another row)",
     ]
@@ -107,13 +107,15 @@ def _ranking_block(ranking: list[dict[str, Any]], *, row_returns: bool = False) 
             measured = f" (drawdown {pct(dd)})" if isinstance(dd, int | float) else ""
             line += f" ⛔ excluded from defender role and proposal candidacy{measured}"
         lines.append(line)
-        if not row_returns:
-            continue
-        # THE RETURNS ARE MAIL-ONLY (owner, 2026-08-12), and the reason is a
-        # measured one: with them the digest renders at 7639 characters against
-        # Telegram's 4096-per-message limit, so on the phone they cost a second
-        # message to say what the Sortino/Sharpe/Calmar row already ranks on.
-        # The mail has no such budget, and is where a per-horizon read belongs.
+        # THE RETURNS ARE ON EVERY CHANNEL (owner, 2026-08-15), reversing the
+        # 2026-08-12 decision that made them mail-only. That decision was
+        # measured — with them the digest renders at ~7600 characters against
+        # Telegram's 4096-per-message limit — and the measurement still holds;
+        # what changed is the verdict on the cost. `split_message` packs the
+        # text into NUMBERED parts on blank-line boundaries, so the price is one
+        # more message and never a truncation, and the digest already spans
+        # three. A ranking that tells the phone and the mail different stories
+        # is the worse trade.
         #
         # On their own line, not appended above: the row already carries four
         # indicators, and six figures on one line runs past 130 characters and
@@ -444,7 +446,6 @@ def render_digest(
     market_signal: dict[str, Any] | None = None,
     worker_reading: dict[str, Any] | None = None,
     recurring: list[dict[str, Any]] | None = None,
-    row_returns: bool = False,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -455,14 +456,14 @@ def render_digest(
     inputs on purpose — see `_market_signal_block`. The adopted path is rendered
     FIRST, above the bridge's slot, because it is the one the owner acts on.
 
-    `row_returns` is the ONE difference between the two channels the digest goes
-    out on: the mail carries each row's 6m/1y/3y, Telegram does not (owner,
-    2026-08-12 — see `_ranking_block`). Everything else is identical by
-    construction, so the two can never drift into telling different stories."""
+    ONE RENDERING, EVERY CHANNEL. A `row_returns` flag used to withhold the
+    per-row returns from Telegram to save a message (owner, 2026-08-12);
+    2026-08-15 reversed it, and the flag is gone rather than defaulted — a knob
+    with one legal value is a knob the next reader has to prove is unused."""
     blocks = [
         _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
-        _ranking_block(ranking, row_returns=row_returns),
+        _ranking_block(ranking),
         _invariant_block(invariants),
         _market_signal_block(market_signal, worker_reading),
         _stack_block(stack),
@@ -593,9 +594,7 @@ async def _latest_proposal(
     return proposal
 
 
-async def build_digest(
-    db: InvestmentDB, today: date | None = None, *, row_returns: bool = False
-) -> str:
+async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
     """The weekly digest rendered from the DB alone (docs/MILESTONES.md M8:
     "digest rendered in terminal"). Mechanical and read-only — every input is a
     committed row, so the digest can be re-rendered for any past Monday's state
@@ -638,7 +637,6 @@ async def build_digest(
         market_signal=await _latest_market_signal_decision(db),
         worker_reading=await _latest_worker_reading(db),
         recurring=await _recurring_themes(db),
-        row_returns=row_returns,
     )
 
 

@@ -354,8 +354,9 @@ def cmd_ranking(db_path: Path, snapshot_date: str | None, as_json: bool) -> None
             else [
                 dict(row)
                 for row in con.execute(
-                    "SELECT rank, portfolio_id, defender, sortino_rolling, calmar_rolling, "
-                    "max_drawdown, recommendation, gap_to_defender FROM portfolio_weekly_snapshot "
+                    "SELECT rank, portfolio_id, defender, return_1y, sortino_rolling, "
+                    "sharpe_rolling, calmar_rolling, max_drawdown, recommendation, "
+                    "gap_to_defender FROM portfolio_weekly_snapshot "
                     "WHERE date = ? ORDER BY rank",
                     (snapshot_date,),
                 ).fetchall()
@@ -372,19 +373,25 @@ def cmd_ranking(db_path: Path, snapshot_date: str | None, as_json: bool) -> None
         print(_c("(no snapshot yet — run the seed or the weekly chain first)", _Ansi.DIM))
         return
     print(f"{_label('date:')} {_value(str(snapshot_date))}")
+    # RETURN AND SHARPE ON EVERY FRONT (owner, 2026-08-15): this table ranked on
+    # risk-adjusted numbers without ever saying what a row RETURNED, and the
+    # digest had carried both since 2026-08-12 while this front did not follow.
     header = (
-        f"{'rank':4s} {'portfolio':30s} {'def':3s} {'sortino':8s} {'calmar':8s} "
-        f"{'max_dd':8s} recommendation"
+        f"{'rank':4s} {'portfolio':30s} {'def':3s} {'1y':8s} {'sortino':8s} {'sharpe':8s} "
+        f"{'calmar':8s} {'max_dd':8s} recommendation"
     )
     print(_c(header, _Ansi.BOLD, _Ansi.CYAN))
     for row in rows:
         defender_mark = "*" if row["defender"] else ""
+        one_year = f"{row['return_1y'] * 100:+.1f}%" if row["return_1y"] is not None else "-"
         sortino = f"{row['sortino_rolling']:.2f}" if row["sortino_rolling"] is not None else "-"
+        sharpe = f"{row['sharpe_rolling']:.2f}" if row["sharpe_rolling"] is not None else "-"
         calmar = f"{row['calmar_rolling']:.2f}" if row["calmar_rolling"] is not None else "-"
         mdd = f"{row['max_drawdown']:.3f}" if row["max_drawdown"] is not None else "-"
         print(
             f"{row['rank']:<4d} {row['portfolio_id']:30s} {defender_mark:3s} "
-            f"{sortino:8s} {calmar:8s} {mdd:8s} {row['recommendation']}"
+            f"{one_year:8s} {sortino:8s} {sharpe:8s} {calmar:8s} {mdd:8s} "
+            f"{row['recommendation']}"
         )
 
 

@@ -137,6 +137,12 @@ async def status(runtime: AgentRuntime) -> CommandResult:
     )
 
 
+def _sharpe(value: object) -> str:
+    """An indicator that may be NULL. 'n/a' rather than 0.00 — an unmeasured
+    Sharpe is not a bad one, the same distinction `digest.pct` makes."""
+    return f"{value:.2f}" if isinstance(value, int | float) else "n/a"
+
+
 async def ranking(runtime: AgentRuntime) -> CommandResult:
     """The latest ranked snapshot, defender starred.
 
@@ -144,8 +150,8 @@ async def ranking(runtime: AgentRuntime) -> CommandResult:
     WROTE, never re-derived here. Re-ranking on read would let the phone and the
     digest disagree about the same Monday."""
     rows = await runtime.db.query(
-        "SELECT rank, portfolio_id, sortino_rolling, calmar_rolling, defender "
-        "FROM portfolio_weekly_snapshot "
+        "SELECT rank, portfolio_id, sortino_rolling, sharpe_rolling, calmar_rolling, "
+        "return_1y, defender FROM portfolio_weekly_snapshot "
         "WHERE date = (SELECT MAX(date) FROM portfolio_weekly_snapshot) ORDER BY rank"
     )
     if not rows:
@@ -155,10 +161,18 @@ async def ranking(runtime: AgentRuntime) -> CommandResult:
         star = " ★" if row["defender"] else ""
         sortino = row["sortino_rolling"]
         calmar = row["calmar_rolling"]
-        metrics = (
-            f"sortino {sortino:.2f} calmar {calmar:.2f}"
+        # RETURN AND SHARPE ON EVERY FRONT (owner, 2026-08-15). This showed
+        # sortino and calmar alone, so the phone and the CLI ranked on
+        # risk-adjusted numbers while never saying what the thing RETURNED —
+        # the digest had carried both since 2026-08-12 and the other two fronts
+        # had not followed. One row of the same snapshot, read three ways: the
+        # three must agree about what they show, not only about the order.
+        one_year = row["return_1y"]
+        metrics = f"1y {one_year * 100:+.1f}%" if isinstance(one_year, int | float) else "1y n/a"
+        metrics += (
+            f" sortino {sortino:.2f} sharpe {_sharpe(row['sharpe_rolling'])} calmar {calmar:.2f}"
             if isinstance(sortino, int | float) and isinstance(calmar, int | float)
-            else "not yet valued"
+            else " — not yet valued"
         )
         lines.append(f"{row['rank']}. {row['portfolio_id']}{star} — {metrics}")
     return CommandResult(ok=True, message="\n".join(lines))

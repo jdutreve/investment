@@ -120,33 +120,31 @@ def test_render_is_complete_and_readable() -> None:
     assert "3m +3.8%" in text and "1y +14.3%" in text
 
 
-def test_per_row_returns_are_MAIL_ONLY_not_telegram() -> None:
-    """The owner asked for 6m/1y/3y per row (2026-08-12), then asked that they
-    go to the mail alone. The reason is a measured one: the extra line per row
-    pushed the digest to 7639 characters against Telegram's 4096-per-message
-    limit, buying a second phone message for horizons the ranking already
-    orders on. `row_returns` is the ONLY difference between the two channels —
-    anything else diverging here means the mail and the phone can tell the
-    owner different stories about the same Monday."""
-    rows = [
-        {
-            "rank": 1,
-            "portfolio_id": "4S Balanced",
-            "defender": 1,
-            "sortino_rolling": 1.18,
-            "calmar_rolling": 1.9,
-            "return_6m": 0.052,
-            "return_1y": 0.143,
-            "return_3y": 0.311,
-        }
-    ]
-    phone = _digest(ranking=rows)
-    mail = _digest(ranking=rows, row_returns=True)
-
-    assert "6m +5.2% · 1y +14.3% · 3y +31.1%" in mail
-    assert "6m +5.2%" not in phone
-    # ... and nothing else moves: strip the added lines and the two are equal.
-    assert "\n".join(ln for ln in mail.splitlines() if "6m +5.2%" not in ln) == phone
+def test_every_ranked_row_carries_its_return_and_its_sharpe() -> None:
+    """Owner, 2026-08-15: return and Sharpe on every display. The per-row
+    horizons were mail-only between 08-12 and 08-15, to save a Telegram message
+    — the measurement behind that (the digest renders past 4096 characters, so
+    the phone pays an extra message) still holds, and `split_message` numbers
+    the parts rather than truncating, so the cost is a message and never a
+    silence. One rendering now, and the channel flag is gone rather than
+    defaulted."""
+    text = _digest(
+        ranking=[
+            {
+                "rank": 1,
+                "portfolio_id": "4S Balanced",
+                "defender": 1,
+                "sortino_rolling": 1.18,
+                "sharpe_rolling": 0.65,
+                "calmar_rolling": 1.9,
+                "return_6m": 0.052,
+                "return_1y": 0.143,
+                "return_3y": 0.311,
+            }
+        ]
+    )
+    assert "6m +5.2% · 1y +14.3% · 3y +31.1%" in text
+    assert "Sharpe 0.65" in text
 
 
 def test_a_row_missing_a_horizon_prints_the_ones_it_has() -> None:
@@ -165,7 +163,6 @@ def test_a_row_missing_a_horizon_prints_the_ones_it_has() -> None:
                 "return_3y": None,
             }
         ],
-        row_returns=True,
     )
     assert "6m +5.2%" in text
     assert "3y" not in text.split("6m +5.2%")[1].splitlines()[0]
