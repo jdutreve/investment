@@ -43,7 +43,6 @@ from investment.config import Settings
 from investment.corpus import curation_sweep, embedding
 from investment.corpus import ingester as corpus_ingester
 from investment.db.seed_data import (
-    ALL_WEATHER_BENCHMARK,
     ALLOWED_TICKERS,
     BACKED_BY_EDGES,
     DERIVED_SIGNALS,
@@ -59,6 +58,7 @@ from investment.db.seed_data import (
     STRATEGIES,
     SYSTEM_THRESHOLDS,
     TIME_VARYING_PORTFOLIOS,
+    benchmarks_first,
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
@@ -689,24 +689,23 @@ async def _check_invariant_contradictions(db: InvestmentDB) -> dict[str, Any]:
 
 
 async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
-    """Step 12 (M4): PortfolioNAV TS backfill — the ALL_WEATHER_BENCHMARK
-    synthetic series FIRST (so per-portfolio vs_benchmark can read it back,
-    mechanical/ratios.py `backfill_nav` docstring), then one series per
-    Portfolio, from the date all constituents exist (docs/TASKS.md Task
-    1ter.7 item 4)."""
+    """Step 12 (M4): PortfolioNAV TS backfill — one series per Portfolio, from
+    the date all its constituents exist (docs/TASKS.md Task 1ter.7 item 4),
+    BENCHMARKS FIRST so per-portfolio `vs_benchmark` can read All Weather's back
+    (mechanical/ratios.py `backfill_nav` docstring).
+
+    All Weather was built here by name until 2026-08-15, because it had a NAV
+    and no `portfolio` row. It is now an ordinary seeded row of the BENCHMARK
+    kind, so it comes through the loop like everything else and the ordering
+    constraint is carried by `benchmarks_first` rather than by this function
+    remembering it."""
     window = int(SYSTEM_THRESHOLDS["rolling_window_days"])
     # ADR-010: every NAV is net of the same per-side trading cost, including the
-    # benchmark — a benchmark charged nothing would be an alternative nobody can
+    # benchmarks — one charged nothing would be an alternative nobody can
     # actually buy.
     cost = ratios.TRADING_COST_BPS
-    results: dict[str, Any] = {
-        ratios.ALL_WEATHER_ID: dataclasses.asdict(
-            await ratios.backfill_nav(
-                db, ratios.ALL_WEATHER_ID, ALL_WEATHER_BENCHMARK, window, cost
-            )
-        )
-    }
-    for pf in PORTFOLIOS:
+    results: dict[str, Any] = {}
+    for pf in benchmarks_first(PORTFOLIOS):
         if _vertex_id(pf) in TIME_VARYING_PORTFOLIOS:
             continue  # rotates — built below from its own change-point map
         allocation = cast("dict[str, float]", pf["allocation"])

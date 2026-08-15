@@ -222,36 +222,33 @@ async def test_seed_idempotent_two_runs(tmp_path: Path) -> None:
         await db.close()
 
 
-async def test_a_seeded_benchmark_can_be_ranked_but_never_proposed(tmp_path: Path) -> None:
-    """The yardstick contract (`BENCHMARK_PORTFOLIOS`, owner 2026-08-15): a
-    benchmark is ENABLED so the weekly ranking shows it, and unable to be
-    proposed so nobody can be handed it as a switch.
+async def test_the_seeded_benchmarks_are_ranked_and_hold_no_strategy(tmp_path: Path) -> None:
+    """The yardstick contract, seed half (`BENCHMARK_PORTFOLIOS`, owner
+    2026-08-15): a benchmark is ENABLED so the weekly ranking shows it, is never
+    the defender, and implements no strategy — it expresses no view, which is
+    what makes it a measuring stick rather than a competitor.
 
-    What enforces the second half is gate 4's concentration leg, not the
-    `excluded_from_candidacy` flag — that flag keys on the DRAWDOWN rule alone,
-    so a benchmark will usually carry none. Pinned here because the two are easy
-    to confuse when reading a digest, and because a future benchmark seeded
-    INSIDE the caps would be silently proposable."""
-    import json
-
-    from investment.mechanical.gates import concentration_ok, effective_caps
-
+    The other half of the contract — never proposable — is behavioural and lives
+    in `test_replay.py`, because what enforces it is the challenger search
+    skipping the kind. It is NOT the concentration cap: `spy-USD` would fail
+    that anyway, `all-weather-USD` (40% largest sleeve) would not, and relying
+    on it was the accident this kind replaced."""
     settings = _test_settings(tmp_path)
     await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
     db = InvestmentDB(settings.db_path)
     try:
-        profile = dict((await db.query("SELECT * FROM user_profile LIMIT 1"))[0])
         rows = await db.query(
-            "SELECT id, enabled, defender, allocation, max_single_asset_pct, "
-            "max_drawdown_rule FROM portfolio WHERE id IN "
+            "SELECT p.id, p.enabled, p.defender, p.framework_id, "
+            "(SELECT COUNT(*) FROM holds WHERE holds.portfolio_id = p.id) AS strategies "
+            "FROM portfolio p WHERE p.id IN "
             "(" + ", ".join(f"'{pid}'" for pid in sorted(BENCHMARK_PORTFOLIOS)) + ")"
         )
         assert len(rows) == len(BENCHMARK_PORTFOLIOS)
         for row in rows:
             assert row["enabled"], row["id"]  # ranked every week
             assert not row["defender"], row["id"]  # never the thing being defended
-            caps = effective_caps(profile, dict(row))
-            assert not concentration_ok(json.loads(row["allocation"]), caps), row["id"]
+            assert row["framework_id"] == "passive", row["id"]
+            assert row["strategies"] == 0, row["id"]
     finally:
         await db.close()
 

@@ -57,7 +57,7 @@ import pandas as pd
 from ulid import ULID
 
 from investment.config import Settings
-from investment.db.seed_data import TIME_VARYING_PORTFOLIOS
+from investment.db.seed_data import BENCHMARK_PORTFOLIOS, TIME_VARYING_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import backtests, gates, ratios
 from investment.mechanical.gates import Caps, ProposalThresholds
@@ -925,9 +925,18 @@ def _best_challenger(
 
     CAPS ARE PER CANDIDATE (I-47), which is why this takes `inputs` rather than
     one `Caps`: gate 4 binds the CHALLENGER, so the rule that applies is the
-    challenger's own — the stricter of its `max_drawdown_rule` and the user's."""
+    challenger's own — the stricter of its `max_drawdown_rule` and the user's.
+
+    BENCHMARKS ARE RANKED AND NEVER PROPOSED (2026-08-15). They are seeded as
+    ordinary enabled portfolios so the ranking shows what the apparatus is worth
+    against them, which means they arrive here like any other row and must be
+    refused by KIND rather than by luck: `spy-USD` would fail the concentration
+    gate anyway, but `all-weather-USD`'s largest sleeve is 40% and would have
+    passed it. A yardstick handed over as a switch stops being a yardstick."""
     for rr in ranked:
         if rr.row.defender or rr.row.portfolio_id not in mature:
+            continue
+        if rr.row.portfolio_id in BENCHMARK_PORTFOLIOS:
             continue
         caps = inputs.caps_for(rr.row.portfolio_id)
         if gates.switch_gates(rr, defender, caps, thresholds).passed:
@@ -956,6 +965,8 @@ def _designed_challenger(
         row = rr.row
         if row.defender or row.portfolio_id not in mature:
             continue
+        if row.portfolio_id in BENCHMARK_PORTFOLIOS:
+            continue  # ranked, never proposed — see `_best_challenger`
         if row.designed_regime_type_id != regime_type_id:
             continue
         if row.calmar_rolling is None or row.calmar_rolling < thresholds.calmar_min:

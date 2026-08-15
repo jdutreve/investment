@@ -5,6 +5,7 @@ two tests Task 9.1 names explicitly.
 
 import dataclasses
 from datetime import date
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -409,6 +410,38 @@ def test_the_regime_asof_sees_the_one_the_system_is_actually_in() -> None:
     )
     # ...and it never leaks into FAVORS, which still needs a knowable closure.
     assert replay._favors_asof(inputs, "rising-growth-falling-inflation", dates[-1]) is None
+
+
+def test_a_benchmark_is_ranked_but_can_never_be_proposed() -> None:
+    """The yardstick contract, behavioural half (`BENCHMARK_PORTFOLIOS`, owner
+    2026-08-15). Benchmarks are seeded as ordinary enabled portfolios so the
+    ranking shows what the apparatus is worth against them — which means they
+    reach the challenger search like any other row and have to be refused by
+    KIND.
+
+    Not by the caps, and that distinction is the whole reason the kind exists:
+    a 100% `spy-USD` fails the concentration gate anyway, but
+    `all-weather-USD`'s largest sleeve is 40% and clears it, so the first
+    version of this design would have proposed the benchmark as a switch. The
+    challenger here is deliberately EXCELLENT (Sortino 2.0 against the
+    defender's 0.5) so nothing but the kind can be refusing it."""
+    dates = pd.DatetimeIndex(pd.bdate_range("2000-01-03", periods=500))
+    base = _inputs(panel_dates=dates, challenger_sortino=2.0)
+    ranked = replay.rank_portfolios(replay._valuation_rows_asof(base, "defender", dates[-1]), 0.02)
+    defender = next(rr for rr in ranked if rr.row.defender)
+    mature = {"challenger", "defender"}
+
+    # It outranks the defender and clears every gate...
+    assert ranked[0].row.portfolio_id == "challenger"
+    assert (
+        replay._best_challenger(ranked, defender, base, THRESHOLDS.proposal, mature) == "challenger"
+    )
+
+    # ...and the same row, named a benchmark, is not proposed at all.
+    with mock.patch.object(replay, "BENCHMARK_PORTFOLIOS", frozenset({"challenger"})):
+        assert replay._best_challenger(ranked, defender, base, THRESHOLDS.proposal, mature) is None
+        # Still RANKED, though — visibility is the other half of the contract.
+        assert ranked[0].row.portfolio_id == "challenger"
 
 
 def test_a_challengers_own_drawdown_rule_binds_where_the_user_cap_would_pass() -> None:

@@ -1821,12 +1821,48 @@ PORTFOLIOS: list[dict[str, object]] = [
         "for a day after both stopped being true.",
     },
     {
-        # THE SECOND BENCHMARK (owner, 2026-08-15), on the same footing as
-        # `all-weather-USD` and deliberately in a different SHAPE. All Weather
-        # is a NAV under a reserved id that no ranking shows and only the CLI
-        # export reads; this is a ranked Portfolio, because a yardstick nobody
-        # sees measures nothing — the same argument that made `ms-trend-baseline`
-        # a row rather than a study on 2026-08-13.
+        # THE FIRST BENCHMARK, GIVEN THE SAME SHAPE AS THE SECOND (owner,
+        # 2026-08-15). All Weather had been a NAV under a reserved id with no
+        # `portfolio` row: never ranked, never in a digest, its `vs_benchmark`
+        # delta read only by `invest`'s CSV export. When SPY arrived as a second
+        # benchmark the first version of this seeded it as a ranked row and left
+        # this one alone — two yardsticks, two shapes, one of them invisible.
+        # That is the drift CLAUDE.md names ("when a second one arrives, find
+        # what named the first"), caught by the owner the same day.
+        #
+        # BENCHMARKS ARE NOW A KIND (`BENCHMARK_PORTFOLIOS`): ranked every week
+        # so they are seen, and never proposable so they cannot be handed over
+        # as a switch. That second half is now STRUCTURAL rather than accidental
+        # — `replay._best_challenger` skips the kind — which matters precisely
+        # here: All Weather's largest sleeve is 40%, so the concentration cap
+        # that keeps a 100% SPY book out would have let the benchmark be
+        # proposed as a challenger.
+        #
+        # `ALL_WEATHER_BENCHMARK` stays the single definition of the weights;
+        # this row scales it to the percent convention `portfolio.allocation`
+        # uses. `ratios.ALL_WEATHER_ID` must keep matching this id: `vs_benchmark`
+        # reads that series back for every other portfolio.
+        "id": "all-weather-USD",
+        "name": "All Weather (risk parity, the passive benchmark)",
+        "framework_id": "passive",
+        "defender": False,
+        "enabled": True,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {t: w * 100.0 for t, w in ALL_WEATHER_BENCHMARK.items()},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 60.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "The passive risk-parity alternative ADR-007's +3.80pp/yr was "
+        "measured against. It had a NAV since M4 and no row until 2026-08-15, so "
+        "the comparison the pivot was signed on was the one nobody could see in "
+        "a weekly digest. Net of ADR-010's 23 bps like every other NAV, "
+        "including its monthly drift-rebalance.",
+    },
+    {
+        # THE SECOND BENCHMARK (owner, 2026-08-15), same kind, same treatment as
+        # the row above — which is the whole point of there being a kind.
         #
         # It is the opponent the attribution names: over 1991-2026 static SPY
         # beats the stack by 0.68pp of CAGR and loses Sortino, Calmar and 13
@@ -1843,13 +1879,14 @@ PORTFOLIOS: list[dict[str, object]] = [
         # does. Its caps are the USER's own values rather than stricter ones,
         # which is the honest statement that this row adds no rule of its own.
         #
-        # WHAT KEEPS IT OUT IS GATE 4, NOT THE FLAG, and the distinction matters
-        # to anyone reading the digest: `excluded_from_candidacy` keys on the
-        # DRAWDOWN rule alone (CLAUDE.md's ranking rule, `breaches_drawdown_rule`),
-        # so this row usually carries no flag at all. It is refused where a
-        # challenger is actually judged — `switch_gates`' concentration leg,
-        # which a 100% book cannot pass under a 60% cap. Ranked, and unable to
-        # be proposed: what a benchmark is.
+        # WHAT KEEPS IT OUT IS THE KIND, NOT THE CAP. A 100% book would also
+        # fail `switch_gates`' concentration leg, but relying on that was luck:
+        # All Weather's 40% largest sleeve passes the same cap, so the sibling
+        # benchmark above would have been proposable. Both are refused by
+        # `BENCHMARK_PORTFOLIOS` instead. Note it is NOT the
+        # `excluded_from_candidacy` flag either — that keys on the DRAWDOWN rule
+        # alone (`breaches_drawdown_rule`), so a benchmark row usually carries
+        # no flag at all, which is worth knowing when reading a digest.
         "id": "spy-USD",
         "name": "SPY (the market, bought and held)",
         "framework_id": "passive",
@@ -1885,19 +1922,37 @@ PORTFOLIOS: list[dict[str, object]] = [
 # point of a control.
 TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-baseline"})
 
-# Portfolios seeded as YARDSTICKS: ranked every week so the owner sees what the
-# apparatus is worth against them, and never held. They are exempt from the
-# "every seeded allocation fits the binding caps" invariant, because measuring
-# an alternative you would refuse to buy is the whole point of a benchmark —
-# `spy-USD` is 100% one asset against a 60% cap, and the cap is what keeps it
-# out of the defender role and out of proposal candidacy by itself
-# (`gates.effective_caps`, `snapshots.build_snapshot`'s exclusion flag).
+# THE YARDSTICKS. Ranked every week so the owner sees what the apparatus is
+# worth against them, and NEVER proposable so no cycle can hand one over as a
+# switch. Two properties, one kind, read by three places: the challenger search
+# skips them (`replay._best_challenger`, `_designed_challenger`), the NAV
+# builders order them first (`vs_benchmark` reads All Weather's series back for
+# every other portfolio), and the seed's cap invariant exempts them.
 #
-# NAMED rather than left as a test exception, so the next reader meeting a
-# seeded row that breaches a cap can tell "deliberate yardstick" from "seed
-# bug". `all-weather-USD` is not here: it is not a `portfolio` row at all, which
-# is the difference this set exists to make visible.
-BENCHMARK_PORTFOLIOS: frozenset[str] = frozenset({"spy-USD"})
+# THE EXEMPTION IS THE RULE WORKING. Measuring an alternative you would refuse
+# to buy is the whole point of a benchmark: `spy-USD` is 100% one asset against
+# a 60% cap. Named here rather than left as a test exception, so the next reader
+# meeting a seeded row that breaches a cap can tell a deliberate yardstick from
+# a seed bug.
+#
+# NOT-PROPOSABLE HAD TO BECOME STRUCTURAL when the second one arrived. A 100%
+# SPY book cannot pass the concentration gate anyway, so the first version of
+# this leaned on that — but All Weather's largest sleeve is 40%, well inside the
+# cap, so the same accident would have let the benchmark be proposed as a
+# challenger. The kind refuses both.
+BENCHMARK_PORTFOLIOS: frozenset[str] = frozenset({"all-weather-USD", "spy-USD"})
+
+
+def benchmarks_first(portfolios: list[dict[str, object]]) -> list[dict[str, object]]:
+    """`portfolios` with the benchmarks moved to the front, order otherwise kept.
+
+    An ORDERING CONSTRAINT, not a preference: `ratios._vs_benchmark` reads All
+    Weather's persisted NAV back to compute every other portfolio's delta, so a
+    run that built the others first would write a column of nulls on a fresh
+    database. Both NAV builders (`seed` step 12, `catchup`) walk the list
+    through here, which is what lets All Weather be an ordinary seeded row
+    instead of a special case each of them repeats."""
+    return sorted(portfolios, key=lambda p: str(p["id"]) not in BENCHMARK_PORTFOLIOS)
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("4s-balanced-defender", "four-seasons-rp", True),

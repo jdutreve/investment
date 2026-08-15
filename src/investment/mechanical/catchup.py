@@ -77,11 +77,11 @@ import pandas as pd
 
 from investment.config import Settings
 from investment.db.seed_data import (
-    ALL_WEATHER_BENCHMARK,
     ALLOWED_TICKERS,
     HISTORY_PROXIES,
     PORTFOLIOS,
     TIME_VARYING_PORTFOLIOS,
+    benchmarks_first,
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
@@ -328,10 +328,13 @@ async def refresh_nav(db: InvestmentDB, window: int) -> int:
     """Rebuild the STATIC portfolios' NAV on the refreshed prices. Returns how
     many series were written.
 
-    The benchmark FIRST, because every other portfolio's `vs_benchmark` reads it
-    back (ratios.backfill_nav) — the same ordering constraint `seed
-    ._seed_portfolio_nav` states, and the reason this is a loop here rather than
-    a comprehension.
+    THE BENCHMARKS FIRST (`benchmarks_first`), because every other portfolio's
+    `vs_benchmark` reads All Weather's series back (ratios.backfill_nav) — the
+    same ordering constraint `seed._seed_portfolio_nav` states, expressed once
+    where both callers read it. All Weather used to be built by an explicit call
+    here, outside the loop, because it had no `portfolio` row; since 2026-08-15
+    it is an ordinary seeded row of the BENCHMARK kind, so the loop covers it and
+    there is no second producer of that one series.
 
     THE MARKET-SIGNAL STACK IS NOT HERE. Its NAV comes from a change-point walk
     rather than from constant weights, and `market_signal_cycle` already rebuilds
@@ -339,9 +342,8 @@ async def refresh_nav(db: InvestmentDB, window: int) -> int:
     that decide nothing (the NAV is weekly, only the decision is monthly).
     Rebuilding it here as well would be a second producer of one series."""
     cost = ratios.TRADING_COST_BPS  # ADR-010: every NAV pays the same rate
-    await ratios.backfill_nav(db, ratios.ALL_WEATHER_ID, ALL_WEATHER_BENCHMARK, window, cost)
-    written = 1
-    for portfolio in PORTFOLIOS:
+    written = 0
+    for portfolio in benchmarks_first(PORTFOLIOS):
         portfolio_id = str(portfolio["id"])
         if portfolio_id in TIME_VARYING_PORTFOLIOS:
             continue
