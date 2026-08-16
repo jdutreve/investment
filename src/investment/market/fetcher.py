@@ -40,6 +40,20 @@ LBMA_TIMEOUT_SECONDS = 30.0
 RETRY_ATTEMPTS = 3
 RETRY_BACKOFF_BASE_SECONDS = 60.0
 YAHOO_RATE_LIMIT_SECONDS = 0.5
+# THE ONE PROVIDER WITHOUT A TIMEOUT UNTIL NOW. FRED and LBMA both go through
+# `aiohttp.ClientTimeout` (`FRED_TIMEOUT_SECONDS`, `LBMA_TIMEOUT_SECONDS`
+# above); `yfinance`'s `.history()` call had NOTHING bounding it, because it is
+# a blocking library call run in an executor rather than an aiohttp session —
+# a different shape of call that quietly fell outside the pattern the other two
+# already followed. Found 2026-08-16: a Sunday catch-up took over 8 hours
+# instead of ~15 minutes, with the gap between successive failing tickers
+# GROWING (33 min, 51 min, then 3.5 HOURS) — not the ~3-minute ceiling
+# `_with_retry`'s own 3-attempt/60s-120s backoff should produce. Yahoo was
+# degrading through the session (unofficial scraping, sustained heavy use), and
+# each unbounded `.history()` call simply took however long Yahoo felt like
+# taking before finally erroring — the retry logic was doing its job three
+# times over on top of a per-attempt wait with no ceiling of its own.
+YAHOO_TIMEOUT_SECONDS = 30.0
 
 # Meaningfully-revised FRED series (ADR-003) — backfilled via ALFRED
 # first-release vintages. Everything else uses the current vintage, which
@@ -96,8 +110,17 @@ async def fetch_yahoo_series(ticker: str, start: date | None = None) -> pd.Serie
     (or the pair's own quote currency for FX tickers like CHFUSD=X)."""
 
     async def _call() -> pd.Series:
-        return await asyncio.get_running_loop().run_in_executor(
-            None, _fetch_yahoo_sync, ticker, start
+        # `wait_for` bounds how long WE wait, not how long the executor thread
+        # actually runs — a blocking `yf.Ticker().history()` call cannot be
+        # cancelled once started, so a timeout here abandons that attempt's
+        # thread rather than killing it. That is still strictly better than no
+        # bound at all: the retry loop moves on (or gives up and lets the
+        # caller's per-ticker skip logic take over) instead of the whole catch-up
+        # job sitting behind one degraded provider for however long it feels
+        # like taking (see YAHOO_TIMEOUT_SECONDS).
+        return await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(None, _fetch_yahoo_sync, ticker, start),
+            timeout=YAHOO_TIMEOUT_SECONDS,
         )
 
     return await _with_retry(_call, label=f"yahoo:{ticker}")
