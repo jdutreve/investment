@@ -147,6 +147,16 @@ class Settings(BaseSettings):
     telegram_bot_token: str
     telegram_chat_id: str
 
+    # Gmail draft channel (owner, 2026-08-17) — an App Password, not OAuth
+    # (owner's choice between the two): IMAP APPEND to the Drafts mailbox needs
+    # no Google Cloud project, no consent screen, no token refresh, and
+    # `imaplib`/`email` are stdlib. Left as REPLACE_ME the agent still runs,
+    # decides and records; the draft simply fails to append and the chain's
+    # other two channels carry the digest, same graceful-disable shape as an
+    # unconfigured Telegram token (`gmail/draft.create_draft` never raises).
+    gmail_address: str
+    gmail_app_password: str
+
     # User profile defaults (BINDING rules — see docs/REVISION_NOTES.md)
     # USD, not CHF (owner, 2026-08-08): everything in this system is USD —
     # display, NAV, performance. The CHF default was the last survivor of an
@@ -191,5 +201,6 @@ class Settings(BaseSettings):
             self.anthropic_api_key,
             self.fred_api_key,
             self.telegram_bot_token,
+            self.gmail_app_password,
         ):
             register_secret(secret)

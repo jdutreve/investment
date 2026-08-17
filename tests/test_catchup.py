@@ -38,6 +38,8 @@ def _settings(tmp_path: Path) -> Settings:
         worker_model="w",
         telegram_bot_token="t",
         telegram_chat_id="c",
+        gmail_address="test",
+        gmail_app_password="test",
         db_path=tmp_path / "catchup.db",
         inbox_path=tmp_path / "inbox",
         sources_path=tmp_path / "sources",

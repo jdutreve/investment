@@ -134,6 +134,8 @@ def _settings(tmp_path: Path) -> Settings:
         fred_api_key="test",
         telegram_bot_token="test",
         telegram_chat_id="test",
+        gmail_address="test",
+        gmail_app_password="test",
         db_path=tmp_path / "seed.db",
         inbox_path=tmp_path / "inbox",
         sources_path=tmp_path / "sources",

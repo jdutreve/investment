@@ -1,10 +1,11 @@
 # CLAUDE.md — Investment Agent (MVP Core)
 
 Local single-user agent that builds retirement capital (Phase 1: accumulation).
-V1 = portfolio ranking + weekly Telegram digest + paper-mode proposals (switch
-defender / reallocate). **V1 never executes a trade**; cognition is fully
-autonomous (no user-validation gate — ADR-006), the owner alone places orders.
-V2 adds auto-execution and learning from real performance.
+V1 = portfolio ranking + weekly digest (Telegram, local outbox, and a Gmail
+draft — ADR-015) + paper-mode proposals (switch defender / reallocate).
+**V1 never executes a trade**; cognition is fully autonomous (no
+user-validation gate — ADR-006), the owner alone places orders. V2 adds
+auto-execution and learning from real performance.
 
 > **ADR-007 pivot (accepted 2026-07-20) — read `docs/V1_STRATEGY.md`.** V1's
 > ADOPTED allocation strategy is now the **market-signal monthly countercyclical
@@ -132,7 +133,11 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   monthly) → 09:00
   UC8 decision cycle (Planner Pre → Worker → Planner Post → Writeback gates;
   the Worker READS the market-signal decision as context and nuances it, it
-  never re-picks the book) → 09:30 digest. Full annotated timeline: docs/USE_CASES.md.
+  never re-picks the book) → 09:30 digest, sent on THREE channels
+  (`delivery.py`'s Telegram/local-file pair, plus a Gmail draft the agent
+  creates itself via IMAP — ADR-015; the Gmail step is additional and
+  best-effort, never able to abort the chain). Full annotated timeline:
+  docs/USE_CASES.md.
 - UC9 (user chat) may trigger one ad-hoc UC8 re-run per day.
 
 ## Stack

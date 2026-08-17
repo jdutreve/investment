@@ -66,9 +66,11 @@ alert. Times in ../CLAUDE.md are indicative.)
                               allocation of any kind. It may not re-pick the
                               book, and that now holds by construction rather
                               than through ADR-011's gate 0.
-  —    Weekly digest        → Telegram (09:30 — renders the market-signal
-                              decision from its journal, plus UC7/UC8 output;
-                              always sent)
+  —    Weekly digest        → Telegram, local outbox, AND a Gmail draft
+                              (09:30 — renders the market-signal decision from
+                              its journal, plus UC7/UC8 output; always sent on
+                              all three, the Gmail one additional and
+                              best-effort — ADR-015)
 
 On demand
   UC9  Chatbot              → UserDecisionEvent → may re-trigger UC8

@@ -1117,7 +1117,8 @@ stale data). Timezone Europe/Zurich.
               snapshot `recommendation` columns updated
               (rows themselves written by UC7 at 08:50)
 
-09:30   Weekly Telegram digest
+09:30   Weekly digest — Telegram, local outbox, and a Gmail draft (ADR-015,
+        the Gmail one additional/best-effort, never able to abort the chain)
           → regime + ranking + defender row + challenger gap
           → cumulative returns (3m/6m/1y/3y/5y) displayed alongside indicators
           → V1 paper-mode Proposal payload if any (switch: old vs new

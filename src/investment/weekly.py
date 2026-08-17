@@ -37,6 +37,8 @@ from investment.db.backup import backup_database
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import CYCLE_COMPLETED_EVENT, run_decision_cycle
 from investment.delivery import deliver, outbox_path
+from investment.gmail.draft import create_draft as create_gmail_draft
+from investment.gmail.render import collect_live_trend_snapshot, render_digest_html
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
 from investment.mechanical.backtests import run_backtests_and_favors
@@ -47,7 +49,7 @@ from investment.mechanical.scenarios import warm_start_scenario_probabilities
 from investment.mechanical.snapshots import build_snapshot
 from investment.ops.run_lock import AlreadyRunning
 from investment.runtime import AgentRuntime
-from investment.telegram.digest import build_digest
+from investment.telegram.digest import collect_digest_inputs, render_digest
 from investment.watch.event_watch import flagged_message, run_event_watch
 
 logger = logging.getLogger(__name__)
@@ -221,10 +223,32 @@ def weekly_steps(
         )
 
     async def digest() -> None:
-        """Render and SEND. Rendering without sending would leave the week's
-        report in a log nobody reads, and the send is what the whole chain is
-        for — the owner places the month's orders from it."""
-        await send(await build_digest(db, today))
+        """Render and SEND — to THREE channels now (owner, 2026-08-17): the
+        Telegram/local-file pair `send` already tries in order, plus a Gmail
+        draft alongside it. The Gmail step is ADDITIONAL, not a replacement in
+        the fallback chain — `create_gmail_draft` never raises
+        (`gmail/draft.py`'s own contract, mirroring `delivery.deliver`'s), so a
+        bad app password or a network hiccup there costs a log line, never the
+        rest of the chain.
+
+        ONE ASSEMBLY, not two: `inputs` is the same `DigestInputs` the
+        dashboard's `/api/overview` reads (ADR-005), so the phone, the browser
+        and the mail can disagree on layout but never on a number."""
+        inputs = await collect_digest_inputs(db, today)
+        text = render_digest(**inputs)
+        await send(text)
+        live = await collect_live_trend_snapshot(db, inputs.get("market_signal"))
+        # `imaplib` is BLOCKING network I/O (CLAUDE.md "Asyncio single-writer:
+        # never block the loop") — off the loop via `to_thread`, exactly as
+        # every other synchronous network call in this codebase must be.
+        await asyncio.to_thread(
+            create_gmail_draft,
+            address=settings.gmail_address,
+            app_password=settings.gmail_app_password,
+            subject=f"Investment digest — {today.isoformat()}",
+            text=text,
+            html=render_digest_html(inputs, live, today),
+        )
 
     return [
         # FIRST, and everything after it reads what it leaves: a chain that

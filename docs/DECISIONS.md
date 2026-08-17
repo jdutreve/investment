@@ -1203,3 +1203,72 @@ permanent article of faith: the day strategy probation has another way to find
 peers — a population of innovation-born strategies large enough to judge each
 other, or a probation rule that does not need a median — the cost/benefit
 changes and deletion becomes discussable again. Not before.
+
+---
+
+## ADR-015 — The digest gains a third channel: a Gmail draft, built by the agent, via IMAP
+
+**Status:** accepted 2026-08-17.
+
+**Context.** The weekly digest had two delivery channels (`delivery.py`):
+Telegram, and a local outbox file when Telegram fails. Earlier the same day
+the owner asked for a Gmail draft of the digest and, given the choice between
+real OAuth/Gmail API integration in the codebase versus the assistant
+producing one by hand each week, chose the manual gesture — new dependency,
+new secret category, and touching `delivery.py`'s two-channel framing were not
+judged worth it for a once-a-week email
+(`project-third-channel-gmail-digest` memory). Hours later the owner reopened
+the question: "genere automatiquement... et mets le dans brouillon" — generate
+it automatically, every week, without being asked. That is real automation,
+which the manual gesture cannot become no matter how well the format is
+pinned: the assistant is not a process the weekly chain can call.
+
+**Decision.** The Gmail draft becomes a genuine third channel, built by the
+agent inside the weekly chain's `digest` step (`weekly.py`), immediately after
+the existing Telegram/local-file send. Two implementation choices, both the
+owner's:
+
+1. **IMAP APPEND to the Drafts mailbox, not the Gmail REST API** — an
+   account App Password (`GMAIL_ADDRESS` / `GMAIL_APP_PASSWORD` in `.env`,
+   both required, same graceful-disable shape as an unconfigured Telegram
+   token) rather than an OAuth2 client. No Google Cloud project, no consent
+   screen, no refresh-token storage; `imaplib` and `email` are stdlib, so this
+   is the one channel in `delivery.py`'s family that adds no dependency.
+2. **A new module, `gmail/render.py` + `gmail/draft.py`**, not a widening of
+   `delivery.py` — the Gmail step is ADDITIONAL and best-effort, not part of
+   the Telegram-then-file fallback chain `delivery.deliver` already owns, and
+   `gmail/draft.create_draft` carries the identical NEVER-RAISES contract for
+   the same reason: a bad app password must cost a log line, never the rest of
+   the chain.
+
+**Consequences.**
+- `config.Settings` gains `gmail_address` / `gmail_app_password`, required
+  (no default) like every credential this project treats as CLAUDE.md's
+  fail-at-startup rule applies to — `REPLACE_ME` still starts the agent, it
+  just means the draft step logs a warning and does nothing, exactly as an
+  unconfigured Telegram token already behaves.
+- `gmail/render.py` renders the SAME `DigestInputs` (`telegram/digest.py`,
+  ADR-005) the phone and the dashboard read — one assembly, three renders —
+  plus one thing nothing else needed: `collect_live_trend_snapshot` queries
+  fresh sleeve/signal prices, because the market-signal decision is MONTHLY
+  and this mail is WEEKLY, and on a holding week (most of them) the decision's
+  own journal row is up to a month stale.
+- Legacy HTML only (`<table border><th bgcolor><font color><b>`, never
+  `style=`) — found 2026-08-17 by an isolated diagnostic that the Gmail
+  draft-COMPOSITION REST API silently strips the `style=` attribute; kept here
+  even though IMAP APPEND does not run through that API, because a draft
+  opened and re-saved in the Gmail UI would round-trip through the composer
+  and lose it then (`feedback-email-draft-never-send` memory has the full
+  finding).
+- All corpus/LLM-sourced free text (invariant titles, the Worker's prose, a
+  decision's `reasoning`) is HTML-escaped before rendering — the manually-built
+  templates this replaces never needed that, because their data was hand-typed
+  and trusted; a generator reading the live corpus cannot make that
+  assumption.
+
+**What this does not touch.** `delivery.py` keeps its own two-channel
+docstring unchanged and correctly scoped — Gmail is not part of the
+Telegram-then-file fallback it implements, so widening that docstring would
+misdescribe its own contract. ADR-002's local-Mac framing is unaffected: the
+agent already calls OpenRouter, FRED, Yahoo and Telegram over the network:
+IMAP to Gmail is the same class of external call, not a new one.
