@@ -304,6 +304,33 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "source": "yahoo",
         "transform": "none",
     },
+    # Onboarded for `mechanical/momentum_minvar.py` (AAAF-R, a refused-to-propose
+    # benchmark — see PORTFOLIOS "aaaf-r-USD"). NO `HISTORY_PROXIES` entry for
+    # either: the owner chose the TRADABLE-ONLY window over researching a
+    # pre-inception splice, so AAAF-R's backtest starts wherever these two
+    # actually have Yahoo history (IYR ~2000-06), not 1991 like the rest of the
+    # system. That is a deliberate, narrower window, not a gap to fill later.
+    {
+        "ticker": "IWM",
+        # Broad, same bucket as SPY/VTI/QQQ — this taxonomy has no size/cap
+        # class distinct from IWN's deliberate VALUE tilt (see IWN above), and
+        # IWM (Russell 2000 blend) carries no such tilt.
+        "asset_class": "US_EQUITY",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "IYR",
+        # A new class: REITs are a genuinely distinct risk factor, not a
+        # sub-bucket of US_EQUITY. Absent from `BENCHMARK_CLASSES` on purpose,
+        # same precedent as IWN's US_SMALL_VALUE — a sleeve held by only one
+        # strategy needs no cross_class benchmark entry.
+        "asset_class": "US_REAL_ESTATE",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
     {
         "ticker": "^IRX",
         "asset_class": "RISK_FREE",
@@ -722,6 +749,25 @@ FRAMEWORKS: list[dict[str, object]] = [
         "enabled": True,
         "accuracy": None,
         "trace": "V1 adopted allocation framework — ADR-007; docs/V1_STRATEGY.md.",
+    },
+    {
+        # NOT FILED UNDER `passive`: that framework's own rationale is "expresses
+        # no market view", and AAAF-R does — a monthly momentum + shrunk
+        # min-variance rule is an active interpretation, just one that has not
+        # cleared its own adoption bar (db/seed_data.py "aaaf-r-USD"). `enabled`
+        # is False for the reason it is on `passive` and `market-signal` is True:
+        # this framework drives no live proposal path, ever — its only member is
+        # a refused-to-propose benchmark.
+        "id": "aaaf-r",
+        "name": "AAAF-R (momentum + shrunk min-variance)",
+        "description": "Monthly 180-session momentum top-5 of a 9-ETF universe, "
+        "weighted by minimum-variance on a Ledoit-Wolf-shrunk 63-session "
+        "covariance, bounded 10-40% per asset.",
+        "enabled": False,
+        "accuracy": None,
+        "trace": "Refinement of a published rotation recipe "
+        "(info.recipeinvesting.com/recipe/t.aaaf.html), seeded 2026-08-18 as a "
+        "permanent benchmark. Holds `aaaf-r-USD`; carries no strategy.",
     },
 ]
 
@@ -1906,6 +1952,57 @@ PORTFOLIOS: list[dict[str, object]] = [
         "never trades. SPY rather than VTI because it is the stack's own equity "
         "sleeve, so the comparison isolates the RULE and not the instrument.",
     },
+    {
+        # THE THIRD BENCHMARK (owner, 2026-08-18) — a refinement of a published
+        # rotation recipe (info.recipeinvesting.com/recipe/t.aaaf.html): monthly
+        # 180-session momentum top-5 out of a 9-ETF universe, weighted by
+        # minimum-variance on a 63-session covariance shrunk via Ledoit-Wolf,
+        # bounded 10-40% per asset (`mechanical/momentum_minvar.py`).
+        #
+        # A BENCHMARK, NOT A CHALLENGER, and that distinction is deliberate
+        # rather than the default. The owner's own adoption test — AAAF-R must
+        # beat BOTH the MS-stack AND a plain top-5-equal-weight control — was
+        # never run (that control arm and the published-recipe reconstruction
+        # were explicitly scoped OUT of this build). `BENCHMARK_PORTFOLIOS`
+        # membership is what makes that refusal structural rather than a
+        # reminder: ranked every week so the comparison is visible, refused by
+        # `replay._best_challenger`/`_designed_challenger` by KIND so nothing can
+        # ever hand it to the owner as a switch before that test exists.
+        #
+        # TRADABLE-ONLY WINDOW (owner's choice): IWM/IYR carry no
+        # `HISTORY_PROXIES` splice, so this book's live history starts wherever
+        # the 9-ticker universe is jointly priced (~2000-06, IYR's inception),
+        # roughly 26 years rather than the rest of the system's 35.
+        #
+        # `allocation` below is a SEED-TIME PLACEHOLDER ONLY (illustrative,
+        # equal-weight across five diversified sleeves) — `persist_aaaf_r_nav`
+        # overwrites it with the walk's actual last target on every run, the
+        # same live-column discipline `dispose_market_signal` keeps for
+        # `ms-stack.allocation` (CLAUDE.md "WHEN A SECOND ONE ARRIVES...": a
+        # column that stops being kept current is worse than one that was never
+        # written).
+        "id": "aaaf-r-USD",
+        "name": "AAAF-R (momentum + shrunk min-variance, refined)",
+        "framework_id": "aaaf-r",
+        "defender": False,
+        "enabled": True,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {"SPY": 20, "QQQ": 20, "TLT": 20, "GLD": 20, "EFA": 20},
+        "max_drawdown_rule": -25.0,
+        # The recipe's OWN bound (10-40% per asset), not the user's global cap —
+        # already stricter, so "per-portfolio rules may only be STRICTER" holds
+        # without needing a separate, tighter number.
+        "max_single_asset_pct": 40.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "AAAF-R: a refinement of a published momentum rotation recipe, "
+        "seeded as a permanent yardstick against the MS-stack — never a "
+        "challenger, since its own adoption bar (beat the stack AND a "
+        "top-5-equal-weight control) has not been tested. Net of ADR-010's 23 "
+        "bps like every other NAV. Tradable-only window: no pre-2000 history, "
+        "unlike the rest of the system.",
+    },
 ]
 
 # Portfolios whose allocation VARIES over time, so their NAV cannot be built by
@@ -1920,7 +2017,12 @@ PORTFOLIOS: list[dict[str, object]] = [
 # portfolio nobody holds. It also inherits ADR-011's gate 0 by being here — the
 # Worker cannot retarget a mechanically-driven control arm, which is the whole
 # point of a control.
-TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-baseline"})
+#
+# `aaaf-r-USD` joined 2026-08-18 for the same structural reason: its NAV comes
+# from `momentum_minvar.shadow_book_nav`-style change points (a monthly
+# momentum + min-variance re-solve), never a fixed target `backfill_nav` could
+# price.
+TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-baseline", "aaaf-r-USD"})
 
 # THE YARDSTICKS. Ranked every week so the owner sees what the apparatus is
 # worth against them, and NEVER proposable so no cycle can hand one over as a
@@ -1940,7 +2042,16 @@ TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-basel
 # this leaned on that — but All Weather's largest sleeve is 40%, well inside the
 # cap, so the same accident would have let the benchmark be proposed as a
 # challenger. The kind refuses both.
-BENCHMARK_PORTFOLIOS: frozenset[str] = frozenset({"all-weather-USD", "spy-USD"})
+#
+# `aaaf-r-USD` joined 2026-08-18 for a THIRD reason, distinct from the two
+# above: it is not exempted from a cap it would otherwise breach (its own
+# 10-40% bound is already tighter than the user's), it is here because its own
+# adoption test was never run. A benchmark earns the kind by being a yardstick
+# nobody has cleared to buy; this is the first row where that is temporary
+# rather than definitional — worth restating if the equal-weight control and
+# published-recipe reconstruction the owner's note calls for are ever built
+# and AAAF-R clears them.
+BENCHMARK_PORTFOLIOS: frozenset[str] = frozenset({"all-weather-USD", "spy-USD", "aaaf-r-USD"})
 
 
 def benchmarks_first(portfolios: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -1953,6 +2064,7 @@ def benchmarks_first(portfolios: list[dict[str, object]]) -> list[dict[str, obje
     through here, which is what lets All Weather be an ordinary seeded row
     instead of a special case each of them repeats."""
     return sorted(portfolios, key=lambda p: str(p["id"]) not in BENCHMARK_PORTFOLIOS)
+
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
     ("4s-balanced-defender", "four-seasons-rp", True),

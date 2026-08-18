@@ -159,7 +159,9 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
     """CLAUDE.md pins the order and each step feeds the next: UC6 refills the
     indicators UC7 ranks on, so ranking before valuing would rank on stale
     numbers; the market-signal decision is journalled BEFORE the Worker speaks,
-    which is the order ADR-011 requires."""
+    which is the order ADR-011 requires. `aaaf-r` sits right after
+    `market-signal` — same category, a time-varying book's weekly NAV refresh,
+    no gate or Worker dependency of its own."""
     assert _steps(db) == [
         "catch-up",
         "event-watch",
@@ -171,6 +173,7 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
         "ranking",
         "outcomes",
         "market-signal",
+        "aaaf-r",
         "uc8",
         "digest",
     ]

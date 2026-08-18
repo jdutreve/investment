@@ -43,6 +43,7 @@ from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
 from investment.mechanical.backtests import run_backtests_and_favors
 from investment.mechanical.catchup import run_catchup
+from investment.mechanical.momentum_minvar import run_aaaf_r_cycle
 from investment.mechanical.outcomes import evaluate_proposals, strategy_probation_check
 from investment.mechanical.ratios import value_portfolios
 from investment.mechanical.scenarios import warm_start_scenario_probabilities
@@ -266,6 +267,10 @@ def weekly_steps(
         ("ranking", lambda: build_snapshot(db, thresholds["ranking_tiebreak_window"], today)),
         ("outcomes", outcomes),
         ("market-signal", lambda: run_market_signal_cycle(db, user_profile, today=today)),
+        # AAAF-R (mechanical/momentum_minvar.py) — a benchmark, not a decision:
+        # no gate, no proposal, just a weekly NAV refresh, same category as the
+        # market-signal step above and placed right beside it for that reason.
+        ("aaaf-r", lambda: run_aaaf_r_cycle(db, today=today)),
         ("uc8", cognitive_cycle),
         ("digest", digest),
     ]

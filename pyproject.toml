@@ -21,6 +21,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "python-telegram-bot>=22.8",
     "python-ulid>=3.1.0",
+    "scikit-learn>=1.9.0",
     "scipy>=1.18.0",
     "sentence-transformers>=5.6.0",
     "yfinance>=1.5.1",
@@ -92,4 +93,17 @@ ignore_missing_imports = true
 # parse bytes into entries, each field read through `str(entry.get(...))`.
 [[tool.mypy.overrides]]
 module = "feedparser"
+ignore_missing_imports = true
+
+# scipy ships no py.typed marker either (a `scipy-stubs` package exists but is
+# unmaintained by scipy itself — same "no first-party stubs" situation as the
+# three above, same treatment). sklearn likewise. One caller each
+# (mechanical/momentum_minvar.py): `scipy.optimize.minimize` for the bounded
+# min-variance solve, `sklearn.covariance.LedoitWolf` for its shrinkage.
+[[tool.mypy.overrides]]
+module = "scipy.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sklearn.*"
 ignore_missing_imports = true

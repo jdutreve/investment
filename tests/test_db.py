@@ -249,8 +249,18 @@ def test_benchmarks_are_built_before_the_portfolios_that_measure_against_them() 
 async def test_the_seeded_benchmarks_are_ranked_and_hold_no_strategy(tmp_path: Path) -> None:
     """The yardstick contract, seed half (`BENCHMARK_PORTFOLIOS`, owner
     2026-08-15): a benchmark is ENABLED so the weekly ranking shows it, is never
-    the defender, and implements no strategy — it expresses no view, which is
-    what makes it a measuring stick rather than a competitor.
+    the defender, and holds no `Strategy` vertex via `holds` (no `HOLDS_EDGES`
+    entry) — none of the three is a component of a strategy `replay.py` scores
+    as a whole.
+
+    `framework_id == "passive"` was true of BOTH benchmarks that existed through
+    2026-08-15 and got folded into this test as if it were part of the
+    contract — until `aaaf-r-USD` arrived (2026-08-18), an ACTIVELY managed
+    momentum + min-variance rule that is a benchmark for an unrelated reason
+    (its own adoption test was never run, db/seed_data.py "aaaf-r-USD"). "No
+    active view" and "refused to propose" are independent properties; only the
+    second is checked for every member below (CLAUDE.md "WHEN A SECOND ONE
+    ARRIVES, FIND WHAT NAMED THE FIRST").
 
     The other half of the contract — never proposable — is behavioural and lives
     in `test_replay.py`, because what enforces it is the challenger search
@@ -268,11 +278,15 @@ async def test_the_seeded_benchmarks_are_ranked_and_hold_no_strategy(tmp_path: P
             "(" + ", ".join(f"'{pid}'" for pid in sorted(BENCHMARK_PORTFOLIOS)) + ")"
         )
         assert len(rows) == len(BENCHMARK_PORTFOLIOS)
+        passive = {"all-weather-USD", "spy-USD"}
         for row in rows:
             assert row["enabled"], row["id"]  # ranked every week
             assert not row["defender"], row["id"]  # never the thing being defended
-            assert row["framework_id"] == "passive", row["id"]
             assert row["strategies"] == 0, row["id"]
+            if row["id"] in passive:
+                assert row["framework_id"] == "passive", row["id"]
+            else:
+                assert row["framework_id"] != "passive", row["id"]
     finally:
         await db.close()
 

@@ -66,6 +66,7 @@ from investment.mechanical import (
     backtests,
     invariants,
     market_signal,
+    momentum_minvar,
     ratios,
     scenarios,
     snapshots,
@@ -731,6 +732,21 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
         baseline = await market_signal.run_trend_baseline(db, end=date.today())
         results[market_signal.TREND_BASELINE_PORTFOLIO_ID] = dataclasses.asdict(
             await market_signal.persist_trend_baseline_nav(db, baseline, window)
+        )
+
+    # AAAF-R, ALSO BUILT UNCONDITIONALLY, for the same reason as the control
+    # arm above: it shares none of the stack's prerequisites (a disjoint
+    # 9-ticker universe, no credit/slope signal at all), so gating it on
+    # `market_signal`'s inputs would leave this benchmark unbuildable on
+    # exactly the partial seeds the incremental contract exists to serve.
+    missing_aaaf_r = await momentum_minvar.missing_universe_series(db)
+    if missing_aaaf_r:
+        logger.warning("step 12: aaaf-r NAV skipped, no series for %s", missing_aaaf_r)
+        results[momentum_minvar.PORTFOLIO_ID] = {"skipped": f"missing series: {missing_aaaf_r}"}
+    else:
+        aaaf_r_run = await momentum_minvar.run_aaaf_r(db, end=date.today())
+        results[momentum_minvar.PORTFOLIO_ID] = dataclasses.asdict(
+            await momentum_minvar.persist_aaaf_r_nav(db, aaaf_r_run, window)
         )
 
     # SKIPPED, not failed, when the STACK's inputs are absent — the
