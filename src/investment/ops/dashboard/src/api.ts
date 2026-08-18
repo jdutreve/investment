@@ -131,10 +131,17 @@ export interface BookRow extends Row {
   id: string;
 }
 
+export interface BenchmarkNav {
+  id: string;
+  name: string;
+  nav: NavPoint[];
+}
+
 export interface StackPayload {
   decisions: StackDecision[];
   nav: NavPoint[];
   profile: Row | null;
   stack_portfolio: Row | null;
   books: BookRow[];
+  benchmarks: BenchmarkNav[];
 }

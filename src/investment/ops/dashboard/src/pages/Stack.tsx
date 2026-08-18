@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, MinusCircle, ShieldAlert } from "lucide-react";
-import { get, type Row, type StackDecision, type StackPayload } from "../api";
+import { get, type NavPoint, type Row, type StackDecision, type StackPayload } from "../api";
 import { Tile } from "../components/Bits";
-import { NavChart } from "../components/NavChart";
+import { NavChart, type NamedNavSeries } from "../components/NavChart";
 import { ErrorState } from "../components/States";
 import { date, num, pct, weight } from "../format";
 
@@ -24,6 +24,45 @@ import { date, num, pct, weight } from "../format";
  * blocked month rendered like a holding month is the error this page exists to
  * make impossible.
  */
+
+// COLOR FOLLOWS THE ENTITY, never the array position `sorted(BENCHMARK_PORTFOLIOS)`
+// happens to return (dataviz skill) — a fixed id -> color map rather than
+// zipping colors onto whatever order the API sends. `--series-3` (purple) is
+// deliberately absent: it already means "the stack" everywhere this page uses it.
+const BENCHMARK_COLOR: Record<string, string> = {
+  "all-weather-USD": "var(--series-1)",
+  "spy-USD": "var(--series-2)",
+  "aaaf-r-USD": "var(--series-4)",
+};
+
+/*
+ * REBASED TO THE STACK'S OWN INCEPTION, not left at each series' own base 100
+ * (owner, 2026-08-18, after "how can ms-stack and spy-USD have a similar CAGR
+ * and such a different NAV curve" — answer: partly because spy-USD had 13.8
+ * MORE years to compound from ITS OWN 1980 base before this chart's shared
+ * x-axis, which has nothing to do with the two strategies' relative merit).
+ * `refDate` is read off the stack's own first NAV point rather than hardcoded
+ * as the literal "1993-11-01": `market_signal.stack_calendar`'s anchor is
+ * data-derived (VCIT's proxy start) and has already moved once in this
+ * project's history, so a literal here would go stale exactly the way
+ * CLAUDE.md's "WHEN A SECOND ONE ARRIVES" warns about.
+ *
+ * A series that starts LATER than `refDate` (aaaf-r-USD, 2006) rebases against
+ * its OWN first point instead — `points.find(p.ts >= refDate)` lands on that
+ * first point when nothing earlier qualifies, and dividing a series by its own
+ * first value is a no-op (it was already 100 there). So aaaf-r-USD's curve is
+ * unchanged; only spy-USD and all-weather-USD (which existed before the
+ * stack) are actually re-based and cropped here.
+ */
+function rebaseFrom(points: NavPoint[], refDate: string | null): NavPoint[] {
+  if (!refDate) return points;
+  const inRange = points.filter(
+    (p): p is { ts: string; nav: number } => p.ts >= refDate && typeof p.nav === "number",
+  );
+  if (inRange.length === 0) return [];
+  const base = inRange[0]!.nav;
+  return base ? inRange.map((p) => ({ ts: p.ts, nav: (p.nav / base) * 100 })) : inRange;
+}
 
 type Outcome = "moved" | "held" | "blocked";
 
@@ -224,6 +263,10 @@ export function Stack() {
   const drawdownRule = data.profile?.max_drawdown_pct;
   const heldState = latest ? outcomeOf(latest.payload) : null;
   const heldBook = latest ? String(latest.payload.held_book ?? "") : null;
+  // The stack's OWN first NAV point — not the literal "1993-11-01" — so the
+  // comparison chart's rebase date tracks the calendar `market_signal.
+  // stack_calendar` actually derives, wherever that anchor is today.
+  const stackInception = data.nav.find((p) => typeof p.nav === "number")?.ts ?? null;
 
   return (
     <div className={isFetching ? "stale" : undefined}>
@@ -268,12 +311,30 @@ export function Stack() {
 
       <div className="grid cols-2" style={{ marginTop: 14 }}>
         <div className="card">
-          <h2>Stack paper NAV</h2>
-          <NavChart points={data.nav} color="var(--series-3)" />
+          <h2>Stack paper NAV vs the benchmarks</h2>
+          <NavChart
+            points={rebaseFrom(data.nav, stackInception)}
+            color="var(--series-3)"
+            label="Market-signal stack"
+            series={data.benchmarks.map(
+              (b): NamedNavSeries => ({
+                id: b.id,
+                label: b.name,
+                color: BENCHMARK_COLOR[b.id] ?? "var(--series-1)",
+                points: rebaseFrom(b.nav, stackInception),
+              }),
+            )}
+          />
           <div className="paper-note">
-            The -{Math.abs(Number(drawdownRule ?? 25))}% drawdown rule is measured on the
-            36-month rolling drawdown and raises an ALERT, not a block (ADR-009): refusing a
-            proposal cannot exit a position, only freeze one.
+            All four series rebased to 100 at the stack&apos;s own inception
+            ({stackInception ?? "—"}) — the fair comparison, since spy-USD and All
+            Weather otherwise get years of extra compounding on the chart that have
+            nothing to do with either strategy&apos;s merit. Each portfolio&apos;s own
+            detail page still shows its full since-inception curve. aaaf-r-USD started
+            LATER (2006) and is unaffected — its curve is unchanged. The -
+            {Math.abs(Number(drawdownRule ?? 25))}% drawdown rule is measured on the
+            stack&apos;s own 36-month rolling drawdown and raises an ALERT, not a block
+            (ADR-009): refusing a proposal cannot exit a position, only freeze one.
           </div>
         </div>
 

@@ -23,10 +23,16 @@
   --brand-blue: #209dd7;
   --brand-purple: #753991;
 
-  /* Chart marks — the validated steps of the same three hues */
+  /* Chart marks — the validated steps of the same three hues, plus a 4th
+     (rose) added 2026-08-18 for the stack-vs-benchmarks NAV comparison —
+     validated against slots 1-3 with the same `validate_palette.js` six
+     checks, all pairs (not just adjacent), light mode: worst pair
+     #b3245f<->#6b2f8a, CVD ΔE 10.2 (protan), normal-vision ΔE 16.5, both
+     clear of the 8/15 floors. */
   --series-1: #a37708;
   --series-2: #2287bd;
   --series-3: #6b2f8a;
+  --series-4: #b3245f;
 
   /* Status — reserved, never reused for a series, always with an icon + label */
   --status-good: #1a7f4f;

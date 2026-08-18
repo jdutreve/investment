@@ -288,6 +288,18 @@ async def handle_stack(request: web.Request) -> web.Response:
         **{f"p{i}": pid for i, pid in enumerate(portfolio_ids)},
     )
     by_id = {str(row["id"]): row for row in portfolios}
+    # THE THREE YARDSTICKS' OWN NAV, alongside the stack's — so the paper NAV
+    # chart reads as a comparison rather than a single unanchored line. Same
+    # reasoning as the four books above: embedded here rather than left to
+    # three extra `/api/portfolio` round trips from the page.
+    benchmark_ids = sorted(BENCHMARK_PORTFOLIOS)
+    benchmark_rows = await _rows(
+        runtime.db,
+        f"SELECT id, name FROM portfolio WHERE id IN "
+        f"({', '.join(f':b{i}' for i in range(len(benchmark_ids)))})",
+        **{f"b{i}": bid for i, bid in enumerate(benchmark_ids)},
+    )
+    benchmark_names = {str(r["id"]): str(r["name"]) for r in benchmark_rows}
     return json_response(
         {
             "decisions": decisions,
@@ -303,6 +315,14 @@ async def handle_stack(request: web.Request) -> web.Response:
                 {"signal_state": state, **by_id[pid]}
                 for state, pid in BOOK_PORTFOLIO_IDS.items()
                 if pid in by_id
+            ],
+            "benchmarks": [
+                {
+                    "id": bid,
+                    "name": benchmark_names.get(bid, bid),
+                    "nav": await _nav_series(runtime.db, bid),
+                }
+                for bid in benchmark_ids
             ],
         }
     )
