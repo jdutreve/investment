@@ -412,6 +412,24 @@ async def build_snapshot(
             },
             event_date=snapshot_date,
         )
+        # PRUNE THIS DATE'S ROW for any portfolio that is no longer ranked —
+        # found live, 2026-08-18: `INSERT OR REPLACE` below only ever WRITES a
+        # row for a currently-enabled portfolio, it never REMOVES one for a
+        # portfolio disabled the same day. Three `four-seasons-rp` books
+        # disabled mid-day (owner: stop ranking them individually, see
+        # `db/seed_data.py` "4s-stagflation-defensive") left their morning
+        # snapshot rows sitting under today's date, still enabled as far as
+        # `/api/ranking` could tell — the exact `worker-book` defect
+        # `_retire_removed_portfolios`'s docstring describes, one column over
+        # (that one guards a portfolio dropped from `PORTFOLIOS` entirely;
+        # this guards one merely disabled, same day, same table).
+        placeholders = ", ".join(f":p{i}" for i in range(len(ranked)))
+        await db.command(
+            f"DELETE FROM portfolio_weekly_snapshot WHERE date = :date "
+            f"AND portfolio_id NOT IN ({placeholders})",
+            date=snapshot_date.isoformat(),
+            **{f"p{i}": rr.row.portfolio_id for i, rr in enumerate(ranked)},
+        )
         for rr in ranked:
             row = rr.row
             await db.command(

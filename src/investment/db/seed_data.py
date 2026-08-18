@@ -1560,11 +1560,28 @@ PORTFOLIOS: list[dict[str, object]] = [
         "and are 3x more volatile) and already reaches 1991.",
     },
     {
+        # DISABLED (owner, 2026-08-18) — a deliberate deviation from ADR-014's
+        # "seven ranked comparators" count, documented rather than silent
+        # (CLAUDE.md: "never contradict an accepted ADR silently"). This book
+        # was ranked WHOLE-WINDOW (`ratios.backfill_nav`: the same fixed
+        # allocation held from 1991 to today), which is not what "designed for
+        # falling-growth-rising-inflation" means — nothing in the live system
+        # ever held it only during stagflation, so its Sortino/CAGR in the
+        # Ranking table measured a strategy nobody runs. It is not what feeds
+        # FAVORS either: `backtests._primary_portfolio_id` reads ONE portfolio
+        # per strategy (`holds.is_primary`), and `4s-balanced-defender` is that
+        # one (see `HOLDS_EDGES` below) — exactly the `market-signal-stack`
+        # pattern, where only `ms-stack` is enabled and its four component
+        # books are not. `enabled=False` does not remove its NAV: seed step 12
+        # backfills every `PORTFOLIOS` row regardless, so it stays available if
+        # a future regime-conditioned FAVORS (I-xx) ever wants it — it just
+        # stops cluttering the ranking with a number that reads as a verdict on
+        # a book nothing in the system holds.
         "id": "4s-stagflation-defensive",
         "name": "4 Seasons Stagflation Defensive",
         "framework_id": "4seasons",
         "defender": False,
-        "enabled": True,
+        "enabled": False,
         "currency": "USD",
         "benchmark": "all-weather-USD",
         "allocation": {"IEF": 30, "GLD": 25, "DJP": 15, "SPY": 10, "TLT": 10, "cash": 10},
@@ -1575,11 +1592,12 @@ PORTFOLIOS: list[dict[str, object]] = [
         "trace": "Designed for falling-growth-rising-inflation.",
     },
     {
+        # DISABLED — same reason as `4s-stagflation-defensive` above.
         "id": "4s-rising-growth-equities",
         "name": "4 Seasons Rising-Growth Equity Tilt",
         "framework_id": "4seasons",
         "defender": False,
-        "enabled": True,
+        "enabled": False,
         "currency": "USD",
         "benchmark": "all-weather-USD",
         "allocation": {"SPY": 40, "EFA": 10, "TLT": 15, "GLD": 10, "IEF": 15, "DJP": 5, "cash": 5},
@@ -1591,11 +1609,12 @@ PORTFOLIOS: list[dict[str, object]] = [
         "binding 40% user rule; EFA adds intl diversification.",
     },
     {
+        # DISABLED — same reason as `4s-stagflation-defensive` above.
         "id": "4s-falling-growth-defensive",
         "name": "4 Seasons Falling-Growth Defensive",
         "framework_id": "4seasons",
         "defender": False,
-        "enabled": True,
+        "enabled": False,
         "currency": "USD",
         "benchmark": "all-weather-USD",
         "allocation": {"TLT": 40, "IEF": 20, "GLD": 15, "SPY": 15, "cash": 10},
@@ -2067,10 +2086,19 @@ def benchmarks_first(portfolios: list[dict[str, object]]) -> list[dict[str, obje
 
 
 HOLDS_EDGES: list[tuple[str, str, bool]] = [
+    # ONLY THE DEFENDER IS PRIMARY (fixed 2026-08-18) — this held FOUR `True`
+    # rows for one strategy until the owner caught it: `_primary_portfolio_id`
+    # is `SELECT ... WHERE is_primary = 1 LIMIT 1`, no `ORDER BY`, so which of
+    # the four fed FAVORS and `benchmark_valuation` depended on SQLite's
+    # incidental row order, not a deliberate choice — exactly the
+    # `market-signal-stack` pattern below, just without that row's comment
+    # explaining why only one is marked. `4s-balanced-defender` is the
+    # analogous choice: the book actually held (the `defender` flag), same
+    # role `ms-stack` plays for its own strategy.
     ("4s-balanced-defender", "four-seasons-rp", True),
-    ("4s-stagflation-defensive", "four-seasons-rp", True),
-    ("4s-rising-growth-equities", "four-seasons-rp", True),
-    ("4s-falling-growth-defensive", "four-seasons-rp", True),
+    ("4s-stagflation-defensive", "four-seasons-rp", False),
+    ("4s-rising-growth-equities", "four-seasons-rp", False),
+    ("4s-falling-growth-defensive", "four-seasons-rp", False),
     ("permanent-balanced", "permanent-browne", True),
     ("barbell-defensive", "barbell-taleb", True),
     ("momentum-macro-rotation", "momentum-macro", True),

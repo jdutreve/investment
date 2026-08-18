@@ -9,6 +9,7 @@ mocks).
 
 import itertools
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -282,3 +283,30 @@ async def test_build_snapshot_persists_the_exclusion_and_its_reason(db: Investme
     assert "-18.0% breaches the binding -15% rule" in str(rows["breacher"]["trace"])
     assert "excluded from defender role and proposal candidacy" in str(rows["breacher"]["trace"])
     assert "breaches" not in str(rows["keeper"]["trace"])
+
+
+async def test_build_snapshot_prunes_a_portfolio_disabled_the_same_day(db: InvestmentDB) -> None:
+    """A REGRESSION TEST for a real bug caught live 2026-08-18: `INSERT OR
+    REPLACE` only ever WRITES a row for a currently-enabled portfolio, it never
+    REMOVES one for a portfolio disabled the same day — so a book disabled
+    mid-day left its morning snapshot row sitting under today's date, still
+    reading as ranked to any consumer of the latest date's rows
+    (`/api/ranking`), the exact shape of the `worker-book` defect
+    `seed._retire_removed_portfolios` exists to prevent for portfolios dropped
+    from `PORTFOLIOS` entirely — this is the same failure one table over, for
+    a portfolio merely disabled rather than removed."""
+    today = date.today()
+    await build_snapshot(db, TIEBREAK_WINDOW, today)
+    before = {
+        str(r["portfolio_id"])
+        for r in await db.query("SELECT portfolio_id FROM portfolio_weekly_snapshot")
+    }
+    assert before == {"keeper", "breacher"}
+
+    await db.command("UPDATE portfolio SET enabled = 0 WHERE id = 'breacher'")
+    await build_snapshot(db, TIEBREAK_WINDOW, today)
+    after = {
+        str(r["portfolio_id"])
+        for r in await db.query("SELECT portfolio_id FROM portfolio_weekly_snapshot")
+    }
+    assert after == {"keeper"}
