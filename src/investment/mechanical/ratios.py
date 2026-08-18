@@ -218,6 +218,21 @@ def rolling_calmar(nav: pd.Series, max_drawdown: pd.Series, window: int) -> pd.S
     return annualized / max_drawdown.abs()
 
 
+def cagr(nav: pd.Series) -> float | None:
+    """`(NAV_end/NAV_start)^(252/n) - 1` on the WHOLE series' observation
+    count — the since-inception counterpart to `rolling_calmar`'s windowed
+    numerator, so CAGR and the reported Calmar cannot tell different stories
+    about the same book. Moved here from `replay._cagr` (2026-08-18, the
+    Ranking page's CAGR column) rather than imported from there: `replay.py`
+    already imports THIS module, so the reverse import would be circular —
+    and the formula was already reaching into `ratios.flt`/
+    `ratios.TRADING_DAYS_PER_YEAR`, i.e. it belonged here from the start."""
+    n = len(nav)
+    if n < 2 or nav.iloc[0] == 0:
+        return None
+    return flt((nav.iloc[-1] / nav.iloc[0]) ** (TRADING_DAYS_PER_YEAR / n) - 1.0)
+
+
 def rolling_total_return(nav: pd.Series, window: int) -> pd.Series:
     """Simple cumulative return over the trailing window — used for
     `vs_benchmark` (TASKS.md: "portfolio total_return - ALL_WEATHER_BENCHMARK
@@ -273,6 +288,7 @@ class PortfolioValuation:
     calmar_rolling: float | None
     max_drawdown: float | None
     volatility: float | None
+    cagr: float | None
     return_3m: float | None
     return_6m: float | None
     return_1y: float | None
@@ -483,6 +499,7 @@ async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValua
                 calmar_rolling=flt(latest["calmar_rolling"]),
                 max_drawdown=flt(latest["drawdown"]),
                 volatility=flt(volatility),
+                cagr=cagr(nav),
                 **{
                     field: cumulative_return(nav, as_of, days)
                     for field, days in RETURN_WINDOWS_DAYS.items()
@@ -504,7 +521,7 @@ async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValua
         for v in valuations:
             await db.command(
                 "UPDATE portfolio SET sharpe_rolling = :sharpe, sortino_rolling = :sortino, "
-                "calmar_rolling = :calmar, max_drawdown = :mdd, volatility = :vol, "
+                "calmar_rolling = :calmar, max_drawdown = :mdd, volatility = :vol, cagr = :cagr, "
                 "return_3m = :r3m, return_6m = :r6m, return_1y = :r1y, return_3y = :r3y, "
                 "return_5y = :r5y, updated_at = :now WHERE id = :id",
                 sharpe=v.sharpe_rolling,
@@ -512,6 +529,7 @@ async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValua
                 calmar=v.calmar_rolling,
                 mdd=v.max_drawdown,
                 vol=v.volatility,
+                cagr=v.cagr,
                 r3m=v.return_3m,
                 r6m=v.return_6m,
                 r1y=v.return_1y,

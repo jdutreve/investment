@@ -450,21 +450,11 @@ def nav_metrics(nav: pd.Series, rf: pd.Series) -> NavMetrics:
         return NavMetrics(None, None, None, None)
     period = backtests.period_metrics(nav, rf.reindex(nav.index).ffill())
     return NavMetrics(
-        cagr=_cagr(nav),
+        cagr=ratios.cagr(nav),
         sortino=period.sortino_rolling,
         calmar=period.calmar_rolling,
         max_drawdown=period.max_drawdown,
     )
-
-
-def _cagr(nav: pd.Series) -> float | None:
-    """`(NAV_end/NAV_start)^(252/n) - 1` on the observation count — the same
-    annualization `ratios.rolling_calmar` uses for its numerator, so CAGR and
-    the reported Calmar cannot tell different stories about the same book."""
-    n = len(nav)
-    if n < 2 or nav.iloc[0] == 0:
-        return None
-    return ratios.flt((nav.iloc[-1] / nav.iloc[0]) ** (ratios.TRADING_DAYS_PER_YEAR / n) - 1.0)
 
 
 # -- pure core: the weekly decision loop ------------------------------------
@@ -696,9 +686,9 @@ def _valuation_rows_asof(
     `snapshots._indicator`, which is the honest treatment: it was not
     investable then.
 
-    `return_*`/`volatility` are left None: `rank_portfolios` never reads them,
-    and the replay writes no snapshot rows (docs/TASKS.md Task 9.4: the replay
-    "never commits fake events/vertices to the live graph")."""
+    `return_*`/`volatility`/`cagr` are left None: `rank_portfolios` never reads
+    them, and the replay writes no snapshot rows (docs/TASKS.md Task 9.4: the
+    replay "never commits fake events/vertices to the live graph")."""
     rows: list[ValuationRow] = []
     for portfolio_id in sorted(inputs.portfolios):
         meta = inputs.portfolios[portfolio_id]
@@ -719,6 +709,7 @@ def _valuation_rows_asof(
                 calmar_rolling=_get(asof, "calmar_rolling"),
                 max_drawdown=_get(asof, "drawdown"),
                 volatility=None,
+                cagr=None,
                 return_3m=None,
                 return_6m=None,
                 return_1y=None,

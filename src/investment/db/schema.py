@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS portfolio (
   calmar_rolling       REAL,
   max_drawdown         REAL,
   volatility           REAL,
+  cagr                 REAL,  -- since-inception, NOT the pinned 756-day window the rest above are
 
   return_3m            REAL,
   return_6m            REAL,
@@ -506,6 +507,7 @@ CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (
   -- performance — the digest's header says so where it is rendered.
   nav                     REAL,
   volatility              REAL,
+  cagr                    REAL,  -- since-inception, NOT the pinned 756-day window above
   return_3m               REAL,
   return_6m               REAL,
   return_1y               REAL,
@@ -752,4 +754,6 @@ DOCUMENT_TABLES = {
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("proposal", "citation_verdict", "TEXT"),
     ("portfolio_weekly_snapshot", "nav", "REAL"),
+    ("portfolio", "cagr", "REAL"),
+    ("portfolio_weekly_snapshot", "cagr", "REAL"),
 )

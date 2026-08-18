@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { get, type RankingPayload, type Row } from "../api";
 import { ErrorState } from "../components/States";
-import { nav, num, pct, signClass } from "../format";
+import { num, pct, signClass } from "../format";
 
 /*
  * THE STORED ORDER IS THE ORDER OF RECORD. The ranking job wrote `rank`
@@ -30,19 +31,44 @@ import { nav, num, pct, signClass } from "../format";
  * Putting `return_1y` in the same row made `ms-stack` read as the worst
  * performer on the table — a single noisy year beside three-year risk figures
  * — when its 3y figure and its Sortino agree with each other. `return_1y`
- * stays, muted and separate, as the recency signal it actually is; it is not
- * sortable, so it cannot be mistaken for a ranking dimension the way the
- * period-matched columns are.
+ * stays muted, as the recency signal it actually is rather than a
+ * period-matched ranking dimension — but sortable like every other column
+ * (owner, 2026-08-18), because "muted" is a READING hint, not a permission.
+ *
+ * ONE ARRAY DRIVES BOTH THE HEADER ROW AND THE BODY ROW, deliberately, after
+ * this table's header/body markup drifted out of sync three times in one
+ * afternoon (CAGR passing Recommendation, Volatility passing NAV, 1y return
+ * passing everything) — CLAUDE.md "WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED
+ * THE FIRST" applies to a column list, not just a constant. `#` (rank) stays
+ * OUTSIDE this array: its click resets to the STORED order rather than
+ * sorting client-side, a different action from every other header here.
  */
 
-type SortKey = "rank" | "return_3y" | "sortino_rolling" | "sharpe_rolling" | "calmar_rolling";
+type SortKey =
+  | "rank"
+  | "portfolio_id"
+  | "return_3y"
+  | "return_1y"
+  | "cagr"
+  | "sortino_rolling"
+  | "sharpe_rolling"
+  | "calmar_rolling"
+  | "max_drawdown"
+  | "volatility";
 
-const COLUMNS: Array<{ key: SortKey; label: string }> = [
-  { key: "return_3y", label: "3y return" },
-  { key: "sortino_rolling", label: "Sortino" },
-  { key: "sharpe_rolling", label: "Sharpe" },
-  { key: "calmar_rolling", label: "Calmar" },
-];
+interface Column {
+  key: SortKey;
+  label: string;
+  title?: string;
+  numeric?: boolean; // default true — right-aligned; Portfolio is the one exception
+  muted?: boolean; // dims the header + cell — recency/secondary reading, not a permission
+  signed?: boolean; // color the cell by sign (return/drawdown columns)
+  // `benchmarks` (`data.benchmark_ids`) is only read by the Portfolio column's
+  // badges — a parameter rather than a closure so `COLUMNS` stays a module-level
+  // constant instead of being rebuilt (and its render closures re-allocated) on
+  // every render.
+  render: (row: Row, benchmarks: string[]) => ReactNode;
+}
 
 function Badges({ row, benchmarks }: { row: Row; benchmarks: string[] }) {
   const id = String(row.portfolio_id);
@@ -62,6 +88,67 @@ function Badges({ row, benchmarks }: { row: Row; benchmarks: string[] }) {
   );
 }
 
+const COLUMNS: Column[] = [
+  {
+    key: "portfolio_id",
+    label: "Portfolio",
+    numeric: false,
+    render: (row, benchmarks) => (
+      <>
+        <Link to={`/portfolio/${String(row.portfolio_id)}`}>{String(row.portfolio_id)}</Link>
+        <Badges row={row} benchmarks={benchmarks} />
+      </>
+    ),
+  },
+  {
+    key: "return_3y",
+    label: "3y return",
+    signed: true,
+    render: (row) => pct(row.return_3y),
+  },
+  {
+    key: "return_1y",
+    label: "1y return",
+    muted: true,
+    title: "Recency only — a single noisy year, not the same period as the 3y/756-day columns",
+    render: (row) => pct(row.return_1y),
+  },
+  {
+    key: "cagr",
+    label: "CAGR",
+    signed: true,
+    title: "Since-inception (NAV_end/NAV_start)^(252/n) - 1, not the 756-day window",
+    render: (row) => pct(row.cagr),
+  },
+  {
+    key: "sortino_rolling",
+    label: "Sortino",
+    render: (row) => num(row.sortino_rolling),
+  },
+  {
+    key: "sharpe_rolling",
+    label: "Sharpe",
+    render: (row) => num(row.sharpe_rolling),
+  },
+  {
+    key: "calmar_rolling",
+    label: "Calmar",
+    render: (row) => num(row.calmar_rolling),
+  },
+  {
+    key: "max_drawdown",
+    label: "Max DD",
+    signed: true,
+    render: (row) => pct(row.max_drawdown),
+  },
+  {
+    key: "volatility",
+    label: "Volatility",
+    title: "std(daily return) x sqrt(252) over the pinned 756-day window",
+    render: (row) => pct(row.volatility, false),
+  },
+];
+
 export function Ranking() {
   const [snapshotDate, setSnapshotDate] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("rank");
@@ -76,15 +163,19 @@ export function Ranking() {
 
   const rows = [...data.rows];
   if (sort !== "rank") {
-    // A missing indicator sorts LAST in either direction rather than as a zero:
-    // an unmeasured Sortino is not the worst one.
-    rows.sort((a, b) => {
-      const av = a[sort];
-      const bv = b[sort];
-      if (typeof av !== "number") return 1;
-      if (typeof bv !== "number") return -1;
-      return bv - av;
-    });
+    if (sort === "portfolio_id") {
+      rows.sort((a, b) => String(a.portfolio_id).localeCompare(String(b.portfolio_id)));
+    } else {
+      // A missing indicator sorts LAST in either direction rather than as a zero:
+      // an unmeasured Sortino is not the worst one.
+      rows.sort((a, b) => {
+        const av = a[sort];
+        const bv = b[sort];
+        if (typeof av !== "number") return 1;
+        if (typeof bv !== "number") return -1;
+        return bv - av;
+      });
+    }
   }
 
   return (
@@ -131,59 +222,56 @@ export function Ranking() {
                     className="sortable num"
                     onClick={() => setSort("rank")}
                     title="the order the ranking job wrote"
+                    style={sort === "rank" ? { color: "var(--ink)" } : undefined}
                   >
                     #
                   </th>
-                  <th>Portfolio</th>
                   {COLUMNS.map((c) => (
                     <th
                       key={c.key}
-                      className="sortable num"
+                      className={["sortable", c.numeric === false ? "" : "num", c.muted ? "muted" : ""]
+                        .filter(Boolean)
+                        .join(" ")}
                       onClick={() => setSort(c.key)}
+                      title={c.title}
                       style={sort === c.key ? { color: "var(--ink)" } : undefined}
                     >
                       {c.label}
                     </th>
                   ))}
-                  <th className="num">Max DD</th>
-                  <th className="num muted" title="Recency only — a single noisy year, not a ranking dimension">
-                    1y return
-                  </th>
-                  <th className="num">NAV</th>
-                  <th>Recommendation</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={String(row.portfolio_id)}>
                     <td className="num muted">{String(row.rank)}</td>
-                    <td>
-                      <Link to={`/portfolio/${String(row.portfolio_id)}`}>
-                        {String(row.portfolio_id)}
-                      </Link>
-                      <Badges row={row} benchmarks={data.benchmark_ids} />
-                    </td>
-                    <td className={`num ${signClass(row.return_3y)}`}>{pct(row.return_3y)}</td>
-                    <td className="num">{num(row.sortino_rolling)}</td>
-                    <td className="num">{num(row.sharpe_rolling)}</td>
-                    <td className="num">{num(row.calmar_rolling)}</td>
-                    <td className={`num ${signClass(row.max_drawdown)}`}>
-                      {pct(row.max_drawdown)}
-                    </td>
-                    <td className="num muted">{pct(row.return_1y)}</td>
-                    <td className="num">{nav(row.nav)}</td>
-                    <td className="muted">{String(row.recommendation ?? "—")}</td>
+                    {COLUMNS.map((c) => (
+                      <td
+                        key={c.key}
+                        className={[
+                          c.numeric === false ? "" : "num",
+                          c.muted ? "muted" : "",
+                          c.signed ? signClass(row[c.key]) : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                      >
+                        {c.render(row, data.benchmark_ids)}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <div className="paper-note">
-            NAV is base 100 at each portfolio&apos;s OWN inception, so levels are not
-            comparable across rows — a 1511 over forty years and a 1533 over
-            thirty-five are not the same performance. All figures paper, all USD, all
-            charged {""}
-            23 bps per order.
+            Volatility is annualized std(daily return) over the same pinned 756-day
+            window as Sortino/Sharpe/Calmar; CAGR is SINCE INCEPTION, a different (and
+            usually longer) window — the two are not measuring the same period, so
+            reading them as a pair understates or overstates volatility-adjusted return
+            depending on the row. Both are — unlike a raw NAV level — directly
+            comparable across rows regardless of each portfolio&apos;s own inception
+            date. All figures paper, all USD, all charged 23 bps per order.
           </div>
         </div>
       )}

@@ -45,6 +45,7 @@ class ValuationRow:
     calmar_rolling: float | None
     max_drawdown: float | None
     volatility: float | None
+    cagr: float | None
     return_3m: float | None
     return_6m: float | None
     return_1y: float | None
@@ -296,7 +297,8 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
         "SELECT portfolio.id, portfolio.defender, portfolio.framework_id, portfolio.allocation, "
         "portfolio.max_drawdown_rule, portfolio.max_single_asset_pct, "
         "portfolio.sharpe_rolling, portfolio.sortino_rolling, portfolio.calmar_rolling, "
-        "portfolio.max_drawdown, portfolio.volatility, portfolio.return_3m, portfolio.return_6m, "
+        "portfolio.max_drawdown, portfolio.volatility, portfolio.cagr, "
+        "portfolio.return_3m, portfolio.return_6m, "
         "portfolio.return_1y, portfolio.return_3y, portfolio.return_5y, "
         "(SELECT nav FROM portfolio_nav "
         " WHERE portfolio_nav.portfolio_id = portfolio.id "
@@ -323,6 +325,7 @@ async def _valuation_rows(db: InvestmentDB) -> list[ValuationRow]:
             calmar_rolling=r["calmar_rolling"],
             max_drawdown=r["max_drawdown"],
             volatility=r["volatility"],
+            cagr=r["cagr"],
             return_3m=r["return_3m"],
             return_6m=r["return_6m"],
             return_1y=r["return_1y"],
@@ -415,12 +418,12 @@ async def build_snapshot(
                 "INSERT OR REPLACE INTO portfolio_weekly_snapshot "
                 "(date, portfolio_id, defender, framework_id, designed_regime_type_id, "
                 " primary_strategy_id, allocation, rank, sharpe_rolling, sortino_rolling, "
-                " calmar_rolling, max_drawdown, nav, volatility, return_3m, return_6m, "
+                " calmar_rolling, max_drawdown, nav, volatility, cagr, return_3m, return_6m, "
                 " return_1y, return_3y, return_5y, gap_to_defender, market_context, "
                 " recommendation, excluded_from_candidacy, trace) "
                 "VALUES (:date, :portfolio_id, :defender, :framework_id, "
                 " :designed_regime_type_id, :primary_strategy_id, :allocation, :rank, :sharpe, "
-                " :sortino, :calmar, :mdd, :nav, :vol, :r3m, :r6m, :r1y, :r3y, :r5y, :gap, "
+                " :sortino, :calmar, :mdd, :nav, :vol, :cagr, :r3m, :r6m, :r1y, :r3y, :r5y, :gap, "
                 " :context, :recommendation, :excluded, :trace)",
                 date=snapshot_date.isoformat(),
                 portfolio_id=row.portfolio_id,
@@ -436,6 +439,7 @@ async def build_snapshot(
                 mdd=row.max_drawdown,
                 nav=row.nav,
                 vol=row.volatility,
+                cagr=row.cagr,
                 r3m=row.return_3m,
                 r6m=row.return_6m,
                 r1y=row.return_1y,

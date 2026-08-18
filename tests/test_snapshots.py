@@ -42,6 +42,7 @@ def _row(
         calmar_rolling=calmar,
         max_drawdown=max_drawdown,
         volatility=0.1,
+        cagr=None,
         return_3m=None,
         return_6m=None,
         return_1y=None,
