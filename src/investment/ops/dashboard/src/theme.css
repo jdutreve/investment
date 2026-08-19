@@ -28,11 +28,16 @@
      validated against slots 1-3 with the same `validate_palette.js` six
      checks, all pairs (not just adjacent), light mode: worst pair
      #b3245f<->#6b2f8a, CVD ΔE 10.2 (protan), normal-vision ΔE 16.5, both
-     clear of the 8/15 floors. */
+     clear of the 8/15 floors. A 5th (green) added 2026-08-19 for
+     ms-trend-baseline joining the same chart: validated against slots 1-4,
+     all pairs — worst pair #3f6b1e<->#b3245f lands in the 6-8 CVD WARN band
+     (deutan ΔE 7.0), legal only with the secondary encoding this chart
+     already has (a legend with direct labels, never color alone). */
   --series-1: #a37708;
   --series-2: #2287bd;
   --series-3: #6b2f8a;
   --series-4: #b3245f;
+  --series-5: #3f6b1e;
 
   /* Status — reserved, never reused for a series, always with an icon + label */
   --status-good: #1a7f4f;

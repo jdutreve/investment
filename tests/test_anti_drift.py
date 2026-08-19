@@ -27,6 +27,7 @@ import os
 import shutil
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from investment.db.sqlite import InvestmentDB
@@ -245,3 +246,65 @@ async def test_the_walk_decides_on_the_previous_close_not_the_decision_day(tmp_p
     previous = float(series.decision_prices["SPY"].loc[decision.date])
     assert read.price == previous, "the journalled read is not the previous close"
     assert read.price != same_day, "the walk read the decision day's own close — look-ahead is back"
+
+
+@pytest.mark.skipif(not LIVE_DB.exists(), reason=_SKIP_REASON)
+async def test_latest_trend_reads_matches_the_calendars_own_tail(tmp_path: Path) -> None:
+    """`latest_trend_reads` (2026-08-19, the Stack page's "Latest" column)
+    re-runs `_trend_read` at `series.calendar[-1]` instead of a decision date —
+    this is the same reproduction guarantee the rest of this file enforces for
+    the decision path, applied to the live snapshot: its numbers must be
+    exactly what a direct read of the series' own tail would give, not an
+    approximation of it.
+
+    THE MOVING AVERAGES ARE RECOMPUTED UNSHIFTED (2026-08-19 fix: "LATEST n'a
+    pas son overlay mis a jour" — the first version paired today's own close
+    with `series.moving_averages`, which is lagged one day for the decision
+    path's look-ahead guard, so the two numbers on a live row were never
+    quoted on the same day). The expected value here is therefore a FRESH
+    rolling mean off `series.prices` directly, not `series.moving_averages`."""
+    copy = tmp_path / "live-copy.db"
+    shutil.copy(LIVE_DB, copy)
+    db = InvestmentDB(copy)
+
+    series = await MS.load_series(db)
+    t, reads = MS.latest_trend_reads(series)
+
+    assert t == series.calendar[-1]
+    assert set(reads) == {*MS.TREND_SLEEVES, MS.TREND_HAVEN}
+    for ticker, read in reads.items():
+        assert read.price == float(series.prices[ticker].loc[t])
+        for window, ma in zip(series.moving_averages, read.moving_averages, strict=True):
+            fresh = series.prices[ticker].rolling(window, min_periods=window).mean()
+            expected = float(fresh.loc[t])
+            if ma is None:
+                assert pd.isna(expected)
+            else:
+                assert ma == expected
+        # `below`/`share` must be derivable from the two numbers above alone —
+        # no hidden state, same discipline `TrendRead.breached`'s docstring
+        # describes for the decision path.
+        ready = [ma for ma in read.moving_averages if ma is not None]
+        breached = sum(1 for ma in ready if read.price < ma)
+        assert read.share == (breached / len(ready) if ready else 0.0)
+        assert read.below == (read.share > 0.0)
+
+
+@pytest.mark.skipif(not LIVE_DB.exists(), reason=_SKIP_REASON)
+async def test_latest_signal_reads_matches_the_calendars_own_tail(tmp_path: Path) -> None:
+    """`latest_signal_reads`'s sibling guarantee: CREDIT_SPREAD/YIELD_SLOPE at
+    the tail must match the same ffilled, calendar-aligned series `walk_decisions`
+    reads at a decision date — just taken at `series.calendar[-1]` instead."""
+    copy = tmp_path / "live-copy.db"
+    shutil.copy(LIVE_DB, copy)
+    db = InvestmentDB(copy)
+
+    series = await MS.load_series(db)
+    t = series.calendar[-1]
+    signals = MS.latest_signal_reads(series)
+
+    assert set(signals) == {MS.CREDIT_SPREAD, MS.YIELD_SLOPE}
+    assert signals[MS.CREDIT_SPREAD]["value"] == float(series.spread.loc[t])
+    assert signals[MS.CREDIT_SPREAD]["trailing_median"] == float(series.spread_median.loc[t])
+    assert signals[MS.YIELD_SLOPE]["value"] == float(series.slope.loc[t])
+    assert signals[MS.YIELD_SLOPE]["trailing_median"] == float(series.slope_median.loc[t])

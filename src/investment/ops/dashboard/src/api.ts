@@ -137,6 +137,26 @@ export interface BenchmarkNav {
   nav: NavPoint[];
 }
 
+export interface TrendSleeveRead {
+  price: number;
+  moving_averages: (number | null)[];
+  breached: number[];
+  share: number;
+  below: boolean;
+  credit_gated: boolean;
+}
+
+export interface LiveSignalRead {
+  value: number | null;
+  trailing_median: number | null;
+}
+
+export interface LiveTrend {
+  as_of: string;
+  signals: Record<string, LiveSignalRead>;
+  sleeves: Record<string, TrendSleeveRead>;
+}
+
 export interface StackPayload {
   decisions: StackDecision[];
   nav: NavPoint[];
@@ -144,4 +164,9 @@ export interface StackPayload {
   stack_portfolio: Row | null;
   books: BookRow[];
   benchmarks: BenchmarkNav[];
+  // Missing whenever `load_series` can't price every stack sleeve — a
+  // partially-seeded DB, not an error the page should hide behind (see
+  // api.py `handle_stack`). The last decision's own frozen reading still
+  // renders either way.
+  live_trend: LiveTrend | null;
 }

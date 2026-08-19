@@ -53,7 +53,14 @@ from aiohttp import web
 
 from investment.db.seed_data import BENCHMARK_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.market_signal import BOOK_PORTFOLIO_IDS, STACK_PORTFOLIO_ID
+from investment.mechanical.market_signal import (
+    BOOK_PORTFOLIO_IDS,
+    STACK_PORTFOLIO_ID,
+    TREND_BASELINE_PORTFOLIO_ID,
+    latest_signal_reads,
+    latest_trend_reads,
+    load_series,
+)
 from investment.ops import commands
 from investment.ops.rows import unnest_json_columns
 from investment.ops.run_lock import AlreadyRunning
@@ -292,7 +299,14 @@ async def handle_stack(request: web.Request) -> web.Response:
     # chart reads as a comparison rather than a single unanchored line. Same
     # reasoning as the four books above: embedded here rather than left to
     # three extra `/api/portfolio` round trips from the page.
-    benchmark_ids = sorted(BENCHMARK_PORTFOLIOS)
+    #
+    # `ms-trend-baseline` JOINS THIS CHART LIST but NOT `BENCHMARK_PORTFOLIOS`
+    # (owner, 2026-08-19): that frozenset also governs challenger-search
+    # exclusion and ranking semantics (CLAUDE.md "Ranking rule"), which the
+    # request was never about — it is the retained bridge's control arm, not a
+    # yardstick a proposal is measured against. A chart-local list keeps the
+    # display choice from silently widening a rule with other readers.
+    benchmark_ids = [*sorted(BENCHMARK_PORTFOLIOS), TREND_BASELINE_PORTFOLIO_ID]
     benchmark_rows = await _rows(
         runtime.db,
         f"SELECT id, name FROM portfolio WHERE id IN "
@@ -300,6 +314,37 @@ async def handle_stack(request: web.Request) -> web.Response:
         **{f"b{i}": bid for i, bid in enumerate(benchmark_ids)},
     )
     benchmark_names = {str(r["id"]): str(r["name"]) for r in benchmark_rows}
+    # THE LIVE TREND READ, alongside the last decision's frozen one — the
+    # monthly cadence means a decision-date reading can be weeks stale (see
+    # `LatestDecision`'s `daysSinceDecision` note); this is what lets the page
+    # show a sleeve crossing a line before the next decision acts on it.
+    #
+    # BEST-EFFORT, LIKE THE GMAIL DRAFT (ADR-015): `load_series` RAISES on any
+    # missing sleeve series (by design — the decision path must never hold one
+    # flat at 0%, see its docstring), but this is a read-only dashboard
+    # enrichment, not a decision. A partially-seeded DB (every fixture in
+    # tests/) must still serve the page's decisions/NAV/books; only the live
+    # column goes missing, not the whole response.
+    try:
+        market_series = await load_series(runtime.db)
+        live_date, live_reads = latest_trend_reads(market_series)
+        live_trend: dict[str, Any] | None = {
+            "as_of": str(live_date.date()),
+            "signals": latest_signal_reads(market_series),
+            "sleeves": {
+                ticker: {
+                    "price": read.price,
+                    "moving_averages": list(read.moving_averages),
+                    "breached": list(read.breached),
+                    "share": read.share,
+                    "below": read.below,
+                    "credit_gated": read.credit_gated,
+                }
+                for ticker, read in live_reads.items()
+            },
+        }
+    except ValueError:
+        live_trend = None
     return json_response(
         {
             "decisions": decisions,
@@ -324,6 +369,7 @@ async def handle_stack(request: web.Request) -> web.Response:
                 }
                 for bid in benchmark_ids
             ],
+            "live_trend": live_trend,
         }
     )
 

@@ -1,10 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { CheckCircle2, MinusCircle, ShieldAlert } from "lucide-react";
-import { get, type NavPoint, type Row, type StackDecision, type StackPayload } from "../api";
+import {
+  get,
+  type LiveTrend,
+  type NavPoint,
+  type Row,
+  type StackDecision,
+  type StackPayload,
+} from "../api";
 import { Tile } from "../components/Bits";
 import { NavChart, type NamedNavSeries } from "../components/NavChart";
 import { ErrorState } from "../components/States";
-import { date, num, pct, weight } from "../format";
+import { NA, date, num, pct, weight } from "../format";
 
 /*
  * THE LIVE ALLOCATION PATH (ADR-007). This is the page the original 8-page spec
@@ -25,14 +33,20 @@ import { date, num, pct, weight } from "../format";
  * make impossible.
  */
 
-// COLOR FOLLOWS THE ENTITY, never the array position `sorted(BENCHMARK_PORTFOLIOS)`
-// happens to return (dataviz skill) — a fixed id -> color map rather than
-// zipping colors onto whatever order the API sends. `--series-3` (purple) is
-// deliberately absent: it already means "the stack" everywhere this page uses it.
+// COLOR FOLLOWS THE ENTITY, never the array position the API happens to
+// return (dataviz skill) — a fixed id -> color map rather than zipping colors
+// onto whatever order the response sends. `--series-3` (purple) is
+// deliberately absent: it already means "the stack" everywhere this page
+// uses it. `ms-trend-baseline` (green) joined 2026-08-19 — the retained
+// bridge's control arm, not a `BENCHMARK_PORTFOLIOS` member (see api.py
+// `handle_stack`), but the same chart wants it for the same reason: an
+// unanchored stack line invites reading its shape as merit rather than as
+// one path among several.
 const BENCHMARK_COLOR: Record<string, string> = {
   "all-weather-USD": "var(--series-1)",
   "spy-USD": "var(--series-2)",
   "aaaf-r-USD": "var(--series-4)",
+  "ms-trend-baseline": "var(--series-5)",
 };
 
 /*
@@ -47,12 +61,13 @@ const BENCHMARK_COLOR: Record<string, string> = {
  * project's history, so a literal here would go stale exactly the way
  * CLAUDE.md's "WHEN A SECOND ONE ARRIVES" warns about.
  *
- * A series that starts LATER than `refDate` (aaaf-r-USD, 2006) rebases against
- * its OWN first point instead — `points.find(p.ts >= refDate)` lands on that
- * first point when nothing earlier qualifies, and dividing a series by its own
- * first value is a no-op (it was already 100 there). So aaaf-r-USD's curve is
- * unchanged; only spy-USD and all-weather-USD (which existed before the
- * stack) are actually re-based and cropped here.
+ * A series that starts LATER than `refDate` rebases against its OWN first
+ * point instead — `points.find(p.ts >= refDate)` lands on that first point
+ * when nothing earlier qualifies, and dividing a series by its own first
+ * value is a no-op (it was already 100 there). `ms-trend-baseline` shares the
+ * stack's own calendar so this never fires for it; `aaaf-r-USD` is the one
+ * series it does fire for, and its curve is chained onto spy-USD instead of
+ * left at this no-op — see `chainOnto` below.
  */
 function rebaseFrom(points: NavPoint[], refDate: string | null): NavPoint[] {
   if (!refDate) return points;
@@ -62,6 +77,38 @@ function rebaseFrom(points: NavPoint[], refDate: string | null): NavPoint[] {
   if (inRange.length === 0) return [];
   const base = inRange[0]!.nav;
   return base ? inRange.map((p) => ({ ts: p.ts, nav: (p.nav / base) * 100 })) : inRange;
+}
+
+/*
+ * CHAIN A LATE-STARTING SERIES ONTO AN EARLIER ONE'S REBASED LEVEL, rather
+ * than restarting it at 100 (owner, 2026-08-19: "fait demarrer AAAF-R au
+ * meme niveau que SPY"). `rebaseFrom`'s no-op for a series that starts after
+ * `refDate` left aaaf-r-USD opening at its own 100 on the SAME chart where
+ * spy-USD, decades into compounding, was already far above that — a visual
+ * reset with no meaning, since the two numbers were never on the same base.
+ *
+ * `reference` must already be rebased (spy-USD's `rebaseFrom` output). This
+ * finds the reference's value at-or-before `points`' first date and scales
+ * the WHOLE of `points` by (that value / its own first value), so the two
+ * curves visually meet at the date aaaf-r-USD's history begins and diverge
+ * only from there — which is the honest comparison: nothing about aaaf-r-USD's
+ * OWN shape changes, only where it starts reading on a shared axis.
+ */
+function chainOnto(points: NavPoint[], reference: NavPoint[]): NavPoint[] {
+  const first = points.find((p) => typeof p.nav === "number");
+  if (!first || typeof first.nav !== "number" || reference.length === 0) return points;
+  const anchor = [...reference].reverse().find((p) => p.ts <= first.ts) ?? reference[0]!;
+  if (typeof anchor.nav !== "number") return points;
+  const scale = anchor.nav / first.nav;
+  return points.map((p) => ({ ts: p.ts, nav: typeof p.nav === "number" ? p.nav * scale : p.nav }));
+}
+
+/** Whether `points` has a priced observation at or before `refDate` — the
+ * chart-start slider can move PAST aaaf-r-USD's own inception, at which point
+ * it should rebase normally like every other series instead of chaining. */
+function startsOnOrBefore(points: NavPoint[], refDate: string | null): boolean {
+  if (!refDate) return true;
+  return points.some((p) => p.ts <= refDate && typeof p.nav === "number");
 }
 
 type Outcome = "moved" | "held" | "blocked";
@@ -100,7 +147,52 @@ function OutcomeChip({ outcome }: { outcome: Outcome }) {
   );
 }
 
-function LatestDecision({ decision }: { decision: StackDecision }) {
+/*
+ * ONE SLEEVE'S READ, rendered with WHICH line(s) it is below — not a flat
+ * "below" badge (owner, 2026-08-19: "BELOW ne precise pas si c'est sur 150,
+ * 300 ou les 2"). `moving_averages` is ordered the same as `windowsList`
+ * (`market_signal.MA_WINDOWS`/`TrendRead.moving_averages`), so zipping the
+ * two is enough to name the exact line(s) breached — recomputed here rather
+ * than trusted from a `below`/`breached` flag, so a badge and its own numbers
+ * can never disagree (the same discipline `TrendRead.breached`'s docstring
+ * describes for the Python side). The full pair is still available on hover,
+ * for the line that ISN'T breached.
+ */
+function sleeveCell(read: Row | undefined, windowsList: number[]) {
+  const price = read?.price;
+  if (typeof price !== "number") return <td className="num muted">—</td>;
+  const mas = (read?.moving_averages ?? []) as unknown[];
+  const belowLines = windowsList.filter((_, i) => typeof mas[i] === "number" && price < (mas[i] as number));
+  const title = windowsList
+    .map((w, i) => `${w}d ${typeof mas[i] === "number" ? num(mas[i], 0) : NA}`)
+    .join(" · ");
+  return (
+    <td className="num" title={title}>
+      {num(price, 0)}
+      {belowLines.length ? <span className="badge excluded">below {belowLines.join("/")}d</span> : null}
+    </td>
+  );
+}
+
+/*
+ * ONE SIGNAL'S READ (BAA10Y/T10Y2Y) — the same decision/latest split as
+ * `sleeveCell`, added 2026-08-19 so "the sleeves got a Latest column and the
+ * two signals above them did not" stops being true. No badge here: the
+ * signal has no line to breach, just a value and its own 10y median.
+ */
+function signalCell(read: Row | undefined) {
+  const value = read?.value;
+  if (typeof value !== "number") return <td className="num muted">—</td>;
+  const median = read?.trailing_median;
+  return (
+    <td className="num">
+      {num(value, 2)}
+      {typeof median === "number" ? <span className="muted"> · vs {num(median, 2)}</span> : null}
+    </td>
+  );
+}
+
+function LatestDecision({ decision, liveTrend }: { decision: StackDecision; liveTrend: LiveTrend | null }) {
   const p = decision.payload;
   const outcome = outcomeOf(p);
   const held = (p.held_allocation ?? {}) as Record<string, number>;
@@ -109,16 +201,21 @@ function LatestDecision({ decision }: { decision: StackDecision }) {
   const signals = (p.signals ?? {}) as Record<string, Row>;
   const overlay = (p.trend_overlay ?? {}) as Row;
   const hysteresis = (p.hysteresis ?? {}) as Row;
-  const below = (overlay.below_trend ?? []) as string[];
   const windows = (overlay.windows_days ?? null) as number[] | null;
+  const windowsList = windows ?? [];
   const window = windows ? windows.join("/") : String(overlay.window_days ?? "—");
   const sleeves = (overlay.sleeves ?? {}) as Record<string, Row>;
+  const liveSleeves = (liveTrend?.sleeves ?? {}) as unknown as Record<string, Row>;
+  const sleeveTickers = Array.from(new Set([...Object.keys(sleeves), ...Object.keys(liveSleeves)]));
+  const liveSignals = (liveTrend?.signals ?? {}) as unknown as Record<string, Row>;
+  const signalTickers = Array.from(new Set([...Object.keys(signals), ...Object.keys(liveSignals)]));
   const decisionDate = typeof p.decision_date === "string" ? p.decision_date : null;
-  // MONTHLY CADENCE means a below/above reading can be days to weeks stale by
+  // MONTHLY CADENCE means the decision column can be days to weeks stale by
   // the time it is read — a sleeve can cross back the other way in the
-  // meantime without the decision re-running (it only does monthly). Flagged
-  // rather than silently trusted, because a reading close to a threshold reads
-  // as fact until someone checks the date and finds it is three weeks old.
+  // meantime without the decision re-running (it only does monthly). The
+  // "Latest" column beside it is the fix: reading it live, not a decision-date
+  // snapshot, so a crossing is visible before the next monthly decision acts
+  // on it (see `market_signal.latest_trend_reads`).
   const daysSinceDecision = decisionDate
     ? Math.floor((Date.now() - new Date(decisionDate).getTime()) / 86_400_000)
     : null;
@@ -188,47 +285,44 @@ function LatestDecision({ decision }: { decision: StackDecision }) {
           <h2 style={{ marginBottom: 8 }}>What moved the money</h2>
           <div className="table-wrap">
             <table className="data-table">
-              <tbody>
-                {Object.entries(signals).map(([ticker, read]) => (
-                  <tr key={ticker}>
-                    <td className="mono">{ticker}</td>
-                    <td className="num">{num(read.value, 2)}</td>
-                    <td className="muted">
-                      vs 10y median {num(read.trailing_median, 2)}
-                    </td>
-                    {/* The vintage date, shown: the value was KNOWABLE then
-                        (ADR-003), which is what makes the replay honest. */}
-                    <td className="muted mono">knowable {date(read.knowable_at)}</td>
-                  </tr>
-                ))}
+              <thead>
                 <tr>
-                  <td colSpan={4} style={{ paddingTop: 12, fontWeight: 600 }}>
-                    {window}d trend overlay — as of {date(decisionDate)}
+                  <th />
+                  <th>
+                    Decision · {date(decisionDate)}
                     {daysSinceDecision !== null && daysSinceDecision > 0 ? (
                       <span className="muted" style={{ fontWeight: 400 }}>
                         {" "}
-                        ({daysSinceDecision}d ago — a sleeve can cross back before the next
-                        monthly decision reads it)
+                        ({daysSinceDecision}d ago)
                       </span>
                     ) : null}
+                  </th>
+                  <th>Latest · {date(liveTrend?.as_of)}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signalTickers.map((ticker) => (
+                  <tr key={ticker}>
+                    <td className="mono">{ticker}</td>
+                    {signalCell(signals[ticker])}
+                    {signalCell(liveSignals[ticker])}
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={3} style={{ paddingTop: 12, fontWeight: 600 }}>
+                    {window}d trend overlay
                   </td>
                 </tr>
-                {Object.entries(sleeves).map(([ticker, read]) => (
+                {sleeveTickers.map((ticker) => (
                   <tr key={ticker}>
-                    <td className="mono">
-                      {ticker}
-                      {below.includes(ticker) ? (
-                        <span className="badge excluded">below</span>
-                      ) : null}
-                    </td>
-                    <td className="num">{num(read.price, 0)}</td>
-                    <td className="muted">vs {window}d avg {num(read.moving_average, 0)}</td>
-                    <td className="muted mono">knowable {date(read.knowable_at)}</td>
+                    <td className="mono">{ticker}</td>
+                    {sleeveCell(sleeves[ticker], windowsList)}
+                    {sleeveCell(liveSleeves[ticker], windowsList)}
                   </tr>
                 ))}
                 {hysteresis.pending_book ? (
                   <tr>
-                    <td colSpan={2}>Pending switch</td>
+                    <td>Pending switch</td>
                     <td colSpan={2} className="muted">
                       {String(hysteresis.pending_book)} —{" "}
                       {String(hysteresis.pending_count ?? "?")}/
@@ -265,8 +359,24 @@ export function Stack() {
   const heldBook = latest ? String(latest.payload.held_book ?? "") : null;
   // The stack's OWN first NAV point — not the literal "1993-11-01" — so the
   // comparison chart's rebase date tracks the calendar `market_signal.
-  // stack_calendar` actually derives, wherever that anchor is today.
+  // stack_calendar` actually derives, wherever that anchor is today. Stays
+  // the FLOOR of the slider below and the default when it has not moved.
   const stackInception = data.nav.find((p) => typeof p.nav === "number")?.ts ?? null;
+  const lastNavPoint = [...data.nav].reverse().find((p) => typeof p.nav === "number") ?? null;
+  const startYear = stackInception ? Number(stackInception.slice(0, 4)) : null;
+  const endYear = lastNavPoint ? Number(lastNavPoint.ts.slice(0, 4)) : null;
+  // YEAR GRANULARITY, not a day-by-day slider (owner, 2026-08-19: "un slider
+  // ... pour que je puisse demarrer la date n'importe quand"). A ~35-year
+  // daily series has ~9000 points; dragging by year is the useful grain for
+  // "how does this look since the 2008 drawdown", and null (unmoved) means
+  // the full history rather than forcing a choice on first load.
+  const [chartStartYear, setChartStartYear] = useState<number | null>(null);
+  const chartStart =
+    chartStartYear !== null ? `${chartStartYear}-01-01` : stackInception;
+  // Computed once, not per benchmark in the map below — `chainOnto` needs
+  // spy-USD's OWN rebased curve to chain aaaf-r-USD onto, and every other
+  // series in the map ignores it.
+  const spyRebased = rebaseFrom(data.benchmarks.find((s) => s.id === "spy-USD")?.nav ?? [], chartStart);
 
   return (
     <div className={isFetching ? "stale" : undefined}>
@@ -302,7 +412,7 @@ export function Stack() {
       </div>
 
       {latest ? (
-        <LatestDecision decision={latest} />
+        <LatestDecision decision={latest} liveTrend={data.live_trend ?? null} />
       ) : (
         <div className="card">
           <div className="empty">No market-signal decision has been journalled yet.</div>
@@ -312,26 +422,78 @@ export function Stack() {
       <div className="grid cols-2" style={{ marginTop: 14 }}>
         <div className="card">
           <h2>Stack paper NAV vs the benchmarks</h2>
+          {startYear !== null && endYear !== null && endYear > startYear ? (
+            <div style={{ margin: "2px 0 12px" }}>
+              <input
+                type="range"
+                min={startYear}
+                max={endYear}
+                step={1}
+                value={chartStartYear ?? startYear}
+                onChange={(e) => setChartStartYear(Number(e.target.value))}
+                style={{ width: "100%" }}
+                aria-label="Chart start year"
+              />
+              <div className="muted" style={{ fontSize: 12, display: "flex", justifyContent: "space-between" }}>
+                <span>{startYear}</span>
+                <span>
+                  starts {date(chartStart)}
+                  {chartStartYear !== null ? (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setChartStartYear(null);
+                        }}
+                      >
+                        reset
+                      </a>
+                    </>
+                  ) : null}
+                </span>
+                <span>{endYear}</span>
+              </div>
+            </div>
+          ) : null}
           <NavChart
-            points={rebaseFrom(data.nav, stackInception)}
+            points={rebaseFrom(data.nav, chartStart)}
             color="var(--series-3)"
             label="Market-signal stack"
-            series={data.benchmarks.map(
-              (b): NamedNavSeries => ({
+            series={data.benchmarks.map((b): NamedNavSeries => {
+              // AAAF-R'S UNIVERSE (IWM/IYR) HAS NO PRICE THIS EARLY, so it
+              // cannot be rebased to the chart's start like the other three
+              // WHILE that start predates its own history — chained onto
+              // spy-USD's already-rebased curve instead, so it picks up
+              // where SPY was rather than resetting to 100 on an axis the
+              // other series don't restart on. Once the slider moves PAST
+              // aaaf-r-USD's own inception, it has its own price there and
+              // rebases normally like everyone else.
+              const points =
+                b.id === "aaaf-r-USD" && !startsOnOrBefore(b.nav, chartStart)
+                  ? chainOnto(b.nav, spyRebased)
+                  : rebaseFrom(b.nav, chartStart);
+              return {
                 id: b.id,
                 label: b.name,
                 color: BENCHMARK_COLOR[b.id] ?? "var(--series-1)",
-                points: rebaseFrom(b.nav, stackInception),
-              }),
-            )}
+                points,
+              };
+            })}
           />
           <div className="paper-note">
-            All four series rebased to 100 at the stack&apos;s own inception
-            ({stackInception ?? "—"}) — the fair comparison, since spy-USD and All
-            Weather otherwise get years of extra compounding on the chart that have
-            nothing to do with either strategy&apos;s merit. Each portfolio&apos;s own
-            detail page still shows its full since-inception curve. aaaf-r-USD started
-            LATER (2006) and is unaffected — its curve is unchanged. The -
+            All five series share one base: the stack, All Weather, spy-USD and
+            ms-trend-baseline rebased to 100 at the chart&apos;s start ({chartStart ?? "—"}
+            ) — drag the slider above to move it; the fair comparison at the stack&apos;s own
+            inception is the default, since spy-USD and All Weather otherwise get years of
+            extra compounding on the chart that have nothing to do with either
+            strategy&apos;s merit. Each portfolio&apos;s own detail page still shows its
+            full since-inception curve. aaaf-r-USD&apos;s universe has no price before
+            ~2000: while the chart starts earlier than that, its curve is instead CHAINED
+            onto spy-USD&apos;s rebased level at the date its own history begins — its
+            shape is unchanged, only where it starts reading on this shared axis. The -
             {Math.abs(Number(drawdownRule ?? 25))}% drawdown rule is measured on the
             stack&apos;s own 36-month rolling drawdown and raises an ALERT, not a block
             (ADR-009): refusing a proposal cannot exit a position, only freeze one.

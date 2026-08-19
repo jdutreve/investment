@@ -241,6 +241,13 @@ async def test_stack_carries_return_and_sharpe_for_itself_and_its_books(
     # inserted) is simply absent, not a null-filled placeholder row.
     assert len(books) == 1
 
+    # `live_trend` needs a priced series for every STACK_TICKERS sleeve
+    # (`market_signal.load_series` raises otherwise) — this throwaway DB has
+    # none, and the endpoint must degrade to `None` rather than 500 (2026-08-19:
+    # a best-effort enrichment failing must not take the rest of the page
+    # down with it).
+    assert payload["live_trend"] is None
+
 
 # -- writes: one command layer, and nothing else ----------------------------
 

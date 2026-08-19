@@ -1696,6 +1696,66 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     )
 
 
+def latest_trend_reads(series: StackSeries) -> tuple[pd.Timestamp, dict[str, TrendRead]]:
+    """Every checked sleeve's overlay read AS OF THE STACK'S LATEST CALENDAR
+    DATE, not a decision date.
+
+    `run_market_signal` only re-evaluates monthly (ADR-007), so a sleeve can
+    cross a line days or weeks before the next decision reads it — this is
+    what lets the dashboard show that crossing before it becomes an order,
+    alongside the (possibly stale) reading the last decision actually acted
+    on.
+
+    THE MOVING AVERAGES ARE RECOMPUTED UNSHIFTED, not read off
+    `series.moving_averages` (owner, 2026-08-19: "LATEST n'a pas son overlay
+    mis a jour"). `load_series` lags those by one day (`.shift(1)`) so the
+    DECISION never compares a price to an average that includes its own
+    close — necessary there, because that average sets a real order. A live
+    snapshot protects no order: pairing today's own close with an average
+    STILL COMPUTED THROUGH YESTERDAY was the same defect ADR-003's vintage
+    discipline exists to catch, just inside one function instead of across
+    two fields — two numbers on the same row that were never quoted on the
+    same day, so a sleeve could sit one MA-slope away from the actual
+    threshold and the badge would not show it. `min_periods=w` keeps a
+    not-yet-warmed-up window `None` exactly as `_opt`/`_trend_read` already
+    expect, matching `load_series`'s own rolling call in every other respect
+    but the shift."""
+    t = series.calendar[-1]
+    reads = {}
+    for ticker in (*TREND_SLEEVES, TREND_HAVEN):
+        if ticker not in series.prices:
+            continue
+        prices = series.prices[ticker]
+        mas = [_at(prices.rolling(w, min_periods=w).mean(), t) for w in series.moving_averages]
+        reads[ticker] = _trend_read(_at(prices, t), mas)
+    return t, reads
+
+
+def latest_signal_reads(series: StackSeries) -> dict[str, dict[str, float | None]]:
+    """CREDIT_SPREAD and YIELD_SLOPE at the same latest calendar date
+    `latest_trend_reads` uses — the signals half of the dashboard's
+    decision-vs-latest comparison (owner, 2026-08-19: the sleeves got their
+    own "Latest" column and the two signals above them were the one row left
+    reading only the decision's frozen snapshot).
+
+    `series.spread`/`.slope` and their medians are `load_series`'s already
+    forward-filled, calendar-aligned views — the same ones `walk_decisions`
+    reads at a decision date via `_at`; this is that same read taken at the
+    tail instead. NOT the raw un-ffilled series (`spread_raw`/`slope_raw`):
+    those exist for `_knowable_at`'s vintage stamp, not for this."""
+    t = series.calendar[-1]
+    return {
+        CREDIT_SPREAD: {
+            "value": _opt(_at(series.spread, t)),
+            "trailing_median": _opt(_at(series.spread_median, t)),
+        },
+        YIELD_SLOPE: {
+            "value": _opt(_at(series.slope, t)),
+            "trailing_median": _opt(_at(series.slope_median, t)),
+        },
+    }
+
+
 async def run_market_signal(
     db: InvestmentDB,
     *,
