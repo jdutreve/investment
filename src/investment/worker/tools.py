@@ -40,6 +40,7 @@ from typing import Any
 
 from pydantic_ai.exceptions import ModelRetry
 
+from investment.db.seed_data import NON_PRICE_ASSET_CLASSES
 from investment.db.sqlite import InvestmentDB
 
 logger = logging.getLogger(__name__)
@@ -193,10 +194,18 @@ _WORD_RE = re.compile(r"[A-Za-z_]+")
 # conclusion happened to survive; the arithmetic behind it did not exist.
 #
 # NORMALISED ONLY FOR PRICE ROWS, and the exclusion is the load-bearing half.
-# MACRO series are already in percentage points — T10Y2Y at 0.50 with speed
+# A rate series is already in percentage points — T10Y2Y at 0.50 with speed
 # +0.14 is 14bp of steepening, a quantity directly comparable to BAA10Y's +0.04.
 # Dividing those by their own level would produce "+28%" for a curve move,
 # a number no rates reader has ever wanted and this codebase never means.
+#
+# The exclusion reads `NON_PRICE_ASSET_CLASSES` rather than testing for MACRO,
+# which is what this first shipped as. MACRO is not the only non-price class:
+# ^IRX is RISK_FREE, and it is a YIELD — the very thing the paragraph above
+# says must not be divided by its own level. GLOBAL_LIQUIDITY (an index),
+# VOLATILITY and FX are the same kind. The distinction already existed as prose
+# beside `BENCHMARK_CLASSES` ("not investable sleeves"); it is a constant now
+# so that this reader and that one cannot drift apart.
 _PRICE_MOMENTUM_FIELDS = (("speed", "speed_pct"), ("acceleration", "acceleration_pct"))
 
 # ONE rounding rule for every number that reaches the model, and it is one
@@ -227,7 +236,11 @@ def _with_normalised_momentum(row: dict[str, Any]) -> dict[str, Any]:
     dropping them would make the two tools disagree about the same series."""
     out = {k: round_for_model(v) for k, v in row.items() if k != "asset_class"}
     level = row.get("level")
-    if row.get("asset_class") == "MACRO" or not isinstance(level, int | float) or level <= 0:
+    if (
+        row.get("asset_class") in NON_PRICE_ASSET_CLASSES
+        or not isinstance(level, int | float)
+        or level <= 0
+    ):
         return out
     for raw, pct in _PRICE_MOMENTUM_FIELDS:
         value = row.get(raw)

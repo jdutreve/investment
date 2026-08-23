@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.exceptions import ModelRetry
 
+from investment.db.seed_data import NON_PRICE_ASSET_CLASSES
 from investment.db.sqlite import InvestmentDB
 from investment.worker.tools import (
     DB_QUERY_MAX_ROWS,
@@ -205,6 +206,21 @@ async def test_price_momentum_is_comparable_across_tickers(tools: WorkerTools) -
     assert rows["BIG"]["acceleration"] / rows["SMALL"]["acceleration"] == 24.0
     assert rows["BIG"]["acceleration_pct"] == rows["SMALL"]["acceleration_pct"] == 5.0
     assert rows["BIG"]["speed_pct"] == rows["SMALL"]["speed_pct"] == 10.0
+
+
+@pytest.mark.parametrize("asset_class", sorted(NON_PRICE_ASSET_CLASSES))
+async def test_no_non_price_class_is_normalised(tools: WorkerTools, asset_class: str) -> None:
+    """MACRO was not the only one, and testing MACRO alone is what hid it.
+    `^IRX` is class RISK_FREE and is a YIELD: percent-of-level on a 10bp move in
+    the risk-free rate reports "+2.3%", the same category error the MACRO
+    exclusion exists to prevent. GLOBAL_LIQUIDITY (an index), VOLATILITY and FX
+    are the same kind. Parametrised over the constant so a class added there is
+    covered without anyone remembering to extend this test."""
+    ticker = f"T-{asset_class}"
+    await _price(tools, ticker, level=4.3, speed=0.1, acceleration=0.02, asset_class=asset_class)
+    row = (await tools.market_fetch([ticker], "1m"))[0]
+    assert "speed_pct" not in row and "acceleration_pct" not in row
+    assert row["speed"] == 0.1
 
 
 async def test_macro_rows_are_not_normalised(tools: WorkerTools) -> None:

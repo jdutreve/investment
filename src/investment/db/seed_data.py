@@ -585,8 +585,25 @@ BENCHMARK_CLASSES: dict[str, list[str]] = {
 # 1960. BIL (the former US_TBILL ETF) was retired — same economic role, worse
 # history (2007), and no viable HISTORY_PROXIES splice at any resolution
 # tested. The cash cross_class benchmark (M5) reads that synthetic series.
-# Excluded (not investable sleeves): MACRO, GLOBAL_LIQUIDITY, VOLATILITY, FX,
-# RISK_FREE (^IRX is the risk-free RATE, not an asset).
+# Excluded (not investable sleeves) — see NON_PRICE_ASSET_CLASSES below.
+
+# THE CLASSES WHOSE `level` IS NOT A PRICE. This lived as prose in the comment
+# above until 2026-08-23, and a second reader then needed it: `worker/tools.py`
+# normalises `speed`/`acceleration` to percent-of-level so the Worker can
+# compare momentum across tickers, which is right for a price and a category
+# error for a rate. Written from the comment's memory it would have said
+# `MACRO` alone and silently reported "^IRX +2.3%" for a 10bp move in the
+# risk-free rate, since ^IRX is class RISK_FREE — the distinction was recorded,
+# just not anywhere code could read it (CLAUDE.md: encode the rule, not a note).
+#
+# An EXCLUSION list, not a whitelist of price classes, because new classes here
+# are overwhelmingly new price sleeves (US_REAL_ESTATE and US_SMALL_VALUE were
+# the last two) and those are then correct by default. A new RATE-like class
+# must be added here, which is why it sits beside BENCHMARK_CLASSES: the same
+# review that decides a class is not an investable sleeve decides this.
+NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
+    {"MACRO", "GLOBAL_LIQUIDITY", "VOLATILITY", "FX", "RISK_FREE"}
+)
 
 DERIVED_SIGNALS: dict[str, str] = {
     "GROWTH_COMPOSITE": "INDPRO,UNRATE (see market/growth.py)",
