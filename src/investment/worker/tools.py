@@ -180,6 +180,51 @@ MARKET_PERIODS: dict[str, int] = {
 
 _WORD_RE = re.compile(r"[A-Za-z_]+")
 
+# `market_data.speed`/`acceleration` are ABSOLUTE differences in each series'
+# own unit (market/derivatives.py), which is right for the DB and wrong for the
+# only thing a reader does with two of them: compare. On a price series the unit
+# is the price, so the number scales with the level and carries no meaning
+# across tickers.
+#
+# Measured 2026-08-23, from a real Worker reading: "the strongest momentum in
+# the cross-section is gold (GLD accel +1465)" — set against IEF's +3.4. Both
+# figures were correct. GLD trades near 12,098 and IEF near 502, so the ratio it
+# read as 430x is 18x once each is expressed against its own level. The
+# conclusion happened to survive; the arithmetic behind it did not exist.
+#
+# NORMALISED ONLY FOR PRICE ROWS, and the exclusion is the load-bearing half.
+# MACRO series are already in percentage points — T10Y2Y at 0.50 with speed
+# +0.14 is 14bp of steepening, a quantity directly comparable to BAA10Y's +0.04.
+# Dividing those by their own level would produce "+28%" for a curve move,
+# a number no rates reader has ever wanted and this codebase never means.
+_PRICE_MOMENTUM_FIELDS = (("speed", "speed_pct"), ("acceleration", "acceleration_pct"))
+
+
+def _with_normalised_momentum(row: dict[str, Any]) -> dict[str, Any]:
+    """One `market_fetch` row, with percent-of-level momentum added for PRICE
+    series so the Worker can compare tickers. Raw fields are kept: they are what
+    `db_query` returns and what every threshold in the DB is expressed in, so
+    dropping them would make the two tools disagree about the same series."""
+    # Rounded on the way out for the same reason `decision_cycle._num` rounds
+    # the prompt's own tape: FRED published 0.04 and binary subtraction turns it
+    # into `0.039999999999999813`, twenty tokens of noise that also invite a
+    # precision the series does not have. Six decimals is far beyond anything
+    # published here, so nothing real is lost. Second occurrence of one defect
+    # at a second boundary — the prompt was the first.
+    out = {
+        k: (round(v, 6) if isinstance(v, float) else v)
+        for k, v in row.items()
+        if k != "asset_class"
+    }
+    level = row.get("level")
+    if row.get("asset_class") == "MACRO" or not isinstance(level, int | float) or level <= 0:
+        return out
+    for raw, pct in _PRICE_MOMENTUM_FIELDS:
+        value = row.get(raw)
+        if isinstance(value, int | float):
+            out[pct] = round(value / level * 100.0, 3)
+    return out
+
 
 class ToolInputError(ModelRetry, ValueError):
     """A tool refused its input. Carries a message meant for the MODEL: it is
@@ -368,7 +413,9 @@ class WorkerTools:
     @visible_refusal
     async def market_fetch(self, tickers: list[str], period: str) -> list[dict[str, Any]]:
         """Recent market data for known tickers: (ts, ticker, level, speed,
-        acceleration), most recent first, at most 30 rows in total."""
+        acceleration), most recent first, at most 30 rows in total. PRICE rows
+        also carry `speed_pct`/`acceleration_pct` — use THOSE to compare
+        momentum across tickers."""
         if not tickers:
             raise ToolInputError("no tickers requested")
         if period not in MARKET_PERIODS:
@@ -393,13 +440,14 @@ class WorkerTools:
         params: dict[str, Any] = {f"t{i}": t for i, t in enumerate(tickers)}
         params["days"] = MARKET_PERIODS[period]
         params["cap"] = MARKET_FETCH_MAX_ROWS
-        return await self._db.query(
-            "SELECT ts, ticker, level, speed, acceleration FROM market_data "
+        rows = await self._db.query(
+            "SELECT ts, ticker, asset_class, level, speed, acceleration FROM market_data "
             f"WHERE ticker IN ({placeholders}) "
             "  AND ts >= date((SELECT MAX(ts) FROM market_data), '-' || :days || ' days') "
             "ORDER BY ts DESC, ticker LIMIT :cap",
             **params,
         )
+        return [_with_normalised_momentum(row) for row in rows]
 
     @visible_refusal
     async def portfolio_check(self, portfolio_id: str) -> dict[str, Any]:

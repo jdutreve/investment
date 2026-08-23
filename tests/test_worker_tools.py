@@ -147,10 +147,90 @@ async def test_the_cap_binds_on_real_rows(tools: WorkerTools) -> None:
 # -- market_fetch -----------------------------------------------------------
 
 
+async def _price(
+    tools: WorkerTools,
+    ticker: str,
+    *,
+    level: float,
+    speed: float,
+    acceleration: float,
+    asset_class: str = "equities",
+) -> None:
+    """One allowed ticker with one recent row — enough for the shape assertions
+    below, which are about the row a fetch returns, not about a series."""
+    db = tools._db  # the fixture owns the DB; the tool only wraps it
+    await db.command(
+        "INSERT INTO allowed_tickers (ticker, asset_class, currency, source, transform, active) "
+        "VALUES (:t, :c, 'USD', 'yahoo', 'none', 1)",
+        t=ticker,
+        c=asset_class,
+    )
+    await db.command(
+        "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed, acceleration) "
+        "VALUES (:t, :c, 'USD', '2026-07-28', :l, :s, :a)",
+        t=ticker,
+        c=asset_class,
+        l=level,
+        s=speed,
+        a=acceleration,
+    )
+
+
 async def test_market_fetch_returns_the_documented_shape(tools: WorkerTools) -> None:
     rows = await tools.market_fetch(["SPY"], "1m")
     assert rows
-    assert set(rows[0]) == {"ts", "ticker", "level", "speed", "acceleration"}
+    # A price row: the raw pair the DB stores, plus the comparable pair. No
+    # `asset_class` — it selects the normalisation, it is not an answer.
+    assert set(rows[0]) == {
+        "ts",
+        "ticker",
+        "level",
+        "speed",
+        "acceleration",
+        "speed_pct",
+        "acceleration_pct",
+    }
+
+
+async def test_price_momentum_is_comparable_across_tickers(tools: WorkerTools) -> None:
+    """Measured 2026-08-23, from a real Worker reading: "the strongest momentum
+    in the cross-section is gold (GLD accel +1465)", set against IEF's +3.4.
+    Both figures were correct and the comparison was meaningless — GLD trades
+    near 12,098 and IEF near 502, so a raw second difference on a price mostly
+    measures the price. Same true move, two levels: the raw numbers differ 24x,
+    the normalised ones are equal."""
+    await _price(tools, "BIG", level=12000.0, speed=1200.0, acceleration=600.0)
+    await _price(tools, "SMALL", level=500.0, speed=50.0, acceleration=25.0)
+    rows = {r["ticker"]: r for r in await tools.market_fetch(["BIG", "SMALL"], "1m")}
+    assert rows["BIG"]["acceleration"] / rows["SMALL"]["acceleration"] == 24.0
+    assert rows["BIG"]["acceleration_pct"] == rows["SMALL"]["acceleration_pct"] == 5.0
+    assert rows["BIG"]["speed_pct"] == rows["SMALL"]["speed_pct"] == 10.0
+
+
+async def test_macro_rows_are_not_normalised(tools: WorkerTools) -> None:
+    """The load-bearing exclusion. T10Y2Y at 0.50 moving +0.14 is 14bp of
+    steepening — already directly comparable to BAA10Y's +0.04. Dividing by its
+    own level would report "+28%" for a curve move, which is not a quantity
+    this codebase ever means."""
+    await _price(tools, "T10Y2Y", level=0.5, speed=0.14, acceleration=0.05, asset_class="MACRO")
+    row = (await tools.market_fetch(["T10Y2Y"], "1m"))[0]
+    assert row["speed"] == 0.14
+    assert "speed_pct" not in row and "acceleration_pct" not in row
+
+
+async def test_float_noise_is_not_returned_to_the_model(tools: WorkerTools) -> None:
+    """Same defect as `decision_cycle._num`, one boundary over: FRED published
+    0.04 and binary subtraction makes it `0.039999999999999813`."""
+    await _price(
+        tools,
+        "NOISY",
+        level=1.64,
+        speed=0.039999999999999813,
+        acceleration=-0.05,
+        asset_class="MACRO",
+    )
+    row = (await tools.market_fetch(["NOISY"], "1m"))[0]
+    assert row["speed"] == 0.04
 
 
 async def test_market_fetch_is_capped(tools: WorkerTools) -> None:
