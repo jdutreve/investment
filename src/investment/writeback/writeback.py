@@ -1135,11 +1135,23 @@ async def _commit_invariant_innovation(
     # back with `json.loads`, outside any per-innovation guard. Four readers,
     # one bad write.
     #
-    # Dropped to None rather than to a coerced object: `effect=None` is an
-    # invariant the system already understands (reference knowledge, never
-    # confronted, matured as such by `_mature_one`), whereas a guessed structure
-    # would be a claim nobody made. The prose is kept in the trace, so the
-    # information survives even though the structure does not.
+    # `condition` is the SECOND field of the same kind (2026-08-23): a Worker
+    # wrote it as a prose sentence instead of a Predicate list, and nothing
+    # here checked — only `effect` had learned this lesson. `active_invariant_ids`
+    # (planner/context.py) then `json.loads`ed it fresh on every weekly
+    # `invariant-weights` step, crashed the same way every retry, and the chain
+    # never reached the digest. Same fix, same reasoning: a non-list is dropped,
+    # not guessed.
+    #
+    # Dropped to None/[] rather than to a coerced object: `effect=None` (or an
+    # empty `condition`) is an invariant the system already understands
+    # (reference knowledge, never confronted, matured as such by `_mature_one`),
+    # whereas a guessed structure would be a claim nobody made. The prose is
+    # kept in the trace, so the information survives even though the structure
+    # does not.
+    malformed_condition = None if isinstance(condition, list) else repr(condition)
+    if malformed_condition is not None:
+        condition = []
     effect = spec.get("effect")
     malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
     if malformed_effect is not None:
@@ -1199,6 +1211,11 @@ async def _commit_invariant_innovation(
                 + (
                     f" [effect dropped, not an object: {malformed_effect}]"
                     if malformed_effect is not None
+                    else ""
+                )
+                + (
+                    f" [condition dropped, not a list: {malformed_condition}]"
+                    if malformed_condition is not None
                     else ""
                 ),
             },

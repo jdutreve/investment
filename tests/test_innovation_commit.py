@@ -404,6 +404,40 @@ async def test_a_prose_effect_is_demoted_to_reference_knowledge_not_followed_dow
     assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
 
 
+async def test_a_prose_condition_is_dropped_to_empty_not_followed_downstream(
+    db: InvestmentDB,
+) -> None:
+    """`condition` is the second field of the same kind (2026-08-23): a Worker
+    wrote it as a prose sentence instead of a Predicate list. Unguarded, this
+    was persisted verbatim and `active_invariant_ids` (planner/context.py)
+    then `json.loads`ed it fresh on every weekly `invariant-weights` step —
+    crashing the SAME chain step on every retry, so the weekly digest never
+    fired. Mirrors `test_a_prose_effect_is_demoted_...`: dropped to `[]`, not
+    guessed, the claim kept in the trace."""
+    malformed = _innovation("Condition written as prose")
+    malformed.spec["condition"] = "T10Y2Y speed > 0 while DGS10 speed > 0"
+    good = _innovation("A well-formed neighbour")
+    # A distinct effect, not just a distinct condition: `conditions_can_overlap`
+    # is vacuously true against the malformed row's dropped-to-`[]` condition,
+    # so a shared effect would dedup the two — an artefact of the stub
+    # embedder's constant cosine, not of the fix under test.
+    good.spec = {
+        **good.spec,
+        "id": "inv-good",
+        "effect": {**_EFFECT, "handle": "asset-class:equities", "direction": "underperform"},
+    }
+
+    result = PostPlannerResult(innovations=[malformed, good])
+    n = await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
+
+    assert n == 2  # demoted, not dropped — and the neighbour is unaffected
+    row = (await db.query("SELECT condition, trace FROM invariant WHERE id='inv-new'"))[0]
+    assert row["condition"] == "[]"  # the column keeps the shape every reader assumes
+    assert "condition dropped, not a list" in row["trace"]
+    assert "T10Y2Y speed" in row["trace"]  # the claim itself survives
+    assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
+
+
 async def test_one_failing_innovation_does_not_cost_the_others(
     db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
 ) -> None:
