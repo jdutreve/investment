@@ -75,6 +75,9 @@ MARKET_DATA_STALE_DAYS = 7
 # that a holiday week cannot move the median.
 MACRO_CADENCE_SAMPLE = 13
 MACRO_OVERDUE_GRACE_DAYS = 14
+# Overdue at one and a half of its own periods: half-way into the period a
+# series skipped, so a monthly print is late at ~46 days and not at 32.
+MACRO_OVERDUE_PERIODS = 1.5
 # The two series that PICK the book (mechanical/market_signal.py).
 SIGNAL_TICKERS: tuple[str, ...] = (CREDIT_SPREAD, YIELD_SLOPE)
 # One monthly anchor missed. Longer than the cadence by design (35 > ~31), so a
@@ -240,24 +243,45 @@ async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) ->
     )
 
 
-async def _series_cadence(db: InvestmentDB, ticker: str, today: date) -> tuple[float, int] | None:
-    """`(median spacing in days over the last prints, age of the newest)`, or
-    `None` when there is too little history to judge a cadence.
+async def _macro_cadences(db: InvestmentDB, today: date) -> dict[str, tuple[float, int]]:
+    """Every MACRO series' `(median spacing in days, age of its newest print)`,
+    in ONE query. Series with fewer than 3 prints are omitted — a cadence cannot
+    be judged from two dates, and guessing one would invent the threshold it is
+    then measured against.
 
-    THE CADENCE IS MEASURED, NOT DECLARED, and that is the whole point of this
-    helper. `availability_lag_days` (db/seed_data.py) says how long after an
-    observation it becomes knowable; it says nothing about how OFTEN the series
-    prints, which is what "overdue" needs. A declared table of frequencies is
-    also the shape CLAUDE.md warns about — it would name every series that
-    existed the day it was written and go quietly wrong on the next one."""
+    THE CADENCE IS MEASURED, NOT DECLARED, which is the whole point.
+    `availability_lag_days` (db/seed_data.py) says how long after an observation
+    it becomes knowable; it says nothing about how OFTEN the series prints,
+    which is what "overdue" needs. A declared table of frequencies is also the
+    shape CLAUDE.md warns about — it would name every series that existed the
+    day it was written and go quietly wrong on the next one.
+
+    ONE QUERY, NOT ONE PER TICKER. `collect_alerts` is reached from
+    `collect_digest_inputs`, which serves every `/api/overview` request
+    (ops/api.py) and not just the Sunday digest — so the per-ticker loop this
+    replaced put 1 + N round trips on the single shared connection (ADR-004) on
+    every dashboard page load."""
     rows = await db.query(
-        "SELECT ts FROM market_data WHERE ticker = :t ORDER BY ts DESC LIMIT :n",
-        t=ticker,
+        "SELECT ticker, ts FROM ("
+        "  SELECT ticker, ts, ROW_NUMBER() OVER ("
+        "    PARTITION BY ticker ORDER BY ts DESC"
+        "  ) AS rn"
+        "  FROM market_data WHERE asset_class = 'MACRO'"
+        ") WHERE rn <= :n ORDER BY ticker, ts DESC",
         n=MACRO_CADENCE_SAMPLE,
     )
-    if len(rows) < 3:
-        return None
-    stamps = [date.fromisoformat(str(r["ts"])[:10]) for r in rows]
+    by_ticker: dict[str, list[date]] = {}
+    for row in rows:
+        by_ticker.setdefault(str(row["ticker"]), []).append(date.fromisoformat(str(row["ts"])[:10]))
+    return {
+        ticker: _cadence_of(stamps, today)
+        for ticker, stamps in by_ticker.items()
+        if len(stamps) >= 3
+    }
+
+
+def _cadence_of(stamps: list[date], today: date) -> tuple[float, int]:
+    """`(median spacing, age of the newest)` for one series' descending dates."""
     gaps = [(stamps[i] - stamps[i + 1]).days for i in range(len(stamps) - 1)]
     return statistics.median(gaps), (today - stamps[0]).days
 
@@ -299,23 +323,15 @@ async def macro_freshness_alert(db: InvestmentDB, today: date | None = None) -> 
     one digest — once as capital risk, once as reading quality — teaches the
     owner to skim both lines."""
     today = today or date.today()
-    rows = await db.query(
-        "SELECT DISTINCT ticker FROM market_data WHERE asset_class = 'MACRO' ORDER BY ticker"
-    )
-    overdue: list[tuple[str, int, float]] = []
-    for row in rows:
-        ticker = str(row["ticker"])
-        if ticker in SIGNAL_TICKERS:
-            continue
-        cadence = await _series_cadence(db, ticker, today)
-        if cadence is None:
-            continue
-        spacing, age = cadence
-        if age > max(1.5 * spacing, spacing + MACRO_OVERDUE_GRACE_DAYS):
-            overdue.append((ticker, age, spacing))
+    overdue = [
+        (ticker, age, spacing)
+        for ticker, (spacing, age) in (await _macro_cadences(db, today)).items()
+        if ticker not in SIGNAL_TICKERS
+        and age > max(MACRO_OVERDUE_PERIODS * spacing, spacing + MACRO_OVERDUE_GRACE_DAYS)
+    ]
     if not overdue:
         return None
-    overdue.sort(key=lambda o: -o[1])
+    overdue.sort(key=lambda o: (-o[1], o[0]))
     detail = ", ".join(
         f"{t} ({age}d old, prints every ~{spacing:.0f}d)" for t, age, spacing in overdue
     )

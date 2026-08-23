@@ -44,6 +44,7 @@ from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import run_worker
 from investment.worker.result import WorkerResult
+from investment.worker.tools import round_for_model
 from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_knowledge
 
 # The cycle's own journal entry (see `journal_worker_reading`). Declared here,
@@ -88,14 +89,6 @@ def _allocation(row: dict[str, Any]) -> dict[str, float]:
     if isinstance(alloc, str):
         alloc = json.loads(alloc)
     return {str(k): float(v) for k, v in (alloc or {}).items()}
-
-
-def _num(value: Any) -> Any:
-    """A float as a human reads it. Binary subtraction leaves the tape full of
-    `0.039999999999999813` where FRED published 0.04, and every one of those
-    digits reaches the model as tokens that carry no information and invite a
-    precision the series does not have. Non-numbers pass through untouched."""
-    return round(value, 4) if isinstance(value, float) else value
 
 
 def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> list[str]:
@@ -185,8 +178,8 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
             side = "above" if level > median else "below"
             drift = f", {abs(level - median):.2f} {side} that median"
         lines.append(
-            f"    now {_num(level)} (speed {_num(now.get('speed'))}, "
-            f"accel {_num(now.get('acceleration'))}) as of {now.get('ts')}{drift}"
+            f"    now {round_for_model(level)} (speed {round_for_model(now.get('speed'))}, "
+            f"accel {round_for_model(now.get('acceleration'))}) as of {now.get('ts')}{drift}"
         )
     below = overlay.get("below_trend") or []
     # The window comes off the DECISION's own payload (`trend_overlay.window_days`,
@@ -306,8 +299,9 @@ def render_context_for_worker(context: PlannerContext) -> str:
         )
         for row in context.macro:
             lines.append(
-                f"  {row.get('ticker')}: {_num(row.get('level'))} "
-                f"(speed {_num(row.get('speed'))}, accel {_num(row.get('acceleration'))}) "
+                f"  {row.get('ticker')}: {round_for_model(row.get('level'))} "
+                f"(speed {round_for_model(row.get('speed'))}, "
+                f"accel {round_for_model(row.get('acceleration'))}) "
                 f"as of {row.get('ts')}"
             )
     if context.favors:

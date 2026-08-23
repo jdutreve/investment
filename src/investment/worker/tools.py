@@ -199,30 +199,40 @@ _WORD_RE = re.compile(r"[A-Za-z_]+")
 # a number no rates reader has ever wanted and this codebase never means.
 _PRICE_MOMENTUM_FIELDS = (("speed", "speed_pct"), ("acceleration", "acceleration_pct"))
 
+# ONE rounding rule for every number that reaches the model, and it is one
+# because the first attempt was three. FRED publishes 0.04; binary subtraction
+# stores `0.039999999999999813`, which costs twenty tokens and invites a
+# precision the series does not have. That defect was fixed twice on
+# 2026-08-23 — in the prompt renderer and here, hours apart — at 4, 6 and 3
+# decimals, so the same reading could reach the Worker two ways depending on
+# which path it came down. Four decimals: past anything FRED or Yahoo
+# publishes, and it still prints a price as 12098.15 rather than
+# 12098.150033.
+MODEL_NUMBER_DECIMALS = 4
+
+
+def round_for_model(value: Any) -> Any:
+    """A float as the model should see it. Non-numbers pass through untouched.
+
+    Shared with `decision_cycle`'s prompt renderer deliberately: the tool result
+    and the prompt are two doors into the same conversation, and a number that
+    differs between them is a discrepancy the model has no way to resolve."""
+    return round(value, MODEL_NUMBER_DECIMALS) if isinstance(value, float) else value
+
 
 def _with_normalised_momentum(row: dict[str, Any]) -> dict[str, Any]:
     """One `market_fetch` row, with percent-of-level momentum added for PRICE
     series so the Worker can compare tickers. Raw fields are kept: they are what
     `db_query` returns and what every threshold in the DB is expressed in, so
     dropping them would make the two tools disagree about the same series."""
-    # Rounded on the way out for the same reason `decision_cycle._num` rounds
-    # the prompt's own tape: FRED published 0.04 and binary subtraction turns it
-    # into `0.039999999999999813`, twenty tokens of noise that also invite a
-    # precision the series does not have. Six decimals is far beyond anything
-    # published here, so nothing real is lost. Second occurrence of one defect
-    # at a second boundary — the prompt was the first.
-    out = {
-        k: (round(v, 6) if isinstance(v, float) else v)
-        for k, v in row.items()
-        if k != "asset_class"
-    }
+    out = {k: round_for_model(v) for k, v in row.items() if k != "asset_class"}
     level = row.get("level")
     if row.get("asset_class") == "MACRO" or not isinstance(level, int | float) or level <= 0:
         return out
     for raw, pct in _PRICE_MOMENTUM_FIELDS:
         value = row.get(raw)
         if isinstance(value, int | float):
-            out[pct] = round(value / level * 100.0, 3)
+            out[pct] = round_for_model(value / level * 100.0)
     return out
 
 
