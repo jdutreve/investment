@@ -2146,3 +2146,81 @@ give the digest a way to say when FAVORS last moved.
 
 **Trigger to revisit.** The first FAVORS row whose `last_updated` disagrees with
 its neighbours, or the first time the 08:30 step fails partway.
+
+## I-56 — `availability_lag_days` is a hand-set constant where ALFRED knows the real answer
+
+**Where.** `db/seed_data.py` `ALLOWED_TICKERS` (`availability_lag_days` on every
+non-revised FRED series), consumed by `market/fetcher.parse_fred_current`.
+
+**What it does.** Dates a FRED observation as `reference_date + a constant`,
+because the current-vintage fetch (`output_type=1`) returns one shared
+`realtime_start` — the snapshot time — and so cannot say when each observation
+was actually published. Series in `REVISED_SERIES` (CPIAUCSL, INDPRO, UNRATE)
+escape this entirely: they take the ALFRED first-release path and carry the true
+per-observation publication date.
+
+**Why it matters.** `ts` is what ADR-003 defines as the date a value became
+KNOWABLE, and `ts <= t` is the point-in-time filter of both the replay and the
+35-year invariant sweep. A constant that is too SHORT is therefore not an
+approximation, it is lookahead — the backtest reads a number before it existed.
+Measured 2026-08-23, both liquidity constants were short: M2SL was set to 17
+against a measured median of 55 (max 58), and JPNASSETS to 30 against a median
+of 34. They are now 60 and 40, but a constant cannot track a release calendar
+that changes — M2SL's own lag jumped from ~42 to ~55 days when the H.6 went
+from weekly to monthly in Feb 2021, and nothing in the code noticed for five
+years.
+
+**The shape it would take.** Move these series onto the first-release path so no
+constant is needed. The blocker is narrow and known:
+`fetch_fred_observations` forces `realtime_start=1776-07-04` for
+`output_type=2`, which returns HTTP 500 for M2SL and JPNASSETS (too many
+vintages). `output_type=3` over a bounded realtime window returns exactly the
+first-release dates — that is how the 2026-08-23 measurement was taken — so the
+work is a second parse shape plus a windowed fetch, not new infrastructure.
+
+**Trigger to revisit.** Any further vintage correction; a new non-revised FRED
+series whose release calendar is not obvious; or the next time a release
+schedule changes under a constant nobody re-measures. WALCL (5) and ECBASSETSW
+(5) are still estimates and have never been measured.
+
+## I-57 — The derived signals in `backtests.py` still write additively, so a re-dating duplicates them
+
+**Where.** `mechanical/backtests.py` — `_materialize_broad_money` (`m2_yoy`,
+`m2_accel_12m`), `_materialize_equity_trend`, and the `real_rate` family. All
+end in a bare `db.append_ts_batch("market_data", rows)`.
+
+**What it does.** Each of these recomputes its series WHOLE on every run
+(`ratios.load_price` on the source, then the full transform), and writes it with
+`INSERT OR REPLACE` keyed on `(ticker, ts)`. When the dating is stable this is
+harmless: the recomputed rows land on the same `ts` and overwrite in place. When
+the dating MOVES, the new rows land beside the old ones and the series carries
+two overlapping vintages.
+
+**Why it matters — measured 2026-08-23.** Correcting the `availability_lag_days`
+of M2SL (17 -> 60) and JPNASSETS (30 -> 40) re-dated their inputs, and the
+derived series doubled: `m2_yoy` 407 -> 814 rows, `m2_accel_12m` 395 -> 790,
+`GLOBAL_LIQUIDITY` 5183 -> 5572. The proof was two rows carrying the SAME value
+at two dates (`m2_yoy` 5.5257 at both 2026-06-18 and 2026-07-31). This is
+exactly the failure `seed._write_series_authoritatively` was written for in
+M5 — where M2SL held 1768 rows for 418 real observations and `m2_yoy` computed
+YoY growth spanning -62.6%..+213.9% because a 365d lookback landed on a
+different copy.
+
+**Why it is not fixed yet.** `_write_series_authoritatively` lives in `seed.py`,
+and `backtests.py` importing from the seed module is the wrong dependency
+direction. Its two SEED-side callers were fixed in place on 2026-08-23 (the
+`GROWTH_COMPOSITE` and `GLOBAL_LIQUIDITY` composites, which sat directly below
+the fetched loop and never inherited its rule); the chain-side ones need the
+helper to move somewhere both can reach first, and where that is, is a design
+call rather than a bug fix.
+
+**The shape it would take.** One `replace_ts_series(ticker, rows)` — the span
+guard included — in a home both the seed and the mechanical jobs can import,
+then four call sites changed. The guard matters more here than in the seed: the
+weekly chain runs unattended, so a truncated source must degrade to an additive
+write and REPORT, never wipe 35 years.
+
+**Trigger to revisit.** Any further `availability_lag_days` correction (I-56
+proposes moving M2SL/JPNASSETS to the ALFRED path, which re-dates them again),
+any change to a derived signal's own transform, or the first derived series
+whose row count does not match its source's.

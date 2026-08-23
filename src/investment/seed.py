@@ -597,7 +597,17 @@ async def _seed_market_data(
         gc = growth.compute_growth_composite(transformed["INDPRO"], transformed["UNRATE"])
         deriv = derivatives.compute_derivatives(gc, "GROWTH_COMPOSITE", default_lookback)
         rows = derivatives.market_data_rows("GROWTH_COMPOSITE", "MACRO", "USD", deriv, target_start)
-        await db.append_ts_batch("market_data", rows)
+        # AUTHORITATIVE, like the fetched loop above — the composites are the
+        # second thing of that kind and did not follow the rule when it was
+        # written (CLAUDE.md). They are recomputed WHOLE from `transformed`
+        # every run, so the additive write only ever mattered when the dating
+        # moved: on 2026-08-23 the M2SL/JPNASSETS lag correction re-dated their
+        # inputs and GLOBAL_LIQUIDITY grew from 5183 rows to 5572 — two
+        # overlapping vintages of one series, the exact failure
+        # `_write_series_authoritatively` was written for.
+        shortfall = await _write_series_authoritatively(db, "GROWTH_COMPOSITE", rows)
+        if shortfall is not None:
+            shortfalls["GROWTH_COMPOSITE"] = shortfall
         row_count += len(rows)
     else:
         skipped["GROWTH_COMPOSITE"] = "missing INDPRO/UNRATE inputs"
@@ -613,7 +623,9 @@ async def _seed_market_data(
         rows = derivatives.market_data_rows(
             "GLOBAL_LIQUIDITY", "GLOBAL_LIQUIDITY", "USD", deriv, target_start
         )
-        await db.append_ts_batch("market_data", rows)
+        shortfall = await _write_series_authoritatively(db, "GLOBAL_LIQUIDITY", rows)
+        if shortfall is not None:
+            shortfalls["GLOBAL_LIQUIDITY"] = shortfall
         row_count += len(rows)
     else:
         skipped["GLOBAL_LIQUIDITY"] = "missing component inputs"

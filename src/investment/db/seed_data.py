@@ -451,16 +451,50 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "availability_lag_days": 1,
     },
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
-    # in practice (ADR-003 consequences), current-vintage fetch. Lag estimates: WALCL/
-    # ECBASSETSW weekly releases (few days); M2SL monthly (~2w, FRED's own calendar);
-    # JPNASSETS (BoJ) monthly with a longer lag (~1m).
+    # in practice (ADR-003 consequences), current-vintage fetch.
+    #
+    # M2SL AND JPNASSETS ARE MEASURED, the other two are still estimates
+    # (WALCL/ECBASSETSW weekly releases, a few days). The two below were
+    # ESTIMATED until 2026-08-23 and both were too SHORT, which is the
+    # dangerous direction: a lag shorter than reality dates a value before it
+    # existed, and `ts <= t` is the point-in-time filter of the replay AND of
+    # the 35y invariant sweep — so the understatement is lookahead, and it
+    # inflates whatever it touches.
+    #
+    # Measured from ALFRED first-release vintages (`output_type=3` over a
+    # bounded realtime window — `output_type=2` with the 1776 window that
+    # `fetch_fred_observations` forces returns HTTP 500 for these two):
+    #   M2SL, 222 monthly observations 2008-2026, in two release regimes —
+    #     the H.6 went weekly -> monthly in Feb 2021:
+    #       before: n=157, min 37, median 42, max 46
+    #       since:  n=65,  min 49, median 55, max 58
+    #     Was 17. Concretely: obs 2026-06-01 first published 2026-07-28, and
+    #     the DB dated it 2026-06-18 — 40 days before it existed, more than a
+    #     full monthly decision cycle.
+    #   JPNASSETS, 162 observations: min 29, median 34, p95 38, max 65.
+    #     Was 30 — BELOW the median, so about half the series was early.
+    #
+    # 60 covers M2SL's worst case (58) with two days for a holiday-shifted
+    # release. 40 covers JPNASSETS' p95 and deliberately NOT its two 63/65d
+    # outliers (2015-06 and 2021-06, both June observations published in
+    # August): covering them would cost a month of systematic staleness on
+    # 98.8% of observations, on a series feeding the liquidity composite that
+    # regime detection reads. The residual is named rather than hidden — 2
+    # months in 162 with at most ~25 days of anticipation, on one component
+    # of a four-part composite.
+    #
+    # The structurally correct fix for both is the ALFRED first-release path
+    # these series do not take (`REVISED_SERIES`), which carries the true
+    # publication date per observation and needs no constant at all. It is
+    # reachable — the measurement above proves the data is there — and it is
+    # deferred, not forgotten (docs/IMPROVEMENTS.md).
     {
         "ticker": "M2SL",
         "asset_class": "MACRO",
         "currency": "USD",
         "source": "fred",
         "transform": "none",
-        "availability_lag_days": 17,
+        "availability_lag_days": 60,
     },
     {
         "ticker": "WALCL",
@@ -484,7 +518,7 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "currency": "JPY",
         "source": "fred",
         "transform": "none",
-        "availability_lag_days": 30,
+        "availability_lag_days": 40,  # measured; see the M2SL note above
     },
     # FX helpers for the GLOBAL_LIQUIDITY USD-conversion (market/liquidity.py
     # usd_convert). FRED, not Yahoo: DEXUSEU (USD per EUR, from 1999) and DEXJPUS
