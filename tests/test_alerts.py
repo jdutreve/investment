@@ -241,6 +241,26 @@ async def _macro_series(db: InvestmentDB, ticker: str, latest: date, spacing: in
     )
 
 
+def test_cadence_is_the_median_gap_not_the_newest_one() -> None:
+    """`_cadence_of` is pure so the arithmetic can be pinned without a DB, and
+    the MEDIAN is the point: one short gap (a correction re-published two days
+    later) must not convince the check that a monthly series prints every two
+    days, which would then call it overdue at 16 days instead of 46."""
+    stamps = [
+        date(2026, 8, 20),  # newest first, as the query returns them
+        date(2026, 8, 18),  # the anomalous 2-day gap
+        date(2026, 7, 18),
+        date(2026, 6, 18),
+        date(2026, 5, 18),
+    ]
+    # gaps are [2, 31, 30, 31]; the median of four is (30+31)/2, and the point
+    # is that the 2 does not drag it anywhere near itself.
+    spacing, age = A._cadence_of(stamps, date(2026, 8, 23))
+    assert spacing == 30.5
+    assert age == 3
+    assert age <= max(A.MACRO_OVERDUE_PERIODS * spacing, spacing + A.MACRO_OVERDUE_GRACE_DAYS)
+
+
 async def test_a_monthly_series_lagging_normally_says_nothing(db: InvestmentDB) -> None:
     """The whole reason this check measures cadence instead of reusing
     MARKET_DATA_STALE_DAYS: monthly macro is ALWAYS weeks old (ADR-003), and a
