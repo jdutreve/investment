@@ -2185,9 +2185,20 @@ schedule changes under a constant nobody re-measures. WALCL (5) and ECBASSETSW
 
 ## I-57 — The derived signals in `backtests.py` still write additively, so a re-dating duplicates them
 
-**Where.** `mechanical/backtests.py` — `_materialize_broad_money` (`m2_yoy`,
-`m2_accel_12m`), `_materialize_equity_trend`, and the `real_rate` family. All
-end in a bare `db.append_ts_batch("market_data", rows)`.
+**Where.** SEVEN bare `db.append_ts_batch("market_data", rows)` calls, and the
+inventory took two passes to close — the first named only `backtests.py`:
+  - `mechanical/backtests.py` — `_materialize_real_rates` (246),
+    `_materialize_broad_money` (290), `_materialize_equity_trend` (314) and
+    `_materialize_gold_10y_dev` (350);
+  - `mechanical/catchup.py` — the CATCH-UP rewrite of the same series (237) and
+    of the `GROWTH_COMPOSITE` / `GLOBAL_LIQUIDITY` composites (301, 318).
+
+The catchup pair is the one that matters most and was the one missed. Making
+`seed.py` authoritative for the two composites (2026-08-23) fixed the path that
+runs when someone re-seeds by hand; `catchup.refresh_composites` rewrites those
+SAME two series over their whole stored history on the WEEKLY chain, unattended,
+every Sunday. So the next re-dating re-creates the overlapping vintages the seed
+just deleted, with nobody watching.
 
 **What it does.** Each of these recomputes its series WHOLE on every run
 (`ratios.load_price` on the source, then the full transform), and writes it with
@@ -2224,3 +2235,12 @@ write and REPORT, never wipe 35 years.
 proposes moving M2SL/JPNASSETS to the ALFRED path, which re-dates them again),
 any change to a derived signal's own transform, or the first derived series
 whose row count does not match its source's.
+
+**A SECOND CONSUMER IS ALREADY EXPOSED.** `alerts._cadence_of` measures a
+series' cadence from the spacing of its stored rows, so a duplicated series
+reports roughly half its true cadence and `macro_freshness_alert` then calls a
+perfectly healthy print overdue. Measured shape: `m2_yoy` interleaved at
+2026-06-18 / 2026-07-31 gives gaps alternating ~12/~19 against a real 31, a
+threshold of ~29 days instead of ~46. The duplicates were deleted on
+2026-08-23 so nothing misfires today; the coupling stands until the writes are
+authoritative.

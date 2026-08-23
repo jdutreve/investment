@@ -223,6 +223,28 @@ async def test_no_non_price_class_is_normalised(tools: WorkerTools, asset_class:
     assert row["speed"] == 0.1
 
 
+async def test_fx_is_a_price_and_is_normalised(tools: WorkerTools) -> None:
+    """FX sat in the non-price set on the reasoning that it is not an investable
+    sleeve — a different question. An FX quote IS a price and its absolute speed
+    scales with its level: DEXJPUS near 148 against CHFUSD=X near 1.13 shows the
+    same 1% move as 1.48 against 0.011, the 136x artefact this exists to remove."""
+    await _price(tools, "DEXJPUS", level=148.0, speed=1.48, acceleration=0.0, asset_class="FX")
+    await _price(tools, "CHFUSD=X", level=1.13, speed=0.0113, acceleration=0.0, asset_class="FX")
+    rows = {r["ticker"]: r for r in await tools.market_fetch(["DEXJPUS", "CHFUSD=X"], "1m")}
+    assert rows["DEXJPUS"]["speed_pct"] == rows["CHFUSD=X"]["speed_pct"] == 1.0
+
+
+async def test_a_price_row_warming_up_keeps_the_keys_as_null(tools: WorkerTools) -> None:
+    """The ABSENCE of `_pct` is what tells the Worker "this is a rate, compare
+    raw". A price series whose derivatives are still null (every series' warm-up)
+    must not borrow that meaning and have its level-scaled `speed` compared
+    across tickers — so the keys are present and null instead."""
+    await _price(tools, "NEW", level=100.0, speed=None, acceleration=None)  # type: ignore[arg-type]
+    row = (await tools.market_fetch(["NEW"], "1m"))[0]
+    assert "speed_pct" in row and row["speed_pct"] is None
+    assert "acceleration_pct" in row and row["acceleration_pct"] is None
+
+
 async def test_macro_rows_are_not_normalised(tools: WorkerTools) -> None:
     """The load-bearing exclusion. T10Y2Y at 0.50 moving +0.14 is 14bp of
     steepening — already directly comparable to BAA10Y's +0.04. Dividing by its

@@ -75,6 +75,12 @@ MARKET_DATA_STALE_DAYS = 7
 # that a holiday week cannot move the median.
 MACRO_CADENCE_SAMPLE = 13
 MACRO_OVERDUE_GRACE_DAYS = 14
+# The asset classes whose freshness `macro_freshness_alert` watches: every
+# INDICATOR the Worker reasons on. `GLOBAL_LIQUIDITY` is here and not folded
+# into MACRO because it carries its own `asset_class` (db/seed_data.py) while
+# being printed in the Worker's prompt header on every cycle — watching
+# 'MACRO' alone left it covered by nothing.
+WATCHED_INDICATOR_CLASSES: tuple[str, ...] = ("MACRO", "GLOBAL_LIQUIDITY")
 # Overdue at one and a half of its own periods: half-way into the period a
 # series skipped, so a monthly print is late at ~46 days and not at 32.
 MACRO_OVERDUE_PERIODS = 1.5
@@ -256,19 +262,42 @@ async def _macro_cadences(db: InvestmentDB, today: date) -> dict[str, tuple[floa
     shape CLAUDE.md warns about — it would name every series that existed the
     day it was written and go quietly wrong on the next one.
 
-    ONE QUERY, NOT ONE PER TICKER. `collect_alerts` is reached from
-    `collect_digest_inputs`, which serves every `/api/overview` request
-    (ops/api.py) and not just the Sunday digest — so the per-ticker loop this
-    replaced put 1 + N round trips on the single shared connection (ADR-004) on
-    every dashboard page load."""
+    ONE QUERY, NOT ONE PER TICKER, AND STILL ON THE INDEX. `collect_alerts` is
+    reached from `collect_digest_inputs`, which serves every `/api/overview`
+    request (ops/api.py) and not just the Sunday digest, so this runs on every
+    dashboard page load. The per-ticker loop this replaced cost 1 + N round
+    trips; the first single-query rewrite of it cost worse — filtering on
+    `asset_class`, which carries no index (db/schema.py has only the
+    `(ticker, ts)` primary key), turned 17 indexed point-lookups into a full
+    traversal of ~220k rows plus a temp B-tree sort. Naming the tickers keeps
+    both properties: one round trip, and every partition seeks the PK.
+
+    WATCHED CLASSES, not just MACRO. `GLOBAL_LIQUIDITY` carries its own
+    `asset_class` (db/seed_data.py) and is in the Worker's prompt on every
+    cycle — `render_context_for_worker` prints it in the header — so keying
+    this on `'MACRO'` alone left the composite watched by nothing, which is
+    the pattern the docstring below invokes, committed inside the fix for it."""
+    tickers = [
+        str(row["ticker"])
+        for row in await db.query(
+            "SELECT DISTINCT ticker FROM market_data WHERE asset_class IN "
+            f"({', '.join(f':c{n}' for n in range(len(WATCHED_INDICATOR_CLASSES)))})",
+            **{f"c{n}": c for n, c in enumerate(WATCHED_INDICATOR_CLASSES)},
+        )
+    ]
+    if not tickers:
+        return {}
+    placeholders = ", ".join(f":t{n}" for n in range(len(tickers)))
     rows = await db.query(
-        "SELECT ticker, ts FROM ("
+        # `placeholders` is a generated list of :tN names, never a value.
+        f"SELECT ticker, ts FROM ("
         "  SELECT ticker, ts, ROW_NUMBER() OVER ("
         "    PARTITION BY ticker ORDER BY ts DESC"
         "  ) AS rn"
-        "  FROM market_data WHERE asset_class = 'MACRO'"
+        f"  FROM market_data WHERE ticker IN ({placeholders})"
         ") WHERE rn <= :n ORDER BY ticker, ts DESC",
         n=MACRO_CADENCE_SAMPLE,
+        **{f"t{n}": t for n, t in enumerate(tickers)},
     )
     by_ticker: dict[str, list[date]] = {}
     for row in rows:

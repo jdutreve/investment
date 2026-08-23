@@ -235,17 +235,26 @@ def _with_normalised_momentum(row: dict[str, Any]) -> dict[str, Any]:
     `db_query` returns and what every threshold in the DB is expressed in, so
     dropping them would make the two tools disagree about the same series."""
     out = {k: round_for_model(v) for k, v in row.items() if k != "asset_class"}
-    level = row.get("level")
-    if (
-        row.get("asset_class") in NON_PRICE_ASSET_CLASSES
-        or not isinstance(level, int | float)
-        or level <= 0
-    ):
+    if row.get("asset_class") in NON_PRICE_ASSET_CLASSES:
         return out
+    # A PRICE ROW ALWAYS CARRIES THE KEYS, `None` included, because their
+    # ABSENCE is what the persona teaches the Worker to read as "this is a rate
+    # series, compare it raw". Three unrelated things can suppress a computed
+    # percentage — a non-price class, a null/zero level, and a null speed or
+    # acceleration during every series' derivative warm-up — and only the first
+    # is what that instruction means. Emitting `None` here keeps the two
+    # distinguishable: a missing key says "not a price", a null value says "not
+    # computable yet", and a price row in warm-up can no longer read as a rate
+    # and have its level-scaled `speed` compared across tickers.
+    level = row.get("level")
+    usable = isinstance(level, int | float) and level > 0
     for raw, pct in _PRICE_MOMENTUM_FIELDS:
         value = row.get(raw)
-        if isinstance(value, int | float):
-            out[pct] = round_for_model(value / level * 100.0)
+        out[pct] = (
+            round_for_model(value / level * 100.0)
+            if usable and isinstance(value, int | float) and isinstance(level, int | float)
+            else None
+        )
     return out
 
 

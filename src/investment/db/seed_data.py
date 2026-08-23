@@ -601,8 +601,23 @@ BENCHMARK_CLASSES: dict[str, list[str]] = {
 # the last two) and those are then correct by default. A new RATE-like class
 # must be added here, which is why it sits beside BENCHMARK_CLASSES: the same
 # review that decides a class is not an investable sleeve decides this.
+#
+# NOT the same set as "not an investable sleeve", which is why it took a second
+# pass to get right. FX was in it on that reasoning and does not belong: an FX
+# quote IS a price, and its absolute speed scales with its level exactly like a
+# share price — DEXJPUS trades near 148 and CHFUSD=X near 1.13, so the same 1%
+# move shows as 1.5 against 0.011, the 136x artefact this normalisation exists
+# to remove. Not investable and not a price are different questions.
+#
+# The three that remain are each non-price for their OWN reason, and the reason
+# matters because a single sentence about them would be false for two:
+#   MACRO / RISK_FREE — already percentage points (a yield, a spread, a slope);
+#   VOLATILITY        — annualised vol points, not a tradable level;
+#   GLOBAL_LIQUIDITY  — `100 + 10 x mean(z)` over a trailing 5y window
+#                       (market/liquidity.py), a z-score index whose zero point
+#                       is arbitrary, so a percentage OF it means nothing.
 NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
-    {"MACRO", "GLOBAL_LIQUIDITY", "VOLATILITY", "FX", "RISK_FREE"}
+    {"MACRO", "RISK_FREE", "VOLATILITY", "GLOBAL_LIQUIDITY"}
 )
 
 DERIVED_SIGNALS: dict[str, str] = {

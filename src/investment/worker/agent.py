@@ -200,11 +200,14 @@ Sharpe/Sortino/Calmar are pre-calculated indicators in USD in the DB; the \
 suffix is _rolling. Interpret them — do not recalculate.
 Rolling window is 36 months. Risk-free rate is 3M T-Bill (^IRX).
 COMPARING MOMENTUM ACROSS TICKERS: use `speed_pct`/`acceleration_pct`, which \
-market_fetch returns for price series. The raw `speed`/`acceleration` are \
+market_fetch returns on every PRICE row. The raw `speed`/`acceleration` are \
 absolute moves in each series' own unit, so on prices they scale with the \
 price — a sleeve trading near 12,000 will always dwarf one near 500 and the \
-comparison means nothing. Macro series carry no _pct fields because they are \
-already in percentage points: compare those raw.
+comparison means nothing. A row with NO _pct fields at all is not a price \
+(a rate, a spread, a vol reading, an index): those are already in comparable \
+units, so compare them raw. A price row whose _pct fields are present but \
+null is still warming up its derivatives — say so rather than falling back to \
+the raw numbers, which are not comparable.
 WorkerResult must include innovations_proposed (an empty list if none).
 Your reading of the market-signal allocation goes in market_signal_assessment \
 — always, even when you agree and even when you propose nothing else; it is \

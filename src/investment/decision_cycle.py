@@ -162,8 +162,9 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
         lines.append(f"  moving to: {target}")
     for ticker, read in signals.items():
         lines.append(
-            f"  {ticker}: DECIDED ON {read.get('value')} vs its 10y trailing median "
-            f"{read.get('trailing_median')} (knowable {read.get('knowable_at')})"
+            f"  {ticker}: DECIDED ON {round_for_model(read.get('value'))} vs its 10y "
+            f"trailing median {round_for_model(read.get('trailing_median'))} "
+            f"(knowable {read.get('knowable_at')})"
         )
         now = latest.get(ticker)
         if now is None:

@@ -445,6 +445,38 @@ async def test_a_prose_condition_is_dropped_to_empty_not_followed_downstream(
     assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
 
 
+@pytest.mark.parametrize(
+    ("spec_patch", "label"),
+    [
+        ({"condition": "T10Y2Y speed > 0 while DGS10 speed > 0"}, "prose string"),
+        ({"condition": ["T10Y2Y speed > 0", "DGS10 speed > 0"]}, "list of prose strings"),
+        ({"condition": []}, "explicitly empty"),
+        ({}, "key absent entirely"),
+    ],
+)
+async def test_every_unusable_condition_shape_lands_on_reference(
+    db: InvestmentDB, spec_patch: dict[str, object], label: str
+) -> None:
+    """The container is not the shape. Guarding `isinstance(list)` alone passes
+    the LIKELIER model output — a list of prose strings — and every reader then
+    does `p["signal"]` on a `str`: `active_invariant_ids` on the weekly step
+    (the chain freeze), `_validate_predicate` in the 35y sweep, `_predicate_key`
+    in the dedup gate. An ABSENT key is the same defect through the default
+    argument, since `[]` is an absolute claim here, not an absent one."""
+    innovation = _innovation(f"Condition as {label}")
+    innovation.spec = {k: v for k, v in innovation.spec.items() if k != "condition"} | spec_patch
+
+    await commit_innovations(
+        db,
+        PostPlannerResult(innovations=[innovation]),
+        today=date(2026, 7, 20),
+        embedder=_StubEmbedder(),
+    )
+    row = (await db.query("SELECT condition, effect FROM invariant WHERE id='inv-new'"))[0]
+    assert row["condition"] == "[]"
+    assert row["effect"] is None  # reference knowledge: recorded, never measured
+
+
 async def test_a_dropped_condition_is_never_matured_as_an_absolute_claim(
     db: InvestmentDB,
 ) -> None:

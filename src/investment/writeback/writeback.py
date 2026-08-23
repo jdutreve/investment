@@ -34,7 +34,7 @@ import json
 import logging
 from collections.abc import Coroutine
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 from ulid import ULID
 
@@ -1124,7 +1124,6 @@ async def _commit_invariant_innovation(
     corpus inside its own batch loop for this reason (knowledge.py `persist`);
     this is the same move on the UC8 path."""
     spec = proposal.spec or {}
-    condition = spec.get("condition", [])
     # NORMALISED AT THE WRITE BOUNDARY, because every reader downstream assumes
     # this column is a JSON object or NULL and there is no end to patching them
     # one at a time. On 2008-09-02 of the on-stack M8b run a Worker wrote
@@ -1162,11 +1161,41 @@ async def _commit_invariant_innovation(
     # is the exact failure the paragraph above says to avoid, committed by the
     # fix for it. Nulling the effect too routes the row to reference knowledge,
     # which is the one state that means "recorded, never measured".
-    malformed_condition = None if isinstance(condition, list) else repr(condition)
+    # THE CONTAINER IS NOT THE SHAPE. This checked `isinstance(condition, list)`
+    # first, which passes the LIKELIER model output of the two: a list of prose
+    # strings, `["T10Y2Y speed > 0", "DGS10 speed > 0"]`. Every reader then does
+    # `p["signal"]` or `p.get(...)` on a `str` and raises — `active_invariant_ids`
+    # on the weekly `invariant-weights` step (the chain freeze this whole fix
+    # exists to prevent), `_validate_predicate` inside the 35y sweep, and
+    # `_predicate_key` inside the dedup gate. Guarding the container while the
+    # elements stay unchecked fixed the shape that HAD happened and left the one
+    # that had not.
+    #
+    # AN ABSENT CONDITION IS MALFORMED TOO, and that is the same defect on the
+    # other path: `spec.get("condition", [])` turned a missing key into `[]`,
+    # which is an ABSOLUTE claim here (see below) — the unearned promotion this
+    # function is supposed to refuse, arrived through the default argument.
+    #
+    # So: a measurable invariant needs a NON-EMPTY list of objects, and anything
+    # else becomes reference knowledge. The cost is that the UC8 path can no
+    # longer mint a deliberate absolute claim; that is accepted, because an
+    # absolute claim is indistinguishable from a dropped condition at this
+    # boundary, and one of the two must not be guessed. The prose survives in
+    # the trace either way.
+    raw_condition = spec.get("condition")
+    condition_ok = (
+        isinstance(raw_condition, list)
+        and bool(raw_condition)
+        and all(isinstance(predicate, dict) for predicate in raw_condition)
+    )
+    malformed_condition = None if condition_ok else repr(raw_condition)
+    # The cast is what `condition_ok` just proved element by element; `spec` is
+    # `dict[str, Any]`, so nothing below this line would otherwise know it.
+    condition: list[dict[str, Any]] = (
+        cast(list[dict[str, Any]], raw_condition) if condition_ok else []
+    )
     effect = spec.get("effect")
     malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
-    if malformed_condition is not None:
-        condition = []
     if malformed_effect is not None or malformed_condition is not None:
         effect = None
     title, description = proposal.title, proposal.rationale
