@@ -453,9 +453,33 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch.
     #
-    # M2SL AND JPNASSETS ARE MEASURED, the other two are still estimates
-    # (WALCL/ECBASSETSW weekly releases, a few days). The two below were
-    # ESTIMATED until 2026-08-23 and both were too SHORT, which is the
+    # ALL FOUR ARE MEASURED against ALFRED first-release vintages (2026-08-23),
+    # over each series' vintage-covered period — before that period a series'
+    # apparent lag is the coverage boundary, not a publication delay, and reads
+    # in the thousands of days:
+    #   M2SL       n=222  min 37 p50 (era-dependent, see below) max 58  -> 60
+    #   JPNASSETS  n=160  min 29 p50 34 p95 38 max 65                   -> 40
+    #   WALCL      n=788  min  1 p50  1 p95  1 max  8                   ->  5 (unchanged)
+    #   ECBASSETSW n=337  min  4 p50  4 p95  5 max 11                   ->  5 (unchanged)
+    #
+    # WALCL and ECBASSETSW were estimates and turned out to be right, so they
+    # are LEFT ALONE deliberately. WALCL at 5 against a typical 1 is four days
+    # conservative and ECBASSETSW at 5 sits on its own p95; both admit a rare
+    # few days of anticipation in their thin tails. Moving them would buy a
+    # handful of days on two weekly components of one composite and cost a full
+    # re-seed, which shifts GLOBAL_LIQUIDITY and the regime history with it.
+    # Not worth it — but now it is a decision on numbers rather than an
+    # unexamined default.
+    #
+    # The ALFRED path itself was considered for all four and DECLINED
+    # (docs/IMPROVEMENTS.md I-56): vintages start 2011 for WALCL, 2013 for
+    # JPNASSETS and 2020 for ECBASSETSW, so it would date the recent tail
+    # exactly and leave the constant in place for most of the sample — a
+    # discontinuity partway through every 35-year walk, in the four inputs of
+    # one composite.
+    #
+    # The two below were ESTIMATED until 2026-08-23 and both were too SHORT,
+    # which is the
     # dangerous direction: a lag shorter than reality dates a value before it
     # existed, and `ts <= t` is the point-in-time filter of the replay AND of
     # the 35y invariant sweep — so the understatement is lookahead, and it
@@ -483,11 +507,6 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # months in 162 with at most ~25 days of anticipation, on one component
     # of a four-part composite.
     #
-    # The structurally correct fix for both is the ALFRED first-release path
-    # these series do not take (`REVISED_SERIES`), which carries the true
-    # publication date per observation and needs no constant at all. It is
-    # reachable — the measurement above proves the data is there — and it is
-    # deferred, not forgotten (docs/IMPROVEMENTS.md).
     {
         "ticker": "M2SL",
         "asset_class": "MACRO",

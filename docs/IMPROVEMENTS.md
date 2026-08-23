@@ -2147,41 +2147,50 @@ give the digest a way to say when FAVORS last moved.
 **Trigger to revisit.** The first FAVORS row whose `last_updated` disagrees with
 its neighbours, or the first time the 08:30 step fails partway.
 
-## I-56 — `availability_lag_days` is a hand-set constant where ALFRED knows the real answer
+## I-56 — DECLINED 2026-08-23 — ALFRED does not have the vintage history this would need
 
-**Where.** `db/seed_data.py` `ALLOWED_TICKERS` (`availability_lag_days` on every
-non-revised FRED series), consumed by `market/fetcher.parse_fred_current`.
+**What was proposed.** Move the non-revised FRED series off the hand-set
+`availability_lag_days` and onto the ALFRED first-release path that CPIAUCSL,
+INDPRO and UNRATE already take, so each observation carries its TRUE publication
+date and no constant is needed. It looked reachable: `output_type=3` over a
+bounded realtime window returns exactly those dates, which is how the
+2026-08-23 lag corrections were measured.
 
-**What it does.** Dates a FRED observation as `reference_date + a constant`,
-because the current-vintage fetch (`output_type=1`) returns one shared
-`realtime_start` — the snapshot time — and so cannot say when each observation
-was actually published. Series in `REVISED_SERIES` (CPIAUCSL, INDPRO, UNRATE)
-escape this entirely: they take the ALFRED first-release path and carry the true
-per-observation publication date.
+**Why it is declined.** ALFRED's vintage coverage does not reach back far enough
+for three of the four series, measured the same day:
 
-**Why it matters.** `ts` is what ADR-003 defines as the date a value became
-KNOWABLE, and `ts <= t` is the point-in-time filter of both the replay and the
-35-year invariant sweep. A constant that is too SHORT is therefore not an
-approximation, it is lookahead — the backtest reads a number before it existed.
-Measured 2026-08-23, both liquidity constants were short: M2SL was set to 17
-against a measured median of 55 (max 58), and JPNASSETS to 30 against a median
-of 34. They are now 60 and 40, but a constant cannot track a release calendar
-that changes — M2SL's own lag jumped from ~42 to ~55 days when the H.6 went
-from weekly to monthly in Feb 2021, and nothing in the code noticed for five
-years.
+| series | our backfill starts | ALFRED vintages start | uncovered |
+|---|---|---|---|
+| M2SL | 1991-09 | 1991-02 | none |
+| WALCL | 2002-12 | 2011-07 | ~9y (36% of the span) |
+| JPNASSETS | 1998-05 | 2013-03 | ~15y (54%) |
+| ECBASSETSW | 1999-01 | 2020-03 | ~21y (78%) |
 
-**The shape it would take.** Move these series onto the first-release path so no
-constant is needed. The blocker is narrow and known:
-`fetch_fred_observations` forces `realtime_start=1776-07-04` for
-`output_type=2`, which returns HTTP 500 for M2SL and JPNASSETS (too many
-vintages). `output_type=3` over a bounded realtime window returns exactly the
-first-release dates — that is how the 2026-08-23 measurement was taken — so the
-work is a second parse shape plus a windowed fetch, not new infrastructure.
+So the constant cannot be eliminated — it stays as the fallback for the majority
+of the sample on three series. What the change actually buys is a HYBRID: true
+dates on the recent tail, an estimate before it, and a discontinuity in the
+dating rule partway through every 35-year walk.
 
-**Trigger to revisit.** Any further vintage correction; a new non-revised FRED
-series whose release calendar is not obvious; or the next time a release
-schedule changes under a constant nobody re-measures. WALCL (5) and ECBASSETSW
-(5) are still estimates and have never been measured.
+**And the discontinuity is the real objection**, not the effort. All four series
+feed GLOBAL_LIQUIDITY, which regime detection reads. Dating M2SL precisely while
+its three siblings stay on estimates makes the composite's point-in-time
+semantics a mixture nobody can state in one sentence — and this project has
+already paid for that kind of split (I-48: "a verdict from a different window is
+not comparable to the baseline it is judged against"). One slightly conservative
+rule applied uniformly is worth more than an exact rule applied to a quarter of
+the sample.
+
+**What was done instead.** The constants were MEASURED against ALFRED over their
+covered period and corrected where they were wrong (M2SL 17 -> 60, JPNASSETS
+30 -> 40), and `parse_fred_current` now clamps at today so a deliberately
+generous constant cannot date a row in the future. Measurement was the valuable
+half; the machinery was not.
+
+**Trigger to revisit.** ALFRED extending its vintage coverage backwards (it does
+not, in practice); a new non-revised FRED series whose full history IS covered,
+where the hybrid objection would not apply; or a decision to shorten the
+backfill window to the vintage-covered era, which would make the whole question
+disappear.
 
 ## I-57 — RESOLVED 2026-08-23 — derived signals wrote additively, so a re-dating duplicated them
 
