@@ -1143,18 +1143,31 @@ async def _commit_invariant_innovation(
     # never reached the digest. Same fix, same reasoning: a non-list is dropped,
     # not guessed.
     #
-    # Dropped to None/[] rather than to a coerced object: `effect=None` (or an
-    # empty `condition`) is an invariant the system already understands
-    # (reference knowledge, never confronted, matured as such by `_mature_one`),
-    # whereas a guessed structure would be a claim nobody made. The prose is
-    # kept in the trace, so the information survives even though the structure
-    # does not.
+    # Dropped rather than coerced: `effect=None` is an invariant the system
+    # already understands (reference knowledge, never confronted, matured as
+    # such by `_mature_one`), whereas a guessed structure would be a claim
+    # nobody made. The prose is kept in the trace, so the information survives
+    # even though the structure does not.
+    #
+    # A DROPPED CONDITION TAKES THE EFFECT WITH IT, and that is not tidiness.
+    # `condition = []` is NOT "no condition" in this codebase's vocabulary — it
+    # is an ABSOLUTE claim, and it is measured as one: `baseline_excess`
+    # returns a 0.0 baseline for it precisely because "its claim genuinely IS
+    # absolute ('this handle's drawdown is lower, period')", and the 35y sweep
+    # then scores it on an unconditional hit rate. So dropping a prose
+    # condition to `[]` while keeping a valid effect does not neutralise the
+    # invariant, it PROMOTES it: the Worker's conditional claim ("when the
+    # curve bear-steepens, favour short duration") silently becomes the
+    # stronger unconditional one, and earns a verdict nobody argued for. That
+    # is the exact failure the paragraph above says to avoid, committed by the
+    # fix for it. Nulling the effect too routes the row to reference knowledge,
+    # which is the one state that means "recorded, never measured".
     malformed_condition = None if isinstance(condition, list) else repr(condition)
-    if malformed_condition is not None:
-        condition = []
     effect = spec.get("effect")
     malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
-    if malformed_effect is not None:
+    if malformed_condition is not None:
+        condition = []
+    if malformed_effect is not None or malformed_condition is not None:
         effect = None
     title, description = proposal.title, proposal.rationale
     vector = embedder.encode([invariant_embedding_input(title, description)])[0]

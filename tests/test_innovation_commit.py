@@ -431,11 +431,44 @@ async def test_a_prose_condition_is_dropped_to_empty_not_followed_downstream(
     n = await commit_innovations(db, result, today=date(2026, 7, 20), embedder=_StubEmbedder())
 
     assert n == 2  # demoted, not dropped — and the neighbour is unaffected
-    row = (await db.query("SELECT condition, trace FROM invariant WHERE id='inv-new'"))[0]
+    row = (await db.query("SELECT condition, effect, trace FROM invariant WHERE id='inv-new'"))[0]
     assert row["condition"] == "[]"  # the column keeps the shape every reader assumes
+    # THE EFFECT GOES WITH IT. `condition = []` is an ABSOLUTE claim here, not
+    # an absent one — `baseline_excess` gives it a 0.0 baseline and the 35y
+    # sweep scores it on an unconditional hit rate. Keeping a valid effect
+    # beside a dropped condition would promote the Worker's conditional claim
+    # into the stronger unconditional one and earn it a verdict nobody argued
+    # for. `effect=None` is the only state meaning "recorded, never measured".
+    assert row["effect"] is None
     assert "condition dropped, not a list" in row["trace"]
     assert "T10Y2Y speed" in row["trace"]  # the claim itself survives
     assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
+
+
+async def test_a_dropped_condition_is_never_matured_as_an_absolute_claim(
+    db: InvestmentDB,
+) -> None:
+    """The consequence the status has to show, not just the columns: a row whose
+    condition could not be parsed must reach the terminal `reference` status,
+    where nothing can confront it — never `proposed`, which is a promise the
+    evidence can keep."""
+    malformed = _innovation("Condition written as prose")
+    malformed.spec["condition"] = "T10Y2Y speed > 0 while DGS10 speed > 0"
+
+    await commit_innovations(
+        db,
+        PostPlannerResult(innovations=[malformed]),
+        today=date(2026, 7, 20),
+        embedder=_StubEmbedder(),
+    )
+    await mature_seed_invariants(db)  # reads its thresholds from the DB (fixture-seeded)
+
+    row = (await db.query("SELECT status FROM invariant WHERE id='inv-new'"))[0]
+    assert row["status"] == REFERENCE_STATUS
+    confrontations = await db.query(
+        "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id='inv-new'"
+    )
+    assert confrontations[0]["n"] == 0
 
 
 async def test_one_failing_innovation_does_not_cost_the_others(
