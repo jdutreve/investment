@@ -220,6 +220,94 @@ async def test_fresh_sleeves_do_not_vouch_for_the_signals(db: InvestmentDB) -> N
     assert (await A.signal_freshness_alert(db, TODAY)) is not None
 
 
+# -- macro freshness --------------------------------------------------------
+
+
+async def _macro_series(db: InvestmentDB, ticker: str, latest: date, spacing: int, n: int) -> None:
+    """`n` MACRO prints ending at `latest`, one every `spacing` days — the
+    cadence the alert MEASURES rather than being told."""
+    await db.append_ts_batch(
+        "market_data",
+        [
+            {
+                "ts": (latest - timedelta(days=spacing * i)).isoformat(),
+                "ticker": ticker,
+                "asset_class": "MACRO",
+                "currency": "USD",
+                "level": 1.0,
+            }
+            for i in range(n)
+        ],
+    )
+
+
+async def test_a_monthly_series_lagging_normally_says_nothing(db: InvestmentDB) -> None:
+    """The whole reason this check measures cadence instead of reusing
+    MARKET_DATA_STALE_DAYS: monthly macro is ALWAYS weeks old (ADR-003), and a
+    7-day rule would fire on every healthy monthly series every week."""
+    await _macro_series(db, "CPIAUCSL", TODAY - timedelta(days=25), spacing=31, n=13)
+    assert await A.macro_freshness_alert(db, TODAY) is None
+
+
+async def test_a_monthly_series_that_missed_a_print_is_reported(db: InvestmentDB) -> None:
+    """Measured 2026-08-23: M2SL, m2_yoy and m2_accel_12m had been frozen at
+    2026-06-18 for 66 days — two missed monthly releases — while the Worker
+    argued risk-on from "m2 accel +1.39". Nothing watched them."""
+    await _macro_series(db, "M2SL", TODAY - timedelta(days=66), spacing=31, n=13)
+    alert = await A.macro_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.code == "macro_data_overdue" and alert.level == "warn"
+    assert "M2SL" in alert.message and "66d old" in alert.message
+    # It must say the book is NOT at stake, or it reads like the signal alert.
+    assert "book is unaffected" in alert.message
+
+
+async def test_a_daily_series_is_judged_on_a_daily_cadence(db: InvestmentDB) -> None:
+    """Same rule, different series: 20 days of silence is unremarkable for a
+    monthly print and a dead feed for a daily one."""
+    await _macro_series(db, "DGS10", TODAY - timedelta(days=20), spacing=1, n=13)
+    alert = await A.macro_freshness_alert(db, TODAY)
+    assert alert is not None and "DGS10" in alert.message
+
+
+async def test_the_two_book_signals_are_not_reported_twice(db: InvestmentDB) -> None:
+    """`BAA10Y`/`T10Y2Y` are MACRO rows too, so without an explicit exclusion a
+    frozen signal feed would fill the digest with the same fact twice — once
+    critical, once warn."""
+    await _macro_series(db, A.CREDIT_SPREAD, TODAY - timedelta(days=40), spacing=1, n=13)
+    await _macro_series(db, A.YIELD_SLOPE, TODAY - timedelta(days=40), spacing=1, n=13)
+    assert (await A.signal_freshness_alert(db, TODAY)) is not None  # the check that owns them
+    assert await A.macro_freshness_alert(db, TODAY) is None
+
+
+async def test_a_series_with_too_little_history_is_not_judged(db: InvestmentDB) -> None:
+    """Two prints cannot establish a cadence; guessing one would invent the
+    threshold it is then measured against."""
+    await _macro_series(db, "NEWSERIES", TODAY - timedelta(days=400), spacing=31, n=2)
+    assert await A.macro_freshness_alert(db, TODAY) is None
+
+
+async def test_the_stale_ones_are_named_oldest_first(db: InvestmentDB) -> None:
+    await _macro_series(db, "M2SL", TODAY - timedelta(days=66), spacing=31, n=13)
+    await _macro_series(db, "JPNASSETS", TODAY - timedelta(days=95), spacing=31, n=13)
+    await _macro_series(db, "CPIAUCSL", TODAY - timedelta(days=25), spacing=31, n=13)
+    alert = await A.macro_freshness_alert(db, TODAY)
+    assert alert is not None
+    assert alert.message.index("JPNASSETS") < alert.message.index("M2SL")
+    assert "CPIAUCSL" not in alert.message  # healthy, so absent from the line
+
+
+async def test_a_frozen_macro_series_does_not_touch_the_book_alerts(db: InvestmentDB) -> None:
+    """The separation this check exists for: the two series that PICK the book
+    are fine, so nothing critical fires — but the Worker's reading is stale and
+    that is now said out loud."""
+    await _prices(db, TODAY, tickers=A.SIGNAL_TICKERS)
+    await _macro_series(db, "M2SL", TODAY - timedelta(days=66), spacing=31, n=13)
+    assert await A.signal_freshness_alert(db, TODAY) is None
+    macro = await A.macro_freshness_alert(db, TODAY)
+    assert macro is not None and macro.level == "warn"
+
+
 # -- decision freshness -----------------------------------------------------
 
 

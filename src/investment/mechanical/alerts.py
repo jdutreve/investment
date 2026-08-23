@@ -1,7 +1,7 @@
 """Health alerts on the live allocation path — what the owner must be TOLD,
 never what the system refuses to do (docs/DECISIONS.md ADR-009).
 
-Five checks, all read-only, all rendered into the weekly digest:
+Six checks, all read-only, all rendered into the weekly digest:
 
 - **drawdown** — the stack's 36M rolling drawdown against
   `user_profile.max_drawdown_pct`. This is the -25% rule of ADR-007, and it is
@@ -18,6 +18,12 @@ Five checks, all read-only, all rendered into the weekly digest:
   not blind the decision, it MISINFORMS it. The forward fill carries the last
   print, so the stack keeps choosing a book from a spread quoted weeks ago and
   nothing else in the digest looks wrong.
+- **macro freshness** — every other MACRO series, against its OWN measured
+  cadence. The two above watch what picks the book; this watches what the
+  WORKER READS. `planner/baseline._macro` hands it the latest print of every
+  macro series, so a frozen feed does not misinform the allocation, it
+  misinforms the weekly argument — which nothing else re-derives. `warn`, not
+  `critical`: macro lags by design (ADR-003), a MISSED scheduled print does not.
 - **decision freshness** — no new monthly anchor in over a month. The backstop
   for the case where data flows but the cycle is stuck.
 - **anti-drift** — does the wired stack still reproduce the pinned pair ADR-007
@@ -45,6 +51,7 @@ time.
 
 import dataclasses
 import json
+import statistics
 from datetime import date
 
 from investment.db.sqlite import InvestmentDB
@@ -63,6 +70,11 @@ from investment.writeback.writeback import RULE_MEASUREMENT_EVENT
 # fits both watched groups: the sleeves are daily exchange prices and the two
 # FRED signals are daily business-day series with a ~1-day publication lag.
 MARKET_DATA_STALE_DAYS = 7
+# `macro_freshness_alert`'s two knobs. The sample is how many prints back the
+# cadence is measured over — a year of monthly prints, and enough daily ones
+# that a holiday week cannot move the median.
+MACRO_CADENCE_SAMPLE = 13
+MACRO_OVERDUE_GRACE_DAYS = 14
 # The two series that PICK the book (mechanical/market_signal.py).
 SIGNAL_TICKERS: tuple[str, ...] = (CREDIT_SPREAD, YIELD_SLOPE)
 # One monthly anchor missed. Longer than the cadence by design (35 > ~31), so a
@@ -228,6 +240,96 @@ async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) ->
     )
 
 
+async def _series_cadence(db: InvestmentDB, ticker: str, today: date) -> tuple[float, int] | None:
+    """`(median spacing in days over the last prints, age of the newest)`, or
+    `None` when there is too little history to judge a cadence.
+
+    THE CADENCE IS MEASURED, NOT DECLARED, and that is the whole point of this
+    helper. `availability_lag_days` (db/seed_data.py) says how long after an
+    observation it becomes knowable; it says nothing about how OFTEN the series
+    prints, which is what "overdue" needs. A declared table of frequencies is
+    also the shape CLAUDE.md warns about — it would name every series that
+    existed the day it was written and go quietly wrong on the next one."""
+    rows = await db.query(
+        "SELECT ts FROM market_data WHERE ticker = :t ORDER BY ts DESC LIMIT :n",
+        t=ticker,
+        n=MACRO_CADENCE_SAMPLE,
+    )
+    if len(rows) < 3:
+        return None
+    stamps = [date.fromisoformat(str(r["ts"])[:10]) for r in rows]
+    gaps = [(stamps[i] - stamps[i + 1]).days for i in range(len(stamps) - 1)]
+    return statistics.median(gaps), (today - stamps[0]).days
+
+
+async def macro_freshness_alert(db: InvestmentDB, today: date | None = None) -> Alert | None:
+    """Every MACRO series the WORKER reasons on, against its OWN cadence.
+
+    WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED THE FIRST (CLAUDE.md).
+    `signal_freshness_alert` above watches `SIGNAL_TICKERS` — "the two series
+    that PICK the book" — and that sentence was exact when it was written. Then
+    `planner/baseline._macro` started handing the Worker the latest print of
+    EVERY macro series so it would stop spending tool calls on them, and a
+    dozen series it reasons on became watched by nothing. Measured 2026-08-23:
+    the Worker argued risk-on partly from "m2 accel +1.39", a print from
+    2026-06-18 — 66 days and two missed monthly releases old — and no line
+    anywhere said so.
+
+    A SEPARATE CHECK from the two above, not a widening of them, because the
+    stake differs. Those two protect capital: a blind overlay or a misinformed
+    book choice. This one protects the READING — the Worker's qualitative
+    argument, which no gate re-derives and no mechanical step would refuse.
+    Hence `warn`, and hence the deliberately loose threshold: a series that
+    lags is normal here (monthly macro lags by design, ADR-003), a series that
+    has MISSED A SCHEDULED PRINT is not.
+
+    `max(1.5 x spacing, spacing + 14)` — one rule, no per-ticker table, and it
+    reads correctly at every cadence the DB actually holds: a daily series is
+    overdue after 15 days, a weekly one after 21, a monthly one after ~46 (two
+    weeks into the period it skipped). Simulated over all 17 MACRO series on
+    2026-08-23: only the three frozen m2 series fire, the nearest non-firing
+    series (JPNASSETS, 23 days) sits at half its threshold.
+
+    Silent when a series is merely absent: that is `_oldest_series`' job for the
+    two feeds where absence stops the cycle, and a macro series that never
+    existed is a seeding question, not a freshness one.
+
+    `SIGNAL_TICKERS` are EXCLUDED though they are MACRO rows: they are watched
+    above at 7 days and `critical`, and reporting the same frozen feed twice in
+    one digest — once as capital risk, once as reading quality — teaches the
+    owner to skim both lines."""
+    today = today or date.today()
+    rows = await db.query(
+        "SELECT DISTINCT ticker FROM market_data WHERE asset_class = 'MACRO' ORDER BY ticker"
+    )
+    overdue: list[tuple[str, int, float]] = []
+    for row in rows:
+        ticker = str(row["ticker"])
+        if ticker in SIGNAL_TICKERS:
+            continue
+        cadence = await _series_cadence(db, ticker, today)
+        if cadence is None:
+            continue
+        spacing, age = cadence
+        if age > max(1.5 * spacing, spacing + MACRO_OVERDUE_GRACE_DAYS):
+            overdue.append((ticker, age, spacing))
+    if not overdue:
+        return None
+    overdue.sort(key=lambda o: -o[1])
+    detail = ", ".join(
+        f"{t} ({age}d old, prints every ~{spacing:.0f}d)" for t, age, spacing in overdue
+    )
+    return Alert(
+        level="warn",
+        code="macro_data_overdue",
+        message=(
+            f"Macro series past due: {detail}. Nothing is blocked and the book is unaffected "
+            "— these do not pick it. But the weekly reading is built on them, so treat any "
+            "argument resting on those numbers as that old."
+        ),
+    )
+
+
 async def stack_drift_alert(db: InvestmentDB) -> Alert | None:
     """ADR-007's anti-drift guarantee, surfaced: does the wired stack still
     reproduce the pair it was signed on (`market_signal.PINNED_CAGR` /
@@ -347,6 +449,7 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
         await stack_drift_alert(db),
         await market_data_freshness_alert(db, today),
         await signal_freshness_alert(db, today),
+        await macro_freshness_alert(db, today),
         await decision_freshness_alert(db, today),
         await rule_tradeoff_alert(db),
     ]
