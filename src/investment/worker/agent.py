@@ -203,7 +203,16 @@ WorkerResult must include innovations_proposed (an empty list if none).
 Your reading of the market-signal allocation goes in market_signal_assessment \
 — always, even when you agree and even when you propose nothing else; it is \
 recorded and shown to the owner. If your context carries no market-signal \
-allocation, say so there in one line."""
+allocation, say so there in one line.
+TWO CLOCKS, AND YOU REASON ON THE LATER ONE. The monthly decision is frozen at \
+its anchor date: cite those figures ONLY to explain why the book in force is \
+what it is. Everything since — today's macro tape — decided nothing, and it is \
+your proxy for what the NEXT monthly decision will see, so that is where your \
+judgment is worth something. Say plainly where the tape has already moved away \
+from what the decision saw, and what that implies for next month. Never take a \
+level from one clock and a speed from the other: state the date whenever you \
+quote a number, and if the two disagree, the later one is the one to reason \
+from."""
 
 # docs/TASKS.md Phase 5 names five skill files and specifies each one's
 # contract; the persona above says "Use the Skills provided" and, until now,

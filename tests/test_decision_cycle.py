@@ -249,3 +249,94 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
     assert "(weight 0.7, null, integrated, dormant)" in text
     assert "(weight 0.7, null, integrated)" in text  # inv-gold, condition holding
     assert "COACH NOTES: framed" in text
+
+
+# -- the two clocks ---------------------------------------------------------
+
+
+def _two_clock_context(macro: list[dict[str, object]]) -> object:
+    from investment.planner.context import PlannerContext
+
+    return PlannerContext(
+        regime={"regime_name": "Stag", "regime_type_id": "stag", "confidence": 0.7},
+        global_liquidity={"level": 95.0},
+        ranking=[],
+        scenarios=[],
+        top_invariants=[],
+        recent_proposals=[],
+        passages=[],
+        notes="",
+        macro=macro,
+        market_signal={
+            "decision_date": "2026-08-03",
+            "held_book": "credit-spread-tight-yield-curve-steep",
+            "signal_state": "credit-spread-tight-yield-curve-steep",
+            "held_allocation": {"VCIT": 50.0},
+            "target_allocation": {"VCIT": 50.0},
+            "signals": {
+                "T10Y2Y": {
+                    "value": 0.45,
+                    "trailing_median": 0.41,
+                    "knowable_at": "2026-08-01",
+                }
+            },
+            "trend_overlay": {"windows_days": [150, 300], "below_trend": []},
+        },
+    )
+
+
+def test_a_signal_is_shown_on_both_clocks_with_the_drift_named() -> None:
+    """Measured 2026-08-23. The Worker wrote "0.45 vs a 0.41 median is 4bp of
+    headroom, and T10Y2Y's own speed (+0.14) is the only thing keeping this book
+    from flipping flat" — level off the DECISION (2026-08-01), speed off the
+    LIVE tape (2026-08-22). Both numbers were correct, both were dated, and they
+    were in two separate blocks; the pair never coexisted. Live it was 0.50/+0.14
+    — roughly double the headroom, and steepening rather than drifting flat.
+    Pairing the two clocks on adjacent lines is what makes that impossible to
+    write."""
+    ctx = _two_clock_context(
+        [
+            {
+                "ticker": "T10Y2Y",
+                "ts": "2026-08-22",
+                "level": 0.5,
+                "speed": 0.14,
+                "acceleration": 0.05,
+            }
+        ]
+    )
+    text = render_context_for_worker(ctx)  # type: ignore[arg-type]
+    assert "T10Y2Y: DECIDED ON 0.45 vs its 10y trailing median 0.41 (knowable 2026-08-01)" in text
+    assert "now 0.5 (speed 0.14, accel 0.05) as of 2026-08-22, 0.09 above that median" in text
+    # The framing has to travel with the numbers, or two dated blocks is all it is.
+    assert "TWO CLOCKS BELOW" in text
+    assert "proxy for what the NEXT monthly decision will see" in text
+
+
+def test_a_signal_absent_from_the_tape_still_renders_its_decision_line() -> None:
+    """A macro feed can die (`alerts.macro_freshness_alert`). The decision line
+    is what explains the book, so it must survive the tape it is paired with."""
+    ctx = _two_clock_context([])
+    text = render_context_for_worker(ctx)  # type: ignore[arg-type]
+    assert "T10Y2Y: DECIDED ON 0.45" in text
+    assert "  now " not in text
+
+
+def test_float_noise_is_not_sent_to_the_model() -> None:
+    """Binary subtraction leaves the tape full of `0.039999999999999813` where
+    FRED published 0.04 — tokens that carry no information and invite a
+    precision the series does not have."""
+    ctx = _two_clock_context(
+        [
+            {
+                "ticker": "T10Y2Y",
+                "ts": "2026-08-22",
+                "level": 0.5,
+                "speed": 0.039999999999999813,
+                "acceleration": -0.050000000000000266,
+            }
+        ]
+    )
+    text = render_context_for_worker(ctx)  # type: ignore[arg-type]
+    assert "0.039999999999999813" not in text
+    assert "speed 0.04, accel -0.05" in text

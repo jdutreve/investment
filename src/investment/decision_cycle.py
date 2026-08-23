@@ -90,7 +90,15 @@ def _allocation(row: dict[str, Any]) -> dict[str, float]:
     return {str(k): float(v) for k, v in (alloc or {}).items()}
 
 
-def _market_signal_lines(state: dict[str, Any]) -> list[str]:
+def _num(value: Any) -> Any:
+    """A float as a human reads it. Binary subtraction leaves the tape full of
+    `0.039999999999999813` where FRED published 0.04, and every one of those
+    digits reaches the model as tokens that carry no information and invite a
+    precision the series does not have. Non-numbers pass through untouched."""
+    return round(value, 4) if isinstance(value, float) else value
+
+
+def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> list[str]:
     """The live allocation state as the Worker reads it (ADR-007). Two things it
     must convey, and the phrasing carries both:
 
@@ -112,9 +120,26 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
     off its target) and the first one after such a refusal, which re-proposes
     it. Printing only the target under the label "effective allocation" told the
     Worker the stack held something it did not — the same error
-    `outcomes._incumbent_allocation` exists to avoid on the scoring side."""
+    `outcomes._incumbent_allocation` exists to avoid on the scoring side.
+
+    EACH SIGNAL IS PRINTED ON BOTH CLOCKS, and that is what `macro` is for.
+    The decision is MONTHLY (ADR-007): its inputs are frozen at the anchor
+    date, and they are the only numbers that may justify the book in force. The
+    macro tape is TODAY, up to a month newer, and it is the best available
+    proxy for what the NEXT monthly decision will see. Both were already in the
+    prompt and both were already dated — in two separate blocks, which was not
+    enough. Measured 2026-08-23: the Worker wrote "0.45 vs a 0.41 median is 4bp
+    of headroom, and T10Y2Y's own speed (+0.14) is the only thing keeping this
+    book from flipping flat", taking the LEVEL off the decision (2026-08-01)
+    and the SPEED off the live tape (2026-08-22). Those two numbers never
+    coexisted: live the pair was 0.50/+0.14, ~9bp of headroom and steepening.
+    It reported a boundary state the tape had already resolved, from two
+    correct numbers on two different clocks. Pairing them on ONE line is what
+    makes the drift impossible to miss and "what will the next decision see" an
+    answerable question."""
     if not state:
         return []
+    latest = {str(row.get("ticker")): row for row in macro}
     signals = state.get("signals") or {}
     overlay = state.get("trend_overlay") or {}
     hysteresis = state.get("hysteresis") or {}
@@ -125,6 +150,11 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
         "",
         "MARKET-SIGNAL ALLOCATION (already decided mechanically — do NOT re-pick "
         "the book; read it, and say where it looks wrong):",
+        "  TWO CLOCKS BELOW, keep them apart. 'DECIDED ON' is what the monthly "
+        "decision actually saw and the ONLY figure that explains the book in "
+        "force. 'now' is today's tape — it decided nothing, and it is your best "
+        "proxy for what the NEXT monthly decision will see. Never mix a level "
+        "from one with a speed from the other.",
         f"  book in force: {state.get('held_book', '?')} "
         f"(signal now: {state.get('signal_state', '?')}), "
         f"decided {state.get('decision_date', '?')}",
@@ -139,8 +169,24 @@ def _market_signal_lines(state: dict[str, Any]) -> list[str]:
         lines.append(f"  moving to: {target}")
     for ticker, read in signals.items():
         lines.append(
-            f"  {ticker}: {read.get('value')} vs its 10y trailing median "
+            f"  {ticker}: DECIDED ON {read.get('value')} vs its 10y trailing median "
             f"{read.get('trailing_median')} (knowable {read.get('knowable_at')})"
+        )
+        now = latest.get(ticker)
+        if now is None:
+            continue
+        # The DRIFT stated, not left to be subtracted. The median moves in basis
+        # points over a month (10y trailing), so comparing today's level against
+        # the DECISION's median is the right read for "where would this land
+        # now", and saying it in words is what stops the two clocks being mixed.
+        median, level = read.get("trailing_median"), now.get("level")
+        drift = ""
+        if isinstance(median, int | float) and isinstance(level, int | float):
+            side = "above" if level > median else "below"
+            drift = f", {abs(level - median):.2f} {side} that median"
+        lines.append(
+            f"    now {_num(level)} (speed {_num(now.get('speed'))}, "
+            f"accel {_num(now.get('acceleration'))}) as of {now.get('ts')}{drift}"
         )
     below = overlay.get("below_trend") or []
     # The window comes off the DECISION's own payload (`trend_overlay.window_days`,
@@ -195,7 +241,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
         f"confidence {regime.get('confidence', '?')}",
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
     ]
-    lines.extend(_market_signal_lines(context.market_signal))
+    lines.extend(_market_signal_lines(context.market_signal, context.macro))
     # WHAT HAS ALREADY BEEN TRIED, and this is the fifth time this week that a
     # fact the system held was not reaching the only thing that could use it.
     # "Add VCIT to the trend overlay" arrived three times across independent
@@ -251,11 +297,17 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # against a disinflation peer group.
     if context.macro:
         lines.append("")
-        lines.append("MACRO TAPE (level / speed / acceleration, latest knowable):")
+        lines.append(
+            "MACRO TAPE — TODAY'S CLOCK (level / speed / acceleration, latest knowable). "
+            "None of this decided the book in force; it is the proxy for what the NEXT "
+            "monthly decision will see, and it is where your forward reading belongs. "
+            "Each line carries its own date — a monthly series is normally weeks old, "
+            "so check the date before calling a number current:"
+        )
         for row in context.macro:
             lines.append(
-                f"  {row.get('ticker')}: {row.get('level')} "
-                f"(speed {row.get('speed')}, accel {row.get('acceleration')}) "
+                f"  {row.get('ticker')}: {_num(row.get('level'))} "
+                f"(speed {_num(row.get('speed'))}, accel {_num(row.get('acceleration'))}) "
                 f"as of {row.get('ts')}"
             )
     if context.favors:
