@@ -20,6 +20,7 @@ from investment.decision_cycle import (
     render_context_for_worker,
     run_decision_cycle,
 )
+from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import build_worker_agent
@@ -254,9 +255,7 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
 # -- the two clocks ---------------------------------------------------------
 
 
-def _two_clock_context(macro: list[dict[str, object]]) -> object:
-    from investment.planner.context import PlannerContext
-
+def _two_clock_context(macro: list[dict[str, object]]) -> PlannerContext:
     return PlannerContext(
         regime={"regime_name": "Stag", "regime_type_id": "stag", "confidence": 0.7},
         global_liquidity={"level": 95.0},
@@ -305,7 +304,7 @@ def test_a_signal_is_shown_on_both_clocks_with_the_drift_named() -> None:
             }
         ]
     )
-    text = render_context_for_worker(ctx)  # type: ignore[arg-type]
+    text = render_context_for_worker(ctx)
     assert "T10Y2Y: DECIDED ON 0.45 vs its 10y trailing median 0.41 (knowable 2026-08-01)" in text
     assert "now 0.5 (speed 0.14, accel 0.05) as of 2026-08-22, 0.09 above that median" in text
     # The framing has to travel with the numbers, or two dated blocks is all it is.
@@ -317,7 +316,7 @@ def test_a_signal_absent_from_the_tape_still_renders_its_decision_line() -> None
     """A macro feed can die (`alerts.macro_freshness_alert`). The decision line
     is what explains the book, so it must survive the tape it is paired with."""
     ctx = _two_clock_context([])
-    text = render_context_for_worker(ctx)  # type: ignore[arg-type]
+    text = render_context_for_worker(ctx)
     assert "T10Y2Y: DECIDED ON 0.45" in text
     assert "  now " not in text
 
@@ -337,6 +336,6 @@ def test_float_noise_is_not_sent_to_the_model() -> None:
             }
         ]
     )
-    text = render_context_for_worker(ctx)  # type: ignore[arg-type]
+    text = render_context_for_worker(ctx)
     assert "0.039999999999999813" not in text
     assert "speed 0.04, accel -0.05" in text

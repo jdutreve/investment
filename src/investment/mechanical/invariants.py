@@ -324,6 +324,26 @@ def confront_moment(
     raise ValueError(f"unknown direction: {direction!r}")
 
 
+def is_absolute_claim(condition: list[dict[str, Any]]) -> bool:
+    """Does this invariant claim something UNCONDITIONALLY?
+
+    An empty `condition` is not an absent one in this codebase — it is a claim
+    with no predicates, i.e. "this handle outperforms, period". The three places
+    that branch on it all mean that, and each says so in its own words:
+    `baseline_excess` gives it a 0.0 baseline because there is no conditional
+    lift to measure, `condition_descriptor` writes it as "always", and
+    `_mature_one` samples it on every date.
+
+    NAMED BECAUSE THE MEANING WAS ONLY EVER IN PROSE. On 2026-08-23 a fix for a
+    malformed condition dropped it to `[]` and kept the effect, reasoning that
+    `[]` was the neutral, un-measurable state. It is the opposite: the Worker's
+    conditional claim silently became the STRONGER unconditional one and would
+    have earned a verdict nobody argued for. The docstrings that would have said
+    so were three functions away. A predicate cannot be read past — you meet the
+    meaning when you write the value."""
+    return not condition
+
+
 def baseline_excess(excess_values: list[float], condition: list[dict[str, Any]]) -> float:
     """The invariant's NO-CONDITION null: the median `excess` the handle
     delivers over ALL dates, condition ignored (docs/ARCHITECTURE.md
@@ -343,7 +363,7 @@ def baseline_excess(excess_values: list[float], condition: list[dict[str, Any]])
     at 0.50 forever. Its claim genuinely IS absolute ("this handle's drawdown
     is lower, period"), so an absolute hit rate is the correct measure for it.
     """
-    if not condition:
+    if is_absolute_claim(condition):
         return 0.0
     return float(np.median(excess_values)) if excess_values else 0.0
 
@@ -352,7 +372,7 @@ def condition_descriptor(condition: list[dict[str, Any]]) -> str:
     """`invariant_confrontations.moment_context` for a condition-keyed moment
     (docs/DATA_MODELS.md: "a compact descriptor of the condition that
     held")."""
-    if not condition:
+    if is_absolute_claim(condition):
         return "always"
     return "&".join(f"{p['signal']}.{p['feature']}{p['op']}{p['value']}" for p in condition)
 
@@ -1040,7 +1060,7 @@ async def _mature_one(
         await _force_uncertified(db, invariant_id, f"no benchmark for handle {handle!r}")
         return MaturationResult(invariant_id, 0, 0, 0, 1.0, "proposed", "no_benchmark")
 
-    if not condition:
+    if is_absolute_claim(condition):
         # 'always' is just a condition active on every date — same sampler,
         # no special case (and no cliff between it and a near-always
         # condition; see `sample_moments`).

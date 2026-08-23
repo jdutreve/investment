@@ -173,13 +173,29 @@ def parse_fred_current(observations: list[dict[str, str]], lag_days: int) -> pd.
     fixes). Per-observation `realtime_start` is only meaningful for
     ALFRED's per-vintage `output_type=2` (see `parse_alfred_first_release`)
     — here the only dating available is reference date + the fixed
-    `availability_lag_days` fallback (ADR-003)."""
+    `availability_lag_days` fallback (ADR-003).
+
+    CLAMPED AT TODAY, because the fallback is an ESTIMATE and an estimate that
+    overshoots dates a value in the FUTURE. The row is only ever fetched once
+    FRED has published it, so "knowable" is true no later than today whatever
+    the constant says — and a constant deliberately set above the measured
+    maximum (M2SL is 60 against a measured max of 58, for holiday-shifted
+    releases) overshoots by construction on every fast release.
+
+    A future `ts` is not a cosmetic problem: `worker/tools.market_fetch`
+    anchors its window on `(SELECT MAX(ts) FROM market_data)` — the GLOBAL
+    maximum, not the requested ticker's — so one series dated ahead shortens
+    the window for every OTHER ticker. Measured 2026-08-23 with WALCL and
+    GLOBAL_LIQUIDITY already a day ahead; M2SL at lag 60 would have put it up
+    to eleven, turning a `1m` fetch of SPY into twenty days of prices without
+    saying so."""
+    today = date.today()
     rows: dict[date, float] = {}
     for obs in observations:
         if obs["value"] == ".":
             continue
         ref_date = date.fromisoformat(obs["date"])
-        rows[ref_date + timedelta(days=lag_days)] = float(obs["value"])
+        rows[min(ref_date + timedelta(days=lag_days), today)] = float(obs["value"])
     return _series_from_date_map(rows)
 
 

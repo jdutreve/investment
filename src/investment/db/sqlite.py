@@ -30,6 +30,7 @@ never existed. `_serialized` says why at length.
 
 import asyncio
 import json
+import logging
 import sqlite3
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -62,7 +63,21 @@ EDGE_COLUMNS: dict[str, tuple[str, str]] = {
     "supports": ("passage_id", "invariant_id"),
 }
 
+logger = logging.getLogger(__name__)
+
 _VALID_TABLES = ENTITY_TABLES | RELATION_TABLES | TS_TABLES | DOCUMENT_TABLES
+
+# `replace_ts_series`'s guard (docs/IMPROVEMENTS.md I-30: "never delete on a
+# hunch"): it compares the fresh series' date SPAN against the stored one, and
+# tolerates a small contraction (a vendor revising away a stale tail).
+#
+# NOT row count. Row count is the signal the bug corrupts: re-dating INFLATES
+# the stored series (M2SL held 1768 rows for 418 real monthly observations),
+# so a count test reads the CLEAN fetch as a 76% shortfall and refuses to
+# replace exactly the series that needs replacing — the guard would fire
+# hardest on the worst pollution. Span answers the question actually being
+# asked: does the source still carry the history we hold?
+TS_SPAN_TOLERANCE = 0.90
 
 
 def _utc_now_iso() -> str:
@@ -357,6 +372,73 @@ class InvestmentDB:
                 self._con.commit()
 
         await self._serialized(_run)
+
+    async def replace_ts_series(
+        self, type: str, ticker: str, rows: list[dict[str, Any]]
+    ) -> str | None:
+        """Make one series MIRROR its source: delete what is stored for
+        `ticker`, then write `rows`. Returns None, or a description when the
+        guard below declined the delete.
+
+        THE TWIN OF `append_ts_batch`, and every producer of a WHOLE series
+        wants this one. `append_ts_batch` is INSERT OR REPLACE keyed on
+        `(ticker, ts)`, so it is only idempotent while the DATING is stable: a
+        change to `availability_lag_days`, to a source, or to a transform
+        re-dates every observation and writes the new rows BESIDE the orphaned
+        old ones. Measured twice, five weeks apart, on the same table:
+          - M5, M2SL — 1768 rows at 7-day spacing where 35y monthly is ~420,
+            several overlapping copies. `m2_yoy` then computed year-over-year
+            growth spanning -62.6%..+213.9% (real M2 YoY is about -4%..+27%)
+            because a 365d lookback landed on a different copy, and the
+            invariant resting on it got a confident, meaningless verdict.
+          - 2026-08-23, the M2SL/JPNASSETS lag correction — `m2_yoy` 407 -> 814
+            rows, `m2_accel_12m` 395 -> 790, and GLOBAL_LIQUIDITY found already
+            corrupt from earlier re-datings at ~217 rows/year where its fastest
+            component prints weekly.
+        The fix existed in `seed.py` after the first incident and stayed there,
+        so the SEED was safe and the weekly chain was not (docs/IMPROVEMENTS.md
+        I-57). It lives here now because the property belongs to the write, not
+        to one caller.
+
+        THE GUARD (I-30: "never delete on a hunch"): the delete is abandoned
+        when the fresh series' date SPAN no longer covers the stored one — a
+        truncated vendor response must never wipe 35 years. The additive write
+        still happens, so the run degrades to the old behaviour for that ticker
+        and REPORTS. That matters more here than in the seed: the weekly chain
+        runs unattended, with nobody reading a console.
+
+        NOT wrapped in `transaction()`: `append_ts_batch` issues its own
+        BEGIN/COMMIT (one fsync per batch is its whole purpose) and SQLite has
+        no nested transactions. The window between delete and write is
+        tolerable because every caller recomputes the series WHOLE — a crash
+        leaves the ticker empty until the next run rewrites it, which is the
+        same recovery any other mid-job failure gets."""
+        if type not in TS_TABLES:
+            raise ValueError(f"not a time-series table: {type!r}")
+        if not rows:
+            return None
+        stored = (
+            await self.query(
+                f"SELECT COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi FROM {type} WHERE ticker = :t",
+                t=ticker,
+            )
+        )[0]
+        if stored["n"]:
+            # ISO-8601 dates sort lexicographically — no parsing needed to bound.
+            stamps = [str(r["ts"]) for r in rows]
+            fresh = date.fromisoformat(max(stamps)) - date.fromisoformat(min(stamps))
+            held = date.fromisoformat(str(stored["hi"])) - date.fromisoformat(str(stored["lo"]))
+            if fresh < held * TS_SPAN_TOLERANCE:
+                message = (
+                    f"fetched span {fresh.days}d vs {held.days}d stored — "
+                    "delete abandoned, wrote additively"
+                )
+                logger.warning("replace_ts_series: %s %s", ticker, message)
+                await self.append_ts_batch(type, rows)
+                return message
+        await self.command(f"DELETE FROM {type} WHERE ticker = :t", t=ticker)
+        await self.append_ts_batch(type, rows)
+        return None
 
     # -- transactions ------------------------------------------------------
 

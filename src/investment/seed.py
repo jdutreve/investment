@@ -175,71 +175,18 @@ async def _seed_reference_tables(db: InvestmentDB, settings: Settings) -> int:
     return 1 + len(ALLOWED_TICKERS) + len(INVARIANT_AUTHOR_CONFIG) + len(SYSTEM_THRESHOLDS)
 
 
-# The guard compares the fresh series' date SPAN against the stored one, and
-# tolerates a small contraction (a vendor revising away a stale tail).
-#
-# NOT row count. Row count is the signal the bug corrupts: re-dating INFLATES
-# the stored series (M2SL held 1768 rows for 418 real monthly observations),
-# so a count test reads the CLEAN fetch as a 76% shortfall and refuses to
-# replace exactly the series that needs replacing — the guard fires hardest
-# on the worst pollution. Span answers the question actually being asked:
-# does the source still carry the history we hold?
-_SPAN_TOLERANCE = 0.90
-
-
 async def _write_series_authoritatively(
     db: InvestmentDB, ticker: str, rows: list[dict[str, Any]]
 ) -> str | None:
-    """Make `market_data` MIRROR the source for one successfully-fetched
-    ticker, instead of accumulating every code version's dating
-    (docs/IMPROVEMENTS.md I-30, re-dating half).
+    """Thin alias for `InvestmentDB.replace_ts_series` on `market_data`.
 
-    `append_ts_batch` is INSERT OR REPLACE keyed on (ticker, ts), so a change
-    to `availability_lag_days` / source / frequency re-dates every
-    observation and writes NEW rows BESIDE the orphaned old ones. Measured on
-    the live DB: M2SL held 1768 rows at 7-day spacing where 35y monthly is
-    ~420 — several overlapping copies of one series. That is not cosmetic:
-    the first consumer to read M2SL from the DB (`m2_yoy`, M5) computed
-    year-over-year growth spanning -62.6%..+213.9%, because a 365d lookback
-    landed on a DIFFERENT copy. Real M2 YoY spans about -4%..+27%. The
-    invariant resting on it got a confident, meaningless verdict.
-
-    GUARD (I-30: "never delete on a hunch"): the delete is abandoned when the
-    fresh series' date SPAN no longer covers the stored one — a truncated
-    vendor response must never wipe 35 years. The additive write still
-    happens, so the run degrades to the old accumulate-behaviour for that
-    ticker and REPORTS, rather than losing data. Returns a description when
-    it trips, else None."""
-    if not rows:
-        return None
-    stored = (
-        await db.query(
-            "SELECT COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi FROM market_data WHERE ticker = :t",
-            t=ticker,
-        )
-    )[0]
-    if stored["n"]:
-        # ISO-8601 dates sort lexicographically — no parsing needed to bound.
-        timestamps = [str(r["ts"]) for r in rows]
-        fresh_span = date.fromisoformat(max(timestamps)) - date.fromisoformat(min(timestamps))
-        stored_span = date.fromisoformat(str(stored["hi"])) - date.fromisoformat(str(stored["lo"]))
-        if fresh_span < stored_span * _SPAN_TOLERANCE:
-            message = (
-                f"fetched span {fresh_span.days}d vs {stored_span.days}d stored — "
-                "delete abandoned, wrote additively"
-            )
-            logger.warning("step 9: %s %s", ticker, message)
-            await db.append_ts_batch("market_data", rows)
-            return message
-    # NOT wrapped in `db.transaction()`: `append_ts_batch` issues its own
-    # BEGIN/COMMIT (its whole reason for existing is one fsync per batch), and
-    # SQLite has no nested transactions. The window between the two is
-    # tolerable precisely because this step is idempotent — a crash in it
-    # leaves the ticker empty until the next run re-fetches and rewrites,
-    # which is the same recovery any other mid-seed failure gets.
-    await db.command("DELETE FROM market_data WHERE ticker = :t", t=ticker)
-    await db.append_ts_batch("market_data", rows)
-    return None
+    The logic moved to the DB layer on 2026-08-23 because the seed was never
+    its only producer of a whole series: `mechanical/catchup.py` and
+    `mechanical/backtests.py` rewrite the derived and composite series on the
+    WEEKLY chain, additively, and so re-created the overlapping vintages this
+    fixed here in M5 (docs/IMPROVEMENTS.md I-57). The name stays because the
+    call sites below read well with it."""
+    return await db.replace_ts_series("market_data", ticker, rows)
 
 
 async def _prune_retired_series(db: InvestmentDB) -> dict[str, Any]:

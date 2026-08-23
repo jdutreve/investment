@@ -231,9 +231,16 @@ def round_for_model(value: Any) -> Any:
 
 def _with_normalised_momentum(row: dict[str, Any]) -> dict[str, Any]:
     """One `market_fetch` row, with percent-of-level momentum added for PRICE
-    series so the Worker can compare tickers. Raw fields are kept: they are what
-    `db_query` returns and what every threshold in the DB is expressed in, so
-    dropping them would make the two tools disagree about the same series."""
+    series so the Worker can compare tickers. Raw fields are kept because every
+    threshold in the DB is expressed in them, so dropping them would leave the
+    Worker unable to compare a reading against the rule that reads it.
+
+    They are NOT byte-identical to `db_query`'s, and the earlier wording here
+    claimed they were: `round_for_model` trims binary noise on this path and
+    `db_query` is a passthrough for arbitrary SQL, where rounding the caller's
+    own projection would be a liberty. So `0.039999999999999813` from one and
+    `0.04` from the other are the same number seen through two tools, and the
+    difference is below anything FRED or Yahoo publishes."""
     out = {k: round_for_model(v) for k, v in row.items() if k != "asset_class"}
     if row.get("asset_class") in NON_PRICE_ASSET_CLASSES:
         return out

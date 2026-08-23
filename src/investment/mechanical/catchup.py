@@ -234,6 +234,10 @@ async def refresh_series(
         deriv,
         tail.index.min().date(),
     )
+    # ADDITIVE ON PURPOSE, and the only one left in the mechanical jobs. This
+    # writes the TAIL, not the series (see the comment above), so
+    # `replace_ts_series` would delete 35 years to rewrite a few days. The
+    # dating of the rows it does write is the source's own, unchanged.
     await db.append_ts_batch("market_data", rows)
     return len(rows)
 
@@ -298,7 +302,10 @@ async def refresh_composites(db: InvestmentDB, lookback: int) -> tuple[list[str]
         composite = growth.compute_growth_composite(inputs["INDPRO"], inputs["UNRATE"])
         deriv = derivatives.compute_derivatives(composite, "GROWTH_COMPOSITE", lookback)
         rows = derivatives.market_data_rows("GROWTH_COMPOSITE", "MACRO", "USD", deriv, None)
-        await db.append_ts_batch("market_data", rows)
+        # Authoritative: this recomputes the series WHOLE, so an additive
+        # write would leave the previous dating beside the new one on any
+        # re-dating (db/sqlite.replace_ts_series; I-57).
+        await db.replace_ts_series("market_data", "GROWTH_COMPOSITE", rows)
         written.append("GROWTH_COMPOSITE")
         rows_written += len(rows)
     else:
@@ -315,7 +322,7 @@ async def refresh_composites(db: InvestmentDB, lookback: int) -> tuple[list[str]
         rows = derivatives.market_data_rows(
             "GLOBAL_LIQUIDITY", "GLOBAL_LIQUIDITY", "USD", deriv, None
         )
-        await db.append_ts_batch("market_data", rows)
+        await db.replace_ts_series("market_data", "GLOBAL_LIQUIDITY", rows)
         written.append("GLOBAL_LIQUIDITY")
         rows_written += len(rows)
     else:

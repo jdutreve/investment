@@ -2183,64 +2183,35 @@ series whose release calendar is not obvious; or the next time a release
 schedule changes under a constant nobody re-measures. WALCL (5) and ECBASSETSW
 (5) are still estimates and have never been measured.
 
-## I-57 — The derived signals in `backtests.py` still write additively, so a re-dating duplicates them
+## I-57 — RESOLVED 2026-08-23 — derived signals wrote additively, so a re-dating duplicated them
 
-**Where.** SEVEN bare `db.append_ts_batch("market_data", rows)` calls, and the
-inventory took two passes to close — the first named only `backtests.py`:
-  - `mechanical/backtests.py` — `_materialize_real_rates` (246),
-    `_materialize_broad_money` (290), `_materialize_equity_trend` (314) and
-    `_materialize_gold_10y_dev` (350);
-  - `mechanical/catchup.py` — the CATCH-UP rewrite of the same series (237) and
-    of the `GROWTH_COMPOSITE` / `GLOBAL_LIQUIDITY` composites (301, 318).
+**Kept as a record because it happened twice, five weeks apart, on the same
+table.** `append_ts_batch` is `INSERT OR REPLACE` keyed on `(ticker, ts)`, so it
+is idempotent only while the DATING holds. Every producer of a WHOLE series that
+used it left the previous dating in place the moment a lag, source or transform
+changed:
+  - M5, M2SL — 1768 rows for 418 real observations, several overlapping copies.
+    `m2_yoy` then computed year-over-year growth spanning -62.6%..+213.9% (real
+    M2 YoY is about -4%..+27%) because a 365d lookback landed on a different
+    copy, and the invariant resting on it got a confident, meaningless verdict.
+  - 2026-08-23, the M2SL/JPNASSETS lag correction — `m2_yoy` 407 -> 814 rows,
+    `m2_accel_12m` 395 -> 790, and GLOBAL_LIQUIDITY found ALREADY corrupt from
+    earlier re-datings at ~217 rows/year where its fastest component prints
+    weekly. Regime detection reads that composite.
 
-The catchup pair is the one that matters most and was the one missed. Making
-`seed.py` authoritative for the two composites (2026-08-23) fixed the path that
-runs when someone re-seeds by hand; `catchup.refresh_composites` rewrites those
-SAME two series over their whole stored history on the WEEKLY chain, unattended,
-every Sunday. So the next re-dating re-creates the overlapping vintages the seed
-just deleted, with nobody watching.
+The M5 fix lived in `seed.py` as a private helper, so the seed was safe and the
+weekly chain was not — which is how the second occurrence happened. The logic is
+now `InvestmentDB.replace_ts_series`, the twin of `append_ts_batch`, and the six
+whole-series writers use it (`seed.py`'s fetched loop and both composites,
+`catchup.refresh_composites`' two, and `backtests.py`'s four derived families).
 
-**What it does.** Each of these recomputes its series WHOLE on every run
-(`ratios.load_price` on the source, then the full transform), and writes it with
-`INSERT OR REPLACE` keyed on `(ticker, ts)`. When the dating is stable this is
-harmless: the recomputed rows land on the same `ts` and overwrite in place. When
-the dating MOVES, the new rows land beside the old ones and the series carries
-two overlapping vintages.
+**The one additive write left is deliberate**: `catchup._refresh_one` writes the
+TAIL of a fetched series, not the series, so replacing would delete 35 years to
+rewrite a few days. It is commented as such at the call site.
 
-**Why it matters — measured 2026-08-23.** Correcting the `availability_lag_days`
-of M2SL (17 -> 60) and JPNASSETS (30 -> 40) re-dated their inputs, and the
-derived series doubled: `m2_yoy` 407 -> 814 rows, `m2_accel_12m` 395 -> 790,
-`GLOBAL_LIQUIDITY` 5183 -> 5572. The proof was two rows carrying the SAME value
-at two dates (`m2_yoy` 5.5257 at both 2026-06-18 and 2026-07-31). This is
-exactly the failure `seed._write_series_authoritatively` was written for in
-M5 — where M2SL held 1768 rows for 418 real observations and `m2_yoy` computed
-YoY growth spanning -62.6%..+213.9% because a 365d lookback landed on a
-different copy.
-
-**Why it is not fixed yet.** `_write_series_authoritatively` lives in `seed.py`,
-and `backtests.py` importing from the seed module is the wrong dependency
-direction. Its two SEED-side callers were fixed in place on 2026-08-23 (the
-`GROWTH_COMPOSITE` and `GLOBAL_LIQUIDITY` composites, which sat directly below
-the fetched loop and never inherited its rule); the chain-side ones need the
-helper to move somewhere both can reach first, and where that is, is a design
-call rather than a bug fix.
-
-**The shape it would take.** One `replace_ts_series(ticker, rows)` — the span
-guard included — in a home both the seed and the mechanical jobs can import,
-then four call sites changed. The guard matters more here than in the seed: the
-weekly chain runs unattended, so a truncated source must degrade to an additive
-write and REPORT, never wipe 35 years.
-
-**Trigger to revisit.** Any further `availability_lag_days` correction (I-56
-proposes moving M2SL/JPNASSETS to the ALFRED path, which re-dates them again),
-any change to a derived signal's own transform, or the first derived series
-whose row count does not match its source's.
-
-**A SECOND CONSUMER IS ALREADY EXPOSED.** `alerts._cadence_of` measures a
-series' cadence from the spacing of its stored rows, so a duplicated series
-reports roughly half its true cadence and `macro_freshness_alert` then calls a
-perfectly healthy print overdue. Measured shape: `m2_yoy` interleaved at
-2026-06-18 / 2026-07-31 gives gaps alternating ~12/~19 against a real 31, a
-threshold of ~29 days instead of ~46. The duplicates were deleted on
-2026-08-23 so nothing misfires today; the coupling stands until the writes are
-authoritative.
+**What the tests pin**, in `tests/test_db.py`: that a re-dated series replaces
+itself rather than doubling, that a truncated source degrades to an additive
+write and reports instead of wiping the history it cannot cover (I-30, and the
+weekly chain has nobody watching), and that the guard measures SPAN rather than
+row count — count is the signal the bug corrupts, so a count test would refuse
+to replace exactly the series that needs it.

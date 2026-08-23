@@ -243,7 +243,7 @@ async def _materialize_real_rates(db: InvestmentDB, default_lookback_days: int) 
             continue
         deriv = derivatives.compute_derivatives(real, derived_id, default_lookback_days)
         rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
-        await db.append_ts_batch("market_data", rows)
+        await db.replace_ts_series("market_data", derived_id, rows)
         written[derived_id] = len(rows)
 
     written.update(await _materialize_broad_money(db, default_lookback_days))
@@ -287,7 +287,7 @@ async def _materialize_broad_money(db: InvestmentDB, default_lookback_days: int)
             continue
         deriv = derivatives.compute_derivatives(series, derived_id, default_lookback_days)
         rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
-        await db.append_ts_batch("market_data", rows)
+        await db.replace_ts_series("market_data", derived_id, rows)
         written[derived_id] = len(rows)
     return written
 
@@ -311,7 +311,7 @@ async def _materialize_equity_trend(db: InvestmentDB, default_lookback_days: int
         return 0
     deriv = derivatives.compute_derivatives(trend, EQUITY_TREND_TICKER, default_lookback_days)
     rows = _ts_rows(EQUITY_TREND_TICKER, "MACRO", "USD", deriv)
-    await db.append_ts_batch("market_data", rows)
+    await db.replace_ts_series("market_data", EQUITY_TREND_TICKER, rows)
     return len(rows)
 
 
@@ -347,7 +347,7 @@ async def _materialize_gold_10y_dev(db: InvestmentDB, default_lookback_days: int
         return 0
     deriv = derivatives.compute_derivatives(deviation, GOLD_10Y_DEV_TICKER, default_lookback_days)
     rows = _ts_rows(GOLD_10Y_DEV_TICKER, "MACRO", "USD", deriv)
-    await db.append_ts_batch("market_data", rows)
+    await db.replace_ts_series("market_data", GOLD_10Y_DEV_TICKER, rows)
     return len(rows)
 
 

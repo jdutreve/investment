@@ -51,7 +51,11 @@ from investment.mechanical.gates import (
     max_allocation_change_pts,
     weights_well_formed,
 )
-from investment.mechanical.invariants import compute_weight_update, mature_seed_invariants
+from investment.mechanical.invariants import (
+    compute_weight_update,
+    is_absolute_claim,
+    mature_seed_invariants,
+)
 from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
     CONFIRM_DECISIONS,
@@ -1177,11 +1181,13 @@ async def _commit_invariant_innovation(
     # function is supposed to refuse, arrived through the default argument.
     #
     # So: a measurable invariant needs a NON-EMPTY list of objects, and anything
-    # else becomes reference knowledge. The cost is that the UC8 path can no
-    # longer mint a deliberate absolute claim; that is accepted, because an
-    # absolute claim is indistinguishable from a dropped condition at this
-    # boundary, and one of the two must not be guessed. The prose survives in
-    # the trace either way.
+    # else becomes reference knowledge. `is_absolute_claim` is what names the
+    # trap (mechanical/invariants.py) — an empty condition is not an absent one,
+    # it is an unconditional claim, measured as such by the 35y sweep. The cost
+    # is that the UC8 path can no longer mint a deliberate absolute claim; that
+    # is accepted, because at this boundary it is indistinguishable from a
+    # dropped condition, and one of the two must not be guessed. The prose
+    # survives in the trace either way.
     raw_condition = spec.get("condition")
     condition_ok = (
         isinstance(raw_condition, list)
@@ -1198,6 +1204,10 @@ async def _commit_invariant_innovation(
     malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
     if malformed_effect is not None or malformed_condition is not None:
         effect = None
+    # Belt and braces on the property the paragraph above argues for, stated in
+    # the vocabulary that owns it: nothing leaves here as a measurable
+    # unconditional claim.
+    assert not (is_absolute_claim(condition) and effect is not None)
     title, description = proposal.title, proposal.rationale
     vector = embedder.encode([invariant_embedding_input(title, description)])[0]
 

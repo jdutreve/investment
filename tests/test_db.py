@@ -456,3 +456,77 @@ async def test_the_event_log_is_append_only_in_the_database_not_by_convention(
         assert [r["payload"] for r in rows] == ['{"n": 1}']  # untouched
     finally:
         await db.close()
+
+
+async def _series(db: InvestmentDB, ticker: str, stamps: list[str]) -> None:
+    await db.append_ts_batch(
+        "market_data",
+        [
+            {"ticker": ticker, "asset_class": "MACRO", "currency": "USD", "ts": ts, "level": 1.0}
+            for ts in stamps
+        ],
+    )
+
+
+async def test_a_re_dated_series_replaces_itself_instead_of_doubling(tmp_path: Path) -> None:
+    """The defect this method exists for, twice measured on `market_data`:
+    `append_ts_batch` is keyed on `(ticker, ts)`, so it is idempotent only while
+    the DATING holds. Re-date the same observations — a changed
+    `availability_lag_days`, source or transform — and the new rows land BESIDE
+    the old ones. In M5 that gave M2SL 1768 rows for 418 observations and made
+    `m2_yoy` report -62.6%..+213.9% growth; on 2026-08-23 the M2SL lag
+    correction doubled `m2_yoy` to 814 rows."""
+    db = InvestmentDB(tmp_path / "redate.db")
+    try:
+        await _series(db, "M2SL", ["2026-05-18", "2026-06-18", "2026-07-18"])
+        # the SAME observations, published-dated 43 days later
+        shortfall = await db.replace_ts_series(
+            "market_data",
+            "M2SL",
+            [
+                {
+                    "ticker": "M2SL",
+                    "asset_class": "MACRO",
+                    "currency": "USD",
+                    "ts": ts,
+                    "level": 1.0,
+                }
+                for ts in ("2026-06-30", "2026-07-31", "2026-08-31")
+            ],
+        )
+        assert shortfall is None
+        rows = await db.query("SELECT ts FROM market_data WHERE ticker = 'M2SL' ORDER BY ts")
+        assert [r["ts"] for r in rows] == ["2026-06-30", "2026-07-31", "2026-08-31"]
+    finally:
+        await db.close()
+
+
+async def test_a_truncated_source_never_wipes_the_history_it_cannot_cover(tmp_path: Path) -> None:
+    """I-30's "never delete on a hunch". The weekly chain runs unattended, so a
+    vendor returning a short window must degrade to an additive write and SAY
+    so — not silently replace 35 years with three months."""
+    db = InvestmentDB(tmp_path / "truncated.db")
+    try:
+        await _series(db, "SPY", ["1991-01-02", "2008-06-02", "2026-08-21"])
+        shortfall = await db.replace_ts_series(
+            "market_data",
+            "SPY",
+            [
+                {"ticker": "SPY", "asset_class": "MACRO", "currency": "USD", "ts": ts, "level": 2.0}
+                for ts in ("2026-08-20", "2026-08-21")
+            ],
+        )
+        assert shortfall is not None and "delete abandoned" in shortfall
+        rows = await db.query("SELECT ts FROM market_data WHERE ticker = 'SPY' ORDER BY ts")
+        assert "1991-01-02" in [r["ts"] for r in rows]  # the 35 years survive
+    finally:
+        await db.close()
+
+
+async def test_replace_refuses_a_table_that_is_not_a_time_series(tmp_path: Path) -> None:
+    db = InvestmentDB(tmp_path / "wrongtable.db")
+    try:
+        with pytest.raises(ValueError, match="not a time-series table"):
+            await db.replace_ts_series("invariant", "x", [{"ticker": "x", "ts": "2026-01-01"}])
+    finally:
+        await db.close()

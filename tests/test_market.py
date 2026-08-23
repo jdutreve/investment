@@ -385,3 +385,19 @@ def test_parse_lbma_gold_json_uses_usd_and_skips_null() -> None:
     assert out.loc[pd.Timestamp("1968-01-02")] == 35.18
     assert out.loc[pd.Timestamp("1999-01-04")] == 287.85
     assert pd.Timestamp("2020-01-06") not in out.index
+
+
+def test_a_generous_lag_never_dates_an_observation_in_the_future() -> None:
+    """`availability_lag_days` is an ESTIMATE, deliberately set above the
+    measured maximum (M2SL: 60 vs a measured max of 58) so it never claims
+    foreknowledge. Overshooting the other way dates a row AHEAD of today —
+    and `worker/tools.market_fetch` anchors its window on the GLOBAL
+    `MAX(ts)`, so one series dated ahead silently shortens the window for
+    every other ticker."""
+    from datetime import date, timedelta
+
+    from investment.market.fetcher import parse_fred_current
+
+    yesterday = date.today() - timedelta(days=1)
+    series = parse_fred_current([{"date": yesterday.isoformat(), "value": "1.0"}], lag_days=60)
+    assert series.index.max().date() == date.today()
