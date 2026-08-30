@@ -2277,3 +2277,81 @@ only" rather than hedging.
 book in force and the liquidity state disagree loudly enough that the owner
 wants the attribution to argue with.
 
+## I-59 — "Nothing stays proposed forever" is false: a modest edge is structurally undecidable
+
+**Where.** `mechanical/invariants.py` (`confront_moment` and the birth
+maturation), the ADR-006 verdict rule in CLAUDE.md, and the
+`invariant_*` rows of `system_thresholds`.
+
+**What was measured (2026-08-30, live DB).** 62 `proposed`, 9 `integrated`, 33
+`rejected`, 572 `reference`. Of the proposed, **31 carry n >= 40 confrontations
+and not one is within reach of either exit**:
+
+- The closest to integration scores **26/43 = 0.605** — ABOVE
+  `invariant_time_validation_score` (0.60) — and stays proposed because the
+  evidence test fails: `P(X >= 26 | p = 0.5, n = 43) = 0.111`, against the 5%
+  `invariant_verdict_confidence` bar. THE EFFECT PASSES AND THE EVIDENCE DOES
+  NOT, which is the whole population's shape.
+- The closest to rejection sits at `P(X <= c | p = 0.60) = 0.052`, just outside
+  the same 5%.
+- The other 30 score between 0.488 and 0.593.
+
+**Why nothing moves, in one line of arithmetic.** The population lives at ~0.55,
+between the 0.50 null and the 0.60 theta, so BOTH exits ask to resolve a 0.05
+difference. That needs **n ~ 285** to integrate against the null and **n ~ 270**
+to reject as inadequate against theta. The birth maturation walks 35 years at a
+non-overlapping `proposal_outcome_weeks` (12) horizon — **152 moments at the
+absolute maximum**, and these invariants carry 40 to 134. The history is spent.
+Forward accrual is **4.3 a year at best** (a condition active every single
+week), so n = 67 -> 275 is 48 years in the best case and about a century at the
+observed rate.
+
+**What the integrated nine show about the real bar.** Three at n = 44-84 scoring
+**0.636-0.644**, six at n = 5-13 scoring **0.85-1.0**, and nothing in between.
+The layer integrates either a large edge measured over history or a tiny sample
+that was nearly perfect. A real but modest edge — exactly what a macro invariant
+usually is — cannot be decided at all.
+
+**The undecidable band, and when it closes.** Between the two 5% bars there is
+a range of scores no verdict can reach, and it narrows with evidence: at n = 43
+it is 0.442-0.651, at n = 70 it is 0.486-0.614, at n = 134 it is 0.522-0.582. It
+closes — becomes empty — at **n ~ 275**, which is where both figures above come
+from. The population sits at 0.55, dead centre of the band at every n it will
+ever reach.
+
+**So the CLAUDE.md sentence is half true.** "Nothing stays proposed forever;
+nothing is adopted without measurement" holds in its second half and fails in
+its first: `proposed` is a terminus for any invariant whose true rate lands
+inside that band, which at the evidence rates available here is most of them.
+Deciding whether to reword the rule is the owner's, and it should be reworded
+rather than quietly ignored.
+
+**Three tempting fixes, and why each is worse than the problem.**
+
+*Lower theta.* Does not unblock anything: the binding test is the tail against
+the 0.50 null, not the effect size. The 0.605 case proves it.
+
+*Raise alpha from 5%.* Arbitrary, and it undoes the amendment that introduced
+the tail in the first place — ADR-006 added it precisely because "theta alone is
+a point test that gets EASIER at small N: at N=3 a zero-edge invariant
+integrated on a coin flip".
+
+*Shorten the confrontation horizon.* More moments out of the same 35 years, but
+OVERLAPPING ones — correlated evidence fed to a binomial test that assumes
+independence. That manufactures verdicts rather than earning them, which is the
+one thing this project's maturation exists to prevent.
+
+**The shape it would take instead.** Name the limit rather than route around it:
+surface, on the digest and the dashboard, how many invariants are UNDECIDABLE at
+the current evidence rate — a `proposed` row whose remaining distance to either
+verdict exceeds the confrontations its condition can produce in a working life.
+The owner then knows which beliefs are being measured and which are merely
+parked, and nobody waits for a verdict that is not coming. The computation is
+the two tails already implemented; only the presentation is missing.
+
+**Trigger to revisit.** Any proposed invariant crossing either 5% bar on its
+own (which would falsify the arithmetic above and is worth knowing); or a
+decision to change the evidence model — a different confrontation unit, a
+paired/continuous statistic instead of a binomial on win-rate, or an explicit
+"undecidable" verdict beside the three.
+
