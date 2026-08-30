@@ -393,9 +393,9 @@ def _market_signal_reasoning(decision: Decision, held_allocation: dict[str, floa
     spread_side = _side(decision.spread, decision.spread_median, "wide", "tight")
     slope_side = _side(decision.slope, decision.slope_median, "steep", "flat")
     parts = [
-        f"Credit spread (BAA10Y) {decision.spread:.2f} is {spread_side} its 10y median "
+        f"Credit spread (BAA10Y) {decision.spread:.2f} is {spread_side} vs its 10y median "
         f"({_num(decision.spread_median)}); yield slope (T10Y2Y) {decision.slope:.2f} is "
-        f"{slope_side} its 10y median ({_num(decision.slope_median)}) "
+        f"{slope_side} vs its 10y median ({_num(decision.slope_median)}) "
         f"-> signal '{decision.signalled}'.",
     ]
     if decision.pending is not None:
@@ -436,8 +436,14 @@ def _side(value: float, median: float | None, above: str, below: str) -> str:
     """Which side of its trailing median a signal sits on, in the strategy's own
     vocabulary. `median is None` is the warm-up state `classify_regime` answers
     with its credit-spread-wide default — say so rather than inventing a side."""
+    # The caller supplies the preposition ("is {side} vs its 10y median"), so a
+    # side is an ADJECTIVE here and nothing else — this branch used to carry its
+    # own "against", which was the only reason the sentence ever parsed, and it
+    # stopped parsing the moment the measured branch (a bare "wide"/"tight") was
+    # the one that rendered: "1.64 is tight its 10y median". The digest already
+    # said "vs 10y median" for the same fact; the OWNER-FACING order text did not.
     if median is None:
-        return "unmeasurable against (warm-up, under 10y of history)"
+        return "unmeasurable (warm-up, under 10y of history)"
     return above if value > median else below
 
 
