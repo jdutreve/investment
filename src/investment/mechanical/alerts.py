@@ -57,11 +57,10 @@ from datetime import date
 from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import DRIFT_EVENT
 from investment.mechanical.market_signal import (
-    CREDIT_SPREAD,
     MA_WINDOWS,
+    SIGNAL_TICKERS,
     STACK_PORTFOLIO_ID,
     STACK_TICKERS,
-    YIELD_SLOPE,
 )
 from investment.writeback.writeback import RULE_MEASUREMENT_EVENT
 
@@ -84,8 +83,6 @@ WATCHED_INDICATOR_CLASSES: tuple[str, ...] = ("MACRO", "GLOBAL_LIQUIDITY")
 # Overdue at one and a half of its own periods: half-way into the period a
 # series skipped, so a monthly print is late at ~46 days and not at 32.
 MACRO_OVERDUE_PERIODS = 1.5
-# The two series that PICK the book (mechanical/market_signal.py).
-SIGNAL_TICKERS: tuple[str, ...] = (CREDIT_SPREAD, YIELD_SLOPE)
 # One monthly anchor missed. Longer than the cadence by design (35 > ~31), so a
 # normal month never trips it, but a skipped month always does.
 DECISION_STALE_DAYS = 35

@@ -129,7 +129,14 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
     It reported a boundary state the tape had already resolved, from two
     correct numbers on two different clocks. Pairing them on ONE line is what
     makes the drift impossible to miss and "what will the next decision see" an
-    answerable question."""
+    answerable question.
+
+    AND THE 'NOW' CLOCK IS ONE DATE FOR THE PAIR, which is `baseline._macro`'s
+    doing rather than this function's: the same failure returned on 2026-08-30
+    between the two TICKERS instead of between two blocks, T10Y2Y being
+    published a day ahead of BAA10Y and having crossed its median in that day.
+    Read the cap's rationale there before assuming this block may show the
+    newest print of each."""
     if not state:
         return []
     latest = {str(row.get("ticker")): row for row in macro}
@@ -148,6 +155,20 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
         "force. 'now' is today's tape — it decided nothing, and it is your best "
         "proxy for what the NEXT monthly decision will see. Never mix a level "
         "from one with a speed from the other.",
+        # SAID TO THE WORKER, because no cap in the code can reach where it can
+        # go. `baseline._macro` pairs the two signals on their common date, but
+        # `db_query` takes arbitrary SQL and `market_fetch` is a raw window on
+        # `market_data` — on 2026-08-23 the Worker ran
+        # `SELECT ... FROM market_data WHERE ticker IN ('BAA10Y','T10Y2Y',...)
+        # ORDER BY ts DESC`, which is exactly the unpaired read. Only the Worker
+        # can apply the rule on that path, so it has to know it.
+        "  AND BOTH SIGNALS ARE READ ON ONE DATE — the latest that both of them "
+        "have. They are one comparison and not two readings: the book is picked "
+        "by where the spread AND the slope sit against their medians, so a row "
+        "each from a different day describes a state that existed on no day. One "
+        "of the two is regularly published a day ahead of the other; if you fetch "
+        "the raw series yourself and find a newer print for one of them, the "
+        "paired date shown here is what the next monthly decision will read.",
         f"  book in force: {state.get('held_book', '?')} "
         f"(signal now: {state.get('signal_state', '?')}), "
         f"decided {state.get('decision_date', '?')}",

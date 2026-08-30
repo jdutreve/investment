@@ -22,7 +22,12 @@ from investment import market_signal_cycle as MSC
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import alerts as A
 from investment.mechanical import market_signal as MS
-from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS
+from investment.mechanical.market_signal import (
+    CREDIT_SPREAD,
+    STACK_PORTFOLIO_ID,
+    STACK_TICKERS,
+    YIELD_SLOPE,
+)
 from investment.writeback import writeback as W
 
 TODAY = date(2026, 8, 3)
@@ -194,8 +199,8 @@ async def test_stale_signals_are_critical_and_say_the_decision_still_runs(
 
 
 async def test_the_older_of_the_two_signals_binds(db: InvestmentDB) -> None:
-    await _prices(db, TODAY, tickers=(A.CREDIT_SPREAD,))
-    await _prices(db, TODAY - timedelta(days=30), tickers=(A.YIELD_SLOPE,))
+    await _prices(db, TODAY, tickers=(CREDIT_SPREAD,))
+    await _prices(db, TODAY - timedelta(days=30), tickers=(YIELD_SLOPE,))
     alert = await A.signal_freshness_alert(db, TODAY)
     assert alert is not None and alert.code == "signal_data_stale"
 
@@ -203,11 +208,11 @@ async def test_the_older_of_the_two_signals_binds(db: InvestmentDB) -> None:
 async def test_an_absent_signal_is_reported_and_names_itself(db: InvestmentDB) -> None:
     """`run_market_signal` RAISES on this rather than defaulting to the
     90%-equity book; the alert is the Monday-morning explanation of that abort."""
-    await _prices(db, TODAY, tickers=(A.CREDIT_SPREAD,))
+    await _prices(db, TODAY, tickers=(CREDIT_SPREAD,))
     alert = await A.signal_freshness_alert(db, TODAY)
     assert alert is not None
     assert alert.code == "signal_data_missing" and alert.level == "critical"
-    assert A.YIELD_SLOPE in alert.message
+    assert YIELD_SLOPE in alert.message
 
 
 async def test_fresh_sleeves_do_not_vouch_for_the_signals(db: InvestmentDB) -> None:
@@ -294,8 +299,8 @@ async def test_the_two_book_signals_are_not_reported_twice(db: InvestmentDB) -> 
     """`BAA10Y`/`T10Y2Y` are MACRO rows too, so without an explicit exclusion a
     frozen signal feed would fill the digest with the same fact twice — once
     critical, once warn."""
-    await _macro_series(db, A.CREDIT_SPREAD, TODAY - timedelta(days=40), spacing=1, n=13)
-    await _macro_series(db, A.YIELD_SLOPE, TODAY - timedelta(days=40), spacing=1, n=13)
+    await _macro_series(db, CREDIT_SPREAD, TODAY - timedelta(days=40), spacing=1, n=13)
+    await _macro_series(db, YIELD_SLOPE, TODAY - timedelta(days=40), spacing=1, n=13)
     assert (await A.signal_freshness_alert(db, TODAY)) is not None  # the check that owns them
     assert await A.macro_freshness_alert(db, TODAY) is None
 

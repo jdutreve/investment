@@ -472,6 +472,13 @@ BOOK_PORTFOLIO_IDS: dict[str, str] = {
 # median with a 1-year warm-up floor, matching the backtest.
 CREDIT_SPREAD = "BAA10Y"
 YIELD_SLOPE = "T10Y2Y"
+# THE PAIR, named once. The book is picked by where BOTH sit against their
+# medians, so everything that reads "the signals" reads this set and not two
+# tickers written out by hand: `alerts.signal_freshness_alert` watches its
+# oldest member, and `planner.baseline._macro` caps it to the one date both
+# have. It lived in `alerts` until 2026-08-30, which made the second consumer
+# an import cycle and would have made a third one a hand-written copy.
+SIGNAL_TICKERS: tuple[str, ...] = (CREDIT_SPREAD, YIELD_SLOPE)
 
 # TEN YEARS, COUNTED IN TIME AND NO LONGER IN ROWS (2026-08-15, owner signature).
 #

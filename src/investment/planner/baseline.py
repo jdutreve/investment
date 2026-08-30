@@ -23,6 +23,7 @@ import json
 from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.market_signal import SIGNAL_TICKERS
 from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
@@ -179,7 +180,8 @@ async def _favors(db: InvestmentDB, regime_type_id: str | None) -> list[dict[str
 
 
 async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
-    """The latest level/speed/acceleration of every MACRO series.
+    """The latest level/speed/acceleration of every MACRO series — with
+    `SIGNAL_TICKERS` READ AS A PAIR, on the one date both of them have.
 
     Fetched 15 times across the two M8b runs, one ticker list at a time. The
     Worker reads WEATHER (docs/ARCHITECTURE.md WORKER persona) and its context
@@ -189,12 +191,47 @@ async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
 
     Latest row per ticker, so a series that stopped updating shows its last
     knowable print rather than disappearing (ADR-003: a stale print IS what was
-    knowable; `alerts.signal_freshness_alert` is what reports the staleness)."""
+    knowable; `alerts.signal_freshness_alert` is what reports the staleness).
+
+    EXCEPT FOR THE TWO SERIES THAT PICK THE BOOK. They are not two readings, they
+    are one comparison — the book is chosen by where the spread AND the slope sit
+    against their medians — so a row each from a different date is not a fresher
+    tape, it is a comparison that was never true on any day. Per-ticker MAX(ts)
+    produced exactly that on 2026-08-30 (owner: "il faut passer T10Y2Y à la même
+    date que celle de BAA10Y"): BAA10Y stopped at 08-28 while T10Y2Y, published a
+    day later, reached 08-29 and fell from 0.47 to 0.39 — across its median. The
+    Worker duly wrote that the slope had crossed below and the next decision would
+    read flat, while the dashboard, anchored on the last day the sleeves are
+    priced, showed 0.47 and steep. Two fronts, opposite sides of the median, both
+    reading correct numbers.
+
+    THE CAP CANNOT HIDE A DEAD FEED, which is the objection to answer since the
+    pair now follows its laggard: `signal_freshness_alert` measures the OLDEST of
+    `SIGNAL_TICKERS` against today, so a frozen series is reported there — and it
+    is the same set, so the cap and the alarm cannot drift apart."""
+    # Placeholders built from the CONSTANT's length, never from data — the set
+    # is `alerts.SIGNAL_TICKERS`, and a third signal joining it must move this
+    # query with it rather than leave a hand-written pair behind.
+    named = ", ".join(f":sig{i}" for i in range(len(SIGNAL_TICKERS)))
+    signals = {f"sig{i}": t for i, t in enumerate(SIGNAL_TICKERS)}
+    cut = await db.query(
+        f"SELECT MIN(last) AS ts FROM (SELECT MAX(ts) AS last FROM market_data "
+        f"WHERE ticker IN ({named}) GROUP BY ticker)",
+        **signals,
+    )
+    cutoff = cut[0]["ts"] if cut and cut[0]["ts"] else None
+    # `ts <= :cutoff`, not `ts = :cutoff`: the series that runs ahead need not
+    # have a row on the laggard's exact date (a holiday in one calendar and not
+    # the other), and an equality join would drop the signal entirely rather
+    # than show it one print older.
     rows = await db.query(
         "SELECT m.ticker, m.ts, m.level, m.speed, m.acceleration FROM market_data m "
         "JOIN (SELECT ticker, MAX(ts) AS ts FROM market_data WHERE asset_class = 'MACRO' "
+        f"      AND (ticker NOT IN ({named}) OR :cutoff IS NULL OR ts <= :cutoff) "
         "      GROUP BY ticker) last ON last.ticker = m.ticker AND last.ts = m.ts "
-        "ORDER BY m.ticker"
+        "ORDER BY m.ticker",
+        cutoff=cutoff,
+        **signals,
     )
     return [dict(r) for r in rows]
 

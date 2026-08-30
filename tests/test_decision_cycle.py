@@ -310,6 +310,11 @@ def test_a_signal_is_shown_on_both_clocks_with_the_drift_named() -> None:
     # The framing has to travel with the numbers, or two dated blocks is all it is.
     assert "TWO CLOCKS BELOW" in text
     assert "proxy for what the NEXT monthly decision will see" in text
+    # And the pairing rule, which `baseline._macro` enforces on the prompt path
+    # and cannot enforce on the tool path — `db_query` takes arbitrary SQL, so
+    # the Worker is the only place that rule can be applied there.
+    assert "BOTH SIGNALS ARE READ ON ONE DATE" in text
+    assert "describes a state that existed on no day" in text
 
 
 def test_a_signal_absent_from_the_tape_still_renders_its_decision_line() -> None:

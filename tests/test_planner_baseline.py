@@ -10,7 +10,11 @@ from pathlib import Path
 import pytest
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.market_signal import SIGNAL_TICKERS
 from investment.planner import baseline as bl
+
+# The pair by NAME, off the same constant the query and the freshness alarm read.
+BL_SPREAD, BL_SLOPE = SIGNAL_TICKERS
 
 # -- pure helpers (no DB) ----------------------------------------------------
 
@@ -179,6 +183,68 @@ async def test_bucket_priority_dedup_and_integrated_only(seeded: InvestmentDB) -
     # i-proposed never appears (integrated-only).
     assert ids == ["i-both", "i-regime", "i-asset", "i-global"]
     assert "i-proposed" not in ids
+
+
+async def test_the_two_book_signals_are_read_on_one_date(seeded: InvestmentDB) -> None:
+    """The pair that picks the book is a COMPARISON, so it may not straddle two
+    dates — while every other MACRO series keeps its own latest print.
+
+    2026-08-30: BAA10Y stopped at 08-28 and T10Y2Y, published a day later,
+    reached 08-29 having fallen from 0.47 to 0.39, across its median. The Worker
+    read the pair off two dates and reported the slope as having crossed below;
+    the dashboard, anchored on the last day the sleeves are priced, showed 0.47
+    and steep. Both numbers were right and the comparison was true on no day."""
+
+    async def macro(ticker: str, ts: str, level: float) -> None:
+        await seeded.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES (:t, 'MACRO', 'USD', :ts, :lvl, 0.0)",
+            t=ticker,
+            ts=ts,
+            lvl=level,
+        )
+
+    for ts, level in (("2026-08-27", 1.62), ("2026-08-28", 1.60)):
+        await macro(BL_SPREAD, ts, level)
+    # ...and the slope runs one publication ahead, across its median.
+    for ts, level in (("2026-08-28", 0.47), ("2026-08-29", 0.39)):
+        await macro(BL_SLOPE, ts, level)
+    # A monthly series, weeks old on purpose: it must NOT be dragged forward or
+    # back — only the book-picking pair is capped.
+    await macro("CPIAUCSL", "2026-08-12", 3.52)
+
+    rows = {str(r["ticker"]): r for r in (await bl.gather_baseline(seeded)).macro}
+    assert rows[BL_SPREAD]["ts"] == "2026-08-28" and rows[BL_SPREAD]["level"] == 1.60
+    assert rows[BL_SLOPE]["ts"] == "2026-08-28" and rows[BL_SLOPE]["level"] == 0.47
+    assert rows[BL_SPREAD]["ts"] == rows[BL_SLOPE]["ts"]
+    assert rows["CPIAUCSL"]["ts"] == "2026-08-12"
+
+
+async def test_the_signal_cap_never_drops_a_series_that_skipped_that_day(
+    seeded: InvestmentDB,
+) -> None:
+    """The cap is `ts <= cutoff`, not `ts = cutoff`. The series that runs ahead
+    need not have a row on the laggard's exact date — one calendar can have a
+    holiday the other does not — and an equality join would drop the signal from
+    the Worker's context altogether rather than show it one print older."""
+
+    async def macro(ticker: str, ts: str, level: float) -> None:
+        await seeded.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES (:t, 'MACRO', 'USD', :ts, :lvl, 0.0)",
+            t=ticker,
+            ts=ts,
+            lvl=level,
+        )
+
+    await macro(BL_SPREAD, "2026-08-28", 1.60)
+    # No row on the 28th at all: the nearest print is two days earlier.
+    for ts, level in (("2026-08-26", 0.46), ("2026-08-29", 0.39)):
+        await macro(BL_SLOPE, ts, level)
+
+    rows = {str(r["ticker"]): r for r in (await bl.gather_baseline(seeded)).macro}
+    assert rows[BL_SLOPE]["ts"] == "2026-08-26" and rows[BL_SLOPE]["level"] == 0.46
+    assert rows[BL_SPREAD]["ts"] == "2026-08-28"
 
 
 async def test_empty_db_degrades_without_crashing(tmp_path: Path) -> None:
