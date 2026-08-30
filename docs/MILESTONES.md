@@ -591,10 +591,12 @@ fails leaves the paper NAV a step ahead of the position, which self-heals since
 `persist_stack_nav` rebuilds the whole derived series (INSERT OR REPLACE) on
 every run. The digest and the +12w outcome are separate jobs.
 
-**It is SPECIFIED at 08:55, not yet scheduled there.** `chain.py` is a
+**It is SPECIFIED at 08:02, not yet scheduled there.** `chain.py` is a
 scheduler-agnostic runner over a caller-supplied step list, and nothing
 assembles the Monday list outside tests — that wiring (launchd, the alert on
-abort, the actual 08:55 slot) is **M9**. The distinction matters: until M9 the
+abort, the actual 08:02 slot) is **M9**. (Specified at 08:55 until 2026-08-30,
+when the step moved into the refresh block: it PRODUCES the stack's NAV and was
+running after the steps that read it.) The distinction matters: until M9 the
 adopted strategy decides only when something calls it.
 
 Anti-drift preserved BY CONSTRUCTION, not by parallel implementation: the live

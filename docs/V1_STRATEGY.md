@@ -232,7 +232,8 @@ signals instead of the 4 quadrants.
 **Step 4 — M8 Planner + Worker + gates.** The Worker nuances the monthly
 regime/book decision (qualitative reading of the credit-spread/slope state).
 **Wired 2026-08-02:** the decision itself runs MECHANICALLY
-(`market_signal_cycle.py`, 08:55, before UC8) and its full record — signal
+(`market_signal_cycle.py`, 08:02, in the refresh block and before UC8) and its
+full record — signal
 values vs their trailing medians, the dates each input became knowable, the
 hysteresis position, the sleeves below their moving average — is passed into the
 Planner baseline and rendered into the Worker's context.

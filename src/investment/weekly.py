@@ -255,6 +255,50 @@ def weekly_steps(
         # FIRST, and everything after it reads what it leaves: a chain that
         # ranked before refreshing would rank last week's world (UC1).
         ("catch-up", lambda: run_catchup(db, settings)),
+        # THE REST OF THE REFRESH BLOCK. `run_catchup` rebuilds the NAV of the
+        # STATIC portfolios only — it skips `seed_data.TIME_VARYING_PORTFOLIOS`,
+        # whose weights move over time, so `backfill_nav`'s constant weights
+        # would price a portfolio nobody holds. Those three series have their own
+        # producers, and these are they: `market-signal` writes `ms-stack` and
+        # `ms-trend-baseline`, `aaaf-r` writes `aaaf-r-USD`. They belong HERE,
+        # beside catch-up, and not at their old slot after `ranking`.
+        #
+        # They sat there until 2026-08-30 and it made the sentence above false
+        # for exactly the portfolios the sentence matters most for. Measured on
+        # the live DB: the 2026-08-30 ranking scored `ms-stack` on Sortino 1.703,
+        # the value of its NAV row of 2026-08-21, while every static portfolio
+        # was scored on 2026-08-28 — one ranking, two as-of dates. It was not
+        # cosmetic: on the fresh numbers `permanent-balanced` (1.611) passes
+        # `aaaf-r-USD` (1.598), so ranks 3 and 4 swapped, and the 0.02 Sortino
+        # GROUPING recomposed around a different leader. `backtests` reads the
+        # same series (`ratios.load_nav`), so FAVORS — the peer-set measurement
+        # ADR-014 keeps the bridge alive for — was aggregated on the stale NAV
+        # too, which is why the block goes before `backtests` and not merely
+        # before `valuations`.
+        #
+        # Nothing is lost by moving them: both read `market_data` alone (prices
+        # + rf, via `ratios.load_price` / `load_rf_daily`) plus their own
+        # journal, so catch-up is their only upstream. The one ordering they DO
+        # owe is downstream and still holds — the decision is journalled before
+        # the Worker speaks (`uc8`), which is what ADR-011 requires.
+        #
+        # ONE THING DOES CHANGE, and it is a choice rather than an oversight.
+        # `chain.run_chain` aborts on the first failure, so a market-signal
+        # raise now costs the week its `event-watch` and `curation` too, where
+        # before it only cost `uc8` and the digest. Accepted, for two reasons:
+        # `load_series` raises only when a STACK SLEEVE has no price series at
+        # all, and in that state every later step WOULD be running on the stale
+        # NAV the chain contract exists to prevent ("no later step runs on
+        # stale/half-computed state"); and the two steps lost are idempotent,
+        # checkpointed knowledge work that next week's run picks up, whereas the
+        # digest of a week with no priceable stack carries no order anyway.
+        # `aaaf-r` cannot cause this — it warns and skips on a missing series by
+        # design, and that contract is why it can sit here safely.
+        ("market-signal", lambda: run_market_signal_cycle(db, user_profile, today=today)),
+        # AAAF-R (mechanical/momentum_minvar.py) — a benchmark, not a decision:
+        # no gate, no proposal, just a weekly NAV refresh, same category as the
+        # market-signal step above and placed right beside it for that reason.
+        ("aaaf-r", lambda: run_aaaf_r_cycle(db, today=today)),
         ("event-watch", event_watch),
         # 08:10. Free on a stable corpus — the checkpoint answers "already
         # curated" without an LLM call — and the retry path for an ingestion
@@ -266,11 +310,6 @@ def weekly_steps(
         ("valuations", lambda: value_portfolios(db, window)),
         ("ranking", lambda: build_snapshot(db, thresholds["ranking_tiebreak_window"], today)),
         ("outcomes", outcomes),
-        ("market-signal", lambda: run_market_signal_cycle(db, user_profile, today=today)),
-        # AAAF-R (mechanical/momentum_minvar.py) — a benchmark, not a decision:
-        # no gate, no proposal, just a weekly NAV refresh, same category as the
-        # market-signal step above and placed right beside it for that reason.
-        ("aaaf-r", lambda: run_aaaf_r_cycle(db, today=today)),
         ("uc8", cognitive_cycle),
         ("digest", digest),
     ]

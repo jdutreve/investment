@@ -164,6 +164,8 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
     no gate or Worker dependency of its own."""
     assert _steps(db) == [
         "catch-up",
+        "market-signal",
+        "aaaf-r",
         "event-watch",
         "curation",
         "backtests",
@@ -172,11 +174,35 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
         "valuations",
         "ranking",
         "outcomes",
-        "market-signal",
-        "aaaf-r",
         "uc8",
         "digest",
     ]
+
+
+def test_every_nav_producer_runs_before_every_nav_reader(db: InvestmentDB) -> None:
+    """THE RULE THE ORDER ABOVE EXISTS FOR, asserted on the property rather than
+    on the literal list — the list changed twice while the property was silently
+    false, because reading a step list tells you nothing about who WRITES what.
+
+    `catch-up` refreshes the STATIC portfolios' NAV and skips
+    `TIME_VARYING_PORTFOLIOS` (constant weights cannot price a book whose weights
+    move); the other two producers write those three series. Every reader of
+    `portfolio_nav` — `backtests` via `ratios.load_nav`, `valuations` via its own
+    query, `ranking` on the indicators valuations leaves — must come after ALL
+    THREE, not merely after `catch-up`.
+
+    Between 2026-08-13 (`ms-trend-baseline` joining the time-varying set) and
+    2026-08-30 it did not: `market-signal` and `aaaf-r` ran after `ranking`, and
+    the live 2026-08-30 ranking scored `ms-stack` on its NAV row of 2026-08-21
+    against static portfolios scored on 2026-08-28."""
+    steps = _steps(db)
+    producers = ["catch-up", "market-signal", "aaaf-r"]
+    readers = ["backtests", "valuations", "ranking"]
+    last_producer = max(steps.index(name) for name in producers)
+    first_reader = min(steps.index(name) for name in readers)
+    assert last_producer < first_reader, (
+        f"NAV producer {steps[last_producer]!r} runs after reader {steps[first_reader]!r}"
+    )
 
 
 def test_the_chain_covers_the_whole_timeline(db: InvestmentDB) -> None:
@@ -185,7 +211,14 @@ def test_the_chain_covers_the_whole_timeline(db: InvestmentDB) -> None:
     expiry sweep (ADR-006 emptied it) and UC3's bounded-domain fetch (no text
     extractor yet)."""
     steps = _steps(db)
-    assert steps[:3] == ["catch-up", "event-watch", "curation"]
+    # MEMBERSHIP AND RELATIVE ORDER, not a positional prefix. This read
+    # `steps[:3] == [...]` and so encoded "nothing may be inserted after
+    # catch-up" — a constraint this test never meant and which the refresh block
+    # (`market-signal`, `aaaf-r`) legitimately breaks. Coverage is the claim;
+    # `test_the_chain_runs_the_timeline_in_order` owns the exact sequence.
+    assert {"catch-up", "event-watch", "curation"} <= set(steps)
+    assert steps[0] == "catch-up"
+    assert steps.index("event-watch") < steps.index("curation")
     assert "market-signal" in steps and "uc8" in steps
 
 

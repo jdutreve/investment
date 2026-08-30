@@ -345,9 +345,17 @@ async def refresh_nav(db: InvestmentDB, window: int) -> int:
 
     THE MARKET-SIGNAL STACK IS NOT HERE. Its NAV comes from a change-point walk
     rather than from constant weights, and `market_signal_cycle` already rebuilds
-    it on EVERY run — at 08:55, after this job and on the ~3 weekly runs a month
-    that decide nothing (the NAV is weekly, only the decision is monthly).
-    Rebuilding it here as well would be a second producer of one series."""
+    it on EVERY run — in the step right after this one, and on the ~3 weekly runs
+    a month that decide nothing (the NAV is weekly, only the decision is
+    monthly). Rebuilding it here as well would be a second producer of one
+    series.
+
+    "RIGHT AFTER THIS ONE" IS LOAD-BEARING, and it was not true until 2026-08-30:
+    `market-signal` and `aaaf-r` ran after `ranking`, so the three
+    `TIME_VARYING_PORTFOLIOS` this loop skips were the three whose NAV was
+    written after the steps that read it. Skipping them here is only safe while
+    their own producers run inside the refresh block — see `weekly.py`, which
+    states the measurement."""
     cost = ratios.TRADING_COST_BPS  # ADR-010: every NAV pays the same rate
     written = 0
     for portfolio in benchmarks_first(PORTFOLIOS):

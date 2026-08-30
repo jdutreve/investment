@@ -119,10 +119,7 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   strictly sequential, abort +
   Telegram alert on failure; DUE-ON-START at launch/wake if the last success
   predates the most recent Sunday 08:00): 08:00 catch-up (market TS, regime
-  step per new monthly print, NAV, expiry sweep) → 08:05 UC3 event watch →
-  08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
-  probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
-  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 08:55
+  step per new monthly print, NAV, expiry sweep) → 08:02
   **market-signal monthly decision** (`market_signal_cycle.py` — ADR-007's LIVE
   allocation: PIT inputs → credit-spread/slope signal → book → trend overlay →
   binding caps → EventLog → `Proposal(proposal_type='market-signal')`; runs on
@@ -130,7 +127,10 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   monthly cadence needs no separate schedule. It refreshes the stack's
   `portfolio_nav` on EVERY run, before that monthly check — the NAV is a weekly
   artefact feeding the ranking and the drawdown alert, only the DECISION is
-  monthly) → 09:00
+  monthly) → 08:03 AAAF-R NAV refresh → 08:05 UC3 event watch →
+  08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
+  probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
+  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 09:00
   UC8 decision cycle (Planner Pre → Worker → Planner Post → Writeback gates;
   the Worker READS the market-signal decision as context and nuances it, it
   never re-picks the book) → 09:30 digest, sent on THREE channels
@@ -138,6 +138,17 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   creates itself via IMAP — ADR-015; the Gmail step is additional and
   best-effort, never able to abort the chain). Full annotated timeline:
   docs/USE_CASES.md.
+  **THE REFRESH BLOCK IS THE FIRST THREE STEPS, and the order is load-bearing.**
+  catch-up rebuilds the STATIC portfolios' NAV and deliberately skips
+  `seed_data.TIME_VARYING_PORTFOLIOS`; the market-signal and AAAF-R steps are the
+  producers of those three series (`ms-stack`, `ms-trend-baseline`,
+  `aaaf-r-USD`). Every reader of `portfolio_nav` — backtests→FAVORS, UC6, UC7 —
+  must follow ALL THREE. Until 2026-08-30 the two producers ran after UC7,
+  so the sentence above ("feeding the ranking") was false for exactly the
+  portfolios it mattered for: the 2026-08-30 ranking scored `ms-stack` on its
+  NAV row of 2026-08-21 while every static portfolio was scored on 2026-08-28,
+  and ranks 3 and 4 swapped on the difference. `value_portfolios` now WARNS when
+  the enabled portfolios do not all value on one date.
 - UC9 (user chat) may trigger one ad-hoc UC8 re-run per day.
 
 ## Stack

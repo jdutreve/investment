@@ -466,14 +466,48 @@ async def persist_nav(
     return NavBackfillResult(portfolio_id, len(rows), first)
 
 
+def _warn_on_split_as_of(latest_ts: Mapping[str, str]) -> None:
+    """Log the portfolios whose newest NAV row predates the newest one in the
+    batch — the signature of a NAV producer running after this reader.
+
+    Names the ids and the lag rather than counting them: the whole reason the
+    original defect survived seventeen days is that the two dates were never put
+    side by side anywhere a reader would see them (CLAUDE.md — "a bound whose
+    consumption is not logged cannot be re-derived")."""
+    if not latest_ts:
+        return
+    newest = max(latest_ts.values())
+    behind = sorted((ts, pid) for pid, ts in latest_ts.items() if ts < newest)
+    if behind:
+        logger.warning(
+            "valuation as-of split: newest NAV is %s but %s — the ranking that "
+            "reads these indicators will compare portfolios across dates",
+            newest,
+            ", ".join(f"{pid} ends {ts}" for ts, pid in behind),
+        )
+
+
 async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValuation]:
     """UC6 — reads the latest PortfolioNAV row per enabled Portfolio (never
     appends), derives `volatility` and cumulative `return_*` from the
     already-persisted daily_return/nav series, and updates each Portfolio
     vertex's indicator fields. Appends ONE ValuationEvent for the batch,
-    BEFORE the vertex updates (CLAUDE.md 'EventLog' rule)."""
+    BEFORE the vertex updates (CLAUDE.md 'EventLog' rule).
+
+    EVERY ENABLED PORTFOLIO MUST VALUE ON THE SAME DATE, and this WARNS when they
+    do not (`_warn_on_split_as_of`). Nothing here can enforce it — the rule is an
+    ordering property of the caller, not of this function — but a valuation that
+    silently mixes as-of dates produces a ranking that compares portfolios across
+    different days, which is what happened between 2026-08-13 and 2026-08-30:
+    `seed_data.TIME_VARYING_PORTFOLIOS` had their NAV written by steps that ran
+    AFTER this one, so `ms-stack` was ranked on a NAV row nine days older than
+    every static portfolio's. It warns rather than raises because a producer is
+    allowed to skip — `momentum_minvar.run_aaaf_r_cycle` deliberately warns and
+    skips on a missing series rather than abort the owner's weekly chain, and
+    turning its skip into a chain abort here would defeat that contract."""
     portfolio_rows = await db.query("SELECT id FROM portfolio WHERE enabled = 1")
 
+    latest_ts: dict[str, str] = {}
     valuations: list[PortfolioValuation] = []
     for row in portfolio_rows:
         portfolio_id = str(row["id"])
@@ -489,6 +523,7 @@ async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValua
         returns = pd.Series([r["daily_return"] for r in ts_rows], index=idx, dtype=float)
         latest = ts_rows[-1]
         as_of = idx[-1]
+        latest_ts[portfolio_id] = str(latest["ts"])
         volatility = rolling_volatility(returns, window).iloc[-1]
 
         valuations.append(
@@ -509,6 +544,8 @@ async def value_portfolios(db: InvestmentDB, window: int) -> list[PortfolioValua
 
     if not valuations:
         return []
+
+    _warn_on_split_as_of(latest_ts)
 
     async with db.transaction():
         await db.append_event(

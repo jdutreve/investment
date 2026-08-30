@@ -18,8 +18,10 @@ sibling `market_signal_cycle.py` follows the same rule. Note that the EventLog
 NO DISPOSITION AND NO GATE, since ADR-012 (the fourth line above read
 "Writeback.dispose → Proposal, only if every gate passes" until 2026-08-14).
 The Worker does not allocate, so this chain mints no Proposal: the month's one
-Proposal comes from `market_signal_cycle`, mechanically, at 08:55 — this cycle
-READS it and comments on it.
+Proposal comes from `market_signal_cycle`, mechanically, in the chain's refresh
+block (`weekly.py`, right after catch-up) — this cycle READS it and comments on
+it. What matters here is only that it is journalled BEFORE this one runs, which
+is the order ADR-011 requires; the slot it occupies has already moved once.
 
 The Worker is handed the context as TEXT and stays unaware of the Planner,
 Writeback and storage (docs/ARCHITECTURE.md WORKER) — `render_context_for_worker`

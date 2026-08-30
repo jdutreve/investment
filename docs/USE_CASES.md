@@ -41,6 +41,25 @@ alert. Times in ../CLAUDE.md are indicative.)
                               run + regime detector step (new prints) + NAV
                               catch-up + expiry sweep (also runs on-demand
                               as the prelude to an ad-hoc UC9 UC8 re-run)
+  —    MARKET-SIGNAL DECISION → MarketSignalDecisionEvent, and a
+                              Proposal(proposal_type='market-signal') on the
+                              ~3 months a year the book moves (08:02,
+                              market_signal_cycle.py). ADR-007's LIVE
+                              allocation path. Runs every week and refreshes
+                              the stack NAV each time, but the DECISION is
+                              MONTHLY — a no-op unless the month's anchor date
+                              is new. Journalled whether or not money moves.
+                              PART OF THE REFRESH BLOCK, beside UC1 and not
+                              after UC7 (moved 2026-08-30): it and the AAAF-R
+                              refresh below are the PRODUCERS of the three
+                              `TIME_VARYING_PORTFOLIOS` NAV series that UC1
+                              skips, and running them after UC6/UC7 had those
+                              three ranked on a NAV up to nine days older than
+                              every static portfolio's.
+  —    AAAF-R NAV refresh   → aaaf-r-USD's weekly walk (08:03,
+                              mechanical/momentum_minvar.py). A benchmark, no
+                              decision and no gate; same category and same
+                              reason for its position as the step above.
   UC2  (absorbed — see tombstone below)
   UC3  Event Watch          → Document(kind=event) deposits (pinned
                               official sources, LLM triage + enrichment)
@@ -51,17 +70,9 @@ alert. Times in ../CLAUDE.md are indicative.)
   —    Outcome evaluation   → OutcomeEvent (kind: proposal | calibration |
                               probation — mechanical/outcomes.py; see
                               ARCHITECTURE "Unified improvement cycle")
-  —    MARKET-SIGNAL DECISION → MarketSignalDecisionEvent, and a
-                              Proposal(proposal_type='market-signal') on the
-                              ~3 months a year the book moves (08:55,
-                              market_signal_cycle.py). ADR-007's LIVE
-                              allocation path. Runs every Monday and refreshes
-                              the stack NAV each time, but the DECISION is
-                              MONTHLY — a no-op unless the month's anchor date
-                              is new. Journalled whether or not money moves.
   UC8  Cognitive cycle      → WorkerReadingEvent + knowledge commit.
                               NO Proposal vertex and no gate since ADR-012:
-                              the Worker READS the 08:55 decision and nuances
+                              the Worker READS the 08:02 decision and nuances
                               it in `market_signal_assessment`, and emits no
                               allocation of any kind. It may not re-pick the
                               book, and that now holds by construction rather
@@ -443,7 +454,7 @@ contextualized via FAVORS edges (updated weekly), not directly valued.
 
 > **RETAINED BRIDGE (ADR-007) — this is a MONITORING view, not the decision.**
 > The ranking no longer selects what is held; the market-signal monthly decision
-> does (08:55, `market_signal_cycle.py`). UC7 still runs weekly, still ranks
+> does (08:02, `market_signal_cycle.py`). UC7 still runs weekly, still ranks
 > every enabled portfolio including the stack, and is what the benchmark and the
 > digest read. The ranking RULE and the binding caps below are unchanged and
 > still bind.

@@ -38,8 +38,8 @@ shape ADR-002 forces on a laptop that sleeps.
 THE GO-LIVE GATE IS NOT HERE (ADR-013). Task 9.3 gave this file a startup gate
 that skipped UC8 unless a mechanical replay report showed the agent's proposals
 beat holding the defender. ADR-012 removed the object of that predicate — UC8
-allocates nothing — and the path that does move money runs at 08:55 and was
-never covered by it. Forward paper-mode is the go-live gate (ADR-007 §5); the
+allocates nothing — and the path that does move money runs in the chain's
+refresh block and was never covered by it. Forward paper-mode is the go-live gate (ADR-007 §5); the
 binding caps, ADR-009's alerts and the anti-drift check are what watch the
 allocator.
 

@@ -70,24 +70,32 @@ async def run_as_of_cycle(db: InvestmentDB, as_of: date) -> AsOfCycle:
     """Bring `db` (an as-of-t snapshot) to the state the live chain would have
     left it in at `as_of`, ready for the Planner/Worker to read.
 
-    The order is the weekly chain's own and each step feeds the next: FAVORS are
+    The order is the weekly chain's own and each step feeds the next: the
+    market-signal cycle rebuilds the time-varying portfolios' NAV, FAVORS are
     re-aggregated from the surviving backtests, scenario probabilities from the
     surviving signals, UC6 refills the Portfolio indicators the snapshot blanked,
-    and UC7 ranks on those indicators. Running UC7 first would rank on NULLs.
+    and UC7 ranks on those indicators. Running UC7 first would rank on NULLs;
+    running the market-signal cycle last — as this did until 2026-08-30 — ranks
+    the stack on a NAV a week older than everyone else's.
     """
     rows = await db.query("SELECT key, value FROM system_thresholds")
     thresholds = {str(r["key"]): float(r["value"]) for r in rows}
     window = int(thresholds["rolling_window_days"])
 
-    reweighed = await reweigh_invariants_asof(db, as_of, thresholds)
-    favors = await run_backtests_and_favors(db, window, today=as_of)
-    scenarios = await warm_start_scenario_probabilities(db, today=as_of)
-    valuations = await value_portfolios(db, window)
-    ranked = await build_snapshot(db, thresholds["ranking_tiebreak_window"], as_of)
-
-    # ADR-007's LIVE allocation, last because the live chain runs it last (08:55,
-    # after the ranking and before UC8) and because the Worker READS its decision
-    # as context. Without this step the replayed Worker deliberates on a
+    # ADR-007's LIVE allocation, FIRST among the measuring steps because it is a
+    # PRODUCER of the series they read: it writes `ms-stack` and
+    # `ms-trend-baseline`'s `portfolio_nav`, which `run_backtests_and_favors`
+    # loads (`ratios.load_nav`) and `value_portfolios` values. It ran last here
+    # until 2026-08-30, mirroring the live chain, and inherited the live chain's
+    # defect with it — the replayed FAVORS and ranking scored the stack and its
+    # control arm on whatever NAV row the as-of snapshot happened to end on,
+    # while every static portfolio was scored on `as_of`. The live fix
+    # (`weekly.py`'s refresh block) is only half a fix if the replay that
+    # validates the chain keeps the old order.
+    #
+    # Its own inputs are `market_data` alone plus its EventLog journal, so it
+    # owes nothing to the steps it now precedes. What it DOES owe is downstream
+    # and unchanged: without this step the replayed Worker deliberates on a
     # `market_signal: {}` baseline and the screen validates only the retained
     # bridge — the path the pivot superseded. With it, the mechanical decision is
     # journalled BEFORE the Worker speaks, which is the order ADR-011 requires:
@@ -96,6 +104,12 @@ async def run_as_of_cycle(db: InvestmentDB, as_of: date) -> AsOfCycle:
         "SELECT max_drawdown_pct, max_single_asset_pct FROM user_profile LIMIT 1"
     )
     signal = await run_market_signal_cycle(db, dict(profile[0]), today=as_of) if profile else None
+
+    reweighed = await reweigh_invariants_asof(db, as_of, thresholds)
+    favors = await run_backtests_and_favors(db, window, today=as_of)
+    scenarios = await warm_start_scenario_probabilities(db, today=as_of)
+    valuations = await value_portfolios(db, window)
+    ranked = await build_snapshot(db, thresholds["ranking_tiebreak_window"], as_of)
 
     cycle = AsOfCycle(
         as_of=as_of,

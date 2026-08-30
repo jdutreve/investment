@@ -237,3 +237,40 @@ def test_the_one_trading_cost_rate_is_actually_one_rate() -> None:
     from investment.db.seed_data import SYSTEM_THRESHOLDS
 
     assert SYSTEM_THRESHOLDS["replay_cost_bps"] == ratios.TRADING_COST_BPS
+
+
+def test_split_as_of_names_the_lagging_portfolios(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`value_portfolios` cannot ENFORCE that every enabled portfolio values on
+    one date — that is an ordering property of the weekly chain — so it says so
+    when they do not, naming the ids and their lag.
+
+    This is the check that was missing while `market-signal` and `aaaf-r` ran
+    after `ranking`: the two dates existed in the DB the whole time and were
+    never put side by side anywhere a reader would see them."""
+    with caplog.at_level("WARNING"):
+        ratios._warn_on_split_as_of(
+            {
+                "spy-USD": "2026-08-28",
+                "all-weather-USD": "2026-08-28",
+                "ms-stack": "2026-08-21",
+                "aaaf-r-USD": "2026-08-14",
+            }
+        )
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert "2026-08-28" in message
+    assert "ms-stack ends 2026-08-21" in message
+    assert "aaaf-r-USD ends 2026-08-14" in message
+    # The portfolios that ARE current are not named — a warning that lists
+    # everything is one nobody reads.
+    assert "spy-USD" not in message
+
+
+def test_one_shared_as_of_is_silent(caplog: pytest.LogCaptureFixture) -> None:
+    """The post-fix state, and the empty batch, must not warn."""
+    with caplog.at_level("WARNING"):
+        ratios._warn_on_split_as_of({"spy-USD": "2026-08-28", "ms-stack": "2026-08-28"})
+        ratios._warn_on_split_as_of({})
+    assert caplog.records == []

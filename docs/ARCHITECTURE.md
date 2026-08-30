@@ -856,6 +856,19 @@ Event-driven (no nightly cron — the Mac sleeps, ADR-002)
 
 Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
   (UC2 absorbed — catch-up + snapshot.market_context)
+  -- THE REFRESH BLOCK: every portfolio_nav series is written here, and
+     nothing below reads one before all three have run (moved 2026-08-30) --
+  08:00  UC1 catch-up → MarketData TS, regime step, STATIC portfolios' NAV
+         — skips seed_data.TIME_VARYING_PORTFOLIOS: constant weights cannot
+           price a book whose weights move. The next two steps are those
+           three series' producers.
+  08:02  ADR-007 LIVE: market-signal decision (market_signal_cycle.py)
+         — runs every week, refreshes ms-stack + ms-trend-baseline NAV every
+           time, but the DECISION itself is MONTHLY (a no-op unless the
+           month's anchor date is new). This is the allocation path.
+  08:03  AAAF-R NAV refresh (momentum_minvar.py) → aaaf-r-USD
+         — a benchmark walk, no decision and no gate.
+  -- readers of portfolio_nav follow --
   08:05  UC3 event watch → Document(kind=event) via ingester
   08:10  UC4 knowledge curation → KnowledgeEvent
   08:30  Backtests → FAVORS edges (RegimeType → Strategy)
@@ -864,12 +877,8 @@ Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
   08:45  UC6 portfolio valuations → Portfolio vertices
   08:50  UC7 ranking → portfolio_weekly_snapshot
   08:52  Outcome evaluation (outcomes.py) → OutcomeEvent
-  08:55  ADR-007 LIVE: market-signal decision (market_signal_cycle.py)
-         — runs every Monday, refreshes the stack NAV every time, but the
-           DECISION itself is MONTHLY (a no-op unless the month's anchor
-           date is new). This is the allocation path.
   09:00  UC8: Planner Pre → Worker → Planner Post → Writeback
-         — the Worker READS the 08:55 decision and nuances it. It may not
+         — the Worker READS the 08:02 decision and nuances it. It may not
            re-pick the book, and since ADR-012 that holds by construction
            rather than by a gate: it emits no allocation of any kind, for
            the stack or for the bridge. Knowledge only.
@@ -1120,7 +1129,7 @@ stale data). Timezone Europe/Zurich.
   09:00:10  asyncio.create_task() → PlannerPost + Writeback
               Call 2 + commits (EventLog first)
               NO gate and NO Proposal on this path since ADR-012 — the
-              month's Proposal was minted at 08:55 by the mechanical
+              month's Proposal was minted at 08:02 by the mechanical
               market-signal cycle, which UC8 reads and comments
               snapshot `recommendation` columns updated
               (rows themselves written by UC7 at 08:50)

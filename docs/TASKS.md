@@ -1635,7 +1635,7 @@ removed the field, so completeness now means every REQUIRED key present, with
   verdict 'keep'|'review'; 'review' → Telegram closure proposal).
 - `learning.py` — V2 stub raising NotImplementedError.
 
-**Done when:** the full Monday pre-processing chain (08:00→08:55 steps) runs
+**Done when:** the full Monday pre-processing chain (08:00→08:52 steps) runs
 on the seeded DB and produces a fresh ranked snapshot.
 
 ---

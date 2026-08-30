@@ -1073,7 +1073,7 @@ allocation, `dispose_reallocation` is gone, and what the cycle produces is a
 journalled reading of the mechanical decision plus knowledge — confrontations,
 conviction nudges, scenario probabilities, innovations, and the rule revisions
 ADR-006 matures. Meanwhile the path that actually moves money, the market-signal
-monthly stack, was never covered by this gate at all: it runs at 08:55, before
+monthly stack, was never covered by this gate at all: it runs at 08:02, before
 UC8, and would decide whether the gate were open or shut.
 
 So the gate as specified would, on the first real Monday, switch off the
