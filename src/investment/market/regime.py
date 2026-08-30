@@ -25,6 +25,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
+from investment.market.liquidity import STATE_READINGS, level_in_sigma, liquidity_state
 
 FRAMEWORK_ID = "4seasons"
 GROWTH_TICKER = "GROWTH_COMPOSITE"
@@ -290,16 +291,22 @@ def derive_tags(
     thresholds: RegimeThresholds,
 ) -> list[str]:
     """The pinned tag set (ARCHITECTURE.md "Tags layered on top") — deflation,
-    liquidity-tightening/easing, market-stress. Instance-level, layered on
-    top of the RegimeType classification."""
+    one of `liquidity.STATES`, market-stress. Instance-level, layered on top of
+    the RegimeType classification.
+
+    THE LIQUIDITY TAG IS NOW TOTAL. It read `level < 100 AND speed < 0` for
+    tightening and `level > 100 AND speed > 0` for easing, which named the two
+    states where stock and flow agree and left the two TRANSITIONS — abundant
+    and falling, scarce and rising — carrying no tag at all, along with a level
+    of exactly 100 either way. `liquidity_state` names all four (owner,
+    2026-08-30: the two mixed states replace the two pure ones rather than being
+    added beside them, so one vocabulary describes every reachable reading)."""
     tags = []
     if inflation.level is not None and inflation.level < thresholds.cpi_deflation:
         tags.append("deflation")
-    if liquidity.level is not None and liquidity.speed is not None:
-        if liquidity.level < 100 and liquidity.speed < 0:
-            tags.append("liquidity-tightening")
-        elif liquidity.level > 100 and liquidity.speed > 0:
-            tags.append("liquidity-easing")
+    state = liquidity_state(liquidity.level, liquidity.speed)
+    if state is not None:
+        tags.append(state)
     if vix_level is not None and vix_level > thresholds.vix_stress:
         tags.append("market-stress")
     return tags
@@ -325,11 +332,17 @@ def derive_events(growth: AxisReading, inflation: AxisReading, liquidity: AxisRe
             )
         else:
             events.append(f"GROWTH_COMPOSITE {growth.level:.1f}")
-    if liquidity.level is not None and liquidity.speed is not None:
-        direction = "tightening" if liquidity.speed < 0 else "easing"
+    # THE SAME STATE THE TAG USES, and the same words. This line read
+    # "tightening" or "easing" off the sign of `speed` alone, so a level of 105
+    # falling was narrated as tightening while `derive_tags` — reading both
+    # dimensions — tagged it nothing. Two readings of one series in one function
+    # is how a number and the sentence about it come to disagree.
+    state = liquidity_state(liquidity.level, liquidity.speed)
+    if state is not None and liquidity.level is not None and liquidity.speed is not None:
         events.append(
-            f"global liquidity {direction} "
-            f"(level {liquidity.level:.1f}, speed {liquidity.speed:+.2f})"
+            f"global liquidity {STATE_READINGS[state]} "
+            f"(level {liquidity.level:.1f} = {level_in_sigma(liquidity.level):+.2f} sigma vs "
+            f"its 5y norm, 7d change {liquidity.speed:+.2f} index points)"
         )
     return events
 

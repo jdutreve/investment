@@ -289,9 +289,17 @@ confidence       = clamp(50 + 20×axis_strength(growth)
 ```
 
 **Tags layered on top (instance-level):** `deflation` when CPI YoY < 0;
-`liquidity-tightening` (GLOBAL_LIQUIDITY level < 100 AND speed < 0) /
-`liquidity-easing` (level > 100 AND speed > 0); `market-stress` when
-^VIX > regime_vix_stress (25).
+exactly ONE of the four GLOBAL_LIQUIDITY states — `liquidity-supportive`,
+`liquidity-fading`, `liquidity-repairing`, `liquidity-restrictive`, from the
+level against its 5y norm AND the sign of the speed, total by construction
+(`market/liquidity.py::liquidity_state`, table in DATA_MODELS "The four
+states"); `market-stress` when ^VIX > regime_vix_stress (25).
+
+The liquidity tag was two values until 2026-08-30 — level and speed had to
+AGREE — so the two transition states, abundant-and-falling and
+scarce-and-rising, carried no tag at all while the narrative event called them
+"tightening" or "easing" off the speed alone. Four states, one definition, every
+front.
 
 A RegimeEvent is appended to EventLog only when the regime, confidence band
 (±10), or tag set changes.

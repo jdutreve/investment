@@ -137,7 +137,7 @@ Regime {
   id: "stagflation-2026-05-01"
   regime_type_id: "falling-growth-rising-inflation"
   tags: ["stagflation", "inflation-rising", "growth-falling",
-         "liquidity-tightening"]
+         "liquidity-restrictive"]
   start_date: 2026-05-01, end_date: null   ← from the data (Friday)
   is_current: true, confidence: 78
   events: [

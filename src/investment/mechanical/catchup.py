@@ -116,7 +116,7 @@ FETCH_MARGIN_DAYS = 500
 # refreshed, so the database IS the full as-known history, and reading it costs
 # a query instead of a second network pass.
 GROWTH_INPUTS = ("INDPRO", "UNRATE")
-LIQUIDITY_COMPONENTS = ("M2SL", "WALCL", "ECBASSETSW", "JPNASSETS")
+LIQUIDITY_COMPONENTS = liquidity.COMPONENTS
 LIQUIDITY_FX = ("DEXUSEU", "DEXJPUS")
 
 

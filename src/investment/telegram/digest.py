@@ -15,6 +15,15 @@ from typing import Any, TypedDict
 
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import WORKER_READING_EVENT
+from investment.market.liquidity import (
+    COMPONENTS as LIQUIDITY_COMPONENTS,
+)
+from investment.market.liquidity import (
+    PROXY_DESCRIPTION,
+    STATE_READINGS,
+    level_in_sigma,
+    liquidity_state,
+)
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.outcomes import paper_test_progress
@@ -56,10 +65,44 @@ def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[st
         # Through `_num` like every other indicator in this file: these are raw
         # REALs off `market_data`, and unformatted they print the full float
         # repr (the live DB's level renders as 95.83616874214097).
+        #
+        # FOUR LINES WHERE THERE WAS HALF OF ONE, and each answers a question
+        # "level 95.8, speed -0.8" could not. What state is this (the stock and
+        # the flow, named together — `liquidity.liquidity_state`); what does the
+        # level mean (an index on an arbitrary scale, restated as the z it is);
+        # what is `speed` in (7 calendar days, index points); how old is this
+        # really (the composite's own date hides a monthly component up to 60
+        # days behind); and what may be done with it — which is NOTHING on its
+        # own: the only invariant measuring this composite was REJECTED at 2/8
+        # (docs/MILESTONES.md M5-bis), so a book never follows from it.
+        state = liquidity.get("state")
+        sigma, level = liquidity.get("sigma"), liquidity.get("level")
+        if isinstance(state, str):
+            name = state.removeprefix("liquidity-").upper()
+            lines.append(f"💧 Global liquidity: {name} — {STATE_READINGS[state]}")
+        else:
+            lines.append("💧 Global liquidity")
+        side = "under" if isinstance(sigma, int | float) and sigma < 0 else "over"
         lines.append(
-            f"   Global liquidity: level {_num(liquidity.get('level'))}, "
-            f"speed {_num(liquidity.get('speed'))}"
+            f"   Level {_num(level)} = {abs(sigma):.2f} sigma {side} its 5y norm"
+            if isinstance(sigma, int | float)
+            else f"   Level {_num(level)}"
         )
+        # SIGNED, always. This is a CHANGE, and "7d change 0.43" leaves the
+        # reader to infer the direction from a minus sign that is only there
+        # half the time — on the one line of this block whose whole content is
+        # a direction.
+        speed = liquidity.get("speed")
+        change = f"{speed:+.2f}" if isinstance(speed, int | float) else "n/a"
+        lines.append(f"   7d change {change} index points")
+        freshness = f"data to {liquidity.get('ts', '?')}"
+        if liquidity.get("oldest_component"):
+            freshness += (
+                f", oldest input {liquidity['oldest_component']} "
+                f"{liquidity['oldest_component_days']}d old"
+            )
+        lines.append(f"   Proxy: {PROXY_DESCRIPTION} (no China) — {freshness}")
+        lines.append("   Role: context only — not validated as an allocation signal on its own")
     return lines
 
 
@@ -649,10 +692,7 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         "FROM regime r JOIN regime_type rt ON rt.id = r.regime_type_id "
         "WHERE r.is_current = 1 LIMIT 1"
     )
-    liquidity_rows = await db.query(
-        "SELECT level, speed FROM market_data WHERE ticker = 'GLOBAL_LIQUIDITY' "
-        "ORDER BY ts DESC LIMIT 1"
-    )
+    liquidity_standing = await _liquidity_standing(db, today)
     ranking = await db.query(
         "SELECT * FROM portfolio_weekly_snapshot "
         "WHERE date = (SELECT MAX(date) FROM portfolio_weekly_snapshot) ORDER BY rank ASC"
@@ -666,7 +706,7 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
     defender = next((r for r in ranking if r.get("defender")), None)
     return DigestInputs(
         regime=dict(regime_rows[0]) if regime_rows else {},
-        global_liquidity=dict(liquidity_rows[0]) if liquidity_rows else {},
+        global_liquidity=liquidity_standing,
         ranking=[dict(r) for r in ranking],
         invariants=[dict(r) for r in invariants],
         proposal=await _latest_proposal(db, [dict(r) for r in ranking], today),
@@ -764,6 +804,52 @@ async def _latest_market_signal_decision(db: InvestmentDB) -> dict[str, Any] | N
     if not rows:
         return None
     return _json_map(rows[0]["payload"]) or None
+
+
+async def _liquidity_standing(db: InvestmentDB, today: date) -> dict[str, Any]:
+    """The composite AS OF today, its state, and the age of its oldest input.
+
+    `ts <= :today` IS NOT DECORATION. The composite is stamped at its
+    components' knowable date (ADR-003), and WALCL carries a deliberately
+    conservative 5-day lag against a typical 1 — so on 2026-08-30 the newest
+    GLOBAL_LIQUIDITY row was dated 08-31. Unfiltered, this line showed the owner
+    a level the decision path is forbidden to use, which is the display
+    contradicting the vintage rule the rest of the system obeys.
+
+    THE OLDEST COMPONENT, because the composite's own date hides it. The four
+    inputs are forward-filled onto a common calendar, so a row dated today can
+    be carrying a monthly print from seven weeks ago — the lags are 60 days for
+    M2SL and 40 for JPNASSETS against 5 for the two weekly balance sheets."""
+    rows = await db.query(
+        "SELECT ts, level, speed FROM market_data WHERE ticker = 'GLOBAL_LIQUIDITY' "
+        "AND ts <= :today ORDER BY ts DESC LIMIT 1",
+        today=today.isoformat(),
+    )
+    if not rows:
+        return {}
+    standing = dict(rows[0])
+    level, speed = standing.get("level"), standing.get("speed")
+    standing["state"] = liquidity_state(
+        level if isinstance(level, int | float) else None,
+        speed if isinstance(speed, int | float) else None,
+    )
+    standing["sigma"] = level_in_sigma(level) if isinstance(level, int | float) else None
+    # Placeholders off the CONSTANT's length, so a fifth component joining
+    # `liquidity.COMPONENTS` is carried here rather than silently unwatched.
+    named = ", ".join(f":c{i}" for i in range(len(LIQUIDITY_COMPONENTS)))
+    params: dict[str, Any] = {f"c{i}": t for i, t in enumerate(LIQUIDITY_COMPONENTS)}
+    ages = await db.query(
+        f"SELECT ticker, MAX(ts) AS ts FROM market_data WHERE ticker IN ({named}) "
+        "AND ts <= :today GROUP BY ticker ORDER BY ts ASC LIMIT 1",
+        today=today.isoformat(),
+        **params,
+    )
+    if ages:
+        oldest = str(ages[0]["ts"])
+        standing["oldest_component"] = str(ages[0]["ticker"])
+        standing["oldest_component_date"] = oldest
+        standing["oldest_component_days"] = (today - date.fromisoformat(oldest)).days
+    return standing
 
 
 async def _stack_standing(db: InvestmentDB) -> dict[str, Any] | None:

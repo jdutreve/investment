@@ -108,7 +108,7 @@ Regime {
   regime_type_id  : STRING                -- FK → RegimeType.id
   tags            : STRING[]              -- dynamic instance tags:
                                           --   'deflation' when CPI YoY < 0
-                                          --   'liquidity-tightening' etc.
+                                          --   one of the four liquidity states
   start_date      : DATE
   end_date        : DATE                  -- null if currently active
   confidence      : FLOAT                 -- 0-100 (formula in ARCHITECTURE)
@@ -822,11 +822,38 @@ level     = 100 + 10 × raw                   -- >100 expansion, <100 contractio
 
 ```
 z_i    = z-score of component i (USD-converted) over trailing 5y
-level  = 100 + 10 × mean(z_i)                -- >100 easing, <100 tightening
+level  = 100 + 10 × mean(z_i)                -- the 5y norm is 100, not a level of liquidity
 ```
 
-Tags derived for Regime instances: `liquidity-tightening` when
-`level < 100 AND speed < 0`; `liquidity-easing` when `level > 100 AND speed > 0`.
+The index has no units of its own, so it is displayed restated as what it
+measures: `level_in_sigma = (level − 100) / 10`, the mean component z-score.
+95.8 is "the components average 0.42σ under their five-year norm". And it is a
+PROXY — US M2 plus three central-bank balance sheets, no China, a money stock
+mixed with balance sheets — named that way on every front.
+
+**The four states** (`market/liquidity.py`, `liquidity_state`) — THE one
+definition, read by the Regime tag, the narrative event, the digest and the
+dashboard. The composite has a STOCK (level vs its own 5y norm) and a MOVEMENT
+(speed), the two are independent, and naming the state from either alone names
+half of it:
+
+| | `speed > 0` | `speed ≤ 0` |
+|---|---|---|
+| `level ≥ 100` | `liquidity-supportive` — abundant and improving | `liquidity-fading` — abundant but deteriorating |
+| `level < 100` | `liquidity-repairing` — scarce but improving | `liquidity-restrictive` — scarce and deteriorating |
+
+TOTAL by construction: every (level, speed) pair maps to exactly one state. The
+two mixed states are the transitions, and they are the point — the earlier rule
+tagged only the two where stock and flow agree, so an abundant composite that
+was falling carried no tag at all while the narrative called it "tightening".
+Boundaries: a level of exactly 100 sits on the abundant side (it is the norm,
+not scarcity); a speed of exactly 0 counts as not improving (standing still is
+not a tailwind).
+
+**Role: context, never allocation.** The only invariant measuring this composite
+(`inv-liquidity-tightening-risk`, `level < 100 AND speed < 0`) was REJECTED at
+2/8 (docs/MILESTONES.md M5-bis). No book follows from the composite, and every
+front says so on the line that shows it.
 
 ---
 

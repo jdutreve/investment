@@ -17,6 +17,58 @@ import { date, num, pct, pctPoints, signClass, weight } from "../format";
 
 const s = (row: Row | null | undefined, key: string): unknown => row?.[key];
 
+// The four states of the liquidity composite, spelled the way the agent tags
+// them (market/liquidity.py STATES). Read from the payload and never derived
+// here: the level/speed rule lived in three places until 2026-08-30 and they
+// disagreed, so this front asks rather than decides.
+const LIQUIDITY_READING: Record<string, string> = {
+  "liquidity-supportive": "abundant and improving",
+  "liquidity-fading": "abundant but deteriorating",
+  "liquidity-repairing": "scarce but improving",
+  "liquidity-restrictive": "scarce and deteriorating",
+};
+
+function LiquidityBlock({ liquidity }: { liquidity: Row }) {
+  const state = s(liquidity, "state");
+  const sigma = s(liquidity, "sigma");
+  const speed = s(liquidity, "speed");
+  const oldest = s(liquidity, "oldest_component");
+  if (!state && s(liquidity, "level") === undefined) return null;
+  const label =
+    typeof state === "string"
+      ? state.replace("liquidity-", "").toUpperCase()
+      : null;
+  const reading = typeof state === "string" ? LIQUIDITY_READING[state] : null;
+  return (
+    <div style={{ marginTop: 10, fontSize: 12.5 }}>
+      <strong>Global liquidity{label ? ` — ${label}` : ""}</strong>
+      {reading ? <span className="muted"> · {reading}</span> : null}
+      <div className="muted">
+        Level {num(s(liquidity, "level"))}
+        {typeof sigma === "number"
+          ? ` = ${Math.abs(sigma).toFixed(2)} sigma ${sigma < 0 ? "under" : "over"} its 5y norm`
+          : ""}
+        {typeof speed === "number"
+          ? ` · 7d change ${speed >= 0 ? "+" : ""}${speed.toFixed(2)} index points`
+          : ""}
+      </div>
+      <div className="muted">
+        Proxy: US M2 + Fed/ECB/BoJ balance sheets (no China) — data to{" "}
+        {String(s(liquidity, "ts") ?? "?")}
+        {oldest
+          ? `, oldest input ${String(oldest)} ${String(s(liquidity, "oldest_component_days"))}d old`
+          : ""}
+      </div>
+      {/* The only invariant measuring this composite was REJECTED at 2/8
+          (docs/MILESTONES.md M5-bis). Saying so on the card is what stops it
+          being read as a fifth allocation signal. */}
+      <div className="muted">
+        Role: context only — not validated as an allocation signal on its own
+      </div>
+    </div>
+  );
+}
+
 function RegimeCard({ regime, liquidity }: { regime: Row; liquidity: Row }) {
   const name = s(regime, "regime_name") ?? s(regime, "regime_type_id");
   return (
@@ -26,18 +78,22 @@ function RegimeCard({ regime, liquidity }: { regime: Row; liquidity: Row }) {
       </h2>
       {name ? (
         <>
-          <div style={{ fontSize: 18, fontWeight: 620, letterSpacing: "-0.015em" }}>
+          <div
+            style={{ fontSize: 18, fontWeight: 620, letterSpacing: "-0.015em" }}
+          >
             {String(name)}
           </div>
           <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
             {/* percent POINTS, not a fraction — see format.ts */}
-            confidence {pctPoints(s(regime, "confidence"))} · global liquidity level{" "}
-            {num(s(liquidity, "level"))}, speed {num(s(liquidity, "speed"))}
+            confidence {pctPoints(s(regime, "confidence"))}
           </div>
         </>
       ) : (
-        <div className="empty">No current regime recorded — the detector has not run.</div>
+        <div className="empty">
+          No current regime recorded — the detector has not run.
+        </div>
       )}
+      <LiquidityBlock liquidity={liquidity} />
     </div>
   );
 }
@@ -53,15 +109,18 @@ function StackCard({ stack }: { stack: Row | null }) {
           <div className="grid cols-4">
             <Tile label="Sortino" value={num(s(stack, "sortino_rolling"))} />
             <Tile label="Calmar" value={num(s(stack, "calmar_rolling"))} />
-            <Tile label="Deepest drawdown 36M" value={pct(s(stack, "drawdown"))} />
+            <Tile
+              label="Deepest drawdown 36M"
+              value={pct(s(stack, "drawdown"))}
+            />
           </div>
           {/* The label is not modesty: `ms-stack`'s NAV is built from the
               decision walk and assumes every monthly decision filled at the
               close of its anchor date. V1 executes nothing. */}
           <div className="paper-note">
-            PAPER — what the strategy would have done, never a statement about the
-            account. Deepest drawdown inside the trailing 756 days, not today&apos;s
-            distance from a high.
+            PAPER — what the strategy would have done, never a statement about
+            the account. Deepest drawdown inside the trailing 756 days, not
+            today&apos;s distance from a high.
           </div>
         </>
       ) : (
@@ -71,7 +130,11 @@ function StackCard({ stack }: { stack: Row | null }) {
   );
 }
 
-function ScoreboardCard({ scoreboard }: { scoreboard: OverviewData["scoreboard"] }) {
+function ScoreboardCard({
+  scoreboard,
+}: {
+  scoreboard: OverviewData["scoreboard"];
+}) {
   const [won, decided] = scoreboard.hit_rate;
   return (
     <div className="card">
@@ -86,8 +149,14 @@ function ScoreboardCard({ scoreboard }: { scoreboard: OverviewData["scoreboard"]
           value={decided ? `${won}/${decided}` : "—"}
           sub={decided ? pct(won / decided, false) : "nothing decided yet"}
         />
-        <Tile label="Paper-tests running" value={String(scoreboard.paper_tests.length)} />
-        <Tile label="Strategies in probation" value={String(scoreboard.probations.length)} />
+        <Tile
+          label="Paper-tests running"
+          value={String(scoreboard.paper_tests.length)}
+        />
+        <Tile
+          label="Strategies in probation"
+          value={String(scoreboard.probations.length)}
+        />
       </div>
     </div>
   );
@@ -146,8 +215,13 @@ function DecisionCard({
   const gate = s(decision, "gate");
   const blocked = Boolean(gate) && gate !== "passed";
   const held = (s(decision, "held_allocation") ?? {}) as Record<string, number>;
-  const target = (s(decision, "target_allocation") ?? {}) as Record<string, number>;
-  const moves = Array.from(new Set([...Object.keys(held), ...Object.keys(target)]))
+  const target = (s(decision, "target_allocation") ?? {}) as Record<
+    string,
+    number
+  >;
+  const moves = Array.from(
+    new Set([...Object.keys(held), ...Object.keys(target)]),
+  )
     .filter((t) => (held[t] ?? 0) !== (target[t] ?? 0))
     .sort();
   const readDate = s(reading, "market_signal_decision_date");
@@ -161,7 +235,8 @@ function DecisionCard({
       <div style={{ fontSize: 16, fontWeight: 620 }}>
         {/* "target book" whenever a gate refused: naming a target as though it
             were a position is the error ADR-011's pass removed elsewhere. */}
-        {blocked ? "Target book" : "Book"} {String(s(decision, "held_book") ?? "?")}
+        {blocked ? "Target book" : "Book"}{" "}
+        {String(s(decision, "held_book") ?? "?")}
         <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
           {" "}
           · decided {date(s(decision, "decision_date"))}
@@ -172,9 +247,9 @@ function DecisionCard({
           <div>
             <span className="level">blocked</span>
             <div>
-              Gate <span className="mono">{String(gate)}</span> refused this decision — nothing
-              was proposed. The stack is FROZEN in its previous book, not in the one named
-              above.
+              Gate <span className="mono">{String(gate)}</span> refused this
+              decision — nothing was proposed. The stack is FROZEN in its
+              previous book, not in the one named above.
             </div>
           </div>
         </div>
@@ -222,9 +297,14 @@ function DecisionCard({
         <div style={{ marginTop: 10, fontSize: 12.5 }}>
           <strong>Worker challenge</strong>
           {stale ? (
-            <span className="muted"> (reading of the {date(readDate)} decision — not this one)</span>
+            <span className="muted">
+              {" "}
+              (reading of the {date(readDate)} decision — not this one)
+            </span>
           ) : null}
-          <div className="muted">{String(s(reading, "market_signal_assessment"))}</div>
+          <div className="muted">
+            {String(s(reading, "market_signal_assessment"))}
+          </div>
         </div>
       ) : null}
       <div style={{ marginTop: 10 }}>
@@ -245,7 +325,8 @@ export function Overview() {
   if (error) return <ErrorState error={error} />;
   if (isPending) return <div className="empty">Loading…</div>;
 
-  const defender = data.ranking.find((r) => r.defender) ?? data.defender_metrics;
+  const defender =
+    data.ranking.find((r) => r.defender) ?? data.defender_metrics;
 
   return (
     /* Held at reduced opacity on refetch rather than replaced by a skeleton —
@@ -255,7 +336,9 @@ export function Overview() {
       <div className="page-head">
         <div>
           <h1>Overview</h1>
-          <p>The weekly digest, laid out. Same rows, same numbers, same alerts.</p>
+          <p>
+            The weekly digest, laid out. Same rows, same numbers, same alerts.
+          </p>
         </div>
       </div>
 
@@ -269,7 +352,10 @@ export function Overview() {
       </div>
 
       <div className="grid cols-2" style={{ marginTop: 14 }}>
-        <DecisionCard decision={data.market_signal} reading={data.worker_reading} />
+        <DecisionCard
+          decision={data.market_signal}
+          reading={data.worker_reading}
+        />
         <div className="grid" style={{ gap: 14, alignContent: "start" }}>
           <DefenderCard defender={defender ?? null} />
           <ScoreboardCard scoreboard={data.scoreboard} />
@@ -296,8 +382,12 @@ export function Overview() {
                     <td>{String(inv.title ?? "")}</td>
                     <td className="muted">{String(inv.author ?? "—")}</td>
                     <td className="num">{num(inv.weight_effective)}</td>
-                    <td className="num">{String(inv.confirmation_count ?? 0)}</td>
-                    <td className={`num ${signClass(-(Number(inv.infirmation_count) || 0))}`}>
+                    <td className="num">
+                      {String(inv.confirmation_count ?? 0)}
+                    </td>
+                    <td
+                      className={`num ${signClass(-(Number(inv.infirmation_count) || 0))}`}
+                    >
                       {String(inv.infirmation_count ?? 0)}
                     </td>
                   </tr>

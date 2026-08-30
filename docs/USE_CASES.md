@@ -127,8 +127,10 @@ UC8 reads EventLog weekly to assemble its inputs.
     Concrete Regime instances are created dynamically by `detect_regime()`
     (id convention `<regimeType.alias>-<start_date>`, e.g.
     `stagflation-2026-05-01`).
-    Tags reserved on instances: 'deflation', 'liquidity-tightening',
-                   'liquidity-easing', 'market-stress'
+    Tags reserved on instances: 'deflation', 'market-stress', and exactly one
+                   of the four liquidity states — 'liquidity-supportive',
+                   'liquidity-fading', 'liquidity-repairing',
+                   'liquidity-restrictive' (DATA_MODELS 'The four states')
 
 4.  Invariant vertices (status='proposed' at creation, seed minimum,
     hand-written — guaranteed baseline even when step 6b is skipped;

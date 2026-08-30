@@ -15,6 +15,7 @@ import pytest
 
 from investment.db.seed_data import FRAMEWORKS, REGIME_TYPES, SYSTEM_THRESHOLDS
 from investment.db.sqlite import InvestmentDB
+from investment.market import liquidity as L
 from investment.market import regime
 
 # -- fixtures --------------------------------------------------------------
@@ -134,17 +135,45 @@ def test_derive_tags() -> None:
     deflation = regime.derive_tags(_reading(-0.5, 0.1), _NONE, None, THRESHOLDS)
     assert "deflation" in deflation
 
-    tightening = regime.derive_tags(_reading(1.0, 0.1), _reading(95.0, -1.0), None, THRESHOLDS)
-    assert tightening == ["liquidity-tightening"]
+    # THE FOUR STATES, and the two that mattered are the mixed ones: under the
+    # old rule (`level < 100 AND speed < 0` / `level > 100 AND speed > 0`) an
+    # abundant-but-falling or scarce-but-rising composite was tagged NOTHING,
+    # which is precisely the transition worth seeing coming.
+    restrictive = regime.derive_tags(_reading(1.0, 0.1), _reading(95.0, -1.0), None, THRESHOLDS)
+    assert restrictive == [L.RESTRICTIVE]
 
-    easing = regime.derive_tags(_reading(1.0, 0.1), _reading(105.0, 1.0), None, THRESHOLDS)
-    assert easing == ["liquidity-easing"]
+    supportive = regime.derive_tags(_reading(1.0, 0.1), _reading(105.0, 1.0), None, THRESHOLDS)
+    assert supportive == [L.SUPPORTIVE]
+
+    fading = regime.derive_tags(_reading(1.0, 0.1), _reading(105.0, -1.0), None, THRESHOLDS)
+    assert fading == [L.FADING]
+
+    repairing = regime.derive_tags(_reading(1.0, 0.1), _reading(95.0, 1.0), None, THRESHOLDS)
+    assert repairing == [L.REPAIRING]
 
     stress = regime.derive_tags(_reading(1.0, 0.1), _NONE, 30.0, THRESHOLDS)
     assert stress == ["market-stress"]
 
     calm = regime.derive_tags(_reading(1.0, 0.1), _NONE, 10.0, THRESHOLDS)
     assert calm == []
+
+
+def test_the_narrative_and_the_tag_name_the_same_state() -> None:
+    """The defect that made the four states necessary, pinned as an agreement.
+
+    `derive_events` read `"tightening" if speed < 0 else "easing"` — the sign of
+    the speed alone — while `derive_tags` demanded that level and speed agree.
+    An abundant composite that was falling was therefore narrated as
+    "tightening" and tagged NOTHING, in the same function call, about the same
+    number. Both now read `liquidity.liquidity_state`, so they cannot disagree
+    without this failing."""
+    for level, speed in ((105.0, -1.0), (95.0, 1.0), (105.0, 1.0), (95.0, -1.0)):
+        reading = _reading(level, speed)
+        (tag,) = regime.derive_tags(_reading(1.0, 0.1), reading, None, THRESHOLDS)
+        (event,) = [e for e in regime.derive_events(_NONE, _NONE, reading) if "liquidity" in e]
+        assert L.STATE_READINGS[tag] in event
+        # ...and the event carries the units the bare numbers lacked.
+        assert "sigma vs its 5y norm" in event and "index points" in event
 
 
 # -- step() hysteresis -----------------------------------------------------

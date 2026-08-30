@@ -19,6 +19,73 @@ _MIN_PERIODS = 24
 _EUR_TICKERS = frozenset({"ECBASSETSW"})
 _JPY_TICKERS = frozenset({"JPNASSETS"})
 
+# THE FOUR COMPONENTS, named once. `mechanical/catchup.py` and `seed.py` each
+# carried their own copy of this tuple, and the freshness line in the digest
+# would have been the third — so it lives beside the function that combines
+# them. What the composite is NOT is part of its name everywhere it is shown:
+# there is no China, and it mixes a money stock with three balance sheets.
+COMPONENTS: tuple[str, ...] = ("M2SL", "WALCL", "ECBASSETSW", "JPNASSETS")
+PROXY_DESCRIPTION = "US M2 + Fed/ECB/BoJ balance sheets"
+
+# THE FOUR STATES, and the reason there are four rather than two.
+#
+# The composite has a STOCK (is liquidity abundant against its own 5y norm) and
+# a MOVEMENT (is it improving), and the two are independent. Naming the state
+# from one dimension names half of it — which is what three separate readings of
+# this series each did differently until 2026-08-30: `derive_tags` demanded that
+# both agree and so left the two MIXED states unnamed; `derive_events` called it
+# tightening or easing on the sign of `speed` alone; DATA_MODELS defined
+# expansion and contraction on the level alone. A level of 105 falling was
+# narrated "tightening" and tagged nothing at all.
+#
+# The mixed states are not an edge case to tidy away — they are the transitions,
+# the only two states in which the stock and the flow disagree, and the ones
+# worth seeing coming.
+#
+# TOTAL BY CONSTRUCTION: every (level, speed) pair maps to exactly one state,
+# which is the property the old tag rule lacked. Two boundary conventions make
+# it so, and both are deliberate:
+#   - `level >= 100` counts as abundant. 100 is mean-z zero, the norm itself,
+#     and a series sitting exactly on its norm is not scarce.
+#   - `speed > 0` counts as improving, so a FLAT composite reads as fading or
+#     restrictive rather than as support. Conservative on purpose: standing
+#     still is not a tailwind, and this project would rather understate one.
+SUPPORTIVE = "liquidity-supportive"
+FADING = "liquidity-fading"
+REPAIRING = "liquidity-repairing"
+RESTRICTIVE = "liquidity-restrictive"
+STATES: tuple[str, ...] = (SUPPORTIVE, FADING, REPAIRING, RESTRICTIVE)
+STATE_READINGS: dict[str, str] = {
+    SUPPORTIVE: "abundant and improving",
+    FADING: "abundant but deteriorating",
+    REPAIRING: "scarce but improving",
+    RESTRICTIVE: "scarce and deteriorating",
+}
+
+
+def liquidity_state(level: float | None, speed: float | None) -> str | None:
+    """The composite's state from its stock AND its movement, or None when
+    either is missing (an early history, or a component that never arrived).
+
+    THE ONE DEFINITION. Everything that names this series reads it here — the
+    Regime tag, the narrative event, the digest, the dashboard — because four
+    places naming it independently is exactly how they came to disagree."""
+    if level is None or speed is None:
+        return None
+    if level >= 100.0:
+        return SUPPORTIVE if speed > 0.0 else FADING
+    return REPAIRING if speed > 0.0 else RESTRICTIVE
+
+
+def level_in_sigma(level: float) -> float:
+    """The level restated as what it measures: mean component z-score.
+
+    `level = 100 + 10 x mean(z)` is an index whose units nobody carries in their
+    head, so 95.8 reads as "a bit under 100" rather than as "the components
+    average 0.42 standard deviations under their own five-year norm". Displaying
+    the index without this translation is displaying an arbitrary scale."""
+    return (level - 100.0) / 10.0
+
 
 def usd_convert(ticker: str, series: pd.Series, eurusd: pd.Series, usdjpy: pd.Series) -> pd.Series:
     """`eurusd` = USD per EUR (FRED DEXUSEU); `usdjpy` = JPY per USD

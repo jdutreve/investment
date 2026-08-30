@@ -24,7 +24,16 @@ def _digest(**over: object) -> str:
         "regime": {"regime_name": "Stagflation", "regime_type_id": "stag", "confidence": 78.0},
         # Full-precision REALs, as they come off the DB — the live values that
         # exposed the raw-repr rendering. A round 98.4 would have hidden it.
-        "global_liquidity": {"level": 95.83616874214097, "speed": -0.80},
+        "global_liquidity": {
+            "ts": "2026-06-08",
+            "level": 95.83616874214097,
+            "speed": -0.80,
+            "state": "liquidity-restrictive",
+            "sigma": -0.4163831257859029,
+            "oldest_component": "M2SL",
+            "oldest_component_date": "2026-04-30",
+            "oldest_component_days": 39,
+        },
         "ranking": [
             {
                 "rank": 1,
@@ -114,7 +123,13 @@ def test_render_is_complete_and_readable() -> None:
     # ... each with its running proposed-vs-incumbent (docs/TASKS.md Task 6bis.1)
     assert "p-42: +2.3% vs incumbent since paper_started" in text
     # every indicator formatted, never a raw float repr — this file's one job
-    assert "Global liquidity: level 95.84, speed -0.80" in text
+    # The four questions "level 95.84, speed -0.80" could not answer: what
+    # state, what the index means, what the change is in, and how old it is.
+    assert "Global liquidity: RESTRICTIVE — scarce and deteriorating" in text
+    assert "Level 95.84 = 0.42 sigma under its 5y norm" in text
+    assert "7d change -0.80 index points" in text
+    assert "oldest input M2SL 39d old" in text
+    assert "Role: context only" in text
     assert "Defender (USD, 36M): Sharpe 0.65 | Sortino 1.18 | Calmar 1.90" in text
     # defender returns, signed percentages
     assert "3m +3.8%" in text and "1y +14.3%" in text
@@ -287,6 +302,59 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
     assert "🔀 Switch proposal" in text
     assert "Paper-tests in progress: 1" in text
     assert "3m +3.8%" in text
+
+
+async def test_the_liquidity_read_obeys_the_vintage_rule(db: InvestmentDB) -> None:
+    """The digest may not show a level the decision path is forbidden to use.
+
+    Composite rows are stamped at their components' KNOWABLE date (ADR-003), and
+    WALCL carries a deliberately conservative 5-day lag against a typical 1 — so
+    on 2026-08-30 the newest GLOBAL_LIQUIDITY row in the live DB was dated
+    08-31, tomorrow. The reader took `ORDER BY ts DESC LIMIT 1` with no filter,
+    which is the display contradicting the vintage rule the rest of the system
+    obeys."""
+    for ts, level in (("2026-08-28", 97.0), ("2026-08-30", 97.7), ("2026-08-31", 99.9)):
+        await db.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES ('GLOBAL_LIQUIDITY', 'MACRO', 'USD', :ts, :lvl, 0.43)",
+            ts=ts,
+            lvl=level,
+        )
+    inputs = await D.collect_digest_inputs(db, today=date(2026, 8, 30))
+    standing = dict(inputs["global_liquidity"])
+    assert standing["ts"] == "2026-08-30" and standing["level"] == 97.7
+    assert standing["state"] == "liquidity-repairing"
+
+
+async def test_the_oldest_component_is_named_not_the_composites_own_date(
+    db: InvestmentDB,
+) -> None:
+    """The composite's date hides its inputs' ages. Its four components are
+    forward-filled onto one calendar and their lags are 60 days (M2SL) and 40
+    (JPNASSETS) against 5 for the two weekly balance sheets, so a row dated
+    today can be carrying a print from seven weeks ago."""
+    await db.command(
+        "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+        "VALUES ('GLOBAL_LIQUIDITY', 'MACRO', 'USD', '2026-08-30', 97.7, 0.43)"
+    )
+    for ticker, ts in (
+        ("WALCL", "2026-08-29"),
+        ("ECBASSETSW", "2026-08-26"),
+        ("M2SL", "2026-08-20"),
+        ("JPNASSETS", "2026-08-10"),
+    ):
+        await db.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level) "
+            "VALUES (:t, 'MACRO', 'USD', :ts, 1.0)",
+            t=ticker,
+            ts=ts,
+        )
+    inputs = await D.collect_digest_inputs(db, today=date(2026, 8, 30))
+    standing = dict(inputs["global_liquidity"])
+    assert standing["oldest_component"] == "JPNASSETS"
+    assert standing["oldest_component_days"] == 20
+    text = await D.build_digest(db, today=date(2026, 8, 30))
+    assert "oldest input JPNASSETS 20d old" in text
 
 
 async def test_build_digest_on_an_empty_db_says_no_proposal(db: InvestmentDB) -> None:

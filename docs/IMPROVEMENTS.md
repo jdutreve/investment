@@ -2224,3 +2224,56 @@ write and reports instead of wiping the history it cannot cover (I-30, and the
 weekly chain has nobody watching), and that the guard measures SPAN rather than
 row count — count is the signal the bug corrupts, so a count test would refuse
 to replace exactly the series that needs it.
+## I-58 — The liquidity composite could say WHERE its move comes from, and over what horizon
+
+**Where.** `market/liquidity.py`, the liquidity block in `telegram/digest.py`
+and `ops/dashboard/src/pages/Overview.tsx`.
+
+**What exists now (2026-08-30).** One definition of the composite's state
+(`liquidity_state`, four states), the level restated in sigma, the 7-day change
+with its unit, the composite's own date, the age of its oldest component, and a
+standing line saying the thing is context and not an allocation signal. That was
+the half of the owner's proposal that needed no new measurement.
+
+**What was deferred, and why each.**
+
+*Longer horizons (4-week change, 13-week trend).* `speed` is a 7-day difference
+(`derivatives.WEEKLY_LOOKBACK_DAYS_TICKERS`), and on a composite that
+forward-fills a monthly M2 print and a monthly BoJ balance sheet, a 7-day move
+can be a publication calendar rather than a change in liquidity. Longer windows
+would say more. But they are NEW PERSISTED SERIES, and this project does not
+display a derived number it has not measured — the 4w/13w readings would need a
+backfill, a place in `market_data` or a computed column, and a reason to believe
+they separate anything. Cheap to compute, not cheap to trust.
+
+*Per-component attribution, including the FX leg.* ECBASSETSW and JPNASSETS are
+USD-converted before normalisation (`usd_convert`), so the composite can fall
+because the dollar rose while both balance sheets grew in local currency. A
+panel showing each component's z, its change and its contribution would make
+that visible; today the caveat is a sentence and not a number. The blocker is
+scope rather than doubt: it is a second read of four series plus the two FX
+pairs, and it belongs behind a disclosure on the Stack page rather than in the
+Sunday digest.
+
+*"Transmission confirmed" (liquidity + equity trend + credit stable).* Rejected
+in its proposed form, and the reason is ADR-006 rather than taste: this is not a
+new idea here, it is `inv-liquidity-easing-risk` — "accelerating broad money
+confirmed by positive equity trend favors equities" — measured at 33/59 (0.559)
+and still `proposed`, which under the invariant verdict means INSUFFICIENT
+EVIDENCE and nothing else. Rendering it as a confirmation on the digest would
+adopt an invariant the maturation has not integrated, in the display layer,
+where no measurement can reach it.
+
+**A correction worth keeping.** The 33/59 above is often read as the composite's
+track record. It is not: that invariant's condition is `broad_money > 0 AND
+broad_money_accel > 0 AND equity_trend > 0` and never touches GLOBAL_LIQUIDITY.
+The only invariant that reads the composite is `inv-liquidity-tightening-risk`
+(`level < 100 AND speed < 0`), REJECTED at 2/8. The composite has one
+measurement, and it is negative — which is why every front now says "context
+only" rather than hedging.
+
+**Trigger to revisit.** `inv-liquidity-easing-risk` reaching `integrated` or
+`rejected` (it decides the transmission line by itself); or a month where the
+book in force and the liquidity state disagree loudly enough that the owner
+wants the attribution to argue with.
+

@@ -559,7 +559,7 @@ async def _seed_market_data(
     else:
         skipped["GROWTH_COMPOSITE"] = "missing INDPRO/UNRATE inputs"
 
-    liquidity_tickers = ("M2SL", "WALCL", "ECBASSETSW", "JPNASSETS")
+    liquidity_tickers = liquidity.COMPONENTS
     if all(t in transformed for t in (*liquidity_tickers, "DEXUSEU", "DEXJPUS")):
         eurusd, usdjpy = transformed["DEXUSEU"], transformed["DEXJPUS"]
         usd_components = {
