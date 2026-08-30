@@ -691,6 +691,63 @@ async def test_a_blocked_decision_is_loud_in_the_digest(db: InvestmentDB) -> Non
     assert f"target book {WIDE_STEEP}" in text
 
 
+async def test_the_why_line_comes_from_the_journal_not_from_the_mutable_proposal(
+    db: InvestmentDB,
+) -> None:
+    """THE BLOCK HAS ONE SOURCE, and this is the test that keeps it that way.
+
+    Every line the digest prints about a decision comes from that decision's
+    journal payload — except the `Why:` sentence, which used to be fetched from
+    the Proposal the decision emitted. A Proposal is mutable and a journal entry
+    is not, so the two drifted the first time a correction touched one and not
+    the other: on 2026-08-18 the VCIT trend-guard correction updated
+    `proposed_allocation` by hand and left `reasoning` describing the superseded
+    300d rule, and the digest printed "target VCIT 50 / cash 40" under a header
+    reading VCIT 25 / cash 65.
+
+    So: the sentence is written into BOTH sinks from one call, and mutating the
+    Proposal's copy afterwards must not change a character of the digest."""
+    await _market(db, spread=1.0, slope=2.0, spy_trend="down", spread_wide=True)
+    await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))
+
+    journal = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=W.MARKET_SIGNAL_EVENT,
+    )
+    journalled = json.loads(str(journal[0]["payload"]))["reasoning"]
+    stored = await db.query("SELECT reasoning FROM proposal")
+    assert journalled and journalled == stored[0]["reasoning"]
+    assert f"Why: {journalled}" in await build_digest(db)
+
+    # The correction that actually happened, in its damaging shape: the row is
+    # edited and the journal is not.
+    await db.command("UPDATE proposal SET reasoning = 'a superseded sentence'")
+    text = await build_digest(db)
+    assert f"Why: {journalled}" in text
+    assert "a superseded sentence" not in text
+
+
+async def test_a_corrected_decision_says_so_in_the_digest(db: InvestmentDB) -> None:
+    """A decision corrected after the fact renders identically to an untouched
+    one unless the note is printed — on the very block whose numbers the
+    correction moved. `correction_note` rides in the journal payload, so it is
+    read from the same append as the figures it explains."""
+    await W.dispose_market_signal(
+        db,
+        _decision(),
+        {},
+        {
+            "decision_date": "2026-08-03",
+            "held_book": TIGHT_STEEP,
+            "correction_note": "Recomputed under the graduated overlay; VCIT halved to 25.",
+        },
+        USER,
+        today=date(2026, 8, 18),
+    )
+    text = await build_digest(db)
+    assert "🛠 Corrected: Recomputed under the graduated overlay; VCIT halved to 25." in text
+
+
 # -- the outcome end: scored against what was HELD ---------------------------
 
 

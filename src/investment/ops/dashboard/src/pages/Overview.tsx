@@ -205,6 +205,14 @@ function DecisionCard({
           <div className="muted">No change — the stack holds its book.</div>
         )}
       </div>
+      {/* Same rule as the digest: a decision corrected after the fact says so,
+          on the block whose numbers the correction moved. */}
+      {s(decision, "correction_note") ? (
+        <div style={{ marginTop: 10, fontSize: 12.5 }}>
+          <strong>Corrected</strong>
+          <div className="muted">{String(s(decision, "correction_note"))}</div>
+        </div>
+      ) : null}
       {s(decision, "reasoning") ? (
         <div className="muted" style={{ marginTop: 10, fontSize: 12.5 }}>
           {String(s(decision, "reasoning"))}

@@ -208,6 +208,13 @@ def _market_signal_block(
             f"   🚨 BLOCKED by gate '{gate}' — nothing was proposed. The stack is FROZEN in its "
             "previous book, not in the one named above."
         )
+    # A CORRECTION IS PART OF THE DECISION, not a footnote to it. A journal
+    # entry that supersedes an earlier one for the same decision date carries
+    # `correction_note` saying what changed and why; dropping it rendered a
+    # corrected decision identically to an untouched one, on the very block
+    # whose numbers the correction moved.
+    if decision.get("correction_note"):
+        lines.append(f"   🛠 Corrected: {decision['correction_note']}")
     for ticker, read in signals.items():
         median = read.get("trailing_median")
         lines.append(
@@ -731,29 +738,32 @@ async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:
 
 async def _latest_market_signal_decision(db: InvestmentDB) -> dict[str, Any] | None:
     """The latest journalled market-signal decision (writeback
-    `MARKET_SIGNAL_EVENT`), plus the `reasoning` prose of the Proposal it
-    emitted, if it emitted one.
+    `MARKET_SIGNAL_EVENT`) — THE PAYLOAD AND NOTHING BUT THE PAYLOAD.
 
     Read off the EventLog — whose monotonic ULID id IS the append order
     (CLAUDE.md "EventLog") — so `ORDER BY id DESC LIMIT 1` is the latest by
     construction. The journal carries one row per decision date whether or not
     money moved, which is exactly why the digest reads it instead of the
-    Proposal ledger. `None` before the first decision."""
+    Proposal ledger. `None` before the first decision.
+
+    IT USED TO REACH INTO THE PROPOSAL for the `reasoning` prose, and that one
+    exception to "everything in this block comes from the decision's own
+    payload" is what let the block contradict itself. A Proposal is MUTABLE and
+    the journal entry is not: the 2026-08-18 VCIT trend-guard correction updated
+    `proposal.proposed_allocation` by hand and left `reasoning` describing the
+    superseded rule, so the digest printed a 300d overlay and a 50% VCIT target
+    under a header reading 150/300d and 25%. The prose now travels IN the
+    payload (writeback `dispose_market_signal`), so the sentence and the numbers
+    it describes can only ever come from the same append. Entries journalled
+    before that carry no `reasoning` and render none — every fact it stated is
+    already a line of its own in this block."""
     rows = await db.query(
         "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
         t=MARKET_SIGNAL_EVENT,
     )
     if not rows:
         return None
-    decision = _json_map(rows[0]["payload"])
-    if not decision:
-        return None
-    proposal_id = decision.get("proposal_id")
-    if proposal_id:
-        prose = await db.query("SELECT reasoning FROM proposal WHERE id = :id", id=str(proposal_id))
-        if prose:
-            decision["reasoning"] = prose[0]["reasoning"]
-    return decision
+    return _json_map(rows[0]["payload"]) or None
 
 
 async def _stack_standing(db: InvestmentDB) -> dict[str, Any] | None:

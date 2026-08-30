@@ -282,6 +282,17 @@ async def dispose_market_signal(
     moves = max_allocation_change_pts(held_allocation, decision.target) > 0.0
     emit = moves and outcome.passed
     proposal_id = str(ULID()) if emit else None
+    # ONE sentence, written into BOTH sinks from one call. The digest renders
+    # the decision's own payload for every other line of its block, and this is
+    # what lets the `Why:` line come from there too instead of from the
+    # Proposal's copy. The copy is what desynchronized on 2026-08-18: the VCIT
+    # trend-guard correction was applied to the Proposal by hand, updating
+    # `proposed_allocation` and not `reasoning`, and the digest then printed
+    # "300d overlay ... target VCIT 50 / cash 40" under a header that said
+    # 150/300d and VCIT 25 / cash 65. A hand-correction can still miss a field;
+    # it can no longer make the digest contradict itself, because the digest no
+    # longer reads that field.
+    reasoning = _market_signal_reasoning(decision, held_allocation)
 
     async with db.transaction():
         await db.append_event(
@@ -293,12 +304,13 @@ async def dispose_market_signal(
                 "gate": "passed" if outcome.passed else outcome.failed_gate,
                 "moves": moves,
                 "proposal_id": proposal_id,
+                "reasoning": reasoning,
             },
             event_date=today,
         )
         if proposal_id is not None:
             await _insert_market_signal_proposal(
-                db, proposal_id, book_id, decision, held_allocation, market_context, today
+                db, proposal_id, book_id, decision, market_context, reasoning, today
             )
             # The stack Portfolio's `allocation` records what is HELD, so it
             # moves only when a proposal is actually emitted — inside this
@@ -318,8 +330,8 @@ async def _insert_market_signal_proposal(
     proposal_id: str,
     book_id: str,
     decision: Decision,
-    held_allocation: dict[str, float],
     market_context: dict[str, Any],
+    reasoning: str,
     today: date,
 ) -> None:
     """The Proposal vertex for a passing market-signal decision. Called inside
@@ -361,7 +373,7 @@ async def _insert_market_signal_proposal(
         book=book_id,
         alloc=json.dumps(decision.target),
         ctx=json.dumps(market_context),
-        reason=_market_signal_reasoning(decision, held_allocation),
+        reason=reasoning,
         trace=(
             "ADR-007 live monthly market-signal decision: "
             f"signal={decision.signalled}, held={decision.held}, "
