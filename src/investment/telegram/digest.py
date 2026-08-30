@@ -101,6 +101,11 @@ def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[st
                 f", oldest input {liquidity['oldest_component']} "
                 f"{liquidity['oldest_component_days']}d old"
             )
+        if liquidity.get("missing_components"):
+            # LOUDER THAN THE AGE, because the composite is not merely stale:
+            # `refresh_composites` requires all four, so it has stopped being
+            # rebuilt at all.
+            freshness += f" — NO DATA for {', '.join(liquidity['missing_components'])}"
         lines.append(f"   Proxy: {PROXY_DESCRIPTION} (no China) — {freshness}")
         lines.append("   Role: context only — not validated as an allocation signal on its own")
     return lines
@@ -840,10 +845,21 @@ async def _liquidity_standing(db: InvestmentDB, today: date) -> dict[str, Any]:
     params: dict[str, Any] = {f"c{i}": t for i, t in enumerate(LIQUIDITY_COMPONENTS)}
     ages = await db.query(
         f"SELECT ticker, MAX(ts) AS ts FROM market_data WHERE ticker IN ({named}) "
-        "AND ts <= :today GROUP BY ticker ORDER BY ts ASC LIMIT 1",
+        "AND ts <= :today GROUP BY ticker ORDER BY ts ASC",
         today=today.isoformat(),
         **params,
     )
+    # AN ABSENT COMPONENT HAS NO GROUP, so a `LIMIT 1` on this alone reported the
+    # oldest of the SURVIVORS and called it the oldest input. That is the exact
+    # reassurance that hides the failure it should announce: with a feed dead,
+    # `refresh_composites` stops rebuilding the composite (it needs all four),
+    # so GLOBAL_LIQUIDITY freezes at its last value while this line says
+    # "oldest input WALCL 5d old". `alerts._oldest_series` keeps a separate
+    # `absent` list for the same reason.
+    seen = {str(row["ticker"]) for row in ages}
+    missing = [t for t in LIQUIDITY_COMPONENTS if t not in seen]
+    if missing:
+        standing["missing_components"] = missing
     if ages:
         oldest = str(ages[0]["ts"])
         standing["oldest_component"] = str(ages[0]["ticker"])

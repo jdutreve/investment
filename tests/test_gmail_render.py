@@ -30,7 +30,15 @@ TODAY = date(2026, 8, 16)
 def _inputs(**overrides: Any) -> DigestInputs:
     base: DigestInputs = DigestInputs(
         regime={"regime_name": "Uncertain", "confidence": 63.3},
-        global_liquidity={"level": 96.58, "speed": -0.0},
+        global_liquidity={
+            "ts": "2026-08-16",
+            "level": 96.58,
+            "speed": -0.0,
+            "state": "liquidity-restrictive",
+            "sigma": -0.342,
+            "oldest_component": "JPNASSETS",
+            "oldest_component_days": 20,
+        },
         ranking=[
             {
                 "rank": 1,
@@ -123,6 +131,33 @@ def _inputs(**overrides: Any) -> DigestInputs:
         recurring=[{"n": 7, "theme_id": "t1", "titles": ["Extend the overlay to VCIT"]}],
     )
     return DigestInputs(**{**base, **overrides})  # type: ignore[typeddict-item]
+
+
+def test_the_email_says_what_the_other_two_channels_say_about_liquidity() -> None:
+    """ADR-015's third channel is sent automatically every Sunday, and it had its
+    own renderer — so the 2026-08-30 pass that replaced "level 95.84, speed
+    -0.80" everywhere else left the email showing exactly that. Same state, same
+    units, same freshness, same role note, or the owner reads two stories."""
+    html = render.render_digest_html(_inputs(), {}, TODAY)
+    assert "RESTRICTIVE" in html and "scarce and deteriorating" in html
+    assert "0.34 sigma under its 5y norm" in html
+    assert "index points" in html
+    assert "oldest input JPNASSETS 20d old" in html
+    assert "context only" in html
+    # ...and never the two bare rows it replaced.
+    assert "Global liquidity — speed" not in html
+
+
+def test_a_corrected_decision_is_loud_in_the_email_too() -> None:
+    """The email renders the same decision payload as the digest and dropped
+    `correction_note` the same way, so a decision corrected after the fact read
+    as an untouched one on the channel the owner actually opens."""
+    inputs = _inputs()
+    decision = dict(inputs["market_signal"] or {})
+    decision["correction_note"] = "Recomputed under the graduated overlay; VCIT halved to 25."
+    html = render.render_digest_html(_inputs(market_signal=decision), {}, TODAY)
+    assert "Corrected:" in html
+    assert "Recomputed under the graduated overlay" in html
 
 
 def test_no_style_attribute_anywhere() -> None:

@@ -315,6 +315,11 @@ def test_a_signal_is_shown_on_both_clocks_with_the_drift_named() -> None:
     # the Worker is the only place that rule can be applied there.
     assert "BOTH SIGNALS ARE READ ON ONE DATE" in text
     assert "describes a state that existed on no day" in text
+    # ...and it must not promise what it cannot keep: the monthly decision reads
+    # its inputs at ITS OWN date, not at today's paired date, and the dashboard
+    # anchors on the last day the sleeves are priced. The sentence tells the
+    # Worker what to DO with a one-sided print, it does not predict the anchor.
+    assert "what the next monthly decision will read" not in text
 
 
 def test_a_signal_absent_from_the_tape_still_renders_its_decision_line() -> None:

@@ -8,6 +8,7 @@ mocks).
 """
 
 import itertools
+import json
 from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
@@ -283,6 +284,45 @@ async def test_build_snapshot_persists_the_exclusion_and_its_reason(db: Investme
     assert "-18.0% breaches the binding -15% rule" in str(rows["breacher"]["trace"])
     assert "excluded from defender role and proposal candidacy" in str(rows["breacher"]["trace"])
     assert "breaches" not in str(rows["keeper"]["trace"])
+
+
+async def test_the_snapshots_liquidity_reading_is_the_one_definition(db: InvestmentDB) -> None:
+    """THE FIFTH READER. `_liquidity_direction` carried its own copy of the
+    retired two-state rule under a docstring claiming to mirror `derive_tags`,
+    so an abundant-but-falling composite was stamped "neutral" into
+    `market_context` — the field the Worker and `outcomes.evaluate_proposals`
+    read — while the tag, the digest and the dashboard all said
+    `liquidity-fading`.
+
+    And the row is read AS OF the snapshot's date: WALCL's deliberately
+    conservative 5-day lag put the composite's newest row a day past the
+    calendar on 2026-08-30, and a point-in-time record may not carry tomorrow."""
+    await db.command(
+        "INSERT INTO regime_type (id, name, aliases, framework_id, description, created_at) "
+        "VALUES ('stag', 'Stagflation', '[]', '4s', 'd', '2026-01-01')"
+    )
+    await db.command(
+        "INSERT INTO regime (id, regime_type_id, tags, start_date, is_current, events, trace, "
+        "created_at, updated_at) VALUES ('r1', 'stag', '[]', '2026-06-01', 1, '[]', 't', "
+        "'2026-06-01', '2026-06-01')"
+    )
+    for ts, level, speed in (
+        ("2026-08-28", 105.0, -1.0),  # abundant and falling: "neutral" before
+        ("2026-09-02", 91.0, -9.0),  # dated AFTER the snapshot — must not be read
+    ):
+        await db.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES ('GLOBAL_LIQUIDITY', 'MACRO', 'USD', :ts, :lvl, :spd)",
+            ts=ts,
+            lvl=level,
+            spd=speed,
+        )
+    await build_snapshot(db, TIEBREAK_WINDOW, snapshot_date=date(2026, 8, 30))
+    rows = await db.query(
+        "SELECT market_context FROM portfolio_weekly_snapshot WHERE date = '2026-08-30' LIMIT 1"
+    )
+    context = json.loads(str(rows[0]["market_context"]))
+    assert context["global_liquidity"] == "liquidity-fading"
 
 
 async def test_build_snapshot_prunes_a_portfolio_disabled_the_same_day(db: InvestmentDB) -> None:

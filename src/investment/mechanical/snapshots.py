@@ -15,6 +15,7 @@ from datetime import date
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
+from investment.market.liquidity import liquidity_state
 from investment.market.regime import FRAMEWORK_ID
 from investment.mechanical.gates import Caps, drawdown_ok, effective_caps
 
@@ -228,27 +229,25 @@ def _sign(value: float | None) -> str | None:
     return "~"
 
 
-def _liquidity_direction(level: float | None, speed: float | None) -> str | None:
-    """Mirrors `market/regime.py` `derive_tags`' liquidity thresholds."""
-    if level is None or speed is None:
-        return None
-    if level < 100 and speed < 0:
-        return "tightening"
-    if level > 100 and speed > 0:
-        return "easing"
-    return "neutral"
+async def _latest_market_row(db: InvestmentDB, ticker: str, as_of: date) -> dict[str, Any] | None:
+    """The latest row KNOWABLE on the snapshot's own date.
 
-
-async def _latest_market_row(db: InvestmentDB, ticker: str) -> dict[str, Any] | None:
+    `ts <= :as_of` because a MarketData `ts` is the date the value became
+    knowable (ADR-003) and some lags are deliberately conservative — WALCL's is
+    5 days against a typical 1, which on 2026-08-30 put its newest row, and the
+    GLOBAL_LIQUIDITY composite built from it, at 08-31. A snapshot that stamps
+    tomorrow's reading into `market_context` is a point-in-time record of a
+    moment that had not happened."""
     rows = await db.query(
         "SELECT level, speed, acceleration FROM market_data WHERE ticker = :t "
-        "ORDER BY ts DESC LIMIT 1",
+        "AND ts <= :as_of ORDER BY ts DESC LIMIT 1",
         t=ticker,
+        as_of=as_of.isoformat(),
     )
     return rows[0] if rows else None
 
 
-async def _market_context(db: InvestmentDB) -> dict[str, Any]:
+async def _market_context(db: InvestmentDB, as_of: date) -> dict[str, Any]:
     """docs/USE_CASES.md UC7 example payload shape."""
     regime_rows = await db.query(
         "SELECT regime.regime_type_id, regime.confidence, regime_type.aliases, "
@@ -266,15 +265,23 @@ async def _market_context(db: InvestmentDB) -> dict[str, Any]:
             "derivatives": {"inflation_speed": None, "growth_acceleration": None},
         }
     r = regime_rows[0]
-    liquidity = await _latest_market_row(db, "GLOBAL_LIQUIDITY")
-    inflation = await _latest_market_row(db, "CPIAUCSL")
-    growth = await _latest_market_row(db, "GROWTH_COMPOSITE")
+    liquidity = await _latest_market_row(db, "GLOBAL_LIQUIDITY", as_of)
+    inflation = await _latest_market_row(db, "CPIAUCSL", as_of)
+    growth = await _latest_market_row(db, "GROWTH_COMPOSITE", as_of)
     return {
         "framework": r["framework_id"],
         "regime": r["regime_type_id"],
         "aliases": json.loads(r["aliases"]) if r["aliases"] else [],
         "confidence": r["confidence"],
-        "global_liquidity": _liquidity_direction(
+        # THE SAME STATE EVERY OTHER READER USES. This carried its own copy of
+        # the retired two-state rule (`level < 100 AND speed < 0` -> tightening,
+        # `level > 100 AND speed > 0` -> easing, else "neutral") under a
+        # docstring claiming to mirror `derive_tags` — so the fifth reader of
+        # the composite went on calling an abundant-but-falling reading
+        # "neutral" while the tag, the digest and the dashboard called it
+        # `liquidity-fading`. This is the field the Worker and
+        # `outcomes.evaluate_proposals` read off the snapshot.
+        "global_liquidity": liquidity_state(
             liquidity["level"] if liquidity else None, liquidity["speed"] if liquidity else None
         ),
         "derivatives": {
@@ -390,7 +397,7 @@ async def build_snapshot(
     )
     user_caps = dict(profile[0]) if profile else None
     ranked = rank_portfolios(valuation_rows, tiebreak_window, user_caps)
-    context = await _market_context(db)
+    context = await _market_context(db, snapshot_date)
 
     async with db.transaction():
         await db.append_event(

@@ -5,11 +5,13 @@ FK chain (CLAUDE.md: real DB, no mocks — one integration test per mechanical
 job)."""
 
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical import market_signal as MS
 from investment.mechanical.market_signal import SIGNAL_TICKERS
 from investment.planner import baseline as bl
 
@@ -77,7 +79,7 @@ async def _seed(db: InvestmentDB) -> None:
             lvl=level,
         )
     # ranking: two dates; only the latest is read, rank ASC
-    for date, pid, rank, alloc in (
+    for snapshot_date, pid, rank, alloc in (
         ("2026-06-01", "old", 1, '{"SPY": 100}'),  # stale date — must be ignored
         ("2026-06-08", "defender", 2, '{"GLD": 60, "cash": 40}'),
         ("2026-06-08", "challenger", 1, '{"TLT": 100}'),
@@ -86,7 +88,7 @@ async def _seed(db: InvestmentDB) -> None:
             "INSERT INTO portfolio_weekly_snapshot (date, portfolio_id, defender, framework_id, "
             "allocation, rank, market_context, recommendation, trace) "
             "VALUES (:d, :p, 0, '4seasons', :a, :r, '{}', 'maintain', 't')",
-            d=date,
+            d=snapshot_date,
             p=pid,
             a=alloc,
             r=rank,
@@ -185,6 +187,39 @@ async def test_bucket_priority_dedup_and_integrated_only(seeded: InvestmentDB) -
     assert "i-proposed" not in ids
 
 
+async def test_the_planner_reads_the_tape_as_of_today_not_beyond(seeded: InvestmentDB) -> None:
+    """The Planner may not hand the Worker a row the decision path is forbidden
+    to use, and the digest already refuses to.
+
+    A MarketData `ts` is a KNOWABLE date (ADR-003), and some lags are
+    deliberately conservative — WALCL's is 5 days against a typical 1, which on
+    2026-08-30 dated its newest row, and the GLOBAL_LIQUIDITY composite built
+    from it, 08-31. Unfiltered these reads showed tomorrow; once the digest
+    started filtering and this did not, the prompt and the digest disagreed
+    about the same series."""
+
+    async def macro(ticker: str, ts: str, level: float) -> None:
+        await seeded.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES (:t, 'MACRO', 'USD', :ts, :lvl, 0.4)",
+            t=ticker,
+            ts=ts,
+            lvl=level,
+        )
+
+    await macro("GLOBAL_LIQUIDITY", "2026-08-30", 97.7)
+    await macro("GLOBAL_LIQUIDITY", "2026-08-31", 99.9)
+    await macro("WALCL", "2026-08-30", 6730912.0)
+    await macro("WALCL", "2026-08-31", 6740000.0)
+
+    b = await bl.gather_baseline(seeded, today=date(2026, 8, 30))
+    assert b.global_liquidity["ts"] == "2026-08-30" and b.global_liquidity["level"] == 97.7
+    # ...and the composite arrives named, off the one definition every front reads.
+    assert b.global_liquidity["state"] == "liquidity-repairing"
+    tape = {str(r["ticker"]): r for r in b.macro}
+    assert tape["WALCL"]["ts"] == "2026-08-30"
+
+
 async def test_the_two_book_signals_are_read_on_one_date(seeded: InvestmentDB) -> None:
     """The pair that picks the book is a COMPARISON, so it may not straddle two
     dates — while every other MACRO series keeps its own latest print.
@@ -218,6 +253,41 @@ async def test_the_two_book_signals_are_read_on_one_date(seeded: InvestmentDB) -
     assert rows[BL_SLOPE]["ts"] == "2026-08-28" and rows[BL_SLOPE]["level"] == 0.47
     assert rows[BL_SPREAD]["ts"] == rows[BL_SLOPE]["ts"]
     assert rows["CPIAUCSL"]["ts"] == "2026-08-12"
+
+
+async def test_the_pair_is_anchored_on_the_calendar_the_decision_walks(
+    seeded: InvestmentDB,
+) -> None:
+    """Capping the pair at the latest date BOTH SIGNALS have was half the fix.
+
+    `walk_decisions` steps `stack_calendar` — the dates on which all five
+    sleeves are priced — and the dashboard's "latest" column reads there too,
+    while the two FRED signals publish a day later. Measured over two years of
+    Sundays on the live DB: the pair's own anchor and the sleeves' differ on 103
+    of 104. So the divergence that put 0.39 in the Worker's prompt against 0.47
+    on the dashboard would have come back every week, one day narrower."""
+
+    async def row(ticker: str, ts: str, level: float, asset_class: str = "MACRO") -> None:
+        await seeded.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES (:t, :c, 'USD', :ts, :lvl, 0.0)",
+            t=ticker,
+            c=asset_class,
+            ts=ts,
+            lvl=level,
+        )
+
+    # The sleeves last price on the Friday...
+    for ticker in MS.STACK_TICKERS:
+        await row(ticker, "2026-08-28", 100.0, "EQUITY")
+    # ...and both signals carry the Saturday publication of that Friday.
+    for ts, spread, slope in (("2026-08-28", 1.62, 0.47), ("2026-08-29", 1.60, 0.39)):
+        await row(BL_SPREAD, ts, spread)
+        await row(BL_SLOPE, ts, slope)
+
+    rows = {str(r["ticker"]): r for r in (await bl.gather_baseline(seeded)).macro}
+    assert rows[BL_SPREAD]["ts"] == "2026-08-28" and rows[BL_SLOPE]["ts"] == "2026-08-28"
+    assert rows[BL_SLOPE]["level"] == 0.47  # the value the dashboard shows
 
 
 async def test_the_signal_cap_never_drops_a_series_that_skipped_that_day(

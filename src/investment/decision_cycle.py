@@ -167,8 +167,8 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
         "by where the spread AND the slope sit against their medians, so a row "
         "each from a different day describes a state that existed on no day. One "
         "of the two is regularly published a day ahead of the other; if you fetch "
-        "the raw series yourself and find a newer print for one of them, the "
-        "paired date shown here is what the next monthly decision will read.",
+        "the raw series yourself and find a newer print for one of them, say so "
+        "as a one-sided reading and keep the paired one above as the comparison.",
         f"  book in force: {state.get('held_book', '?')} "
         f"(signal now: {state.get('signal_state', '?')}), "
         f"decided {state.get('decision_date', '?')}",

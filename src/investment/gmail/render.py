@@ -31,6 +31,7 @@ from typing import Any
 
 from investment.db.seed_data import BENCHMARK_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
+from investment.market.liquidity import PROXY_DESCRIPTION, STATE_READINGS
 from investment.mechanical import ratios
 from investment.mechanical.market_signal import (
     CREDIT_SPREAD,
@@ -126,23 +127,49 @@ def _regime_section(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[s
         _drow([("Confidence", "left", None, False), (conf, "left", None, False)], _ALT),
     ]
     if liquidity:
-        lines.append(
-            _drow(
-                [
-                    ("Global liquidity — level", "left", None, False),
-                    (_num(liquidity.get("level")), "left", None, False),
-                ]
-            )
+        # THE THIRD CHANNEL SAYS WHAT THE OTHER TWO SAY (ADR-015). These were
+        # two bare rows, "level 95.84" and "speed -0.80" — the display the
+        # 2026-08-30 pass replaced everywhere else, left standing here because
+        # this renderer has its own layout and nothing tied it to the digest's.
+        # An owner reading the email would have had the old numbers with none of
+        # the state, the units, the freshness or the role.
+        state = liquidity.get("state")
+        sigma, speed = liquidity.get("sigma"), liquidity.get("speed")
+        reading = STATE_READINGS.get(state, "") if isinstance(state, str) else ""
+        headline = (
+            f"{state.removeprefix('liquidity-').upper()} — {reading}"
+            if isinstance(state, str)
+            else "n/a"
         )
-        lines.append(
-            _drow(
-                [
-                    ("Global liquidity — speed", "left", None, False),
-                    (_num(liquidity.get("speed")), "left", None, False),
-                ],
-                _ALT,
+        level = _num(liquidity.get("level"))
+        if isinstance(sigma, int | float):
+            side = "under" if sigma < 0 else "over"
+            level += f" = {abs(sigma):.2f} sigma {side} its 5y norm"
+        change = f"{speed:+.2f} index points" if isinstance(speed, int | float) else "n/a"
+        freshness = f"data to {liquidity.get('ts', '?')}"
+        if liquidity.get("oldest_component"):
+            freshness += (
+                f", oldest input {liquidity['oldest_component']} "
+                f"{liquidity['oldest_component_days']}d old"
             )
-        )
+        for i, (label, value) in enumerate(
+            (
+                ("Global liquidity", _esc(headline)),
+                ("Level", _esc(level)),
+                ("7d change", _esc(change)),
+                (f"Proxy — {_esc(PROXY_DESCRIPTION)} (no China)", _esc(freshness)),
+                ("Role", "context only — not validated as an allocation signal on its own"),
+            )
+        ):
+            lines.append(
+                _drow(
+                    [
+                        (label, "left", None, False),
+                        (value, "left", None, label == "Global liquidity"),
+                    ],
+                    _WHITE if i % 2 else _ALT,
+                )
+            )
     lines.append("</table>")
     return lines
 
@@ -347,6 +374,11 @@ def _market_signal_section(
     else:
         signal_line += "."
     lines.append(f'<p><font color="#888888" size="2">{signal_line}</font></p>')
+    # A CORRECTION IS PART OF THE DECISION here too — the email renders the same
+    # payload as the digest and dropped this field the same way, so a decision
+    # corrected after the fact read as an untouched one on the third channel.
+    if decision.get("correction_note"):
+        lines.append(f"<p><b>\U0001f6e0 Corrected:</b> {_esc(decision['correction_note'])}</p>")
     if decision.get("reasoning"):
         lines.append(f"<p><b>Why:</b> {_esc(decision['reasoning'])}</p>")
     assessment = str((worker_reading or {}).get("market_signal_assessment") or "").strip()

@@ -765,7 +765,7 @@ _STACK_PRICE_SERIES: tuple[str, ...] = market_signal.STACK_TICKERS
 # The stack's EXTRA prerequisite — the two series that pick the book. The control
 # arm freezes its book and so needs neither; splitting the two sets is what lets
 # a price-only database still produce the benchmark the stack is judged against.
-_STACK_SIGNAL_SERIES: tuple[str, ...] = (market_signal.CREDIT_SPREAD, market_signal.YIELD_SLOPE)
+_STACK_SIGNAL_SERIES: tuple[str, ...] = market_signal.SIGNAL_TICKERS
 
 
 async def _missing_series(db: InvestmentDB, needed: Sequence[str]) -> list[str]:

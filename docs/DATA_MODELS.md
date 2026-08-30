@@ -850,6 +850,13 @@ Boundaries: a level of exactly 100 sits on the abundant side (it is the norm,
 not scarcity); a speed of exactly 0 counts as not improving (standing still is
 not a tailwind).
 
+Instances tagged BEFORE 2026-08-30 carry the retired two-value vocabulary
+(`liquidity-tightening` / `liquidity-easing`) and are deliberately not migrated:
+nothing queries a Regime by tag, and those instances were in fact labelled under
+the old rule. The CURRENT instance heals itself — `regime.step` re-emits a
+`RegimeUpdate` whenever the derived tags differ from the stored ones, which the
+new vocabulary guarantees at the next monthly print.
+
 **Role: context, never allocation.** The only invariant measuring this composite
 (`inv-liquidity-tightening-risk`, `level < 100 AND speed < 0`) was REJECTED at
 2/8 (docs/MILESTONES.md M5-bis). No book follows from the composite, and every

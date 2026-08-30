@@ -357,6 +357,35 @@ async def test_the_oldest_component_is_named_not_the_composites_own_date(
     assert "oldest input JPNASSETS 20d old" in text
 
 
+async def test_a_component_with_no_data_is_named_not_skipped(db: InvestmentDB) -> None:
+    """An absent component produces no GROUP BY group, so taking the oldest of
+    what came back reported the oldest of the SURVIVORS — the reassurance that
+    hides the failure it should announce. With a feed dead,
+    `refresh_composites` stops rebuilding the composite entirely (it needs all
+    four), so the level freezes while the line says "oldest input WALCL 5d
+    old"."""
+    await db.command(
+        "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+        "VALUES ('GLOBAL_LIQUIDITY', 'MACRO', 'USD', '2026-08-30', 97.7, 0.43)"
+    )
+    for ticker, ts in (
+        ("WALCL", "2026-08-25"),
+        ("ECBASSETSW", "2026-08-26"),
+        ("M2SL", "2026-08-20"),
+    ):
+        await db.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level) "
+            "VALUES (:t, 'MACRO', 'USD', :ts, 1.0)",
+            t=ticker,
+            ts=ts,
+        )
+    inputs = await D.collect_digest_inputs(db, today=date(2026, 8, 30))
+    standing = dict(inputs["global_liquidity"])
+    assert standing["missing_components"] == ["JPNASSETS"]
+    text = await D.build_digest(db, today=date(2026, 8, 30))
+    assert "NO DATA for JPNASSETS" in text
+
+
 async def test_build_digest_on_an_empty_db_says_no_proposal(db: InvestmentDB) -> None:
     text = await D.build_digest(db)
     assert "No bridge proposal this week — maintain." in text

@@ -20,10 +20,12 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+from datetime import date
 from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.market_signal import SIGNAL_TICKERS
+from investment.market.liquidity import liquidity_state
+from investment.mechanical.market_signal import SIGNAL_TICKERS, STACK_TICKERS
 from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
@@ -149,12 +151,29 @@ async def _regime(db: InvestmentDB) -> dict[str, Any]:
     return _parse_json_fields(rows[0], ("tags", "events", "aliases"))
 
 
-async def _global_liquidity(db: InvestmentDB) -> dict[str, Any]:
+async def _global_liquidity(db: InvestmentDB, today: date) -> dict[str, Any]:
+    """The composite as it is KNOWABLE today, with its state.
+
+    `ts <= :today` for the reason `digest._liquidity_standing` carries at
+    length: a MarketData `ts` is a knowable date (ADR-003) and WALCL's
+    deliberately conservative 5-day lag put the composite's newest row a day
+    ahead of the calendar on 2026-08-30. Unfiltered, the Planner handed the
+    Worker a level the decision path is forbidden to use — and the digest, once
+    it started filtering, disagreed with the prompt about the same series."""
     rows = await db.query(
         "SELECT ts, level, speed FROM market_data WHERE ticker = 'GLOBAL_LIQUIDITY' "
-        "ORDER BY ts DESC LIMIT 1"
+        "AND ts <= :today ORDER BY ts DESC LIMIT 1",
+        today=today.isoformat(),
     )
-    return dict(rows[0]) if rows else {}
+    if not rows:
+        return {}
+    standing = dict(rows[0])
+    level, speed = standing.get("level"), standing.get("speed")
+    standing["state"] = liquidity_state(
+        level if isinstance(level, int | float) else None,
+        speed if isinstance(speed, int | float) else None,
+    )
+    return standing
 
 
 async def _favors(db: InvestmentDB, regime_type_id: str | None) -> list[dict[str, Any]]:
@@ -179,7 +198,7 @@ async def _favors(db: InvestmentDB, regime_type_id: str | None) -> list[dict[str
     return [dict(r) for r in rows]
 
 
-async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
+async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     """The latest level/speed/acceleration of every MACRO series — with
     `SIGNAL_TICKERS` READ AS A PAIR, on the one date both of them have.
 
@@ -193,9 +212,11 @@ async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
     knowable print rather than disappearing (ADR-003: a stale print IS what was
     knowable; `alerts.signal_freshness_alert` is what reports the staleness).
 
-    EXCEPT FOR THE TWO SERIES THAT PICK THE BOOK. They are not two readings, they
-    are one comparison — the book is chosen by where the spread AND the slope sit
-    against their medians — so a row each from a different date is not a fresher
+    EXCEPT FOR THE TWO SERIES THAT PICK THE BOOK. They are read on the decision's
+    own clock — the latest date the signals AND the five sleeves all have. They
+    are not two readings, they are one comparison — the book is chosen by where
+    the spread AND the slope sit against their medians — so a row each from a
+    different date is not a fresher
     tape, it is a comparison that was never true on any day. Per-ticker MAX(ts)
     produced exactly that on 2026-08-30 (owner: "il faut passer T10Y2Y à la même
     date que celle de BAA10Y"): BAA10Y stopped at 08-28 while T10Y2Y, published a
@@ -205,19 +226,41 @@ async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
     priced, showed 0.47 and steep. Two fronts, opposite sides of the median, both
     reading correct numbers.
 
-    THE CAP CANNOT HIDE A DEAD FEED, which is the objection to answer since the
-    pair now follows its laggard: `signal_freshness_alert` measures the OLDEST of
-    `SIGNAL_TICKERS` against today, so a frozen series is reported there — and it
-    is the same set, so the cap and the alarm cannot drift apart."""
-    # Placeholders built from the CONSTANT's length, never from data — the set
-    # is `alerts.SIGNAL_TICKERS`, and a third signal joining it must move this
-    # query with it rather than leave a hand-written pair behind.
+    THE CAP CANNOT HIDE A DEAD FEED PAST A WEEK, which is the honest form of the
+    objection to answer since the pair now follows its laggard:
+    `signal_freshness_alert` measures the OLDEST of `SIGNAL_TICKERS` against
+    today and fires past `MARKET_DATA_STALE_DAYS` (7) — the same set, so the cap
+    and the alarm cannot drift apart. Inside that week a stalled series does
+    quietly pull its partner back with it, and that is the accepted cost: a pair
+    read on two dates is a comparison that was true on no day, which is worse
+    than a pair read one print late."""
+    # Placeholders built from the CONSTANTS' lengths, never from data — the sets
+    # are `market_signal.SIGNAL_TICKERS` and `STACK_TICKERS`, and a series
+    # joining either must move this query with it rather than leave a
+    # hand-written list behind.
     named = ", ".join(f":sig{i}" for i in range(len(SIGNAL_TICKERS)))
     signals = {f"sig{i}": t for i, t in enumerate(SIGNAL_TICKERS)}
+    clock = {f"clk{i}": t for i, t in enumerate((*SIGNAL_TICKERS, *STACK_TICKERS))}
+    clock_named = ", ".join(f":{k}" for k in clock)
+    # THE DECISION'S OWN CLOCK, not the pair's. Capping the pair at the latest
+    # date BOTH SIGNALS have was half the fix: `walk_decisions` steps
+    # `stack_calendar`, the dates on which all five sleeves are priced, and the
+    # dashboard's "latest" column reads there too — while the two FRED signals
+    # publish a day later, so the pair's own anchor sits one observation ahead.
+    # Measured 2026-08-30 over two years of Sundays: the two anchors differ on
+    # 103 of 104. So the same divergence that put 0.39 in the Worker's prompt
+    # against 0.47 on the dashboard would have returned every week, just one day
+    # narrower. The anchor is the latest date on which the signals AND the
+    # sleeves all have a knowable row -- `stack_calendar[-1]`, in SQL.
+    #
+    # A ticker with NO rows contributes no group and therefore does not
+    # constrain: an early database, or one seeded price-only, must still hand
+    # the Worker its macro tape.
     cut = await db.query(
         f"SELECT MIN(last) AS ts FROM (SELECT MAX(ts) AS last FROM market_data "
-        f"WHERE ticker IN ({named}) GROUP BY ticker)",
-        **signals,
+        f"WHERE ticker IN ({clock_named}) AND ts <= :today GROUP BY ticker)",
+        today=today.isoformat(),
+        **clock,
     )
     cutoff = cut[0]["ts"] if cut and cut[0]["ts"] else None
     # `ts <= :cutoff`, not `ts = :cutoff`: the series that runs ahead need not
@@ -227,9 +270,11 @@ async def _macro(db: InvestmentDB) -> list[dict[str, Any]]:
     rows = await db.query(
         "SELECT m.ticker, m.ts, m.level, m.speed, m.acceleration FROM market_data m "
         "JOIN (SELECT ticker, MAX(ts) AS ts FROM market_data WHERE asset_class = 'MACRO' "
+        "      AND ts <= :today "
         f"      AND (ticker NOT IN ({named}) OR :cutoff IS NULL OR ts <= :cutoff) "
         "      GROUP BY ticker) last ON last.ticker = m.ticker AND last.ts = m.ts "
         "ORDER BY m.ticker",
+        today=today.isoformat(),
         cutoff=cutoff,
         **signals,
     )
@@ -334,19 +379,20 @@ async def _top_invariants(
     return dedupe_buckets(regime_bucket, asset_bucket, global_bucket, cap=INVARIANTS_CAP)
 
 
-async def gather_baseline(db: InvestmentDB) -> Baseline:
+async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseline:
     """The mechanical baseline queries (docs/ARCHITECTURE.md "Detailed Planner
     Steps") — the spec's 5, plus the live market-signal decision ADR-007 made
     the allocation path. The independent reads gather concurrently; bucket ④
     then runs against the resolved regime + ranking (see module docstring)."""
+    today = today or date.today()
     results = await asyncio.gather(
         _regime(db),
-        _global_liquidity(db),
+        _global_liquidity(db, today),
         _ranking(db),
         _scenarios(db),
         _recent_proposals(db),
         _market_signal(db),
-        _macro(db),
+        _macro(db, today),
     )
     # Unpacked after the gather rather than in the assignment: mypy widens a
     # heterogeneous `gather` to the join of its element types, so the tuple form
