@@ -2355,3 +2355,101 @@ decision to change the evidence model — a different confrontation unit, a
 paired/continuous statistic instead of a binomial on win-rate, or an explicit
 "undecidable" verdict beside the three.
 
+
+---
+
+## I-60 — DECLINED 2026-09-06 — copper/gold as a stack signal: built, measured, rejected
+
+**Where it would have gone.** `mechanical/market_signal.py` — a
+`COPPER_GOLD_VETO` knob beside `SPREAD_SPEED_VETO` and `SLOPE_BEAR_VETO`,
+registered in `rule_revision.TESTABLE_PARAMETERS`, plus `HG=F` in
+`seed_data.ALLOWED_TICKERS`. All of it was written, measured and then removed;
+this entry is what survives, because the code would have been inert (CLAUDE.md:
+"delete obsolete code, don't disable").
+
+**Where the claim came from.** An outside analysis proposed a regime-conditional
+mean-reversion family on commodity ratios, ranked Gold/Silver first, and
+generalised to "decelerating macro selects mean reversion over momentum". It is
+the second half of that analysis — the part it offered as a caveat — that turned
+out to be the only part with evidence behind it.
+
+**What the replication found (World Bank monthly prices 1960-2025, INDPRO and
+CPIAUCSL from FRED, publication lag verified on ALFRED at one month for both).**
+
+- The headline does not survive its own null. Rotating the regime labels
+  circularly 3000 times — which preserves the autocorrelation of both series and
+  breaks only their alignment — puts the observed best of the 16 (ratio x season)
+  cells at **+0.74 against a null median of +0.63 and a 95th percentile of
+  +0.91: p = 0.244**. The best cell of the grid is what chance produces from the
+  maximum of sixteen.
+- The 27 "independent" configurations are **1.6**. Mean pairwise correlation
+  between their P&Ls is 0.78 and the eigenvalue participation ratio is 1.6. The
+  cost axis (5/10/20 bp) is a monotone shift of one signal, not a robustness
+  dimension.
+- The ranking is not a ranking. Making the regime PERSISTENT — smoothed 3 months
+  and confirmed over 3 prints, which is what the word "season" implies and what
+  this project's own hysteresis does — moves Gold/Silver from first (+0.36) to
+  nothing (+0.02, p = 0.67) and Copper/Silver from third to first (+0.73,
+  p = 0.003 unadjusted). The order flips on a definitional choice nobody argued.
+- **The one result that survives is negative.** Copper/gold does not revert, it
+  TRENDS: variance ratio at 12 months = **1.47**, at the 99.8th percentile of a
+  random-walk null simulated at the same sample length; and fading it in a
+  stagflationary regime loses at **permutation p = 0.011**, the only cell of the
+  original grid to clear its own null.
+- On the charts that prompted this: the waves are real at a ~3-year half-life
+  over 53 years (VR(36) = 0.55-0.71, observed half-lives 31-43 months against 99-
+  103 for a random walk of the same length). They are NOT real on a 15-year
+  monthly window, where a random walk produces a median half-life of 30.7 months
+  by small-sample bias alone and the observed values are 21.7-55.
+
+**So the knob, and what it measured.** "Copper/gold trends" is a candidate for a
+trend-shaped rule, not evidence for one — so it was built as the thing ADR-006
+can judge: defer the countercyclical `wide` book (stress is priced, buy risk)
+while the industrial economy is still sinking, the same deferral
+`SPREAD_SPEED_VETO` makes on credit's own trajectory but read on a different
+market. `rule_revision.measure_revision`, whole window and each half, four
+values spanning the useful domain:
+
+| veto | decisions changed | CAGR | Sortino | verdict |
+|---|---|---|---|---|
+| 0.02 | 41 of 319 | 11.41% -> 11.07% | 1.284 -> 1.271 | reject |
+| 0.05 | 24 of 319 | 11.41% -> 11.33% | 1.284 -> 1.280 | reject |
+| 0.08 | 9 of 319 | 11.41% -> 11.45% | 1.284 -> 1.292 | reject |
+| 0.12 | 4 of 319 | 11.41% -> 11.44% | 1.284 -> 1.291 | reject |
+
+The two aggressive values cost return and Sortino outright; the two timid ones
+move both by less than the 0.71% noise floor (`rule_revision.NOISE_REL_TOL`), so
+their `reject` is for want of an improvement rather than for a degradation. Max
+drawdown never moves at any value — expected, since it is an OVERLAY property
+and this knob only re-picks the book.
+
+**The decision counts are why this is a result and not an empty run.** The veto
+fires — on 41 of the 319 decisions from 2000 on, at its most aggressive setting
+— and the stack is no better for it. "Tested and did not survive" is a different
+sentence from "we could not tell", and this is the first.
+
+**Honest limits.** Measured on a throwaway database rebuilt from source on
+2026-09-06 (the live one has no copper), so both arms read the same data but the
+absolute baseline differs slightly from the pinned pair; the fidelity check is
+that its max drawdown reproduces the documented -16.50% of the SPY 60 book
+exactly. Copper is daily only from 2000-08-30 (`HG=F`), so 1991-2000 is identical
+by construction and the "first half" verdict is really 2000-2008 — that dilutes
+the difference, and dilution pushes toward reject, not toward adopt. The FRED
+monthly alternative (`PCOPPUSDM`, 1992) was refused on a measured 45-day ALFRED
+publication lag, which would have made `signal_freshness_alert` (7 days) fire
+every week by construction.
+
+**Two adjacent negatives, recorded so they are not re-derived.** Stocks/Bonds is
+not a mean-reverting ratio: it is the quotient of two total-return series with
+different expected returns, so its log is a random walk WITH DRIFT and no fixed
+mean exists to revert to — any z-score against a trailing mean invents an anchor.
+Commodities/TIPS is not one either: roll yield on one leg, coupon plus duration
+plus real rates on the other. Both are plausible REGIME signals and poor
+arbitrage candidates.
+
+**Trigger to revisit.** A copper series with daily history back to 1991 becoming
+available (which would make the measurement a real 35-year one rather than a
+26-year one diluted across 35); or a forward, out-of-sample stretch in which
+copper/gold's 12-month trending persists AND the stack's wide-book entries are
+observably early. Re-running costs re-adding one ticker and one constant — the
+table above is the baseline to beat.
