@@ -41,6 +41,7 @@ from investment.gmail.draft import create_draft as create_gmail_draft
 from investment.gmail.render import collect_live_trend_snapshot, render_digest_html
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
+from investment.mechanical.attribution import run_signal_attribution
 from investment.mechanical.backtests import run_backtests_and_favors
 from investment.mechanical.catchup import run_catchup
 from investment.mechanical.momentum_minvar import run_aaaf_r_cycle
@@ -310,6 +311,15 @@ def weekly_steps(
         ("valuations", lambda: value_portfolios(db, window)),
         ("ranking", lambda: build_snapshot(db, thresholds["ranking_tiebreak_window"], today)),
         ("outcomes", outcomes),
+        # AFTER `ranking`, and the dependency is real rather than stylistic: it
+        # reads `portfolio_weekly_snapshot` for the stack's rank history, so it
+        # must follow the step that writes this week's row, and it reads the NAV
+        # the refresh block leaves. Beside `outcomes` because it is the same
+        # arm of the improvement cycle — the difference is only WHICH object is
+        # measured: `outcomes` judges Proposals and innovation-born strategies,
+        # this judges the one strategy `strategy_probation_check` cannot reach
+        # (`source='corpus'`), which happens to be the one that allocates.
+        ("attribution", lambda: run_signal_attribution(db, today=today)),
         ("uc8", cognitive_cycle),
         ("digest", digest),
     ]

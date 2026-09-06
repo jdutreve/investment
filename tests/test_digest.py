@@ -592,3 +592,32 @@ def test_a_snapshot_written_before_the_nav_column_reads_n_a() -> None:
         ]
     )
     assert "NAV n/a" in text and "Sharpe n/a" in text
+
+
+def test_the_attribution_line_prints_even_when_the_signal_is_winning() -> None:
+    """UNCONDITIONAL, unlike the alert beside it. A measurement the owner sees
+    only when it is bad is one nobody can trend — and the finding this job
+    exists for was invisible for two weeks precisely because no line said what
+    the control arm was doing."""
+    block = D._attribution_block(
+        {
+            "as_of": "2026-08-28",
+            "attribution": {
+                "1y": {"cagr": -0.1445, "max_drawdown": 0.0879},
+                "10y": {"cagr": -0.0098, "max_drawdown": -0.0},
+                "full": {"cagr": 0.0078, "max_drawdown": -0.0},
+            },
+        }
+    )
+    text = "\n".join(block)
+    assert "ms-trend-baseline" in text and "2026-08-28" in text
+    # Stack MINUS control arm: positive means the signal layer earned something.
+    assert "1y -14.4pp CAGR / +8.8pp DD" in text
+    assert "full +0.8pp CAGR" in text
+
+
+def test_no_measurement_yet_renders_nothing() -> None:
+    """Before the first attribution run the digest must not print an empty
+    header — a heading with no numbers under it reads as a broken job."""
+    assert D._attribution_block(None) == []
+    assert D._attribution_block({"as_of": "2026-08-28", "attribution": {}}) == []

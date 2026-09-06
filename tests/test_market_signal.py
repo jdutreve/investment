@@ -866,3 +866,71 @@ def test_the_decisions_haven_is_the_one_the_overlay_actually_used() -> None:
         target = market_signal.apply_trend_overlay(book, shares)
         haven = market_signal.TREND_FALLBACK_HAVEN if k / n >= 1.0 else market_signal.TREND_HAVEN
         assert haven in target, (k, target)
+
+
+def test_the_slope_bear_veto_demotes_a_steep_reading_the_long_end_is_driving(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE SLOPE'S FIRST TRAJECTORY KNOB, and it exists because the same claim
+    arrived three times with nowhere to go.
+
+    Worker, verbatim across 2026-08-12, 2026-08-23 and 2026-09-06: "the slope is
+    read as one bit ... this steepening is bear-flavored (DGS10 speed +0.14), so
+    the book loads 25-50% nominal IG duration into the exact stretch where the
+    long end is the source of risk". Bull steepeners come from the front end
+    easing; bear steepeners come from the long end selling off. `slope >=
+    slope_median` cannot tell them apart, and until this knob the three
+    trajectory parameters all read the SPREAD — so the claim was unmeasurable
+    prose and twice became a `reference` invariant nothing can ever confront.
+
+    THE DIRECTION IS THE CLAIM, as with the spread's veto: this DEMOTES a steep
+    reading it distrusts, and on both branches the flat book carries LESS
+    duration (tight: SPY/GLD instead of VCIT/IEF; wide: IWN/SPY instead of
+    SPY/IWN/GLD). A knob that promoted instead would measure the reverse of what
+    was proposed and report it under the proposal's name."""
+    # Off by default: never measured, so the live rule is what ADR-007 validated.
+    assert market_signal.SLOPE_BEAR_VETO is None
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 0.4, None, 5.0) == TIGHT_STEEP
+
+    monkeypatch.setattr(market_signal, "SLOPE_BEAR_VETO", 0.10)
+    # Steep, and the long end is selling off fast -> read flat, duration dropped.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 0.4, None, 0.30) == TIGHT_FLAT
+    # Steep with a calm long end -> steep, exactly as the rule always read it.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 0.4, None, 0.05) == TIGHT_STEEP
+    # A BULL steepener — long end RALLYING — is the case the claim protects, and
+    # the veto is one-sided precisely so it stays untouched.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 0.4, None, -0.30) == TIGHT_STEEP
+    # It applies on the wide branch too: the claim is about the slope reading
+    # itself, not about which spread state it is paired with.
+    assert market_signal.classify_regime(3.0, 2.0, 0.5, 0.4, None, 0.30) == WIDE_FLAT
+    # A FLAT reading is never promoted — the knob only ever demotes.
+    assert market_signal.classify_regime(1.0, 2.0, 0.2, 0.4, None, 0.30) == TIGHT_FLAT
+    # Warm-up: no long-yield speed yet, so no veto and no crash.
+    assert market_signal.classify_regime(1.0, 2.0, 0.5, 0.4, None, None) == TIGHT_STEEP
+
+
+def test_the_signal_set_follows_the_knob_that_makes_a_series_decide(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A series is a SIGNAL exactly when a knob makes it decide, and
+    `signal_tickers()` is that sentence in code.
+
+    Frozen as a constant, this would have been the silent kind of wrong:
+    `rule_revision.measure_revision` turns `SLOPE_BEAR_VETO` on by setting the
+    module attribute, so a sweep of it on a database without DGS10 would have
+    reindexed to an all-NaN speed, never vetoed, and reported "no difference"
+    for a rule that never ran — a verdict of 'reject' earned by an absent series
+    rather than by the market. The refusal in `load_series` and the freshness
+    alarm both read this function for that reason."""
+    assert market_signal.signal_tickers() == (
+        market_signal.CREDIT_SPREAD,
+        market_signal.YIELD_SLOPE,
+    )
+    assert market_signal.LONG_YIELD not in market_signal.signal_tickers()
+
+    monkeypatch.setattr(market_signal, "SLOPE_BEAR_VETO", 0.10)
+    assert market_signal.signal_tickers() == (
+        market_signal.CREDIT_SPREAD,
+        market_signal.YIELD_SLOPE,
+        market_signal.LONG_YIELD,
+    )

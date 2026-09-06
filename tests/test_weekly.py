@@ -161,7 +161,8 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
     numbers; the market-signal decision is journalled BEFORE the Worker speaks,
     which is the order ADR-011 requires. `aaaf-r` sits right after
     `market-signal` — same category, a time-varying book's weekly NAV refresh,
-    no gate or Worker dependency of its own."""
+    no gate or Worker dependency of its own. `attribution` follows `ranking`
+    because it reads the snapshot row that step writes."""
     assert _steps(db) == [
         "catch-up",
         "market-signal",
@@ -174,6 +175,7 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
         "valuations",
         "ranking",
         "outcomes",
+        "attribution",
         "uc8",
         "digest",
     ]
@@ -194,10 +196,15 @@ def test_every_nav_producer_runs_before_every_nav_reader(db: InvestmentDB) -> No
     Between 2026-08-13 (`ms-trend-baseline` joining the time-varying set) and
     2026-08-30 it did not: `market-signal` and `aaaf-r` ran after `ranking`, and
     the live 2026-08-30 ranking scored `ms-stack` on its NAV row of 2026-08-21
-    against static portfolios scored on 2026-08-28."""
+    against static portfolios scored on 2026-08-28.
+
+    `attribution` joined the readers on 2026-08-30 and is the reason this test
+    asserts a property: it compares the stack to every portfolio on the board
+    over ten years, so a stale NAV under it would not shift a rank by one place
+    — it would misprice the only measurement the adopted strategy has."""
     steps = _steps(db)
     producers = ["catch-up", "market-signal", "aaaf-r"]
-    readers = ["backtests", "valuations", "ranking"]
+    readers = ["backtests", "valuations", "ranking", "attribution"]
     last_producer = max(steps.index(name) for name in producers)
     first_reader = min(steps.index(name) for name in readers)
     assert last_producer < first_reader, (

@@ -891,7 +891,7 @@ INVARIANTS = [
 ]
 ```
 
-### Task 1ter.4 — Strategy seed (4 strategies, all enabled)
+### Task 1ter.4 — Strategy seed (`seed_data.STRATEGIES`, all enabled)
 
 Strategy ids never collide with Framework ids. `framework_id` = evaluation
 lens (single active framework in V1), not intellectual origin. Every

@@ -70,6 +70,13 @@ alert. Times in ../CLAUDE.md are indicative.)
   —    Outcome evaluation   → OutcomeEvent (kind: proposal | calibration |
                               probation — mechanical/outcomes.py; see
                               ARCHITECTURE "Unified improvement cycle")
+  —    Signal attribution   → SignalAttributionEvent (08:54,
+                              mechanical/attribution.py). What the signal layer
+                              earned against its control arm, and where the
+                              stack stands on the whole enabled board. The
+                              ADOPTED strategy is `source='corpus'`, which
+                              `strategy_probation_check` never judges, so this
+                              is its only measurement. Reports; decides nothing.
   UC8  Cognitive cycle      → WorkerReadingEvent + knowledge commit.
                               NO Proposal vertex and no gate since ADR-012:
                               the Worker READS the 08:02 decision and nuances

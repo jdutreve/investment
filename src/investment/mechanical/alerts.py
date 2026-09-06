@@ -56,11 +56,13 @@ from datetime import date
 
 from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import DRIFT_EVENT
+from investment.mechanical.attribution import ATTRIBUTION_EVENT, VERDICT_WINDOWS
 from investment.mechanical.market_signal import (
     MA_WINDOWS,
-    SIGNAL_TICKERS,
     STACK_PORTFOLIO_ID,
     STACK_TICKERS,
+    TREND_BASELINE_PORTFOLIO_ID,
+    signal_tickers,
 )
 from investment.writeback.writeback import RULE_MEASUREMENT_EVENT
 
@@ -223,7 +225,8 @@ async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) ->
     otherwise default to the 90%-equity book on no signal), and this message is
     the Sunday-morning explanation of that abort."""
     today = today or date.today()
-    absent, latest, age = await _oldest_series(db, SIGNAL_TICKERS, today)
+    signals = signal_tickers()
+    absent, latest, age = await _oldest_series(db, signals, today)
     if absent:
         return Alert(
             level="critical",
@@ -239,7 +242,7 @@ async def signal_freshness_alert(db: InvestmentDB, today: date | None = None) ->
         level="critical",
         code="signal_data_stale",
         message=(
-            f"Market-signal data ({', '.join(SIGNAL_TICKERS)}) stops at {latest}, {age} days ago. "
+            f"Market-signal data ({', '.join(signals)}) stops at {latest}, {age} days ago. "
             "The monthly decision still runs, on the last print it can see: the book it picks is "
             "that stale, and nothing else in the digest will look wrong."
         ),
@@ -316,7 +319,7 @@ async def macro_freshness_alert(db: InvestmentDB, today: date | None = None) -> 
     """Every MACRO series the WORKER reasons on, against its OWN cadence.
 
     WHEN A SECOND ONE ARRIVES, FIND WHAT NAMED THE FIRST (CLAUDE.md).
-    `signal_freshness_alert` above watches `SIGNAL_TICKERS` — "the two series
+    `signal_freshness_alert` above watches `signal_tickers()` — "the series
     that PICK the book" — and that sentence was exact when it was written. Then
     `planner/baseline._macro` started handing the Worker the latest print of
     EVERY macro series so it would stop spending tool calls on them, and a
@@ -344,15 +347,16 @@ async def macro_freshness_alert(db: InvestmentDB, today: date | None = None) -> 
     two feeds where absence stops the cycle, and a macro series that never
     existed is a seeding question, not a freshness one.
 
-    `SIGNAL_TICKERS` are EXCLUDED though they are MACRO rows: they are watched
+    The `signal_tickers()` are EXCLUDED though they are MACRO rows: they are watched
     above at 7 days and `critical`, and reporting the same frozen feed twice in
     one digest — once as capital risk, once as reading quality — teaches the
     owner to skim both lines."""
     today = today or date.today()
+    signals = signal_tickers()
     overdue = [
         (ticker, age, spacing)
         for ticker, (spacing, age) in (await _macro_cadences(db, today)).items()
-        if ticker not in SIGNAL_TICKERS
+        if ticker not in signals
         and age > max(MACRO_OVERDUE_PERIODS * spacing, spacing + MACRO_OVERDUE_GRACE_DAYS)
     ]
     if not overdue:
@@ -484,6 +488,73 @@ async def rule_tradeoff_alert(db: InvestmentDB) -> Alert | None:
     )
 
 
+async def signal_attribution_alert(db: InvestmentDB) -> Alert | None:
+    """A portfolio that PARETO-DOMINATES the stack over a long window — nothing
+    worse on any of CAGR / Sortino / Calmar / max drawdown, and better on at
+    least one.
+
+    WHY IT EXISTS. `market-signal-stack` is seeded `source='corpus'`, so
+    `outcomes.strategy_probation_check` — which judges `source='agent-discovery'`
+    strategies — structurally cannot reach the one strategy that allocates the
+    money. Its control arm has been persisted and refreshed weekly since
+    2026-08-13 for exactly this comparison, and until 2026-08-30 nothing read
+    the two series together.
+
+    A PURE READ of the newest `SignalAttributionEvent`, like every alert here:
+    `build_digest` renders committed rows and must never run a backtest
+    (`mechanical/attribution.py` does the measuring, in the chain, before this).
+
+    THE CONTROL ARM IS CALLED OUT SEPARATELY when it is the dominator, because
+    the two cases are different findings wearing one shape: any other portfolio
+    dominating is opportunity cost — something on the board is simply better —
+    while the CONTROL ARM dominating says the signal layer is not earning its
+    own complexity, since it is the stack with that layer removed and nothing
+    else changed.
+
+    `warn`, never `critical`: nothing is broken, nothing is blocked and no
+    position moves. ADR-006 matures a strategy by measuring it over a window,
+    not by acting on one reading — and this alert IS the measurement becoming
+    visible, which is what was missing. Like `stack_drawdown_alert`, it will keep
+    firing while the condition holds; a standing fact restated weekly is the
+    intent here, not noise."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=ATTRIBUTION_EVENT,
+    )
+    if not rows:
+        return None
+    payload = json.loads(str(rows[0]["payload"]))
+    dominators: dict[str, list[str]] = payload.get("dominators") or {}
+    hits = {w: dominators.get(w) or [] for w in VERDICT_WINDOWS if dominators.get(w)}
+    if not hits:
+        return None
+    by_portfolio: dict[str, list[str]] = {}
+    for window, portfolio_ids in hits.items():
+        for portfolio_id in portfolio_ids:
+            by_portfolio.setdefault(portfolio_id, []).append(window)
+    named = ", ".join(
+        f"{pid} (over {', '.join(windows)})" for pid, windows in sorted(by_portfolio.items())
+    )
+    control = TREND_BASELINE_PORTFOLIO_ID in by_portfolio
+    reading = (
+        "That dominator is the stack's own CONTROL ARM — the same overlay on a frozen book — "
+        "so what is measured is the SIGNAL LAYER failing to earn its complexity, not merely a "
+        "better portfolio existing. "
+        if control
+        else "This is opportunity cost: something on the board is better on every measure. "
+    )
+    return Alert(
+        level="warn",
+        code="signal_attribution",
+        message=(
+            f"The stack is Pareto-dominated (nothing worse on CAGR/Sortino/Calmar/max drawdown, "
+            f"better on at least one) by {named}, measured as of {payload.get('as_of')}. "
+            f"{reading}Nothing has been blocked, disabled or reallocated — ADR-006 matures a "
+            "strategy on a window of measurements, and this is the window opening."
+        ),
+    )
+
+
 async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Alert]:
     """Every live-path alert, critical first — the order the digest renders."""
     found = [
@@ -494,6 +565,7 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
         await macro_freshness_alert(db, today),
         await decision_freshness_alert(db, today),
         await rule_tradeoff_alert(db),
+        await signal_attribution_alert(db),
     ]
     alerts = [a for a in found if a is not None]
     return sorted(alerts, key=lambda a: a.level != "critical")

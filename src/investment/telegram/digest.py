@@ -25,6 +25,7 @@ from investment.market.liquidity import (
     liquidity_state,
 )
 from investment.mechanical.alerts import Alert, collect_alerts
+from investment.mechanical.attribution import ATTRIBUTION_EVENT
 from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
@@ -423,6 +424,43 @@ def _recurring_block(recurring: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _attribution_block(attribution: dict[str, Any] | None) -> list[str]:
+    """WHAT THE SIGNAL LAYER EARNED, rendered from the newest
+    `SignalAttributionEvent` (`mechanical/attribution.py`).
+
+    UNCONDITIONAL, unlike the alert beside it. The alert speaks only when the
+    stack is Pareto-dominated, and a measurement the owner sees only when it is
+    bad is a measurement nobody can trend — the whole finding this job exists for
+    was invisible for two weeks precisely because no line said what the control
+    arm was doing. So the line prints every week, whatever it says.
+
+    CAGR AND MAX DRAWDOWN ONLY, out of the four measured. All four live in the
+    journal for anyone reading it; two are what a phone screen can carry, and
+    they are the pair that states the trade the overlay exists to make — return
+    given up against drawdown avoided. Deltas are stack MINUS control arm, so a
+    positive number is the signal layer earning its keep."""
+    if not attribution:
+        return []
+    deltas = attribution.get("attribution") or {}
+    parts = []
+    for window in ("1y", "3y", "10y", "full"):
+        row = deltas.get(window)
+        if not row:
+            continue
+        cagr, drawdown = row.get("cagr"), row.get("max_drawdown")
+        if cagr is None or drawdown is None:
+            continue
+        parts.append(f"{window} {cagr * 100:+.1f}pp CAGR / {drawdown * 100:+.1f}pp DD")
+    if not parts:
+        return []
+    return [
+        "🔬 Signal layer vs its control arm (stack - ms-trend-baseline, "
+        f"as of {attribution.get('as_of', '?')})",
+        f"   {' · '.join(parts)}",
+        "",
+    ]
+
+
 def _alert_block(alerts: list[Alert]) -> list[str]:
     """Health alerts FIRST in the digest, before the regime header — the two
     freshness alarms mean the numbers below them may be describing a world that
@@ -501,6 +539,7 @@ def render_digest(
     market_signal: dict[str, Any] | None = None,
     worker_reading: dict[str, Any] | None = None,
     recurring: list[dict[str, Any]] | None = None,
+    signal_attribution: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -522,6 +561,7 @@ def render_digest(
         _invariant_block(invariants),
         _market_signal_block(market_signal, worker_reading),
         _stack_block(stack),
+        _attribution_block(signal_attribution),
         _proposal_block(proposal),
         _recurring_block(recurring or []),
         _scoreboard_block(scoreboard),
@@ -675,6 +715,7 @@ class DigestInputs(TypedDict):
     market_signal: dict[str, Any] | None
     worker_reading: dict[str, Any] | None
     recurring: list[dict[str, Any]]
+    signal_attribution: dict[str, Any] | None
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -722,7 +763,22 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         market_signal=await _latest_market_signal_decision(db),
         worker_reading=await _latest_worker_reading(db),
         recurring=await _recurring_themes(db),
+        signal_attribution=await _latest_attribution(db),
     )
+
+
+async def _latest_attribution(db: InvestmentDB) -> dict[str, Any] | None:
+    """The newest `SignalAttributionEvent` payload, or None before the first
+    run. A read of a committed row, like every other input here — the measuring
+    happens in the chain (`mechanical/attribution.py`), never in the digest."""
+    rows = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
+        t=ATTRIBUTION_EVENT,
+    )
+    if not rows:
+        return None
+    parsed: dict[str, Any] = json.loads(str(rows[0]["payload"]))
+    return parsed
 
 
 async def build_digest(db: InvestmentDB, today: date | None = None) -> str:

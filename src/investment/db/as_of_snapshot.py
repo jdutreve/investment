@@ -149,7 +149,7 @@ _REPAIRS: tuple[tuple[str, str], ...] = (
     # UC6 on every cycle — every one of them is a 2026 number sitting on a row
     # with no date of its own. Blanking them is not data loss: hydrating the
     # snapshot re-runs UC6, which refills them as-of t. What survives blank are
-    # the DISABLED books (the three market-signal ones, `enabled = 0`), which
+    # the DISABLED books (the market-signal ones, `enabled = 0`), which
     # `value_portfolios` skips — and NULL is the honest reading there: not
     # valued at t. Leaving them would hand `db_query` the 2026 Sortino of a book
     # the replayed agent has no valuation for.

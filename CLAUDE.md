@@ -130,7 +130,15 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   monthly) → 08:03 AAAF-R NAV refresh → 08:05 UC3 event watch →
   08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
   probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
-  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 09:00
+  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 08:54
+  signal attribution (`mechanical/attribution.py` — the ADOPTED strategy's own
+  measurement: the stack against its CONTROL ARM `ms-trend-baseline` and against
+  every enabled portfolio, over 1y/3y/5y/10y/full, on one common as-of. It
+  exists because `outcomes.strategy_probation_check` judges
+  `source='agent-discovery'` strategies only, so `market-signal-stack` — the one
+  that allocates — is the one the improvement cycle cannot reach. It REPORTS and
+  never acts: a digest line every week, and a `warn` alert only when something
+  Pareto-dominates the stack over 3y or more) → 09:00
   UC8 decision cycle (Planner Pre → Worker → Planner Post → Writeback gates;
   the Worker READS the market-signal decision as context and nuances it, it
   never re-picks the book) → 09:30 digest, sent on THREE channels

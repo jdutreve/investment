@@ -680,6 +680,7 @@ and rejections.
 | Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
 | Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
 | Scenario probabilities | seed WARM-START (35y base rates, UC0 step 11c) + weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
+| Strategy (ADOPTED, `source='corpus'`) | ADR-007 / the owner | `mechanical/attribution.py`: the stack against its control arm AND the whole enabled board, 1y/3y/5y/10y/full | continuous (a reading a week) | REPORTS ONLY — digest line always, `signal_attribution` alert when Pareto-dominated |
 | Thresholds          | Phase 9 replay    | walk-forward calibration                      | ~25y calibrate / ~10y validate | user-confirmed write to system_thresholds        |
 
 **`mechanical/outcomes.py` — weekly 08:52 (after ranking, before UC8):**
@@ -710,7 +711,7 @@ score_scenarios():
 strategy_probation_check():
   For each Strategy BORN of an innovation (new or revision — status
   'proposed', enabled 0, anchored on its InnovationEvent date, which is
-  also its date_opened; the 4 SEEDED strategies are the baseline and
+  also its date_opened; the SEEDED strategies are the baseline and
   never enter probation) strategy_probation_weeks ago:
   compare its FAVORS percentile in the current regime type vs the
   median → OutcomeEvent (kind=probation) verdict 'keep' | 'review'
@@ -733,16 +734,23 @@ here — not asserted.
 
 > **RETAINED BRIDGE (ADR-007).** These four seeded strategies and the ranked
 > comparison between them are the bridge/benchmark, not the live allocation.
-> The adopted path allocates across the 3 market-signal books
-> (`docs/V1_STRATEGY.md`). Kept, measured, and never deleted until forward
-> paper-mode earns the switch.
+> `market-signal-stack` is a FIFTH seeded strategy and is NOT part of the bridge
+> — it is the adopted path itself, which allocates across the market-signal books
+> (`docs/V1_STRATEGY.md`; four of them since `ms-wide-flat-book` arrived
+> 2026-08-14, three before). Kept and measured — permanently, and never deleted:
+> ADR-014 retired the "until forward paper-mode earns the switch" clause, because
+> what keeps the bridge is that it IS the FAVORS peer set
+> `outcomes.strategy_probation_check` measures candidates against.
 
 ```
-Seeded strategies (all enabled=true):
-  four-seasons-rp    Dalio risk parity
-  permanent-browne   Browne 25/25/25/25
-  barbell-taleb      Taleb safety + convexity
-  momentum-macro     dynamic rotation by regime
+Seeded strategies (all enabled=true, all source='corpus'):
+  four-seasons-rp    Dalio risk parity          | the RETAINED BRIDGE, and
+  permanent-browne   Browne 25/25/25/25         | the FAVORS peer set a
+  barbell-taleb      Taleb safety + convexity   | candidate is measured
+  momentum-macro     dynamic rotation by regime | against (ADR-014)
+  market-signal-stack  ADR-007's adopted allocation path — NOT part of the
+                       bridge, and the one strategy strategy_probation_check
+                       cannot judge (mechanical/attribution.py measures it)
 
 Mechanical (weekly):
   → Backtest per Strategy × RegimeType cell where data coverage suffices
@@ -877,6 +885,12 @@ Weekly (Monday — canonical timeline, identical in ../CLAUDE.md / USE_CASES.md)
   08:45  UC6 portfolio valuations → Portfolio vertices
   08:50  UC7 ranking → portfolio_weekly_snapshot
   08:52  Outcome evaluation (outcomes.py) → OutcomeEvent
+  08:54  Signal attribution (attribution.py) → SignalAttributionEvent
+         — the ADOPTED strategy's own measurement, which nothing else does:
+           `strategy_probation_check` reaches `source='agent-discovery'`
+           strategies only, so `market-signal-stack` is the one strategy the
+           cycle above cannot judge. Reads the ranking snapshot, so it must
+           follow UC7. Decides nothing.
   09:00  UC8: Planner Pre → Worker → Planner Post → Writeback
          — the Worker READS the 08:02 decision and nuances it. It may not
            re-pick the book, and since ADR-012 that holds by construction

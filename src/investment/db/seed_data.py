@@ -1433,9 +1433,17 @@ STRATEGIES: list[dict[str, object]] = [
         # names were the exact reasoning hazard that addendum removed from the
         # code — it renamed the portfolios and missed this field (fixed
         # 2026-08-01). The ENTITY IDs stay frozen; only the prose tracks BOOKS.
+        #
+        # IT DRIFTED AGAIN, the same way (fixed 2026-09-06): this said "one of
+        # three" and named `credit-spread-wide`, a book that stopped existing on
+        # 2026-08-14 when the wide side split into its own flat/steep pair. The
+        # books are ONE PER CELL OF THE 2x2 and always were — stated that way
+        # here so the next cell cannot leave a count behind, with `BOOKS` the
+        # authority on the names (CLAUDE.md, "when a second one arrives").
         "description": "Market-priced credit-spread(BAA10Y)/slope(T10Y2Y) regime "
-        "selects one of three concentrated books (credit-spread-wide / "
-        "credit-spread-tight-yield-curve-flat / credit-spread-tight-yield-curve-steep); "
+        "selects ONE concentrated book per cell of the 2x2 — credit-spread "
+        "wide|tight x yield-curve flat|steep, and the book names are those four "
+        "cells (credit-spread-<wide|tight>-yield-curve-<flat|steep>); "
         "a trend overlay redirects every checked sleeve — and the haven itself — "
         "to intermediate Treasuries, or to cash when the haven is also below "
         "trend. A book switch waits for 3 confirming monthly decisions; the "
@@ -1470,7 +1478,12 @@ BACKED_BY_EDGES: list[tuple[str, str]] = [
     ("market-signal-stack", "inv-diversification-drawdown"),
 ]
 
-# 3 per Strategy = 12. four-seasons-rp per docs/TASKS.md Task 1ter.5; the
+# 3 per BRIDGE Strategy = 12, and `market-signal-stack` carries NONE: Scenarios
+# are the bridge's tactical-tilt mechanism, and the stack's allocation comes from
+# the market-priced signal instead (its `regime_type_id` is None for the same
+# reason). "3 per Strategy" named what existed when four strategies did; the
+# fifth arrived with ADR-007 and the rule did not follow it (CLAUDE.md, "when a
+# second one arrives"). four-seasons-rp per docs/TASKS.md Task 1ter.5; the
 # other 9 (permanent-browne, barbell-taleb, momentum-macro) were left as
 # "... 9 more" in the spec — drafted and owner-approved for M1 (see the
 # git history for the approval). permanent-browne keeps a fixed allocation
@@ -1760,7 +1773,10 @@ PORTFOLIOS: list[dict[str, object]] = [
         "fx_usd_exposure": 100.0,
         "trace": "Dynamic; current allocation reflects last regime.",
     },
-    # ADR-007 — the 3 market-signal books (docs/V1_STRATEGY.md). These are the
+    # ADR-007 — the market-signal books (docs/V1_STRATEGY.md), one per cell of
+    # the 2x2 signal. THREE when this comment was written and FOUR since
+    # `ms-wide-flat-book` arrived 2026-08-14; `market_signal.BOOK_PORTFOLIO_IDS`
+    # is the authority on the mapping, not a count in prose. These are the
     # BASE above-trend allocations; the trend overlay (which redirects
     # SPY/GLD to IEF below trend, and can concentrate IEF to ~90% in risk-off)
     # is applied at DECISION time by mechanical/market_signal.py and is NOT

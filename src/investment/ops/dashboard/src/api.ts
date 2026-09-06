@@ -99,6 +99,12 @@ export interface Overview {
   market_signal: Row | null;
   worker_reading: Row | null;
   recurring: Row[];
+  // The newest SignalAttributionEvent payload (mechanical/attribution.py):
+  // what the signal layer earned against its control arm, and who Pareto-
+  // dominates the stack. Declared here because DigestInputs is served whole —
+  // "add a field there and render_digest must take it" (telegram/digest.py);
+  // no page renders it yet.
+  signal_attribution: Row | null;
 }
 
 export interface RankingPayload {

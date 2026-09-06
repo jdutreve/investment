@@ -12,11 +12,13 @@ import pytest
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import market_signal as MS
-from investment.mechanical.market_signal import SIGNAL_TICKERS
 from investment.planner import baseline as bl
 
-# The pair by NAME, off the same constant the query and the freshness alarm read.
-BL_SPREAD, BL_SLOPE = SIGNAL_TICKERS
+# The pair by NAME, off the same constants the query and the freshness alarm
+# read. Named individually rather than unpacked from `signal_tickers()`: that
+# set GROWS with the knobs that are on (SLOPE_BEAR_VETO adds DGS10), and a
+# two-name unpack of it would start failing on an unrelated adoption.
+BL_SPREAD, BL_SLOPE = MS.CREDIT_SPREAD, MS.YIELD_SLOPE
 
 # -- pure helpers (no DB) ----------------------------------------------------
 

@@ -66,6 +66,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "spread_speed_wide_trigger": "SPREAD_SPEED_WIDE_TRIGGER",
     "spread_stress_sleeve_gate": "SPREAD_STRESS_SLEEVE_GATE",
     "stress_gated_sleeves": "STRESS_GATED_SLEEVES",
+    "slope_bear_veto": "SLOPE_BEAR_VETO",
 }
 
 # What each knob MEANS, in the Worker's terms — the text it reads when deciding
@@ -85,11 +86,11 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     "median_window_years": "how many YEARS the signal's trailing medians look back",
     # The lookback is INTERPOLATED, not typed: these three descriptions state the
     # units a model must write its candidate in, so a hand-typed "30 days" that
-    # outlived `SPREAD_SPEED_LOOKBACK_DAYS` would have the Worker proposing
+    # outlived `SPEED_LOOKBACK_DAYS` would have the Worker proposing
     # numbers on a scale the walk does not use.
     "spread_speed_veto": (
         "defer the risk-on wide-spread book while the spread is still widening faster "
-        f"than this, in spread points per {market_signal.SPREAD_SPEED_LOOKBACK_DAYS} days "
+        f"than this, in spread points per {market_signal.SPEED_LOOKBACK_DAYS} days "
         "(null = off, the current rule)"
     ),
     "spread_speed_wide_trigger": (
@@ -103,6 +104,18 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     "stress_gated_sleeves": (
         "which sleeves that stress gate empties — equities by default, and credit "
         "sleeves are the obvious candidate to add"
+    ),
+    # THE SLOPE'S FIRST TESTABLE KNOB, and the reason it exists is a claim that
+    # arrived three times with nowhere to go: the three knobs above all read the
+    # SPREAD's trajectory, so "this steepening is bear-flavored" was
+    # unmeasurable prose and twice became a `reference` invariant that nothing
+    # can ever confront (mechanical/market_signal.py SLOPE_BEAR_VETO).
+    "slope_bear_veto": (
+        "distrust a STEEP slope reading when the long end is driving it — read the curve "
+        "as flat while the 10-year yield (DGS10) rises faster than this, in yield points "
+        f"per {market_signal.SPEED_LOOKBACK_DAYS} days, which tells a bear steepener "
+        "(long end selling off) from a bull one (front end easing). Both books it "
+        "redirects to carry LESS duration (null = off, the current rule)"
     ),
 }
 
@@ -145,11 +158,20 @@ _COUNT_KNOBS = frozenset({"confirm_decisions", "median_window_years"})
 # revision naming a bare int must fail loudly rather than be silently wrapped —
 # "300" and "[300]" are the same rule, but "[150, 300]" is not "150".
 _COUNT_LIST_KNOBS = frozenset({"ma_windows"})
-# A threshold in the spread's own units, so any finite number is expressible —
-# including a negative one, which vetoes only while spreads are TIGHTENING and
-# is a perfectly good thing to measure and reject.
+# A threshold in ITS OWN SERIES' units (the spread's for the three that read
+# BAA10Y, the 10-year yield's for `slope_bear_veto`), so any finite number is
+# expressible — including a negative one, which for the spread knobs vetoes only
+# while spreads are TIGHTENING and for `slope_bear_veto` distrusts a steep curve
+# whose long end is RALLYING. Both are perfectly good things to measure and
+# reject; the point of the registry is that neither has to be argued about
+# first.
 _FLOAT_KNOBS = frozenset(
-    {"spread_speed_veto", "spread_speed_wide_trigger", "spread_stress_sleeve_gate"}
+    {
+        "spread_speed_veto",
+        "spread_speed_wide_trigger",
+        "spread_stress_sleeve_gate",
+        "slope_bear_veto",
+    }
 )
 
 # WHAT COUNTS AS "UNCHANGED", and the number is MEASURED, not chosen.
@@ -254,14 +276,22 @@ def untestable_values(overrides: dict[str, Any]) -> dict[str, str]:
     return bad
 
 
-def _direction(baseline: float, variant: float) -> int:
+def direction(baseline: float, variant: float) -> int:
     """+1 improved, -1 degraded, 0 unchanged — every indicator being
     higher-is-better (see `RevisionMeasurement.deltas`).
 
     `math.isclose` rather than `==`, for the reason `NOISE_REL_TOL` records: two
     runs that reach the same trough by different arithmetic differ in the last
     bit, and a verdict that cannot say "unchanged" refuses every revision ever
-    proposed."""
+    proposed.
+
+    PUBLIC because a second comparator arrived (`mechanical/attribution.py`,
+    2026-08-30) and hit the SAME covid trough at the SAME machine epsilon —
+    `ms-trend-baseline` reproduces the stack's max drawdown to the last bit by
+    construction, so an exact `>` made float noise decide whether the control
+    arm beat the stack. The measured noise floor above is the answer to both
+    questions, and it must be ONE floor: two comparators with two epsilons would
+    be two statements of one fact with nothing making them agree."""
     if math.isclose(baseline, variant, rel_tol=NOISE_REL_TOL, abs_tol=NOISE_ABS_TOL):
         return 0
     return 1 if variant > baseline else -1
@@ -368,7 +398,7 @@ class RevisionMeasurement:
         base, var = self.baseline.as_map(), self.variant.as_map()
         if any(base[k] is None or var[k] is None for k in base):
             return "unmeasurable"
-        directions = [_direction(float(base[k]), float(var[k])) for k in base]  # type: ignore[arg-type]  # guarded
+        directions = [direction(float(base[k]), float(var[k])) for k in base]  # type: ignore[arg-type]  # guarded
         improved, degraded = any(d > 0 for d in directions), any(d < 0 for d in directions)
         if degraded:
             return "trade-off" if improved else "reject"

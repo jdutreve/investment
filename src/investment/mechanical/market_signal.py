@@ -472,13 +472,19 @@ BOOK_PORTFOLIO_IDS: dict[str, str] = {
 # median with a 1-year warm-up floor, matching the backtest.
 CREDIT_SPREAD = "BAA10Y"
 YIELD_SLOPE = "T10Y2Y"
-# THE PAIR, named once. The book is picked by where BOTH sit against their
-# medians, so everything that reads "the signals" reads this set and not two
+# The 10-year nominal yield, read ONLY for its speed and ONLY when
+# `SLOPE_BEAR_VETO` is on: it is what tells a bear steepening (long end selling
+# off) from a bull one (front end easing), a distinction `YIELD_SLOPE` alone
+# cannot carry. It picks no book of its own.
+LONG_YIELD = "DGS10"
+# THE SET, named once — see `signal_tickers()`, which derives it from the knobs
+# that are on. The book is picked by where the signals sit against their
+# medians, so everything that reads "the signals" reads that function and not
 # tickers written out by hand: `alerts.signal_freshness_alert` watches its
-# oldest member, and `planner.baseline._macro` caps it to the one date both
-# have. It lived in `alerts` until 2026-08-30, which made the second consumer
-# an import cycle and would have made a third one a hand-written copy.
-SIGNAL_TICKERS: tuple[str, ...] = (CREDIT_SPREAD, YIELD_SLOPE)
+# oldest member, `planner.baseline._macro` caps them to the one date all of
+# them have, and `load_series` refuses to decide on a missing one. It lived in
+# `alerts` until 2026-08-30, which made the second consumer an import cycle and
+# would have made a third one a hand-written copy.
 
 # TEN YEARS, COUNTED IN TIME AND NO LONGER IN ROWS (2026-08-15, owner signature).
 #
@@ -774,14 +780,14 @@ def describe_rule(caps: Caps | None = None) -> str:
         trajectory += (
             f"  4. Spread TRAJECTORY veto: when the spread is above its median but still\n"
             f"     widening faster than {SPREAD_SPEED_VETO:g} points per "
-            f"{SPREAD_SPEED_LOOKBACK_DAYS} days, the wide reading is\n"
+            f"{SPEED_LOOKBACK_DAYS} days, the wide reading is\n"
             "     DEFERRED and the slope decides the book instead.\n"
         )
     if SPREAD_STRESS_SLEEVE_GATE is not None:
         trajectory += (
             f"  5. Spread-stress sleeve gate: under those same conditions "
             f"({SPREAD_STRESS_SLEEVE_GATE:g} per\n"
-            f"     {SPREAD_SPEED_LOOKBACK_DAYS} days), these sleeves "
+            f"     {SPEED_LOOKBACK_DAYS} days), these sleeves "
             f"({', '.join(STRESS_GATED_SLEEVES)}) are sent to the\n"
             f"     haven whatever their own {_windows_text()} lines say.\n"
         )
@@ -973,7 +979,7 @@ class MarketSignalRun:
 # its lighter book. It does not accelerate into it.
 #
 # Units are the spread's own (percentage points of BAA10Y) over
-# SPREAD_SPEED_LOOKBACK_DAYS.
+# SPEED_LOOKBACK_DAYS.
 SPREAD_SPEED_VETO: float | None = 0.20
 
 # THE SAME THEME'S OTHER MECHANISM, and the two are not the same claim.
@@ -1044,7 +1050,71 @@ STRESS_GATED_SLEEVES: tuple[str, ...] = EQUITY_SLEEVES
 # computed by `market.derivatives.compute_derivatives` rather than differenced
 # here — CLAUDE.md's "two implementations must produce the same numbers" applies
 # to a knob that will be compared against readings the Worker saw.
-SPREAD_SPEED_LOOKBACK_DAYS = 30
+#
+# NAMED `SPREAD_SPEED_LOOKBACK_DAYS` UNTIL 2026-09-06, when the slope grew a
+# trajectory question of its own (`SLOPE_BEAR_VETO`) and started reading its
+# speed on this same window. CLAUDE.md's "when a second one arrives, find what
+# named the first": the old name said "the spread's lookback" because the
+# spread's was the only speed the rule read.
+SPEED_LOOKBACK_DAYS = 30
+
+# THE SLOPE'S TRAJECTORY KNOB, and the third mechanism of the theme the spread
+# already has two of (`SPREAD_SPEED_VETO`, `SPREAD_STRESS_SLEEVE_GATE`).
+#
+# THE CLAIM, Worker verbatim across three live cycles (2026-08-12, 2026-08-23,
+# 2026-09-06): "the slope is read as one bit ... this steepening is
+# bear-flavored (DGS10 speed +0.14, real yields +0.28), so the book loads
+# 25-50% nominal IG duration into the exact stretch where the long end is the
+# source of risk". Bull steepeners (1995, 2001, 2019) come from the front end
+# easing and are risk-friendly; bear steepeners (1994, 1999-2000, 2013 taper,
+# 2022) come from the long end selling off and preceded wider credit spreads.
+# `classify_regime` cannot tell them apart: `slope >= slope_median` is one
+# boolean, and both branches of the 2x2 read it.
+#
+# WHY A KNOB AND NOT AN INVARIANT, which is what the Worker twice reached for.
+# Both attempts (inv-01KZV28QDQ63K4YAHF2MKNTJSV 2026-08-12,
+# inv-01M0PME58XCCQNZEESXC3VKNKH 2026-08-23) were written with a PROSE
+# condition, so `writeback._commit_invariant` dropped it — correctly, it must
+# not guess a predicate — and both landed as `reference`: a TERMINAL status,
+# never confronted, market_score frozen at 1.0 (mechanical/invariants.py
+# REFERENCE_STATUS). The claim was filed twice into a channel that measures
+# nothing, and the third occurrence was not filed at all because the Worker
+# believed the second one was accumulating evidence. Here it is measurable on
+# the spot: `rule_revision` names it, the 35y sweep runs both halves, ADR-006
+# issues a verdict, and the question closes either way.
+#
+# OFF BY DEFAULT because it has never been measured, exactly as
+# `SPREAD_SPEED_WIDE_TRIGGER` shipped: `None` leaves `classify_regime` byte-for-
+# byte what ADR-007 validated, and `describe_rule` stays silent about it so the
+# Worker is not invited to propose switching on what is already off.
+#
+# SHAPE MIRRORS `SPREAD_SPEED_VETO` deliberately — a veto that DEMOTES a reading
+# it distrusts, never one that promotes. A steep reading whose long end is
+# selling off faster than this falls back to `flat`, which on both branches is
+# the book carrying LESS duration (tight: SPY/GLD instead of VCIT/IEF; wide:
+# IWN/SPY instead of SPY/IWN/GLD). Units are DGS10's own (percentage points)
+# over `SPEED_LOOKBACK_DAYS`.
+SLOPE_BEAR_VETO: float | None = None
+
+
+def signal_tickers() -> tuple[str, ...]:
+    """The series a DECISION actually reads — the freshness alert's watch list,
+    the planner's signal clock, and the seed's stack prerequisite.
+
+    A FUNCTION RATHER THAN A CONSTANT since 2026-09-06, because the set became
+    knob-dependent: `SLOPE_BEAR_VETO` adds `LONG_YIELD` to what decides, and
+    `rule_revision.measure_revision` turns that knob on by SETTING THE MODULE
+    ATTRIBUTE at sweep time. A tuple frozen at import would have kept the
+    two-series answer through such a sweep, so `load_series` would not have
+    refused a missing DGS10 — it would have reindexed to all-NaN, never vetoed,
+    and reported "no difference" for a rule that never ran. The measurement
+    would have been the silent kind: a verdict of 'reject' earned by an absent
+    series rather than by the market.
+
+    Read at CALL time everywhere for that reason; `SIGNAL_TICKERS` the constant
+    is gone rather than kept beside it, because two names for one set is the
+    drift this codebase keeps paying for."""
+    return (CREDIT_SPREAD, YIELD_SLOPE) + ((LONG_YIELD,) if SLOPE_BEAR_VETO is not None else ())
 
 
 def classify_regime(
@@ -1053,6 +1123,7 @@ def classify_regime(
     slope: float,
     slope_median: float | None,
     spread_speed: float | None = None,
+    long_yield_speed: float | None = None,
 ) -> str:
     """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"): the two
     indicators are read INDEPENDENTLY and their 2x2 names the state — credit
@@ -1089,6 +1160,13 @@ def classify_regime(
     # warm-up behaviour on the tight side and gives the wide side the
     # equity-tilted book the backtest defaulted to.
     steep = slope_median is not None and not pd.isna(slope_median) and slope >= slope_median
+    # See SLOPE_BEAR_VETO: distrust a steep reading the long end is driving. A
+    # missing speed (warm-up, or DGS10 simply absent while the knob is off)
+    # never vetoes, exactly as the spread's veto falls back to its level read.
+    # Applied on BOTH branches because the claim is about the slope reading
+    # itself, not about which spread state it happens to be paired with.
+    if steep and SLOPE_BEAR_VETO is not None and long_yield_speed is not None:
+        steep = pd.isna(long_yield_speed) or long_yield_speed <= SLOPE_BEAR_VETO
     curve = "steep" if steep else "flat"
     return f"credit-spread-{'wide' if wide or fast else 'tight'}-yield-curve-{curve}"
 
@@ -1181,6 +1259,7 @@ def walk_decisions(
     moving_averages: Mapping[int, Mapping[str, pd.Series]],
     prices: Mapping[str, pd.Series],
     spread_speed: pd.Series | None = None,
+    long_yield_speed: pd.Series | None = None,
 ) -> list[Decision]:
     """Walk the decision clock and record EVERY decision — the full journal.
 
@@ -1202,6 +1281,7 @@ def walk_decisions(
             _at(slope, t),
             _at(slope_median, t),
             None if spread_speed is None else _at(spread_speed, t),
+            None if long_yield_speed is None else _at(long_yield_speed, t),
         )
         held, pending, pending_count = advance_hysteresis(held, pending, pending_count, signalled)
         # THE HAVEN IS READ TOO, not only the sleeves: `apply_trend_overlay`
@@ -1303,20 +1383,31 @@ def build_targets(
     moving_averages: Mapping[int, Mapping[str, pd.Series]],
     prices: Mapping[str, pd.Series],
     spread_speed: pd.Series | None = None,
+    long_yield_speed: pd.Series | None = None,
 ) -> dict[pd.Timestamp, dict[str, float]]:
     """The change-point map `shadow_book_nav` consumes: a target ONLY on the
     dates the book actually changes (a monthly re-evaluation that lands on the
     same book pays no turnover). A pure projection of `walk_decisions` — the
     replay and the live path cannot drift because there is only one walk.
 
-    `spread_speed` IS FORWARDED, and its absence here was a trap rather than a
-    live bug: both trajectory knobs read that series, so a caller that omitted it
-    got a projection of a DIFFERENT rule — the pre-2026-08-11 one — under a
-    docstring promising it could not drift. `run_market_signal` builds its own
-    change-point map inline and passes the speed, which is why nothing measured
-    wrong; this signature is what keeps that true for the next caller."""
+    EVERY SPEED IS FORWARDED, and `spread_speed`'s absence here was a trap
+    rather than a live bug: the trajectory knobs read those series, so a caller
+    that omitted one got a projection of a DIFFERENT rule — the pre-2026-08-11
+    one — under a docstring promising it could not drift. `run_market_signal`
+    builds its own change-point map inline and passes them, which is why nothing
+    measured wrong; this signature is what keeps that true for the next caller,
+    and `long_yield_speed` arrived (2026-09-06) into a signature that had already
+    learned the lesson."""
     decisions = walk_decisions(
-        dates, spread, slope, spread_median, slope_median, moving_averages, prices, spread_speed
+        dates,
+        spread,
+        slope,
+        spread_median,
+        slope_median,
+        moving_averages,
+        prices,
+        spread_speed,
+        long_yield_speed,
     )
     return {d.date: d.target for d in decisions if d.changed}
 
@@ -1558,15 +1649,17 @@ class StackSeries:
     decision_prices: dict[str, pd.Series]
     spread_raw: pd.Series
     slope_raw: pd.Series
+    long_yield_raw: pd.Series
     spread: pd.Series
     slope: pd.Series
     spread_median: pd.Series
     slope_median: pd.Series
     spread_speed: pd.Series
+    long_yield_speed: pd.Series
     moving_averages: dict[int, dict[str, pd.Series]]
-    # The signal series that are ABSENT, empty when both are present. Carried
-    # rather than raised on, because only one of the two arms depends on them —
-    # see the note at the assignment.
+    # The signal series that are ABSENT, empty when they are all present.
+    # Carried rather than raised on, because only one of the two arms depends on
+    # them — see the note at the assignment.
     missing_signals: list[str] = dataclasses.field(default_factory=list)
 
 
@@ -1628,6 +1721,7 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # is only auditable if the live path can say WHEN each input became knowable.
     spread_raw = await ratios.load_price(db, CREDIT_SPREAD)
     slope_raw = await ratios.load_price(db, YIELD_SLOPE)
+    long_yield_raw = await ratios.load_price(db, LONG_YIELD)
     # RECORDED HERE, REFUSED IN `run_market_signal` — and the split is the point.
     #
     # An absent signal series reindexes to all-NaN, `classify_regime` reads that
@@ -1650,11 +1744,17 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # recorded decision (docs/MILESTONES.md, second coherence pass 2026-08-02) —
     # ADR-003 says a stale print IS what was knowable, and ADR-009 scopes the
     # live path to telling rather than refusing.
-    missing_signals = [
-        t for t, s in ((CREDIT_SPREAD, spread_raw), (YIELD_SLOPE, slope_raw)) if s.empty
-    ]
+    #
+    # WHICH series count is `signal_tickers()`'s answer, not a list written out
+    # here: a series is a signal exactly when a knob makes it decide, and
+    # DGS10 decides only while `SLOPE_BEAR_VETO` is on. Deriving it is what
+    # makes a sweep of that knob refuse a database without DGS10 instead of
+    # measuring an all-NaN speed that never vetoes.
+    raw = {CREDIT_SPREAD: spread_raw, YIELD_SLOPE: slope_raw, LONG_YIELD: long_yield_raw}
+    missing_signals = [t for t in signal_tickers() if raw[t].empty]
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()
+    long_yield = long_yield_raw.reindex(calendar).ffill()
     # `'<n>D'` is a TIME window (see MEDIAN_WINDOW_YEARS); `min_periods` stays a
     # count of observations, because "enough data to trust a median" is a
     # question about observations and not about elapsed time.
@@ -1685,7 +1785,11 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # Computed unconditionally and cheap: the walk ignores it while
     # SPREAD_SPEED_VETO is None, and computing it only when the knob is set
     # would make the measured variant read a series the baseline never built.
-    spread_speed = compute_derivatives(spread, CREDIT_SPREAD, SPREAD_SPEED_LOOKBACK_DAYS)["speed"]
+    spread_speed = compute_derivatives(spread, CREDIT_SPREAD, SPEED_LOOKBACK_DAYS)["speed"]
+    # Same unconditional-and-cheap rule as the spread's, and here it also keeps
+    # the baseline and the variant reading the same built series when
+    # `measure_revision` flips `SLOPE_BEAR_VETO` between the two runs.
+    long_yield_speed = compute_derivatives(long_yield, LONG_YIELD, SPEED_LOOKBACK_DAYS)["speed"]
     return StackSeries(
         calendar=calendar,
         rf=rf,
@@ -1693,11 +1797,13 @@ async def load_series(db: InvestmentDB) -> StackSeries:
         decision_prices=decision_prices,
         spread_raw=spread_raw,
         slope_raw=slope_raw,
+        long_yield_raw=long_yield_raw,
         spread=spread,
         slope=slope,
         spread_median=spread_median,
         slope_median=slope_median,
         spread_speed=spread_speed,
+        long_yield_speed=long_yield_speed,
         moving_averages=moving_averages,
         missing_signals=missing_signals,
     )
@@ -1795,6 +1901,7 @@ async def run_market_signal(
         s.moving_averages,
         s.decision_prices,
         s.spread_speed,
+        s.long_yield_speed,
     )
     targets = {d.date: d.target for d in decisions if d.changed}
     nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
@@ -1803,7 +1910,12 @@ async def run_market_signal(
         targets=targets,
         turnover=turnover,
         decisions=decisions,
-        raw_series={CREDIT_SPREAD: s.spread_raw, YIELD_SLOPE: s.slope_raw, **s.prices},
+        raw_series={
+            CREDIT_SPREAD: s.spread_raw,
+            YIELD_SLOPE: s.slope_raw,
+            LONG_YIELD: s.long_yield_raw,
+            **s.prices,
+        },
     )
 
 

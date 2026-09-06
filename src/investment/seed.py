@@ -359,7 +359,8 @@ async def _seed_invariants(db: InvestmentDB) -> int:
 
 
 async def _seed_strategies(db: InvestmentDB) -> int:
-    """Step 5 — 4 strategies, all enabled, + BACKED_BY edges.
+    """Step 5 — the seeded strategies (`seed_data.STRATEGIES`), all enabled,
+    + BACKED_BY edges.
 
     Same re-run discipline as `_seed_invariants`: `conviction` is MATURED
     mechanically (Writeback's knowledge commit moves it on real outcomes), so a
@@ -714,7 +715,7 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
     # a warning). `run_market_signal` raises on a missing sleeve on purpose (a
     # stack quietly holding a sleeve at 0% is the bug that once crippled it), so
     # the prerequisite is checked here rather than by catching that guard.
-    missing = sorted(missing_prices + await _missing_series(db, _STACK_SIGNAL_SERIES))
+    missing = sorted(missing_prices + await _missing_series(db, _stack_signal_series()))
     if missing:
         logger.warning("step 12: market-signal stack NAV skipped, no series for %s", missing)
         results[market_signal.STACK_PORTFOLIO_ID] = {"skipped": f"missing series: {missing}"}
@@ -762,10 +763,15 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
 # control can be priced without all five.
 _STACK_PRICE_SERIES: tuple[str, ...] = market_signal.STACK_TICKERS
 
-# The stack's EXTRA prerequisite — the two series that pick the book. The control
-# arm freezes its book and so needs neither; splitting the two sets is what lets
-# a price-only database still produce the benchmark the stack is judged against.
-_STACK_SIGNAL_SERIES: tuple[str, ...] = market_signal.SIGNAL_TICKERS
+
+# The stack's EXTRA prerequisite — the series that pick the book. The control
+# arm freezes its book and so needs none of them; splitting the two sets is what
+# lets a price-only database still produce the benchmark the stack is judged
+# against. A FUNCTION rather than a constant because the set follows the knobs
+# that are on (market_signal.signal_tickers), and a tuple frozen at import would
+# have kept answering with the pair after a knob added a third series.
+def _stack_signal_series() -> tuple[str, ...]:
+    return market_signal.signal_tickers()
 
 
 async def _missing_series(db: InvestmentDB, needed: Sequence[str]) -> list[str]:

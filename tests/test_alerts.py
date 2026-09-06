@@ -22,10 +22,12 @@ from investment import market_signal_cycle as MSC
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import alerts as A
 from investment.mechanical import market_signal as MS
+from investment.mechanical.attribution import ATTRIBUTION_EVENT
 from investment.mechanical.market_signal import (
     CREDIT_SPREAD,
     STACK_PORTFOLIO_ID,
     STACK_TICKERS,
+    TREND_BASELINE_PORTFOLIO_ID,
     YIELD_SLOPE,
 )
 from investment.writeback import writeback as W
@@ -179,7 +181,7 @@ async def test_an_empty_market_data_table_is_reported_not_ignored(db: Investment
 
 
 async def test_fresh_signals_say_nothing(db: InvestmentDB) -> None:
-    await _prices(db, TODAY - timedelta(days=3), tickers=A.SIGNAL_TICKERS)
+    await _prices(db, TODAY - timedelta(days=3), tickers=MS.signal_tickers())
     assert await A.signal_freshness_alert(db, TODAY) is None
 
 
@@ -190,7 +192,7 @@ async def test_stale_signals_are_critical_and_say_the_decision_still_runs(
     carries the last print, so the decision does NOT stop — it picks a book from
     a spread quoted weeks ago, and the message has to say so or the owner reads
     a normal-looking month."""
-    await _prices(db, TODAY - timedelta(days=20), tickers=A.SIGNAL_TICKERS)
+    await _prices(db, TODAY - timedelta(days=20), tickers=MS.signal_tickers())
     alert = await A.signal_freshness_alert(db, TODAY)
     assert alert is not None
     assert alert.code == "signal_data_stale" and alert.level == "critical"
@@ -220,7 +222,7 @@ async def test_fresh_sleeves_do_not_vouch_for_the_signals(db: InvestmentDB) -> N
     perfectly healthy price feed says nothing about whether the book being
     chosen is still informed."""
     await _prices(db, TODAY)
-    await _prices(db, TODAY - timedelta(days=40), tickers=A.SIGNAL_TICKERS)
+    await _prices(db, TODAY - timedelta(days=40), tickers=MS.signal_tickers())
     assert await A.market_data_freshness_alert(db, TODAY) is None
     assert (await A.signal_freshness_alert(db, TODAY)) is not None
 
@@ -326,7 +328,7 @@ async def test_a_frozen_macro_series_does_not_touch_the_book_alerts(db: Investme
     """The separation this check exists for: the two series that PICK the book
     are fine, so nothing critical fires — but the Worker's reading is stale and
     that is now said out loud."""
-    await _prices(db, TODAY, tickers=A.SIGNAL_TICKERS)
+    await _prices(db, TODAY, tickers=MS.signal_tickers())
     await _macro_series(db, "M2SL", TODAY - timedelta(days=66), spacing=31, n=13)
     assert await A.signal_freshness_alert(db, TODAY) is None
     macro = await A.macro_freshness_alert(db, TODAY)
@@ -445,7 +447,7 @@ async def test_the_latest_verdict_wins(db: InvestmentDB) -> None:
 async def test_collect_orders_critical_before_warn(db: InvestmentDB) -> None:
     await _stack_nav(db, -0.40)
     await _prices(db, TODAY - timedelta(days=20))
-    await _prices(db, TODAY - timedelta(days=20), tickers=A.SIGNAL_TICKERS)
+    await _prices(db, TODAY - timedelta(days=20), tickers=MS.signal_tickers())
     await _decision_event(db, TODAY - timedelta(days=70))
     await _drift_event(db, violations=["cagr 11.20% vs pinned 11.62% (-0.42pp, tolerance 0.10pp)"])
     found = await A.collect_alerts(db, TODAY)
@@ -462,7 +464,7 @@ async def test_collect_orders_critical_before_warn(db: InvestmentDB) -> None:
 async def test_a_healthy_db_collects_nothing(db: InvestmentDB) -> None:
     await _stack_nav(db, -0.10)
     await _prices(db, TODAY - timedelta(days=1))
-    await _prices(db, TODAY - timedelta(days=1), tickers=A.SIGNAL_TICKERS)
+    await _prices(db, TODAY - timedelta(days=1), tickers=MS.signal_tickers())
     await _decision_event(db, TODAY - timedelta(days=5))
     await _drift_event(db)
     assert await A.collect_alerts(db, TODAY) == []
@@ -534,3 +536,60 @@ async def test_only_the_LATEST_measurement_is_raised(db: InvestmentDB) -> None:
     )
     await _measurement_event(db, "adopt")
     assert await A.rule_tradeoff_alert(db) is None
+
+
+async def _attribution_event(db: InvestmentDB, dominators: dict[str, list[str]]) -> None:
+    """The alert is a PURE READ of the newest `SignalAttributionEvent` — the
+    measuring happens in the chain, so the fixture is the journal row, not a
+    NAV."""
+    async with db.transaction():
+        await db.append_event(
+            type=ATTRIBUTION_EVENT,
+            source_uc="UC7",
+            source_id=STACK_PORTFOLIO_ID,
+            payload={"as_of": "2026-08-28", "dominators": dominators},
+        )
+
+
+async def test_no_dominator_is_silence_not_a_reassuring_alert(db: InvestmentDB) -> None:
+    """An alert that speaks every week is not read. The MEASUREMENT is
+    unconditional (the digest line); the alarm is not."""
+    await _attribution_event(db, {"3y": [], "5y": [], "10y": []})
+    assert await A.signal_attribution_alert(db) is None
+
+
+async def test_a_short_window_dominator_does_not_alarm(db: InvestmentDB) -> None:
+    """1y is measured and journalled but never alarmed on: one bad year is not
+    a verdict about a strategy whose whole mechanism is slow."""
+    await _attribution_event(db, {"1y": ["barbell-defensive"], "3y": [], "5y": [], "10y": []})
+    assert await A.signal_attribution_alert(db) is None
+
+
+async def test_the_control_arm_dominating_is_named_as_the_signal_failing(db: InvestmentDB) -> None:
+    """TWO FINDINGS WEARING ONE SHAPE. Any other portfolio dominating is
+    opportunity cost; the CONTROL ARM dominating is the signal layer not earning
+    its own complexity, because it IS the stack with that layer removed."""
+    await _attribution_event(
+        db, {"5y": [TREND_BASELINE_PORTFOLIO_ID], "10y": [TREND_BASELINE_PORTFOLIO_ID]}
+    )
+    alert = await A.signal_attribution_alert(db)
+    assert alert is not None and alert.level == "warn"
+    assert "CONTROL ARM" in alert.message
+    assert "5y, 10y" in alert.message
+    # Nothing acts on it, and the message must say so: ADR-006 matures on a
+    # window of measurements, never on one reading.
+    assert "Nothing has been blocked" in alert.message
+
+
+async def test_another_portfolio_dominating_reads_as_opportunity_cost(db: InvestmentDB) -> None:
+    await _attribution_event(db, {"10y": ["spy-USD"]})
+    alert = await A.signal_attribution_alert(db)
+    assert alert is not None
+    assert "opportunity cost" in alert.message
+    assert "CONTROL ARM" not in alert.message
+
+
+async def test_no_measurement_yet_is_silence(db: InvestmentDB) -> None:
+    """Before the first run there is no event, and an alert must not invent a
+    verdict from its absence."""
+    assert await A.signal_attribution_alert(db) is None

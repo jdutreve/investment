@@ -465,7 +465,13 @@ async def test_proposal_records_the_full_audit_record(db: InvestmentDB) -> None:
     assert context["held_book"] in MS.BOOKS
     assert context["held_book_portfolio_id"] == row["defender_id"]
 
-    for ticker in (MS.CREDIT_SPREAD, MS.YIELD_SLOPE):
+    # EVERY DECIDING SERIES, off `signal_tickers()` rather than a hand-written
+    # pair. The audit record's promise is "every input, and the date each became
+    # knowable"; the set of inputs now follows the knobs that are on, so
+    # adopting `SLOPE_BEAR_VETO` must fail here until `build_market_context`
+    # reports DGS10 too — a journal that omits a series the book was chosen on
+    # is the same defect as one that contradicts its own decision.
+    for ticker in MS.signal_tickers():
         signal = context["signals"][ticker]
         assert signal["value"] is not None
         # ADR-003: every input says when it became knowable, and never later

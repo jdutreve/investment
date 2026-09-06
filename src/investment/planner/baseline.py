@@ -25,7 +25,7 @@ from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
 from investment.market.liquidity import liquidity_state
-from investment.mechanical.market_signal import SIGNAL_TICKERS, STACK_TICKERS
+from investment.mechanical.market_signal import STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
@@ -200,7 +200,7 @@ async def _favors(db: InvestmentDB, regime_type_id: str | None) -> list[dict[str
 
 async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     """The latest level/speed/acceleration of every MACRO series — with
-    `SIGNAL_TICKERS` READ AS A PAIR, on the one date both of them have.
+    THE SIGNALS READ AS ONE SET, on the one date all of them have.
 
     Fetched 15 times across the two M8b runs, one ticker list at a time. The
     Worker reads WEATHER (docs/ARCHITECTURE.md WORKER persona) and its context
@@ -228,19 +228,20 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
 
     THE CAP CANNOT HIDE A DEAD FEED PAST A WEEK, which is the honest form of the
     objection to answer since the pair now follows its laggard:
-    `signal_freshness_alert` measures the OLDEST of `SIGNAL_TICKERS` against
+    `signal_freshness_alert` measures the OLDEST of `signal_tickers()` against
     today and fires past `MARKET_DATA_STALE_DAYS` (7) — the same set, so the cap
     and the alarm cannot drift apart. Inside that week a stalled series does
     quietly pull its partner back with it, and that is the accepted cost: a pair
     read on two dates is a comparison that was true on no day, which is worse
     than a pair read one print late."""
     # Placeholders built from the CONSTANTS' lengths, never from data — the sets
-    # are `market_signal.SIGNAL_TICKERS` and `STACK_TICKERS`, and a series
+    # are `market_signal.signal_tickers()` and `STACK_TICKERS`, and a series
     # joining either must move this query with it rather than leave a
     # hand-written list behind.
-    named = ", ".join(f":sig{i}" for i in range(len(SIGNAL_TICKERS)))
-    signals = {f"sig{i}": t for i, t in enumerate(SIGNAL_TICKERS)}
-    clock = {f"clk{i}": t for i, t in enumerate((*SIGNAL_TICKERS, *STACK_TICKERS))}
+    tickers = signal_tickers()
+    named = ", ".join(f":sig{i}" for i in range(len(tickers)))
+    signals = {f"sig{i}": t for i, t in enumerate(tickers)}
+    clock = {f"clk{i}": t for i, t in enumerate((*tickers, *STACK_TICKERS))}
     clock_named = ", ".join(f":{k}" for k in clock)
     # THE DECISION'S OWN CLOCK, not the pair's. Capping the pair at the latest
     # date BOTH SIGNALS have was half the fix: `walk_decisions` steps

@@ -16,7 +16,10 @@ Functions of the cycle:
   (status/enabled + its 3 Scenarios + BACKED_BY edges), 'review' closes it, and a
   candidate that never produced FAVORS at all is closed as unmeasurable once it
   has waited `UNMEASURABLE_PROBATION_MULTIPLIER` windows — nothing stays proposed
-  forever (ADR-006). No human gate. The 4 seeded strategies never enter probation.
+  forever (ADR-006). No human gate. The SEEDED strategies (`seed_data.STRATEGIES`)
+  never enter probation — see `strategy_probation_check` for why the arrival of
+  `market-signal-stack` among them makes that a real gap, and what now measures
+  it instead.
 - `paper_test_progress()` — proposed-vs-incumbent to date for accepted
   paper-tests (read-only; feeds the digest scoreboard).
 
@@ -661,8 +664,23 @@ async def strategy_probation_check(
     db: InvestmentDB, today: date | None = None
 ) -> list[ProbationResult]:
     """Probation verdicts for INNOVATION-born strategies (docs/ARCHITECTURE.md
-    "strategy_probation_check" + "System Evolution"). The 4 SEEDED strategies
+    "strategy_probation_check" + "System Evolution"). The SEEDED strategies
     (source='corpus') are the baseline and never enter probation.
+
+    THAT EXEMPTION WAS WRITTEN FOR FOUR AND NOW COVERS FIVE, which is not the
+    same rule. The four it was written for are the retained bridge's — the FAVORS
+    peer set a candidate is measured AGAINST (ADR-014), so exempting them is what
+    makes this function a measurement rather than a duel. `market-signal-stack`
+    joined them as a seeded row and inherited the exemption in silence, and it is
+    the ADOPTED live allocation path: the one strategy in the system that moves
+    money is the one this check structurally cannot judge.
+
+    The exemption STANDS — a probation verdict here is a FAVORS standing in the
+    current regime against peers, which is not the question to ask of the stack,
+    and 'review' closes a strategy, which is not a lever to hand a metric over
+    the live allocator. What was missing was any measurement at all, and that is
+    now `mechanical/attribution.py`: the stack against its control arm and the
+    whole board, weekly, reporting and never acting.
 
     A strategy born of an innovation is `status='proposed', enabled=0`
     (writeback `_commit_strategy_innovation`); `strategy_probation_weeks` after
