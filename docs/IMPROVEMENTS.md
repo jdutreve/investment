@@ -2516,16 +2516,66 @@ The whole of the book's lead is the second era.
 overlay read once a month cannot see a one-day crash, and it breaches the -25%
 user rule (on this path an alert, not a block — ADR-009).
 
-**What it does and does not show.** It does not show that the signal beats the
-best frozen book: it lost out of sample, and neither era's difference is
-significant. It does support a narrower statement over the two eras (49 years):
-the stack had the highest CAGR of every frozen book in both (in sample 11.36%
-against 5.05-10.60%, out of sample 15.92% against 13.05-13.91%), the highest
-Sortino in sample (1.277 against 0.766-1.164) and the second highest out of
-sample — while the best frozen book of each era was the worst or near-worst of
-the other (tight-flat 1.164 in sample, 0.658 out; tight-steep 0.766 in, 1.338
-out). The best frozen book is identifiable only afterwards; the stack was never
-the worst. The CAGR differences were not bootstrapped.
+**Why the stack was not in the bond book.** It holds tight-steep only when the
+spread reads tight AND the slope reads steep, and it did exactly that: of the 135
+decisions from 1982-08 to 1993-10 the signal read tight-steep 44 times and the
+book was held 43. Of the other 91, it read wide 60 times — the spread LEVEL sat
+above its median on 70, and the trajectory veto deferred 10 of those to the
+slope — and tight-flat 31 times. After the 1981-82 recession the spread stayed
+0.8-1.3 points above its median until 1986, which the rule reads as stress priced
+in and answers with equities (1983: stack +25.1%, bond book +10.2%). Before 1981,
+and again in 1989-90, the curve was flat to inverted, which it answers with
+SPY/GLD (1979: +53.2% against -0.4%; 1990: -3.5% against +7.1%). The signal reads
+credit stress and the curve's shape, never the direction of rates, and nothing
+available in 1982 said they would fall for eleven years. When it did hold the
+book, the overlay kept its bonds (78-111% of the 90 points). `why.py` prints the
+year-by-year table.
+
+**The whole reconstructed span, 1977-07..2026-09 (591 decisions).** The same walk
+carried on through the in-sample years on the spliced database, so its 1993-2000
+decisions read full-length medians (see the side finding below). `full_span.py`.
+
+| arm | CAGR | Sortino | max DD | $100 becomes |
+|---|---|---|---|---|
+| **stack** | **12.96%** | **1.170** | -29.0% | **$37,080** |
+| S&P proxy | 11.40% | 0.653 | -55.2% | $20,322 |
+| frozen tight-steep | 7.65% | 0.978 | -10.3% | $3,583 |
+| frozen tight-flat | 11.42% | 0.970 | -25.4% | $19,029 |
+| frozen wide-steep | 11.50% | 0.938 | -29.0% | $19,669 |
+| frozen wide-flat | 11.41% | 0.861 | -32.8% | $18,902 |
+
+Paired moving-block bootstrap, stack minus each (90% interval, P of a delta <= 0):
+
+| against | Sortino | return per year |
+|---|---|---|
+| S&P proxy | +0.503 [+0.22, +0.82], P 0.002 | +1.24pp [-1.48, +4.08], P 0.23 |
+| frozen wide-flat | +0.309 [+0.09, +0.55], P 0.011 | +1.39pp [-0.38, +3.31], P 0.10 |
+| frozen wide-steep | +0.233 [+0.04, +0.44], P 0.027 | +1.31pp [-0.13, +2.83], P 0.07 |
+| frozen tight-flat | +0.201 [-0.00, +0.44], P 0.053 | +1.37pp [+0.08, +2.77], P 0.04 |
+| frozen tight-steep | +0.192 [-0.25, +0.63], P 0.24 | +4.82pp [+2.62, +7.09], P 0.000 |
+
+Against the S&P by decade, CAGR stack / S&P: ahead in 1977-79 (22.6% / 10.9%),
+the 1980s (15.4% / 14.0%) and the 2000s (13.7% / -0.9%); behind in the 1990s
+(11.6% / 17.7%), the 2010s (10.1% / 13.3%) and 2020-26 (9.6% / 15.2%). Worst
+drawdown inside each crisis, stack / S&P: Volcker 1980-82 -25.4% / -25.2%, 1987
+-29.0% / -33.1%, 2000-02 -9.1% / -47.5%, 2008 -6.0% / -55.2%, 2020 -16.5% /
+-33.7%, 2022 -10.9% / -24.5%.
+
+**What it does and does not show.** The frozen books run under the SAME overlay,
+so what differs from them is the switching alone — and over 49 years the stack
+beats all four on both Sortino and return. Its Sortino lead is beyond noise
+against two (P 0.011 and 0.027), at the edge against tight-flat (P 0.053), and
+within noise against tight-steep, which returns 4.8 points a year less. The best
+frozen book of one era was the worst or near-worst of the other (tight-flat 1.164
+in sample, 0.658 out; tight-steep 0.766 in, 1.338 out). That is the strongest
+evidence this project has that switching books beats keeping one. It is not
+proof, and the three reasons travel with it: 1993-2026 is the history the rule
+was built on; the pre-1993 data is reconstructed; and on 1977-1993 alone — the
+only part it never saw — it fails the owner's bar against the bond book. Against
+the S&P the Sortino lead is decisive and the return lead is not, and the
+in-sample layer bootstrap of the same day (not reproduced by this folder)
+attributed most of that lead to the trend overlay rather than to the switching:
+overlay alone +0.33 Sortino, signal alone +0.11, whole stack +0.54.
 
 **Fidelity of the reconstruction.** Verdad's own three-portfolio rule, gross of
 costs, on the same data: 1980s 21.8% (paper 24.7%), 1990s 12.7% (12.6%), 2000s

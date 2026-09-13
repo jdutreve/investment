@@ -23,6 +23,8 @@ uv run python $R/proxies.py  $W/pre1993 $W/measure.db   # proxies + overlap cali
 uv run python $R/build_db.py $W                          # $W/pre1993/pre1993.db, history spliced in
 uv run python $R/test.py     $W/pre1993/pre1993.db       # THE pre-registered test
 uv run python $R/eras.py     $W/pre1993/pre1993.db       # 1987 drawdown, rates-rising vs rates-falling split
+uv run python $R/why.py      $W/pre1993/pre1993.db       # 1977-93 year by year: why not the bond book
+uv run python $R/full_span.py $W/pre1993/pre1993.db      # 1977-2026: stack vs S&P and the four frozen books
 uv run python $R/verdad.py   $W/pre1993/pre1993.db       # fidelity: Verdad's rule vs the paper's decades
 uv run python $R/insample.py $W/measure.db $W/pre1993/pre1993.db  # side finding on 1993-2026
 ```
