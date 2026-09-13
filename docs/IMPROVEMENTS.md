@@ -2453,3 +2453,102 @@ available (which would make the measurement a real 35-year one rather than a
 copper/gold's 12-month trending persists AND the stack's wide-book entries are
 observably early. Re-running costs re-adding one ticker and one constant — the
 table above is the baseline to beat.
+
+---
+
+## I-61 — MEASURED 2026-09-13 — the stack on data it never saw (1977-1993): it fails the owner's bar
+
+**The question, and the bar.** In sample (1993-2026) the credit/slope signal
+beats its control arm — the best frozen book, tight-flat SPY 60 / GLD 40, under
+the same trend overlay — by +0.113 Sortino, with a paired moving-block bootstrap
+(63-day blocks) 90% interval of [-0.11, +0.36], p = 0.20: indistinguishable from
+sampling noise, against a control that was itself chosen on that history. The
+owner set the bar the same day: the stack must beat the BEST frozen book, not a
+blend of books. The only evidence obtainable in useful time is a period the rule
+never saw, so the test was pre-registered before any result was computed —
+`docs/research/pre1993/PREREGISTRATION.md`, with the scripts and the steps to
+reproduce it beside it.
+
+**Setup.** Rule frozen at 7f0fe24. Monthly decisions 1977-07-01..1993-10-29:
+T10Y2Y starts 1976-06 and a median needs 252 observations, so no earlier start
+uses the rule's own signal. Proxies spliced onto the live series at their first
+live date, each calibrated on its overlap by one number — the mean return gap,
+subtracted — and nothing fitted:
+
+| sleeve | proxy before the live series | overlap corr (daily / monthly) | gap removed |
+|---|---|---|---|
+| SPY | Fama-French market (Mkt-RF + RF) | 0.973 / 0.983 | +0.62%/y |
+| IWN | Fama-French SMALL HiBM | 0.975 / 0.978 | +1.95%/y |
+| IEF | synthetic 7-10y Treasury from DGS10, duration 7.5 | 0.933 / 0.965 | +0.12%/y |
+| VCIT | synthetic IG credit from (Aaa + Baa)/2, duration 6.3 | 0.768 / 0.875 | +1.02%/y |
+
+Signals: BAA10Y as DBAA - DGS10 daily from 1986, monthly BAA - GS10 before (dated
+the first day of the following month); T10Y2Y and DGS10 from FRED daily. Daily
+series dated observation + 1 day, which reproduces the live rows exactly.
+
+**Result — PRIMARY CRITERION FAILS.**
+
+| 1977-07..1993-10 | CAGR | Sortino | max DD |
+|---|---|---|---|
+| **stack** | **15.92%** | 0.946 | -29.0% |
+| frozen tight-steep (VCIT 50 / IEF 40 / IWN 10) | 13.05% | **1.338** | -10.2% |
+| frozen wide-steep | 13.91% | 0.767 | -29.0% |
+| frozen wide-flat | 13.79% | 0.708 | -32.8% |
+| frozen tight-flat (the live control arm) | 13.13% | 0.658 | -25.4% |
+| S&P proxy, buy-and-hold | 12.57% | 0.485 | -33.1% |
+
+Against the best frozen book: -0.392 Sortino, 90% interval [-1.26, +0.51],
+P(delta <= 0) = 0.74 — a loss, and not a significant one either way. Against the
+S&P proxy: +0.460, [-0.01, +0.92], P = 0.05. 196 decisions; the stack held
+tight-flat 72, wide-steep 54, tight-steep 43, wide-flat 27.
+
+**Why the bond book wins: the 1982-1993 rate collapse.** DGS10 went from 7.20%
+(1977-07) to a 15.84% peak (1981-10) and down to 5.41% (1993-10).
+
+| era | stack CAGR / Sortino | tight-steep CAGR / Sortino |
+|---|---|---|
+| 1977-07..1982-07, rates rising | 16.1% / 0.63 | 6.0% / -0.78 |
+| 1982-08..1993-10, rates falling | 15.6% / 1.11 | 16.2% / 2.77 |
+
+The whole of the book's lead is the second era.
+
+**The drawdown is October 1987.** -29.0% from 1987-08-25 to 1987-10-26: an
+overlay read once a month cannot see a one-day crash, and it breaches the -25%
+user rule (on this path an alert, not a block — ADR-009).
+
+**What it does and does not show.** It does not show that the signal beats the
+best frozen book: it lost out of sample, and neither era's difference is
+significant. It does support a narrower statement over the two eras (49 years):
+the stack had the highest CAGR of every frozen book in both (in sample 11.36%
+against 5.05-10.60%, out of sample 15.92% against 13.05-13.91%), the highest
+Sortino in sample (1.277 against 0.766-1.164) and the second highest out of
+sample — while the best frozen book of each era was the worst or near-worst of
+the other (tight-flat 1.164 in sample, 0.658 out; tight-steep 0.766 in, 1.338
+out). The best frozen book is identifiable only afterwards; the stack was never
+the worst. The CAGR differences were not bootstrapped.
+
+**Fidelity of the reconstruction.** Verdad's own three-portfolio rule, gross of
+costs, on the same data: 1980s 21.8% (paper 24.7%), 1990s 12.7% (12.6%), 2000s
+11.6% (12.5%), 2010-2020 11.7% (13.3%) at quarterly decisions; 20.5 / 13.0 / 11.6
+/ 11.2% at monthly. The residual gaps are the paper's HY spread, its uncut
+small-value series and its daily trend reads — the data reproduces the source
+closely enough to test on.
+
+**Side finding — the live walk's first years run on truncated history.** The
+live database holds BAA10Y, T10Y2Y and DGS10 from 1991-09-04 only, so the
+decisions of 1993-2001 read medians built on two to nine years instead of ten.
+With the FRED history spliced in, 1993-2026 moves from 11.36% / 1.277 to
+11.48% / 1.307 (max drawdown unchanged at -16.50%), and 55 of 393 decisions hold
+a different book, all between 1993-11 and 2000-11. Not applied: it moves the
+pinned pair the anti-drift check guards and the stored NAV history.
+
+**Honest limits.** VCIT is the weak proxy (0.77 daily correlation). The spread is
+monthly before 1986, so its 30-day speed is a monthly step. Fama-French small
+value is an academic, cost-free portfolio, haircut toward IWN rather than IWN
+itself. Both bond sleeves are synthetic. The slope median runs on less than ten
+years until 1986 — as it would have live. 1973-74 lies outside the window.
+
+**Trigger to revisit.** A daily high-yield OAS history back to the 1980s (the
+paper's own signal); a daily IG corporate total-return index to replace the
+synthetic VCIT; or a decision to backfill the live signal series before 1991
+(the side finding above), which would re-pin the anti-drift pair.
