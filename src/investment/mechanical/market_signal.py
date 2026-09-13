@@ -1090,11 +1090,21 @@ SPEED_LOOKBACK_DAYS = 30
 # 0.15, 0.20 and 0.30 over 1993-2026 and each half: it really fires (51, 37, 32
 # and 20 of 393 decisions change state) and no value passes every window. The
 # three lower values add CAGR on the whole sample and on 2009-2026 but trade
-# Sortino for it on 1993-2008 (-0.021, -0.013, -0.013), the half holding the
-# 1994 and 1999-2000 bear steepeners the claim cites; 0.20 also fails 2009-2026,
-# and 0.30 rejects everywhere. Max drawdown never moves, as for every
+# Sortino for it on 1993-2008 (-0.021, -0.013, -0.013); 0.20 also fails
+# 2009-2026, and 0.30 rejects everywhere. Max drawdown never moves, as for every
 # book-selection knob: it is an overlay property. MIXED is a fitted result, not
-# a finding. `None` leaves `classify_regime` byte-for-byte what ADR-007
+# a finding.
+#
+# WHY, traced decision by decision at 0.10. The claim's own cases never test it:
+# through 1994, 1999-2000 and 2022 the slope sat BELOW its 10y median, so the
+# curve already read flat and a veto that only demotes STEEP had nothing to
+# demote; in 2013 it fired and was neutral. Where it does fire (1996, 2001-2004,
+# 2009-2011, 2014, 2021, 2025) the demotion is not defensive — on both sides the
+# flat book is the EQUITY one (VCIT/IEF/IWN -> SPY/GLD, SPY/IWN/GLD -> IWN/SPY),
+# and hysteresis carries the divergence onto the spread axis too. Over 1993-2008
+# that bought +2.5pp of return on the days the books differ for +50% of downside
+# deviation (4.3% -> 6.5%); on 2009-2026 the gain is mostly ONE episode, the
+# 2025 equity rally (+3.5% -> +13.7%). `None` leaves `classify_regime` byte-for-byte what ADR-007
 # validated, and the verdicts reach the Worker through
 # `rule_revision.describe_measured`.
 #
