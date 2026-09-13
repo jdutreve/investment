@@ -6,6 +6,7 @@ FAVORS, and probation closes them as unmeasurable. This is the path that gives a
 revision naming a KNOWN knob an answer in one pass instead of none ever.
 """
 
+import dataclasses
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -273,3 +274,169 @@ def test_the_experiment_identity_is_its_override_set_not_its_wording() -> None:
     b = rule_revision.overrides_key({"trend_fallback_haven": "IEF", "trend_haven": "GLD"})
     assert a == b  # key order is not identity
     assert a != rule_revision.overrides_key({"trend_haven": "GLD"})
+
+
+async def test_every_measured_experiment_reaches_the_worker_with_every_window(
+    db: InvestmentDB,
+) -> None:
+    """The ledger fed the Worker through a `[:20]` cap written when it held fewer
+    than twenty experiments, and collapsed each experiment's windows into one
+    word. The refused settings matter as much as the kept ones (owner,
+    2026-09-13): none may fall off the end, and "MIXED" must carry which window
+    said what, or it reads as a question still open."""
+    full = pd.Series([1.0, 1.0], index=pd.to_datetime(["1993-11-01", "2026-07-01"]))
+    first = pd.Series([1.0, 1.0], index=pd.to_datetime(["1993-11-01", "2008-12-31"]))
+    rejected = _measurement(sortino=(1.0, 0.9), drawdown=(-0.2, -0.2))
+    adopted = _measurement(sortino=(1.0, 1.1), drawdown=(-0.2, -0.2))
+    for n in range(25):
+        await rule_revision._record_measurement(
+            db,
+            dataclasses.replace(rejected, overrides={"confirm_decisions": n + 1}),
+            priced=full,
+            title=None,
+        )
+    veto = {"slope_bear_veto": 0.2}
+    await rule_revision._record_measurement(
+        db, dataclasses.replace(adopted, overrides=veto), priced=first, title="bear steepener"
+    )
+    await rule_revision._record_measurement(
+        db, dataclasses.replace(rejected, overrides=veto), priced=full, title=None
+    )
+
+    verdicts = await rule_revision.measured_verdicts(db)
+
+    assert len(verdicts) == 26
+    measured = next(v for v in verdicts if "slope_bear_veto" in v["overrides"])
+    assert measured["verdict"] == "mixed"
+    assert [w["verdict"] for w in measured["windows"]] == ["reject", "adopt"]  # widest first
+    assert measured["title"] == "bear steepener"
+
+
+def test_a_refused_setting_is_described_as_fully_as_the_rule() -> None:
+    """On 2026-09-13 the Worker wrote that the tight side of the spread "has no
+    symmetric guard" with `MIXED {"spread_speed_wide_trigger": 0.2}` in its
+    context — a JSON line with no meaning, no drawdown, and no word on which
+    window refused it. Each refused setting now reads as the rule does: what the
+    knob does, where the rule stands today, and every window's verdict with all
+    three deltas."""
+    window = {"sortino_delta": -0.05, "cagr_delta": -0.004, "drawdown_delta": 0.0}
+    verdicts = [
+        {
+            "overrides": '{"spread_speed_wide_trigger": 0.2}',
+            "title": None,
+            "verdict": "mixed",
+            "windows": [
+                {
+                    "window_start": "1991-10-29",
+                    "window_end": "2026-07-01",
+                    "verdict": "reject",
+                    **window,
+                },
+                {
+                    "window_start": "2009-01-02",
+                    "window_end": "2026-07-01",
+                    "verdict": "reject",
+                    **window,
+                },
+                # the same years and verdict, re-measured days apart: said once
+                {
+                    "window_start": "2009-01-02",
+                    "window_end": "2026-06-30",
+                    "verdict": "reject",
+                    **window,
+                },
+                {
+                    "window_start": "1991-10-29",
+                    "window_end": "2008-12-31",
+                    "verdict": "adopt",
+                    "sortino_delta": 0.01,
+                    "cagr_delta": 0.0016,
+                    "drawdown_delta": 0.0,
+                },
+            ],
+        },
+        {
+            "overrides": '{"spread_speed_veto": 0.12, "spread_speed_wide_trigger": 0.2}',
+            "title": None,
+            "verdict": "reject",
+            "windows": [
+                {
+                    "window_start": "1991-10-29",
+                    "window_end": "2026-07-01",
+                    "verdict": "reject",
+                    **window,
+                }
+            ],
+        },
+        {
+            "overrides": '{"ma_window_days": 125}',
+            "title": None,
+            "verdict": "reject",
+            "windows": [
+                {
+                    "window_start": "1991-10-29",
+                    "window_end": "2026-07-01",
+                    "verdict": "reject",
+                    **window,
+                }
+            ],
+        },
+    ]
+
+    text = "\n".join(rule_revision.describe_measured(verdicts))
+
+    assert rule_revision.PARAMETER_DESCRIPTIONS["spread_speed_wide_trigger"] in text
+    assert market_signal.SPREAD_SPEED_WIDE_TRIGGER is None
+    assert "[rule today: off]" in text
+    assert "spread_speed_wide_trigger = 0.2: MIXED" in text
+    assert "1991-2026 reject: sortino -0.050, cagr -0.40pp, max drawdown +0.00pp" in text
+    assert "1991-2008 adopt: sortino +0.010, cagr +0.16pp" in text
+    assert text.count("2009-2026 reject") == 1
+    # measured alone AND in a pair: its meaning is still said once
+    assert text.count("spread_speed_wide_trigger — ") == 1
+    # A knob the registry dropped is named retired, not silently dropped with
+    # what it measured.
+    assert "ma_window_days — RETIRED" in text
+    assert "REJECT (one window only: no out-of-sample check)" in text
+
+
+def test_a_knob_that_is_on_says_so_beside_its_refused_values() -> None:
+    """`spread_speed_veto` was described "(null = off, the current rule)" while
+    it had been ON at 0.20 since 2026-08-11 — a state written into prose when
+    every trajectory knob was off. The standing is now read off the constant."""
+    verdicts = [
+        {
+            "overrides": '{"spread_speed_veto": 0.12}',
+            "title": None,
+            "verdict": "reject",
+            "windows": [
+                {
+                    "window_start": "1991-10-29",
+                    "window_end": "2026-07-01",
+                    "verdict": "reject",
+                    "sortino_delta": -0.02,
+                    "cagr_delta": -0.001,
+                    "drawdown_delta": 0.0,
+                }
+            ],
+        }
+    ]
+    text = "\n".join(rule_revision.describe_measured(verdicts))
+    assert f"[rule today: {market_signal.SPREAD_SPEED_VETO}]" in text
+    assert all("the current rule" not in d for d in rule_revision.PARAMETER_DESCRIPTIONS.values())
+
+
+def test_a_trade_off_names_only_what_moved_beyond_the_noise() -> None:
+    """The exchange is what the owner reads, so it must not list noise as a cost.
+    The 2026-09-13 slope-veto sweep printed "costs max_drawdown -0.000" beside a
+    drawdown identical to the last displayed digit — a float residue the verdict
+    itself had already called unchanged."""
+    measurement = _measurement(
+        sortino=(1.29, 1.27),
+        drawdown=(-0.1293, -0.1293 - 1e-9),
+        cagr=(0.1258, 0.1277),
+    )
+    assert measurement.verdict == "trade-off"
+    traded = measurement.traded or ""
+    assert "sortino" in traded and "cagr" in traded
+    assert "max_drawdown" not in traded

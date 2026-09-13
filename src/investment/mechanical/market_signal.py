@@ -756,7 +756,9 @@ def describe_rule(caps: Caps | None = None) -> str:
     last, and `test_describe_rule_states_every_active_knob` pairs it with
     `rule_revision.TESTABLE_PARAMETERS` so the next knob cannot ship silent.
     Knobs that are OFF are deliberately absent: this describes the rule that
-    decided, not the rule's option list.
+    decided, not the rule's option list. What was MEASURED and lost is not
+    absent, though — `rule_revision.describe_measured` states it right after
+    this text, as fully (owner, 2026-09-13).
 
     It does NOT breach the Worker's unawareness of Planner/Writeback/storage
     (worker/agent.py): the stack is an INVESTMENT instrument whose output the
@@ -774,7 +776,8 @@ def describe_rule(caps: Caps | None = None) -> str:
     checked = (*TREND_SLEEVES, TREND_HAVEN)
     # The trajectory knobs, stated ONLY when they are on — an "off" line would
     # invite the Worker to propose switching on what is already off, which is
-    # the mirror of the defect this repairs.
+    # the mirror of the defect this repairs. An off knob that was MEASURED is
+    # stated where its measurement is (`rule_revision.describe_measured`).
     trajectory = ""
     if SPREAD_SPEED_VETO is not None:
         trajectory += (
@@ -1083,10 +1086,17 @@ SPEED_LOOKBACK_DAYS = 30
 # the spot: `rule_revision` names it, the 35y sweep runs both halves, ADR-006
 # issues a verdict, and the question closes either way.
 #
-# OFF BY DEFAULT because it has never been measured, exactly as
-# `SPREAD_SPEED_WIDE_TRIGGER` shipped: `None` leaves `classify_regime` byte-for-
-# byte what ADR-007 validated, and `describe_rule` stays silent about it so the
-# Worker is not invited to propose switching on what is already off.
+# OFF, AND MEASURED ON 2026-09-13 — which is why it stays off. Swept at 0.10,
+# 0.15, 0.20 and 0.30 over 1993-2026 and each half: it really fires (51, 37, 32
+# and 20 of 393 decisions change state) and no value passes every window. The
+# three lower values add CAGR on the whole sample and on 2009-2026 but trade
+# Sortino for it on 1993-2008 (-0.021, -0.013, -0.013), the half holding the
+# 1994 and 1999-2000 bear steepeners the claim cites; 0.20 also fails 2009-2026,
+# and 0.30 rejects everywhere. Max drawdown never moves, as for every
+# book-selection knob: it is an overlay property. MIXED is a fitted result, not
+# a finding. `None` leaves `classify_regime` byte-for-byte what ADR-007
+# validated, and the verdicts reach the Worker through
+# `rule_revision.describe_measured`.
 #
 # SHAPE MIRRORS `SPREAD_SPEED_VETO` deliberately — a veto that DEMOTES a reading
 # it distrusts, never one that promotes. A steep reading whose long end is

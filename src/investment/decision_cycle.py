@@ -41,6 +41,7 @@ from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
+from investment.mechanical.rule_revision import describe_measured
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
@@ -263,22 +264,10 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # fact the system held was not reaching the only thing that could use it.
     # "Add VCIT to the trend overlay" arrived three times across independent
     # dates, each one after a measured rejection nothing could show it; the
-    # Worker was not being stubborn, it was being kept ignorant.
+    # Worker was not being stubborn, it was being kept ignorant. Rendered right
+    # after the rule and as fully as the rule (`rule_revision.describe_measured`).
     if context.measured_revisions:
-        lines += ["", "ALREADY MEASURED over the history (do not re-propose these settings):"]
-        for row in context.measured_revisions:
-            deltas = ", ".join(
-                f"{name} {row[key]:+.3f}"
-                for name, key in (("sortino", "sortino_delta"), ("cagr", "cagr_delta"))
-                if row.get(key) is not None
-            )
-            window = f"{str(row.get('window_start'))[:4]}-{str(row.get('window_end'))[:4]}"
-            n = row.get("windows", 1)
-            # MIXED is the loudest of the three: it means the change adopts on
-            # one window and fails another, which is a fitted result and not a
-            # finding.
-            scope = f"{n} windows" if n > 1 else f"{window} only"
-            lines.append(f"  {row['verdict'].upper():7} {row['overrides']}  [{scope}: {deltas}]")
+        lines += ["", *describe_measured(context.measured_revisions)]
 
     lines += [
         "",

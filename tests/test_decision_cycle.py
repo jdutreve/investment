@@ -6,6 +6,7 @@ driven by PydanticAI TestModel on a real throwaway SQLite. Covers M8's Definitio
 of Verified item: a reallocation the Worker proposes passes the gates and is
 persisted; and the knowledge-only path where nothing is proposed."""
 
+import dataclasses
 import json
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -349,3 +350,33 @@ def test_float_noise_is_not_sent_to_the_model() -> None:
     text = render_context_for_worker(ctx)
     assert "0.039999999999999813" not in text
     assert "speed 0.04, accel -0.05" in text
+
+
+def test_the_refused_settings_are_rendered_right_after_the_rule() -> None:
+    """What lost is read beside what decided (owner, 2026-09-13) — not as a
+    trailing list of JSON the Worker can pass over on its way to the ranking."""
+    ctx = dataclasses.replace(
+        _two_clock_context([]),
+        measured_revisions=[
+            {
+                "overrides": '{"spread_speed_wide_trigger": 0.2}',
+                "title": None,
+                "verdict": "reject",
+                "windows": [
+                    {
+                        "window_start": "1991-10-29",
+                        "window_end": "2026-07-01",
+                        "verdict": "reject",
+                        "sortino_delta": -0.075,
+                        "cagr_delta": -0.005,
+                        "drawdown_delta": 0.0,
+                    }
+                ],
+            }
+        ],
+    )
+    text = render_context_for_worker(ctx)
+    rule = text.index("THE MECHANICAL RULE THAT DECIDED THIS MONTH")
+    refused = text.index("WHAT THE HISTORY ALREADY ANSWERED")
+    assert rule < refused < text.index("RANKED PORTFOLIOS")
+    assert "spread_speed_wide_trigger = 0.2: REJECT" in text

@@ -31,7 +31,7 @@ Rule #1 is intact: nothing may get worse.
 import dataclasses
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
@@ -91,7 +91,7 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     "spread_speed_veto": (
         "defer the risk-on wide-spread book while the spread is still widening faster "
         f"than this, in spread points per {market_signal.SPEED_LOOKBACK_DAYS} days "
-        "(null = off, the current rule)"
+        "(null = off)"
     ),
     "spread_speed_wide_trigger": (
         "enter the risk-on wide-spread book as soon as the spread widens faster than "
@@ -115,7 +115,7 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
         "as flat while the 10-year yield (DGS10) rises faster than this, in yield points "
         f"per {market_signal.SPEED_LOOKBACK_DAYS} days, which tells a bear steepener "
         "(long end selling off) from a bull one (front end easing). Both books it "
-        "redirects to carry LESS duration (null = off, the current rule)"
+        "redirects to carry LESS duration (null = off)"
     ),
 }
 
@@ -414,8 +414,14 @@ class RevisionMeasurement:
         if self.verdict != "trade-off":
             return None
         deltas = self.deltas or {}
-        gains = [f"{k} {v:+.3f}" for k, v in sorted(deltas.items()) if v > 0]
-        losses = [f"{k} {v:+.3f}" for k, v in sorted(deltas.items()) if v < 0]
+        # BY `direction`, not by the raw sign — the verdict's own test. A delta
+        # inside the noise floor is "unchanged" to the verdict, and the raw sign
+        # listed it anyway: the 2026-09-13 slope-veto sweep printed "costs
+        # max_drawdown -0.000" beside a drawdown that had not moved.
+        base, var = self.baseline.as_map(), self.variant.as_map()
+        moved = {k: direction(float(base[k]), float(var[k])) for k in deltas}  # type: ignore[arg-type]  # a trade-off has every indicator
+        gains = [f"{k} {v:+.3f}" for k, v in sorted(deltas.items()) if moved[k] > 0]
+        losses = [f"{k} {v:+.3f}" for k, v in sorted(deltas.items()) if moved[k] < 0]
         return f"buys {', '.join(gains)} — costs {', '.join(losses)}"
 
 
@@ -578,19 +584,15 @@ async def _record_measurement(
 
 
 async def measured_verdicts(db: InvestmentDB) -> list[dict[str, Any]]:
-    """One verdict per experiment — the WIDEST window measured for it — with
-    that window, so the Worker is told what the answer covers.
+    """One entry per experiment with EVERY window measured for it, widest first,
+    so the Worker is told what each answer covers and where it held.
 
     NOT a filter on the full-window constants, which is what the first version
     did and why it surfaced one verdict of seven. The recorded window is read
     off the priced NAV, so it is the data's real first and last day
     (1991-10-29, not 1991-01-01), and an equality test against a constant
     matches almost nothing. Same defect as everything else this week: the
-    identity written and the identity queried were not the same identity.
-
-    Widest rather than newest: a half-sample verdict and a full-sample verdict
-    answer different questions, and the broader one is the one a proposer needs
-    to hear first."""
+    identity written and the identity queried were not the same identity."""
     rows = await db.query(
         "SELECT overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta, "
         "       window_start, window_end, "
@@ -605,26 +607,146 @@ async def measured_verdicts(db: InvestmentDB) -> list[dict[str, Any]]:
     #
     # So an experiment is ADOPT only if every window measured for it adopts;
     # disagreement is reported as MIXED, which is the sample-artefact signal
-    # itself and more useful than either verdict alone. An experiment measured
-    # on one window says so — no out-of-sample evidence is not the same as
-    # out-of-sample agreement.
+    # itself. The windows TRAVEL WITH that headline (2026-09-13): "MIXED" alone
+    # does not say which half failed, and it reads as "still open".
     by_experiment: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         by_experiment.setdefault(str(row["overrides"]), []).append(dict(row))
 
+    # NO CAP. There was one, `[:20]`, which named the ledger's size when it held
+    # fewer than twenty experiments; the four `slope_bear_veto` values measured
+    # on 2026-09-13 took it past, and the cut would have fallen silently on
+    # whichever experiment had the shortest window. A refusal the Worker is not
+    # shown is a refusal it re-derives, and the refused settings matter as much
+    # as the kept ones (owner, 2026-09-13).
     out: list[dict[str, Any]] = []
-    for overrides, measured in by_experiment.items():
+    for overrides, measured in sorted(by_experiment.items()):
         verdicts = {str(m["verdict"]) for m in measured}
-        widest = measured[0]  # rows arrive span DESC
         out.append(
             {
-                **widest,
                 "overrides": overrides,
+                "title": next((m["title"] for m in measured if m["title"]), None),
                 "verdict": verdicts.pop() if len(verdicts) == 1 else "mixed",
-                "windows": len(measured),
+                "windows": measured,  # rows arrive span DESC: the widest first
             }
         )
-    return out[:20]
+    return out
+
+
+# The headline of an experiment measured on SEVERAL windows, in words a reader
+# who never saw the ledger can act on. MIXED is the loudest: it adopts on one
+# window and fails another, which is a fitted result and not a finding.
+_HEADLINES: dict[str, str] = {
+    "adopt": "ADOPT on every window measured",
+    "reject": "REJECT on every window measured",
+    "trade-off": "TRADE-OFF on every window measured (one indicator better, another worse)",
+    "unmeasurable": "UNMEASURABLE",
+    "mixed": "MIXED: the windows disagree, so the result is fitted to one of them",
+}
+
+
+def describe_measured(verdicts: Sequence[Mapping[str, Any]]) -> list[str]:
+    """What the history already answered, as prompt lines GENERATED from the
+    ledger: each knob named once with its meaning and its setting in the rule
+    today, then every value measured for it, each window with its verdict and
+    all three deltas.
+
+    THE REFUSED SETTINGS ARE STATED AS FULLY AS THE KEPT RULE (owner,
+    2026-09-13). They used to reach the Worker as one line of JSON each —
+    `MIXED {"spread_speed_wide_trigger": 0.2} [4 windows: sortino ..., cagr ...]`
+    — with no meaning, no drawdown, and a headline that reads as "still open".
+    On 2026-09-13 the Worker wrote that "the trajectory veto guards only the
+    WIDE side of the spread; the tight side has no symmetric guard" with that
+    very line in its context: a speed rule on the tight side was built,
+    measured, and refused on two windows of three. `market_signal.describe_rule`
+    says what decided; this says what lost, and a rule described without its
+    refusals invites the claim that it lacks what it tried."""
+    if not verdicts:
+        return []
+    lines = [
+        "WHAT THE HISTORY ALREADY ANSWERED — every setting of the rule above that was "
+        "replayed over the history, the refused ones beside the kept ones. A refused "
+        "setting is as much a fact about this market as the rule itself: before writing "
+        "that the rule lacks a mechanism, look here, because it may exist and be switched "
+        "off because it lost. Do not re-propose a measured setting; if you still disagree, "
+        "say what yours changes that these did not. Deltas are the setting minus the rule; "
+        "a POSITIVE max-drawdown delta is a SHALLOWER drawdown.",
+    ]
+    by_knobs: dict[tuple[str, ...], list[tuple[dict[str, Any], Mapping[str, Any]]]] = {}
+    for experiment in verdicts:
+        overrides = json.loads(str(experiment["overrides"]))
+        by_knobs.setdefault(tuple(sorted(overrides)), []).append((overrides, experiment))
+    # A knob is described ONCE even when a pair of knobs was measured together:
+    # `trend_haven` alone and `trend_haven` + `trend_fallback_haven` are two
+    # groups, and its meaning is one.
+    described: set[str] = set()
+    for knobs, experiments in by_knobs.items():
+        lines += [f"  {knob} — {_knob_standing(knob)}" for knob in knobs if knob not in described]
+        described.update(knobs)
+        experiments.sort(key=lambda pair: [_value_order(pair[0][knob]) for knob in knobs])
+        for overrides, experiment in experiments:
+            windows = _distinct_windows(experiment["windows"])
+            verdict = str(experiment["verdict"])
+            headline = (
+                _HEADLINES[verdict]
+                if len(windows) > 1
+                else f"{verdict.upper()} (one window only: no out-of-sample check)"
+            )
+            setting = ", ".join(f"{knob} = {json.dumps(overrides[knob])}" for knob in knobs)
+            lines.append(f"    {setting}: {headline}")
+            lines += [f"      {_window_line(window)}" for window in windows]
+    return lines
+
+
+def _knob_standing(knob: str) -> str:
+    """The knob's meaning and its setting in the rule TODAY, so a measured value
+    reads against what decided. A knob the registry no longer has is said to be
+    retired rather than dropped: `ma_window_days` became the list `ma_windows`,
+    and what its single windows measured still answers "try another window"."""
+    if knob not in TESTABLE_PARAMETERS:
+        return "RETIRED, no longer a setting of the rule; what it measured still stands"
+    value = getattr(market_signal, TESTABLE_PARAMETERS[knob])
+    if isinstance(value, tuple):
+        value = list(value)
+    today = "off" if value is None else json.dumps(value)
+    return f"{PARAMETER_DESCRIPTIONS[knob]} [rule today: {today}]"
+
+
+def _value_order(value: Any) -> tuple[int, float, str]:
+    """Numbers in numeric order (0.1 before 0.15, which the JSON text sorts the
+    other way round), everything else after them by its text."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return (0, float(value), "")
+    return (1, 0.0, json.dumps(value))
+
+
+def _span(window: Mapping[str, Any]) -> str:
+    return f"{str(window['window_start'])[:4]}-{str(window['window_end'])[:4]}"
+
+
+def _distinct_windows(windows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """One line per (years, verdict). Re-measuring after the data's last day
+    moved records a second row whose window differs by days, which says the same
+    thing twice in the Worker's units; keyed on the verdict too, so two rows of
+    one span that DISAGREE both stay visible. The first kept is the widest, then
+    the newest (`measured_verdicts` order)."""
+    kept: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for window in windows:
+        kept.setdefault((_span(window), str(window["verdict"])), window)
+    return list(kept.values())
+
+
+def _window_line(window: Mapping[str, Any]) -> str:
+    sortino = window["sortino_delta"]
+    return (
+        f"{_span(window)} {window['verdict']}: "
+        f"sortino {'n/a' if sortino is None else format(sortino, '+.3f')}, "
+        f"cagr {_pp(window['cagr_delta'])}, max drawdown {_pp(window['drawdown_delta'])}"
+    )
+
+
+def _pp(fraction: float | None) -> str:
+    return "n/a" if fraction is None else f"{fraction * 100:+.2f}pp"
 
 
 def render(measurement: RevisionMeasurement) -> str:

@@ -69,6 +69,14 @@ anything else still goes through probation on the slow path — say so plainly
 rather than forcing your claim into a knob that does not fit it. A measured
 answer to the wrong question is worse than an honest wait.
 
+**What was measured and lost is part of the rule too.** Your context lists every
+setting already replayed over the history — the refused ones beside the kept
+ones, each window with its result. Read it with the same weight as the rule:
+before you write that the rule lacks a mechanism, look there, because the
+mechanism may exist and be switched off because it lost. Do not re-propose a
+measured setting. If you still disagree, name what your revision changes that
+the measured one did not.
+
 **The distinction to keep straight.** "This month's book looks wrong given X" is
 an assessment — it goes in `market_signal_assessment`. "The rule should not use
 X this way" is a revision — it goes in `innovations_proposed`. Putting the
