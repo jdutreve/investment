@@ -72,6 +72,7 @@ TESTABLE_PARAMETERS: dict[str, str] = {
     "spread_stress_sleeve_gate": "SPREAD_STRESS_SLEEVE_GATE",
     "stress_gated_sleeves": "STRESS_GATED_SLEEVES",
     "slope_bear_veto": "SLOPE_BEAR_VETO",
+    "slope_speed_veto": "SLOPE_SPEED_VETO",
 }
 
 # What each knob MEANS, in the Worker's terms — the text it reads when deciding
@@ -115,6 +116,19 @@ PARAMETER_DESCRIPTIONS: dict[str, str] = {
     # SPREAD's trajectory, so "this steepening is bear-flavored" was
     # unmeasurable prose and twice became a `reference` invariant that nothing
     # can ever confront (mechanical/market_signal.py SLOPE_BEAR_VETO).
+    # THE WORKER'S 2026-09-13 CLAIM, made nameable. It filed a `strategy_revision`
+    # for it with no `parameters`, because the vocabulary had no slope-trajectory
+    # knob — `slope_bear_veto` reads the LONG END's speed, not the curve's — so it
+    # went to probation, where a rule revision carries no allocation and earns no
+    # FAVORS: the slow path that closes unmeasured. Here it is a knob, and the
+    # next sweep answers it.
+    "slope_speed_veto": (
+        "distrust a STEEP slope reading the curve is COLLAPSING out of — read it as flat "
+        "while the slope itself falls faster than this, in slope points per "
+        f"{market_signal.SPEED_LOOKBACK_DAYS} days (stated positive). Different question from "
+        "slope_bear_veto, which asks whether the LONG END drives a steepening: a curve can "
+        "flatten fast with the 10-year going nowhere (null = off)"
+    ),
     "slope_bear_veto": (
         "distrust a STEEP slope reading when the long end is driving it — read the curve "
         "as flat while the 10-year yield (DGS10) rises faster than this, in yield points "
@@ -176,6 +190,7 @@ _FLOAT_KNOBS = frozenset(
         "spread_speed_wide_trigger",
         "spread_stress_sleeve_gate",
         "slope_bear_veto",
+        "slope_speed_veto",
     }
 )
 

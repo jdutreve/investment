@@ -2602,3 +2602,130 @@ years until 1986 — as it would have live. 1973-74 lies outside the window.
 paper's own signal); a daily IG corporate total-return index to replace the
 synthetic VCIT; or a decision to backfill the live signal series before 1991
 (the side finding above), which would re-pin the anti-drift pair.
+
+---
+
+## I-62 — MEASURED 2026-09-16 — the campaign under the evidence gate: five candidates, one closed claim, no adoption
+
+The first sweep judged by ADR-006's 2026-09-16 amendment (effect AND evidence).
+Every number below is the live vintage on a throwaway copy, monthly decisions,
+23 bps, and every verdict carries how often the same history resampled
+reproduces the move. Scripts: `docs/research/2026-09-16-campaign/`.
+
+**The ledger re-measured.** Of the 21 experiments recorded, 4 name a retired knob
+(`ma_window_days`) and cannot be re-run; the other 17 were re-measured over three
+windows. Of those 51 window-verdicts: **25 `insufficient`, 19 `reject`, 6
+`trade-off`, 1 `adopt`**. The rejects are almost all the haven family (GLD or SHY
+as the destination: chance 0-4%, an effect that is real and bad) or measured
+nulls where nothing moved at all. The single adoption is "drop VCIT from the
+overlay" on 2009-2026 (chance 1%) — and it fails 1993-2008, which is the fitted
+shape this project keeps finding. `spread_speed_wide_trigger`, previously
+"mixed", is `insufficient` on all three windows (8-22%).
+
+**Candidate 1 — the whole rule weekly instead of monthly. REJECTED, decisively.**
+CAGR 11.36% -> 7.57%, Sortino 1.277 -> 0.801, turnover 66 -> 155, chance 0%. The
+drawdown does not improve at all (-16.5% either way). Reading the signal weekly
+does not buy safety; it buys whipsaw and 23 bps of it per order. Quarterly is the
+other direction and is `insufficient` (11.02%, Sortino 1.083, drawdown -22.8%,
+chance 14%).
+
+**Candidate 2 — a VIX brake, prototyped. A TRADE-OFF, and the owner's call.**
+On a decision date whose previous VIX close is above the level, the equity
+sleeves go to cash; targets rewritten, repriced by the real engine, the rule
+itself untouched.
+
+| brake | CAGR | Sortino | max DD | verdict | chance |
+|---|---|---|---|---|---|
+| none | 11.36% | 1.277 | -16.5% | — | — |
+| VIX > 25 | 9.94% | 1.173 | -18.1% | insufficient | 13% |
+| VIX > 30 | 10.56% | 1.193 | -14.5% | trade-off | 7% |
+| VIX > 35 | 10.97% | 1.243 | -13.3% | trade-off | 27% |
+
+Braking at 25 fires so often it misses the rebounds and ends DEEPER than no brake
+at all. At 30 and 35 the exchange is real: 2.0 and 3.2 points of drawdown for 0.8
+and 0.4 points of return. It bears directly on the -25% user rule, which the
+stack breached at -29% out of sample in 1987 (I-61).
+
+**Candidate 3 — a simpler signal. The SLOPE cannot be shown to earn its half.**
+
+| variant | CAGR | Sortino | max DD | verdict | chance |
+|---|---|---|---|---|---|
+| the 2x2 rule (baseline) | 11.36% | 1.277 | -16.5% | — | — |
+| no slope: one book per credit state | 11.84% | 1.279 | -16.5% | insufficient | 48% |
+| no credit: one book per curve state | 8.70% | 1.075 | -16.5% | insufficient | 8% |
+| pre-2x2 (the shared wide book) | 11.14% | 1.277 | -16.5% | insufficient | 48% |
+
+Dropping the slope entirely is indistinguishable from the full rule — a coin
+flip, 48% — while dropping the credit spread costs 2.7 points of CAGR a year. The
+2x2 split of 2026-08-13 is equally undecidable (48%).
+
+**And OUT OF SAMPLE it reverses, which is why the check was the trigger.** The
+same three variants on 1977-07..1993-10 (I-61's reconstructed data, the window
+the rule never saw):
+
+| variant | CAGR | Sortino | max DD | verdict | chance |
+|---|---|---|---|---|---|
+| the 2x2 rule (baseline) | 15.92% | 0.946 | -29.0% | — | — |
+| no slope: one book per credit state | 14.31% | 0.768 | -29.0% | **reject** | 0% |
+| no credit: one book per curve state | 16.15% | 1.152 | -25.4% | insufficient | 29% |
+| pre-2x2 (the shared wide book) | 15.93% | 0.947 | -29.0% | reject: nothing moved | 49% |
+
+The half that looks free to drop on 1993-2026 is the half that carries the rule
+on 1977-1993, and the reverse holds for the credit spread: dropping it costs 2.7
+points a year in sample and is undecidable out of it. **Each half earns its keep
+in the era where the other does not, so no simplification is proposed** — and "a
+coin flip in sample" is shown here to mean "undecidable on this sample", not
+"useless". The 2x2 split remains a measured null in both eras: it changes the
+result by 0.01 of Sortino out of sample and cannot be told from nothing in
+sample.
+
+**Candidate 4 — the Worker's own claim, closed by measurement.** `SLOPE_SPEED_VETO`
+(new, off): a steep reading the curve is COLLAPSING out of is demoted to flat.
+The Worker filed it on 2026-09-13 as prose with no parameters — `slope_bear_veto`
+reads the LONG END's speed, not the curve's — so it went to the slow path, where a
+rule revision earns no FAVORS and ages out. As a knob it answers in seconds:
+
+| threshold | fires on | 1993-2026 | 1993-2008 | 2009-2026 |
+|---|---|---|---|---|
+| 0.05 | 3058 days | insufficient (25%) | insufficient (37%) | **reject, chance 3%** |
+| 0.10 | 1943 days | insufficient (17%) | insufficient (48%) | **reject, chance 3%** |
+| 0.15 | 1154 days | reject: nothing moved | insufficient (48%) | insufficient (27%) |
+| 0.20 | 705 days | insufficient (47%) | insufficient (40%) | insufficient (12%) |
+
+Aggressive settings are actively worse after 2009 (Sortino 1.287 -> 1.155 at 0.05,
+and the sample's luck reproduces that only 3% of the time); timid ones move
+nothing. The knob stays off, and the claim is now answered instead of pending.
+Note the 0.15/1993-2026 cell: `reject` there means "no indicator moved beyond the
+noise floor", which is a measured null and not a significant degradation — the
+two read differently under the amendment.
+
+**Candidate 5 — the overlay read more often than the book. A REAL exchange, and a
+worse one than candidate 2.** Prototyped outside the rule: the book stays monthly,
+the trend overlay is re-read weekly (then fortnightly) and its targets repriced by
+the real engine.
+
+| variant | CAGR | Sortino | max DD | turnover | verdict | chance |
+|---|---|---|---|---|---|---|
+| book and overlay monthly | 11.36% | 1.277 | -16.5% | 66 | — | — |
+| overlay weekly | 9.37% | 1.003 | -14.5% | 120 | trade-off | 0% |
+| overlay fortnightly | 9.43% | 1.007 | -15.1% | 89 | trade-off | 0% |
+
+Both directions are real (chance 0%): a faster overlay genuinely takes 2 points
+off the drawdown and genuinely costs 2 points of return a year, with turnover up
+80%. Set against candidate 2 — 3.2 points of drawdown for 0.4 of return at
+VIX > 35 — the fast overlay is dominated, so no per-overlay cadence knob was
+built. The idea is answered, not deferred.
+
+**What the campaign says as a whole.** Nothing was adopted, and that is the
+result. Under the old rule three of these would have been recorded as decided
+(the weekly cadence and the two `reject`s aside, the slope-veto cells and the
+simpler-signal variants would have read `adopt` or `reject` on differences the
+sample's own luck reproduces half the time). The measurable effects on this stack
+are the trend overlay and the credit spread; the slope, the hysteresis knobs and
+the trajectory vetoes live inside the noise of 33 years.
+
+**Trigger to revisit.** The owner's call on candidate 2 against the -25% rule,
+now that its only rival for the same job (candidate 5) is measured and dominated.
+The simplification question is closed by candidate 3's out-of-sample run, and the
+2x2 split is the one piece of the rule measured to do nothing in both eras — a
+removal candidate on grounds of simplicity alone, never of performance.

@@ -934,3 +934,46 @@ def test_the_signal_set_follows_the_knob_that_makes_a_series_decide(
         market_signal.YIELD_SLOPE,
         market_signal.LONG_YIELD,
     )
+
+
+def test_a_steep_curve_the_slope_is_collapsing_out_of_reads_as_flat() -> None:
+    """The Worker's 2026-09-13 claim, made measurable (`SLOPE_SPEED_VETO`). It had
+    nowhere to go before: `slope_bear_veto` reads the LONG END's speed, and the
+    September 2026 case is the curve itself falling — 0.41 at its median on the
+    decision date, 0.33 nine days later at -0.15 per 30 days — with DGS10 doing
+    something else entirely.
+
+    The proposal as written ("the slope's vote is deferred, the spread decides")
+    selects no book since the 2x2, so the knob DEMOTES to flat, the side that
+    carries less duration on both branches."""
+    assert market_signal.SLOPE_SPEED_VETO is None  # ships off, like every knob
+    saved = market_signal.SLOPE_SPEED_VETO
+    try:
+        market_signal.SLOPE_SPEED_VETO = 0.15
+        steep_by_level = {"spread": 1.5, "spread_median": 2.0, "slope": 0.45, "slope_median": 0.41}
+        assert (
+            market_signal.classify_regime(**steep_by_level, slope_speed=-0.20)
+            == "credit-spread-tight-yield-curve-flat"
+        )
+        # steepening, or flattening slower than the threshold: untouched
+        assert (
+            market_signal.classify_regime(**steep_by_level, slope_speed=0.20)
+            == "credit-spread-tight-yield-curve-steep"
+        )
+        assert (
+            market_signal.classify_regime(**steep_by_level, slope_speed=-0.05)
+            == "credit-spread-tight-yield-curve-steep"
+        )
+        # a missing speed never vetoes — the rule falls back to the level read
+        assert (
+            market_signal.classify_regime(**steep_by_level, slope_speed=None)
+            == "credit-spread-tight-yield-curve-steep"
+        )
+        # and it cannot PROMOTE: a flat reading stays flat whatever the speed
+        flat_by_level = {"spread": 1.5, "spread_median": 2.0, "slope": 0.30, "slope_median": 0.41}
+        assert (
+            market_signal.classify_regime(**flat_by_level, slope_speed=0.50)
+            == "credit-spread-tight-yield-curve-flat"
+        )
+    finally:
+        market_signal.SLOPE_SPEED_VETO = saved

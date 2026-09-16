@@ -1116,6 +1116,31 @@ SPEED_LOOKBACK_DAYS = 30
 # over `SPEED_LOOKBACK_DAYS`.
 SLOPE_BEAR_VETO: float | None = None
 
+# THE SAME DISTRUST, READ ON THE CURVE ITSELF — and the two are different claims.
+#
+# THE CLAIM (Worker, 2026-09-13): "the slope-at-median reading was a coin flip
+# treated as a state ... T10Y2Y 0.41-at-median on 2026-09-01 -> 0.39 on 09-11 ->
+# 0.33 on 09-12 with speed -0.15", i.e. a steep reading the curve is COLLAPSING
+# out of should not buy the duration book for three months of hysteresis.
+# `SLOPE_BEAR_VETO` above answers a neighbouring question — is the long end
+# driving the steepening — and cannot answer this one: the curve can flatten
+# fast with DGS10 going nowhere, which is exactly what September 2026 did.
+#
+# THE SPEC HOLE IN THE PROPOSAL, closed here rather than guessed at. The Worker
+# wrote "the slope's vote is deferred; the spread side then decides the book" —
+# but since the 2x2 of 2026-08-13 no book is selected by the spread alone, so a
+# deferral with no destination selects nothing. It is therefore a DEMOTION to
+# `flat`, the same shape as the other two vetoes and the same direction: on both
+# branches the flat book carries less duration (tight: SPY/GLD instead of
+# VCIT/IEF; wide: IWN/SPY instead of SPY/IWN/GLD).
+#
+# Units are the slope's own (percentage points of T10Y2Y) over
+# SPEED_LOOKBACK_DAYS, and the threshold is stated POSITIVE: it demotes when the
+# slope is falling faster than it. OFF by default, as every knob ships, so
+# `classify_regime` stays byte-for-byte what ADR-007 validated until a
+# measurement says otherwise.
+SLOPE_SPEED_VETO: float | None = None
+
 
 def signal_tickers() -> tuple[str, ...]:
     """The series a DECISION actually reads — the freshness alert's watch list,
@@ -1144,6 +1169,7 @@ def classify_regime(
     slope_median: float | None,
     spread_speed: float | None = None,
     long_yield_speed: float | None = None,
+    slope_speed: float | None = None,
 ) -> str:
     """The market-signal regime (docs/V1_STRATEGY.md "Regime signal"): the two
     indicators are read INDEPENDENTLY and their 2x2 names the state — credit
@@ -1187,6 +1213,11 @@ def classify_regime(
     # itself, not about which spread state it happens to be paired with.
     if steep and SLOPE_BEAR_VETO is not None and long_yield_speed is not None:
         steep = pd.isna(long_yield_speed) or long_yield_speed <= SLOPE_BEAR_VETO
+    # See SLOPE_SPEED_VETO: the same distrust read on the CURVE's own trajectory.
+    # A steep reading the curve is collapsing out of is demoted to flat; a
+    # missing speed never vetoes, exactly as for the two knobs above.
+    if steep and SLOPE_SPEED_VETO is not None and slope_speed is not None:
+        steep = pd.isna(slope_speed) or slope_speed >= -SLOPE_SPEED_VETO
     curve = "steep" if steep else "flat"
     return f"credit-spread-{'wide' if wide or fast else 'tight'}-yield-curve-{curve}"
 
@@ -1280,6 +1311,7 @@ def walk_decisions(
     prices: Mapping[str, pd.Series],
     spread_speed: pd.Series | None = None,
     long_yield_speed: pd.Series | None = None,
+    slope_speed: pd.Series | None = None,
 ) -> list[Decision]:
     """Walk the decision clock and record EVERY decision — the full journal.
 
@@ -1302,6 +1334,7 @@ def walk_decisions(
             _at(slope_median, t),
             None if spread_speed is None else _at(spread_speed, t),
             None if long_yield_speed is None else _at(long_yield_speed, t),
+            None if slope_speed is None else _at(slope_speed, t),
         )
         held, pending, pending_count = advance_hysteresis(held, pending, pending_count, signalled)
         # THE HAVEN IS READ TOO, not only the sleeves: `apply_trend_overlay`
@@ -1677,6 +1710,10 @@ class StackSeries:
     spread_speed: pd.Series
     long_yield_speed: pd.Series
     moving_averages: dict[int, dict[str, pd.Series]]
+    # Defaulted, unlike the two speeds above: every caller that builds a
+    # StackSeries by hand (tests, the research harness) predates this knob, and a
+    # walk reading `None` vetoes nothing — which is what OFF means anyway.
+    slope_speed: pd.Series | None = None
     # The signal series that are ABSENT, empty when they are all present.
     # Carried rather than raised on, because only one of the two arms depends on
     # them — see the note at the assignment.
@@ -1810,6 +1847,9 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # the baseline and the variant reading the same built series when
     # `measure_revision` flips `SLOPE_BEAR_VETO` between the two runs.
     long_yield_speed = compute_derivatives(long_yield, LONG_YIELD, SPEED_LOOKBACK_DAYS)["speed"]
+    # The CURVE's own trajectory (`SLOPE_SPEED_VETO`), built on the same terms as
+    # the two speeds above: unconditionally, so a sweep's two arms read one series.
+    slope_speed = compute_derivatives(slope, YIELD_SLOPE, SPEED_LOOKBACK_DAYS)["speed"]
     return StackSeries(
         calendar=calendar,
         rf=rf,
@@ -1825,6 +1865,7 @@ async def load_series(db: InvestmentDB) -> StackSeries:
         spread_speed=spread_speed,
         long_yield_speed=long_yield_speed,
         moving_averages=moving_averages,
+        slope_speed=slope_speed,
         missing_signals=missing_signals,
     )
 
@@ -1922,6 +1963,7 @@ async def run_market_signal(
         s.decision_prices,
         s.spread_speed,
         s.long_yield_speed,
+        s.slope_speed,
     )
     targets = {d.date: d.target for d in decisions if d.changed}
     nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
