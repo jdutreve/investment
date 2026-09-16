@@ -637,7 +637,12 @@ CREATE TABLE IF NOT EXISTS revision_measurement (
   window_end      TEXT NOT NULL,
   overrides       TEXT NOT NULL,        -- JSON map, as proposed
   title           TEXT,                 -- the wording that last asked for it
-  verdict         TEXT NOT NULL,        -- 'adopt' | 'reject' | 'unmeasurable'
+  -- 'adopt' | 'trade-off' | 'reject' | 'insufficient' | 'unmeasurable'. The
+  -- effect (Pareto over the four indicators) AND the evidence (a paired
+  -- block bootstrap of the Sortino difference) decide it together since the
+  -- 2026-09-16 amendment to ADR-006; `insufficient` is what the pair says
+  -- when the effect is there and the evidence is not.
+  verdict         TEXT NOT NULL,
   sortino_delta   REAL,
   cagr_delta      REAL,
   drawdown_delta  REAL,
@@ -753,6 +758,13 @@ DOCUMENT_TABLES = {
 # real migrations begin.
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("proposal", "citation_verdict", "TEXT"),
+    # The evidence half of a revision verdict (ADR-006 amendment, 2026-09-16):
+    # the share of paired bootstrap resamples in which the Sortino difference
+    # is not an improvement, and the share in which it is not a degradation.
+    # NULL on every row measured before the bootstrap existed, which is why it
+    # is read as "evidence not measured" and never as "evidence absent".
+    ("revision_measurement", "sortino_p_improve", "REAL"),
+    ("revision_measurement", "sortino_p_degrade", "REAL"),
     ("portfolio_weekly_snapshot", "nav", "REAL"),
     ("portfolio", "cagr", "REAL"),
     ("portfolio_weekly_snapshot", "cagr", "REAL"),

@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -440,3 +441,91 @@ def test_a_trade_off_names_only_what_moved_beyond_the_noise() -> None:
     traded = measurement.traded or ""
     assert "sortino" in traded and "cagr" in traded
     assert "max_drawdown" not in traded
+
+
+def _with_evidence(measurement, p_improve: float, p_degrade: float):
+    return dataclasses.replace(
+        measurement,
+        evidence=rule_revision.Evidence(
+            p_improve=p_improve, p_degrade=p_degrade, ci_low=-0.1, ci_high=0.3
+        ),
+    )
+
+
+def test_an_effect_the_samples_own_luck_reproduces_is_not_a_finding() -> None:
+    """ADR-006 amendment, 2026-09-16. The noise floor tells a move from the ground
+    shifting under the replay; it says nothing about whether the sample's luck
+    reproduces the move, and the paired bootstrap puts that margin ten to twenty
+    times higher. Both directions were being decided inside it: `slope_bear_veto`
+    refused on -0.013 of Sortino, `spread_speed_veto` adopted at P = 0.11."""
+    improving = _measurement(sortino=(1.09, 1.17), drawdown=(-0.238, -0.206))
+    assert _with_evidence(improving, p_improve=0.30, p_degrade=0.70).verdict == "insufficient"
+    assert _with_evidence(improving, p_improve=0.01, p_degrade=0.99).verdict == "adopt"
+
+    degrading = _measurement(sortino=(1.17, 1.09), drawdown=(-0.206, -0.238))
+    assert _with_evidence(degrading, p_improve=0.80, p_degrade=0.20).verdict == "insufficient"
+    assert _with_evidence(degrading, p_improve=0.98, p_degrade=0.02).verdict == "reject"
+
+    # A MEASURED NULL IS STILL AN ANSWER. Nothing moved beyond the floor, so the
+    # question "could luck have done this?" does not arise: there is nothing for
+    # luck to have done. Conflating the two would relabel every settled null.
+    flat = _measurement(sortino=(1.09, 1.09), drawdown=(-0.238, -0.238))
+    assert _with_evidence(flat, p_improve=0.99, p_degrade=0.99).verdict == "reject"
+
+    # A trade-off stays the owner's call; evidence does not take it for them.
+    trade = _measurement(sortino=(1.09, 1.30), drawdown=(-0.206, -0.238), cagr=(0.10, 0.13))
+    assert _with_evidence(trade, p_improve=0.40, p_degrade=0.60).verdict == "trade-off"
+
+    # And a measurement carrying no evidence keeps the four-answer behaviour:
+    # absent evidence is not evidence of absence.
+    assert improving.verdict == "adopt"
+
+
+def test_the_bootstrap_pairs_the_two_arms() -> None:
+    """The arms share most of their days by construction — the same book on 85-96%
+    of them — so the blocks are drawn ONCE and applied to both. Unpaired, the
+    shared variance swamps the difference and no 35-year test resolves anything."""
+    days = pd.bdate_range("2000-01-03", periods=2000)
+    rng = np.random.default_rng(7)
+    steps = rng.normal(0.0004, 0.01, len(days))
+    baseline = pd.Series(100 * np.cumprod(1 + steps), index=days)
+    rf = pd.Series(0.0, index=days)
+
+    # The same path: every resampled difference is exactly zero, so chance
+    # reproduces it every time and nothing is claimed.
+    same = rule_revision.measure_evidence(baseline, baseline.copy(), rf)
+    assert same is not None
+    assert same.p_improve == 1.0 and same.p_degrade == 1.0
+
+    # The same path plus a steady edge on every day: no resample can undo it.
+    better = pd.Series(100 * np.cumprod(1 + steps + 0.0004), index=days)
+    edge = rule_revision.measure_evidence(baseline, better, rf)
+    assert edge is not None and edge.p_improve < 0.01 and edge.ci_low > 0
+
+    # Too short to resample is not a verdict of any kind.
+    assert rule_revision.measure_evidence(baseline.iloc[:50], better.iloc[:50], rf) is None
+
+
+async def test_the_evidence_is_recorded_with_the_verdict(db: InvestmentDB) -> None:
+    """A verdict whose evidence is not stored cannot be re-read, and `insufficient`
+    is the verdict a reader is most likely to doubt."""
+    priced = pd.Series([100.0, 101.0], index=pd.to_datetime(["1993-11-01", "2026-07-01"]))
+    measurement = _with_evidence(
+        _measurement(sortino=(1.09, 1.17), drawdown=(-0.238, -0.206)), 0.30, 0.70
+    )
+
+    await rule_revision._record_measurement(db, measurement, priced=priced, title="a knob")
+    # A second window for the same experiment, so the headline is the one that
+    # aggregates rather than the single-window note.
+    half = pd.Series([100.0, 101.0], index=pd.to_datetime(["1993-11-01", "2008-12-31"]))
+    await rule_revision._record_measurement(db, measurement, priced=half, title=None)
+
+    row = (await db.query("SELECT * FROM revision_measurement ORDER BY window_end DESC"))[0]
+    assert row["verdict"] == "insufficient"
+    assert row["sortino_p_improve"] == pytest.approx(0.30)
+    assert row["sortino_p_degrade"] == pytest.approx(0.70)
+
+    verdicts = await rule_revision.measured_verdicts(db)
+    text = "\n".join(rule_revision.describe_measured(verdicts))
+    assert "MEASURED AND UNDECIDABLE" in text
+    assert "chance alone does this 30% of the time" in text

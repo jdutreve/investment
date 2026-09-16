@@ -876,13 +876,19 @@ async def _measure_rule_revision(
         return
 
     verdict = measurement.verdict
+    # THE EVIDENCE TRAVELS WITH THE VERDICT (ADR-006 amendment, 2026-09-16): a
+    # log line saying `insufficient` without the probability that produced it
+    # cannot be argued with, and `insufficient` is the verdict a reader is most
+    # likely to doubt.
+    evidence = measurement.evidence
     logger.info(
-        "rule revision '%s' measured: %s %s%s%s",
+        "rule revision '%s' measured: %s %s%s%s%s",
         proposal.title,
         verdict,
         overrides,
         f" (untestable: {unknown})" if unknown else "",
         f" [{measurement.traded}]" if measurement.traded else "",
+        "" if evidence is None else f" (P improve {evidence.p_improve:.2f})",
     )
     now = datetime.now(UTC).isoformat()
     async with db.transaction():
@@ -901,6 +907,8 @@ async def _measure_rule_revision(
                 "traded": measurement.traded,
                 "sortino_delta": measurement.sortino_delta,
                 "drawdown_delta": measurement.drawdown_delta,
+                "sortino_p_improve": None if evidence is None else evidence.p_improve,
+                "sortino_p_degrade": None if evidence is None else evidence.p_degrade,
                 "baseline_turnover": measurement.baseline_turnover,
                 "variant_turnover": measurement.variant_turnover,
             },

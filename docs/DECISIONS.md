@@ -416,6 +416,43 @@ step is the human boundary. V2 = auto-execution, which would supersede this.
 
 ---
 
+**Amendment (2026-09-16) — a knob verdict needs EVIDENCE, not only effect.**
+The Pareto verdict on a rule revision (`mechanical/rule_revision.py`) asked one
+question — did an indicator move beyond `NOISE_REL_TOL` — and that floor is the
+ground moving, not the sample's luck: 0.71% is the worst spread twelve replay
+START DATES produce, about 0.009 of Sortino. Measured on 2026-09-13 with a paired
+moving-block bootstrap, the sampling interval of the same Sortino difference is
+±0.08 over 33 years and ±0.15 over a half — ten to twenty times the floor. Both
+directions were therefore being decided inside the luck margin: `SLOPE_BEAR_VETO`
+was refused on -0.013 of Sortino (90% interval [-0.16, +0.14]) and
+`SPREAD_SPEED_VETO`, live since 2026-08-11, adopts at P = 0.11. The owner's
+ruling, 2026-09-16: "tagge on ne sait pas si c'est le cas pour tous les knobs. Et
+pose cette question."
+
+So a FIFTH verdict, `insufficient`, and the question asked on every measurement.
+`measure_revision` now runs a paired moving-block bootstrap (63-day blocks, 2000
+draws, fixed seed — both arms resampled on the SAME blocks, which is what gives a
+35-year test any power, since the arms share most of their days) of the Sortino
+difference over the measured window, and the Pareto answer is gated by it:
+
+- `adopt` also requires P(delta <= 0) <= 0.05;
+- a `reject` that rests on a DEGRADATION also requires P(delta >= 0) <= 0.05;
+- otherwise the verdict is `insufficient` — measured, and undecidable on this
+  much history.
+
+A revision that moves nothing beyond the noise floor stays `reject`: "no
+detectable effect" is an answer, not an absence of one. `trade-off` is unchanged
+— it was always the owner's call, and evidence does not make that call.
+
+This EXTENDS this ADR's own doctrine rather than bending it. The invariant
+verdict has required both halves since the M5 amendment above — θ asks "worth
+acting on?", the binomial tail asks "do we know it at all?" — and the knob
+verdict asked only the first. Consequences, accepted with the decision: most of
+the ledger reads `insufficient` once re-measured; knobs already switched on stay
+on (an ADR does not undo an owner's signature) but are labelled unproven where
+they are read; and the Worker is shown the label, so it stops treating a noise
+result as a settled question.
+
 ## ADR-007 — Adopt the market-signal monthly stack as V1's operating strategy
 
 **Status:** accepted (owner sign-off, 2026-07-20). Authorizes the CLAUDE.md/

@@ -35,17 +35,22 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
+import numpy as np
 import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical import market_signal
+from investment.mechanical import market_signal, ratios
 from investment.mechanical.replay import NavMetrics
 
-# The four answers a measurement can give. A Literal rather than a bare str so
+# The five answers a measurement can give. A Literal rather than a bare str so
 # a caller that maps over them (`writeback`, `render`, the digest alert) fails
-# type-checking when a fifth arrives, instead of silently falling through the
+# type-checking when a sixth arrives, instead of silently falling through the
 # `else` branch the way the True/False/None mapping did.
-Verdict = Literal["adopt", "trade-off", "reject", "unmeasurable"]
+#
+# `insufficient` is the newest (ADR-006 amendment, 2026-09-16): the effect is
+# there and the evidence is not. It was the fifth to arrive and the first to be
+# added because a verdict was WRONG rather than merely unsaid.
+Verdict = Literal["adopt", "trade-off", "reject", "insufficient", "unmeasurable"]
 
 # The knobs a revision may move and still be measured mechanically. Name ->
 # (module attribute, coercer). Anything outside this set needs code, and
@@ -216,6 +221,87 @@ _FLOAT_KNOBS = frozenset(
 NOISE_REL_TOL = 0.0071
 NOISE_ABS_TOL = 1e-12
 
+# THE SAMPLING-UNCERTAINTY HALF OF A VERDICT (ADR-006 amendment, 2026-09-16).
+#
+# `NOISE_REL_TOL` above is the GROUND moving — how far an indicator shifts when
+# the replay's start date does, which changes nothing about the strategy. That is
+# not the sample's luck, and the two differ by an order of magnitude: measured
+# 2026-09-13, the paired 90% interval of a Sortino difference is about +/-0.08
+# over 33 years and +/-0.15 over a half, against a floor of 0.009. Every verdict
+# this module issued was therefore decided inside the luck margin, in both
+# directions — `SLOPE_BEAR_VETO` refused on -0.013, `SPREAD_SPEED_VETO` adopted
+# at P = 0.11 and live since.
+#
+# PAIRED, which is what makes the test possible at all: the two arms hold the
+# same book on 85-96% of days, so resampling them on the SAME blocks removes the
+# shared variance and leaves the difference. An unpaired test on this much
+# history resolves nothing.
+#
+# Blocks of one trading quarter keep the autocorrelation a day-by-day resample
+# would destroy; the seed is fixed so a verdict is reproducible from the ledger.
+EVIDENCE_BLOCK_DAYS = 63
+EVIDENCE_DRAWS = 2000
+EVIDENCE_CHUNK = 250
+EVIDENCE_SEED = 20260916
+# The same 5% ADR-006 uses for the invariant tail, and for the same question:
+# would evidence this good arrive by chance?
+EVIDENCE_ALPHA = 0.05
+
+
+@dataclasses.dataclass(frozen=True)
+class Evidence:
+    """What a resample of the same history says about a Sortino difference.
+
+    `p_improve` is the share of resamples in which the difference is NOT an
+    improvement, `p_degrade` the share in which it is NOT a degradation, so the
+    gate reads the same way in both directions; `ci_low`/`ci_high` are the 90%
+    interval for a reader who wants the size rather than the verdict."""
+
+    p_improve: float
+    p_degrade: float
+    ci_low: float
+    ci_high: float
+
+
+def _sortino(excess: np.ndarray) -> np.ndarray:
+    """Sortino over rows of daily EXCESS returns (MAR = rf) — `ratios.rolling_sortino`'s
+    pinned formula applied to a whole row instead of a rolling window."""
+    downside = np.sqrt((np.minimum(excess, 0.0) ** 2).mean(axis=-1))
+    # `asarray` because numpy's own operators are untyped here and mypy --strict
+    # refuses the Any that comes back out of them.
+    return np.asarray(excess.mean(axis=-1) / downside * math.sqrt(252))
+
+
+def measure_evidence(
+    baseline_nav: pd.Series, variant_nav: pd.Series, rf: pd.Series
+) -> Evidence | None:
+    """Resample both arms on the same moving blocks and ask how often the Sortino
+    difference fails to reproduce. `None` when the window is too short to resample,
+    which is read as "evidence not measured" and never as "no effect"."""
+    idx = baseline_nav.dropna().index.intersection(variant_nav.dropna().index)
+    if len(idx) < EVIDENCE_BLOCK_DAYS * 4:
+        return None
+    daily_rf = rf.reindex(idx).ffill().to_numpy()[1:]
+    base = baseline_nav.loc[idx].pct_change().to_numpy()[1:] - daily_rf
+    variant = variant_nav.loc[idx].pct_change().to_numpy()[1:] - daily_rf
+    n = len(base)
+    rng = np.random.default_rng(EVIDENCE_SEED)
+    parts: list[np.ndarray] = []
+    for _ in range(0, EVIDENCE_DRAWS, EVIDENCE_CHUNK):
+        starts = rng.integers(
+            0, n - EVIDENCE_BLOCK_DAYS, size=(EVIDENCE_CHUNK, n // EVIDENCE_BLOCK_DAYS + 1)
+        )
+        rows = (starts[:, :, None] + np.arange(EVIDENCE_BLOCK_DAYS)).reshape(EVIDENCE_CHUNK, -1)
+        parts.append(_sortino(variant[rows[:, :n]]) - _sortino(base[rows[:, :n]]))
+    deltas = np.concatenate(parts)
+    return Evidence(
+        p_improve=float((deltas <= 0.0).mean()),
+        p_degrade=float((deltas >= 0.0).mean()),
+        ci_low=float(np.quantile(deltas, EVIDENCE_ALPHA)),
+        ci_high=float(np.quantile(deltas, 1.0 - EVIDENCE_ALPHA)),
+    )
+
+
 # The window `run_market_signal` defaults to — named there, not here. It was a
 # COPY of that pair of literals, which is the drift this project keeps finding:
 # two statements of one fact with nothing making them agree.
@@ -311,6 +397,10 @@ class RevisionMeasurement:
     variant: NavMetrics
     baseline_turnover: float
     variant_turnover: float
+    # None when the measurement predates the bootstrap, or when the window is too
+    # short to resample. Absent evidence is not evidence of absence: a
+    # measurement carrying none keeps the four-answer behaviour.
+    evidence: Evidence | None = None
 
     @property
     def sortino_delta(self) -> float | None:
@@ -394,15 +484,30 @@ class RevisionMeasurement:
         still refused on the spot. What changes is that a revision improving
         return at UNCHANGED risk is now expressible as an adoption instead of
         being rejected without the test ever being able to say why (owner
-        decision 2026-08-09)."""
+        decision 2026-08-09).
+
+        A FIFTH ANSWER SINCE 2026-09-16, and it is the honest one. `insufficient`
+        means the effect is there and the evidence is not: `NOISE_REL_TOL` tells a
+        move from the ground shifting and says nothing about whether the sample's
+        own luck reproduces it, which a paired bootstrap puts at ten to twenty
+        times that floor. An adoption now also needs P(delta <= 0) <= ALPHA, and a
+        rejection resting on a DEGRADATION needs P(delta >= 0) <= ALPHA. A
+        revision that moves nothing beyond the floor stays `reject` — a measured
+        null is an answer, and only a difference too small to TRUST becomes
+        `insufficient` (ADR-006 amendment)."""
         base, var = self.baseline.as_map(), self.variant.as_map()
         if any(base[k] is None or var[k] is None for k in base):
             return "unmeasurable"
         directions = [direction(float(base[k]), float(var[k])) for k in base]  # type: ignore[arg-type]  # guarded
         improved, degraded = any(d > 0 for d in directions), any(d < 0 for d in directions)
-        if degraded:
-            return "trade-off" if improved else "reject"
-        return "adopt" if improved else "reject"
+        if improved and degraded:
+            return "trade-off"
+        if not improved and not degraded:
+            return "reject"
+        if self.evidence is None:
+            return "adopt" if improved else "reject"
+        chance = self.evidence.p_improve if improved else self.evidence.p_degrade
+        return "insufficient" if chance > EVIDENCE_ALPHA else ("adopt" if improved else "reject")
 
     @property
     def traded(self) -> str | None:
@@ -506,12 +611,20 @@ async def measure_revision(
         for attr, value in saved.items():
             setattr(market_signal, attr, value)
 
+    # THE SECOND QUESTION, asked on every measurement (ADR-006 amendment): both
+    # NAVs are priced already, so asking it costs no extra backtest. Bounded like
+    # `stack_metrics`, or the evidence would cover a window the deltas do not.
+    priced_baseline, priced_variant = baseline_run.nav.dropna(), variant_run.nav.dropna()
+    if end is not None:
+        cut = pd.Timestamp(end)
+        priced_baseline, priced_variant = priced_baseline.loc[:cut], priced_variant.loc[:cut]
     measurement = RevisionMeasurement(
         overrides=dict(overrides),
         baseline=baseline,
         variant=variant,
         baseline_turnover=baseline_run.turnover,
         variant_turnover=variant_run.turnover,
+        evidence=measure_evidence(priced_baseline, priced_variant, await ratios.load_rf_daily(db)),
     )
     # RECORDED, because a measurement whose result is thrown away is measured
     # again. See `revision_measurement` in the schema: the verdict used to reach
@@ -563,11 +676,14 @@ async def _record_measurement(
     async with db.transaction() as tx:
         await tx.command(
             "INSERT INTO revision_measurement (overrides_key, window_start, window_end, "
-            "overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta, measured_at) "
-            "VALUES (:k, :ws, :we, :ov, :t, :v, :sd, :cd, :dd, :now) "
+            "overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta, "
+            "sortino_p_improve, sortino_p_degrade, measured_at) "
+            "VALUES (:k, :ws, :we, :ov, :t, :v, :sd, :cd, :dd, :pi, :pd, :now) "
             "ON CONFLICT(overrides_key, window_start, window_end) DO UPDATE SET "
             "verdict=excluded.verdict, sortino_delta=excluded.sortino_delta, "
             "cagr_delta=excluded.cagr_delta, drawdown_delta=excluded.drawdown_delta, "
+            "sortino_p_improve=excluded.sortino_p_improve, "
+            "sortino_p_degrade=excluded.sortino_p_degrade, "
             "title=COALESCE(excluded.title, revision_measurement.title), "
             "measured_at=excluded.measured_at",
             k=overrides_key(measurement.overrides),
@@ -579,6 +695,8 @@ async def _record_measurement(
             sd=deltas.get("sortino"),
             cd=deltas.get("cagr"),
             dd=deltas.get("max_drawdown"),
+            pi=None if measurement.evidence is None else measurement.evidence.p_improve,
+            pd=None if measurement.evidence is None else measurement.evidence.p_degrade,
             now=datetime.now(UTC).isoformat(),
         )
 
@@ -595,7 +713,7 @@ async def measured_verdicts(db: InvestmentDB) -> list[dict[str, Any]]:
     identity written and the identity queried were not the same identity."""
     rows = await db.query(
         "SELECT overrides, title, verdict, sortino_delta, cagr_delta, drawdown_delta, "
-        "       window_start, window_end, "
+        "       sortino_p_improve, sortino_p_degrade, window_start, window_end, "
         "       julianday(window_end) - julianday(window_start) AS span "
         "FROM revision_measurement ORDER BY span DESC, measured_at DESC"
     )
@@ -640,6 +758,10 @@ _HEADLINES: dict[str, str] = {
     "adopt": "ADOPT on every window measured",
     "reject": "REJECT on every window measured",
     "trade-off": "TRADE-OFF on every window measured (one indicator better, another worse)",
+    "insufficient": (
+        "MEASURED AND UNDECIDABLE: the difference is inside what this history's own luck "
+        "produces, so the rule was left as it is"
+    ),
     "unmeasurable": "UNMEASURABLE",
     "mixed": "MIXED: the windows disagree, so the result is fitted to one of them",
 }
@@ -742,7 +864,18 @@ def _window_line(window: Mapping[str, Any]) -> str:
         f"{_span(window)} {window['verdict']}: "
         f"sortino {'n/a' if sortino is None else format(sortino, '+.3f')}, "
         f"cagr {_pp(window['cagr_delta'])}, max drawdown {_pp(window['drawdown_delta'])}"
+        f"{_chance(window)}"
     )
+
+
+def _chance(window: Mapping[str, Any]) -> str:
+    """How often the same history, resampled, fails to reproduce the Sortino move —
+    the half of a verdict that says whether it is knowable at all. Rows measured
+    before the bootstrap say so rather than showing a number they do not have."""
+    improve, degrade = window.get("sortino_p_improve"), window.get("sortino_p_degrade")
+    if improve is None or degrade is None:
+        return " (evidence not measured)"
+    return f", chance alone does this {min(float(improve), float(degrade)):.0%} of the time"
 
 
 def _pp(fraction: float | None) -> str:
@@ -773,6 +906,12 @@ def render(measurement: RevisionMeasurement) -> str:
         # the owner, and a decision needs its terms.
         if traded := measurement.traded:
             tail += f"\n  OWNER CALL — {traded}"
+        if (evidence := measurement.evidence) is not None:
+            chance = min(evidence.p_improve, evidence.p_degrade)
+            tail += (
+                f"\n  evidence: chance reproduces this {chance:.0%} of the time "
+                f"(90% interval [{evidence.ci_low:+.3f}, {evidence.ci_high:+.3f}])"
+            )
     return "\n".join(
         [
             f"revision: {measurement.overrides}",
