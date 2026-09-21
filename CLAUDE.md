@@ -208,9 +208,18 @@ improvement cycle (docs/ARCHITECTURE.md) covers Proposals (verdict at +12w),
 strategies (12w probation), scenarios (calibration scoring).
 
 **Invariant weight model** —
-`weight_effective = max(weight_initial × market_score × recency_factor, floor_weight)`;
-floors by `author` tier: dalio 0.40 · marks 0.35 · null/other 0.20 · system
-0.05. `market_score = confirmations / (confirmations + infirmations)` (1.0
+`weight_effective = max(weight_initial × market_score × recency_factor, floor_weight)`.
+**NOTORIETY SETS WHERE A CLAIM STARTS, NOT WHERE IT STOPS** (owner,
+2026-09-21): the `author` tier fixes the STARTING band — dalio 0.80-0.90 ·
+marks 0.75-0.85 · null/other 0.40-0.70 · system 0.15-0.25 — and
+`floor_weight` is **0.05 for every tier**, a visibility floor, not a
+reputation. It used to rank authors (dalio 0.40 · marks 0.35 · other 0.20) and
+that floor BOUND 78% of Dalio's invariants, so reputation was the weight four
+times out of five; measured over 4,452 confrontations the corpus's four books
+confirm at 0.506-0.536 and are pairwise indistinguishable, Dalio's rate being
+the closest to chance and the best measured. Belief buys the head start,
+history is free to take it back.
+`market_score = confirmations / (confirmations + infirmations)` (1.0
 until first confrontation). `recency_factor = 0.5 + 0.5 × exp(-days_since/365)`
 with `days_since` CONDITION-RELATIVE (a dormant invariant does not decay).
 Weight-like fields are 0–1 fractions everywhere. Every invariant matures over

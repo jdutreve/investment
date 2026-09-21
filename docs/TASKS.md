@@ -628,7 +628,8 @@ DERIVED_SIGNALS = {
 # CORPUS DEPOSITS (owner, 2026-09-21) — a book names its author in its own
 # filename, `Author + Title.ext`, read by BOTH entry points (the inbox watcher
 # and the UC0 seed) via `corpus/ingester.author_from`. The author sets the
-# invariant weight FLOOR (dalio 0.40, marks 0.35, anything else 0.20), and no
+# invariant STARTING BAND (dalio 0.80-0.90, marks 0.75-0.85, else 0.40-0.70;
+# the floor is 0.05 for every tier), and no
 # separator means no author, which is the conservative tier.
 #   Ray Dalio + Principles_For_Navigating_Big_Debt_Crises.pdf
 # The spaces around "+" are load-bearing: a bare "+" occurs inside a real
@@ -2358,7 +2359,7 @@ matches the MILESTONES.md per-increment sum.
    using level/speed/acceleration, with hysteresis and a computed confidence.
 4. After Dalio corpus ingestion + the default seed curation pass (skip
    with `--no-curate`): 10+ Passage vertices, and extracted Invariants
-   carrying `author='dalio'` (floor 0.40), each with a machine-readable
+   carrying `author='dalio'` (starting band 0.80-0.90), each with a machine-readable
    `condition`+`effect`, matured over 35y (market_score set), linked by
    SUPPORTS edges — no user validation (ADR-006).
 5. Full weekly cycle: MarketData/EventLog ingestion → Worker → Evaluation →

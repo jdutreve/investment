@@ -428,10 +428,14 @@ async def test_reference_notes_persist_as_unconfrontable_invariants(
     assert "reference-knowledge" in rows[0]["tags"]
 
 
-async def test_author_tier_sets_the_floor_and_binds_the_proposed_weight(
+async def test_author_tier_sets_the_starting_band_and_binds_the_proposed_weight(
     db: InvestmentDB, embedder: InProcessEmbedder
 ) -> None:
-    """The model proposes 0.9; the 'other' band caps it at 0.70 (seeded)."""
+    """The model proposes 0.9; the 'other' band caps it at 0.70 (seeded).
+
+    The band is where NOTORIETY lives (owner, 2026-09-21). The floor is not:
+    it is 0.05 for every tier, a visibility floor rather than a reputation the
+    data cannot reach."""
     passage_ids = await _document(db, author="Meb Faber")
     writeback = KnowledgeWriteback(db, embedder)
     await writeback.persist_batch(
@@ -443,7 +447,7 @@ async def test_author_tier_sets_the_floor_and_binds_the_proposed_weight(
     )
     row = (await db.query("SELECT author, floor_weight, weight_initial FROM invariant"))[0]
     assert row["author"] is None
-    assert row["floor_weight"] == 0.20
+    assert row["floor_weight"] == 0.05
     assert row["weight_initial"] == 0.70
 
 
@@ -459,9 +463,13 @@ async def test_a_dalio_document_lands_in_the_dalio_tier(
         scored=[_candidate("real rates below zero favour gold")],
         notes=[],
     )
-    row = (await db.query("SELECT author, floor_weight FROM invariant"))[0]
+    row = (await db.query("SELECT author, weight_initial, floor_weight FROM invariant"))[0]
     assert row["author"] == "dalio"
-    assert row["floor_weight"] == 0.40
+    # Notoriety buys the HEAD START — the dalio band opens at 0.80 — and no
+    # longer buys immunity: the floor is the same 0.05 every tier gets, so
+    # history can take the whole head start back.
+    assert row["weight_initial"] == 0.90
+    assert row["floor_weight"] == 0.05
 
 
 async def test_candidates_enter_proposed_never_integrated(

@@ -156,12 +156,12 @@ UC8 reads EventLog weekly to assemble its inputs.
     They are matured over 35y at step 11b and become 'integrated' ONLY if
     time-validated (N_min/θ, not refuted) — belief does not grant
     integration, history does (ADR-006):
-    - inflation-persistence-tips     (dalio, weight 0.85, floor 0.40)
-    - falling-growth-duration         (dalio, weight 0.80, floor 0.40)
-    - rising-growth-equities          (dalio, weight 0.80, floor 0.40)
-    - liquidity-tightening-risk       (marks, weight 0.75, floor 0.35)
-    - liquidity-easing-risk           (marks, weight 0.75, floor 0.35)
-    - diversification-drawdown        (dalio, weight 0.70, floor 0.40)
+    - inflation-persistence-tips     (dalio, weight 0.85, floor 0.05)
+    - falling-growth-duration         (dalio, weight 0.80, floor 0.05)
+    - rising-growth-equities          (dalio, weight 0.80, floor 0.05)
+    - liquidity-tightening-risk       (marks, weight 0.75, floor 0.05)
+    - liquidity-easing-risk           (marks, weight 0.75, floor 0.05)
+    - diversification-drawdown        (dalio, weight 0.70, floor 0.05)
 
 5.  Strategy vertices (4), enabled=true:
     - four-seasons-rp, permanent-browne, barbell-taleb, momentum-macro
@@ -180,7 +180,7 @@ UC8 reads EventLog weekly to assemble its inputs.
     - Runs the SAME curator as weekly UC4 (Task 5.3) over the whole
       corpus ingested in step 6, in batches of passages
     - Extracted invariant candidates are proposed with
-      **author = Document.author tier** ('dalio' → floor 0.40,
+      **author = Document.author tier** ('dalio' → starting band 0.80-0.90,
       'marks' → 0.35, other → null/0.20) — NOT 'system'; 'system' is
       reserved for market-pattern discoveries (backtests, rankings)
     - Each candidate → BACKED_BY/SUPPORTS edges → mature_invariant() over
@@ -407,7 +407,9 @@ self-extension is V2 — IMPROVEMENTS I-27). A new Invariant is born
 `status=proposed`, matured over 35y, and reaches `status=integrated`
 mechanically iff time-validated (N_min/θ, not refuted) — the digest reports
 it, never asks. New invariants extracted from corpus documents carry
-`author = Document.author` tier (dalio → floor 0.40, etc.);
+`author = Document.author` tier (dalio → starting band 0.80-0.90, etc.;
+the floor is 0.05 for every tier since 2026-09-21 — notoriety sets where a
+claim starts, not where it stops);
 `author='system'` is reserved for market-pattern discoveries. `source` is
 always the real free-text provenance (document+page, backtest run).
 

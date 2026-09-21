@@ -217,7 +217,7 @@ residuals explained by their IEI/DBC vs our IEF/DJP).
       its benchmark (by method) moves a weight_effective as computed by hand
       — `test_confrontation_fixture_moves_weight_by_hand` green (tests/
       test_invariants.py): 4/1 confirmations, condition active now, so
-      score 0.8 × weight_initial 0.85 × recency 1.0 = 0.68 > floor 0.40.
+      score 0.8 × weight_initial 0.85 × recency 1.0 = 0.68 > floor 0.05.
 - [x] seed invariants matured over 35y: each has a real market_score and a
       status verdict (integrated iff N_min AND score ≥ θ AND the 0.50 null
       yields evidence this good ≤ 5% of the time — effect size AND evidence;

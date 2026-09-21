@@ -161,28 +161,50 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "replay_confirmation_weeks": 2.0,  # replay harness acceptance-policy confirmation window (UNWIRED)
 }
 
+# NOTORIETY SETS WHERE A CLAIM STARTS, NOT WHERE IT STOPS (owner, 2026-09-21).
+#
+# `initial_weight_min/max` are the notoriety bands: a claim read out of Dalio
+# opens at 0.80-0.90, one from an unranked author at 0.40-0.70. That is the
+# prior, and it is a judgment the owner is entitled to make.
+#
+# `floor_weight` is NOT that judgment, and used to be: it was 0.40 for dalio,
+# 0.35 for marks, 0.20 otherwise — a reputation the data could not reach.
+# Measured 2026-09-21, across 4,452 confrontations, the four books of the
+# corpus confirm at 0.506 to 0.536 and every pairwise comparison is
+# indistinguishable (p 0.19-0.98); Dalio's rate is the closest to chance of the
+# four and the most precisely measured. Meanwhile his floor BOUND 78% of his
+# invariants (58 of 74), so the reputation was not a safety net under the
+# measurement — it WAS the weight, four times out of five.
+#
+# So the floor flattens to one author-independent value, the lowest already in
+# use, whose job is now only to keep a contradicted claim faintly visible
+# instead of letting it vanish from retrieval. Notoriety still buys the head
+# start; history is free to take it all back. "Belief does not grant
+# integration, history does" (CLAUDE.md) now holds for the weight too.
+VISIBILITY_FLOOR = 0.05
+
 INVARIANT_AUTHOR_CONFIG: list[dict[str, object]] = [
     {
         "author": "dalio",
-        "floor_weight": 0.40,
+        "floor_weight": VISIBILITY_FLOOR,
         "initial_weight_min": 0.80,
         "initial_weight_max": 0.90,
     },
     {
         "author": "marks",
-        "floor_weight": 0.35,
+        "floor_weight": VISIBILITY_FLOOR,
         "initial_weight_min": 0.75,
         "initial_weight_max": 0.85,
     },
     {
         "author": "other",
-        "floor_weight": 0.20,
+        "floor_weight": VISIBILITY_FLOOR,
         "initial_weight_min": 0.40,
         "initial_weight_max": 0.70,
     },
     {
         "author": "system",
-        "floor_weight": 0.05,
+        "floor_weight": VISIBILITY_FLOOR,
         "initial_weight_min": 0.15,
         "initial_weight_max": 0.25,
     },
