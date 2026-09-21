@@ -374,11 +374,37 @@ class InvestmentDB:
         await self._serialized(_run)
 
     async def replace_ts_series(
-        self, type: str, ticker: str, rows: list[dict[str, Any]]
+        self,
+        type: str,
+        ticker: str,
+        rows: list[dict[str, Any]],
+        *,
+        keep_earlier_rows: bool = False,
     ) -> str | None:
         """Make one series MIRROR its source: delete what is stored for
         `ticker`, then write `rows`. Returns None, or a description when the
         guard below declined the delete.
+
+        `keep_earlier_rows` narrows that authority to the window the caller can
+        actually speak for: rows dated before the fresh series' own first date
+        are left alone. It exists for a producer that recomputes from the STORE
+        rather than from the source, and therefore cannot reach as far back as
+        whoever wrote the series first. Measured case: CREDIT_GROWTH is a
+        year-on-year, so it needs a year of input BEFORE its first output; the
+        seed has that year (it computes from the full fetch, then truncates for
+        storage) and the weekly catch-up does not (it reads the truncated store
+        back), so the catch-up recomputed 1772 rows against the 1825 stored and
+        would have deleted the first year every Sunday. The span guard does not
+        catch it — one year of 35 is well inside TS_SPAN_TOLERANCE.
+
+        No vintage-overlap risk of the kind the whole-delete exists to prevent
+        (I-57): the overlapping window is still replaced entirely, so a series
+        cannot double. THE LIMIT is that a re-dating which moves the series'
+        START later leaves a stale prefix — this mode cannot distinguish that
+        from the case it is for, since both look like "nothing fresh reaches
+        back here". Bounded by the caller's warm-up window, and the reason the
+        SEED keeps the whole delete: it computes from the source and is
+        entitled to speak for the whole series.
 
         THE TWIN OF `append_ts_batch`, and every producer of a WHOLE series
         wants this one. `append_ts_batch` is INSERT OR REPLACE keyed on
@@ -410,12 +436,26 @@ class InvestmentDB:
         NOT wrapped in `transaction()`: `append_ts_batch` issues its own
         BEGIN/COMMIT (one fsync per batch is its whole purpose) and SQLite has
         no nested transactions. The window between delete and write is
-        tolerable because every caller recomputes the series WHOLE — a crash
-        leaves the ticker empty until the next run rewrites it, which is the
-        same recovery any other mid-job failure gets."""
+        tolerable because every caller recomputes the series it deletes — a
+        crash leaves the ticker empty (or, under `keep_earlier_rows`, ending
+        at the preserved prefix, which reads like a series that simply stops)
+        until the next run rewrites it, the same recovery any other mid-job
+        failure gets."""
         if type not in TS_TABLES:
             raise ValueError(f"not a time-series table: {type!r}")
         if not rows:
+            return None
+        # ISO-8601 dates sort lexicographically — no parsing needed to bound.
+        stamps = [str(r["ts"]) for r in rows]
+        if keep_earlier_rows:
+            # Authoritative from the fresh series' first date onward, and silent
+            # about everything before it. What is stored is not even read: the
+            # span guard exists to stop a truncated source wiping history, and
+            # a short fresh series here deletes only its own short window.
+            await self.command(
+                f"DELETE FROM {type} WHERE ticker = :t AND ts >= :lo", t=ticker, lo=min(stamps)
+            )
+            await self.append_ts_batch(type, rows)
             return None
         stored = (
             await self.query(
@@ -424,8 +464,6 @@ class InvestmentDB:
             )
         )[0]
         if stored["n"]:
-            # ISO-8601 dates sort lexicographically — no parsing needed to bound.
-            stamps = [str(r["ts"]) for r in rows]
             fresh = date.fromisoformat(max(stamps)) - date.fromisoformat(min(stamps))
             held = date.fromisoformat(str(stored["hi"])) - date.fromisoformat(str(stored["lo"]))
             if fresh < held * TS_SPAN_TOLERANCE:

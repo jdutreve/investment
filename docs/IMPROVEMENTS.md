@@ -2224,6 +2224,42 @@ write and reports instead of wiping the history it cannot cover (I-30, and the
 weekly chain has nobody watching), and that the guard measures SPAN rather than
 row count — count is the signal the bug corrupts, so a count test would refuse
 to replace exactly the series that needs it.
+
+**Follow-on, 2026-09-21 — `keep_earlier_rows`, for a producer that reads the
+STORE instead of the source.** The whole delete assumes the caller can speak
+for the whole series. The weekly catch-up cannot: it recomputes the composites
+from the TRUNCATED store, so a composite needing a trailing window starts later
+than the seed's version, which computes from the full fetch before truncating.
+Measured on CREDIT_GROWTH, a year-on-year: 1772 rows recomputed against 1825
+stored, and the span guard does not fire — one year in thirty-five is well
+inside `TS_SPAN_TOLERANCE`. Left alone, every Sunday would have deleted the
+first year, once, silently.
+
+The mode narrows the authority to the window the caller covers: rows dated
+before the fresh series' first date are preserved, everything from it onward is
+replaced as before, so the doubling this entry is about stays impossible. ITS
+LIMIT, pinned in a test rather than claimed away: a re-dating that moves the
+series' START later leaves a stale prefix, because the mode cannot tell that
+from the case it exists for — both look like "nothing fresh reaches back here".
+Bounded by the warm-up window, and the reason the SEED keeps the whole delete.
+
+**And it did not work until the warm-up stopped being a row** (found in review
+the same day). A trailing-window composite is NaN until its window fills and
+`market_data_rows` turns NaN into SQL NULL, so the warm-up existed as rows with
+no value and a real `ts` — which made them the series' first date, which is
+what the new mode bounds its delete by. The catch-up therefore still deleted the
+seed's real early values and wrote its own NULLs over them. Measured on the live
+database: GROWTH_COMPOSITE held 122 NULL levels over 1991-2001 where the
+2026-08-23 post-seed backup had a value in its very first row — ten years of the
+growth axis, blind, under every 35-year maturation sweep since. `rows_for` now
+drops the LEADING NaNs (an interior gap stays a gap), and the series was
+recomputed from source and restored.
+
+GLOBAL_LIQUIDITY's 406 NULLs are NOT the same thing and were not damage: WALCL
+begins at the end of 2002, so the composite has no value before 2003 and the
+post-seed backup carried 1742 such rows itself. The repair's rewrite of that
+series was declined by the span guard — 23 fresh years against 35 stored — which
+is the guard doing exactly its job; the empty rows are harmless and remain.
 ## I-58 — The liquidity composite could say WHERE its move comes from, and over what horizon
 
 **Where.** `market/liquidity.py`, the liquidity block in `telegram/digest.py`
@@ -2729,3 +2765,96 @@ now that its only rival for the same job (candidate 5) is measured and dominated
 The simplification question is closed by candidate 3's out-of-sample run, and the
 2x2 split is the one piece of the rule measured to do nothing in both eras — a
 removal candidate on grounds of simplicity alone, never of performance.
+
+---
+
+## I-63 — DECLINED 2026-09-20 — chunking on sentence boundaries: measured, real, and too small to buy
+
+The owner asked whether passages should be cut "intelligently" — respecting
+chapters and paragraphs — rather than on the current sliding window (1000
+chars, 150 overlap, backed off to the nearest space).
+
+**Three facts settled it, in order.**
+
+*Paragraphs do not survive PDF extraction.* On `Big Debt Crises` — 1580 of the
+corpus's 1822 passages, 87% — the share of window ends where a `\n\n` is
+available is **0.0%**: pypdf restores no paragraph break and `normalize_whitespace`
+does not invent one. Paragraph-aware cutting is possible on the two `.md` files
+only, 13% of the corpus. What exists everywhere is the SENTENCE end: 83% of the
+PDF's cuts could land on one.
+
+*Chapters are already superseded by a stricter rule.* The PDF is chunked page by
+page, so no passage crosses a page and `passage.page` is a truthful citation. A
+chapter-aware splitter would either conflict with that or do nothing.
+
+*The measured gain is real and negligible.* Paired test, same 132 source pages
+both ways (888 passages against 984), the 676 live invariants embedded with
+their canonical text, comparing the best cosine each invariant finds:
+
+```
+best cosine per invariant   current 0.6388   sentence-aligned 0.6424   delta +0.0036
+sign test vs the 0.50 null  376 better / 288 worse   p = 6.4e-4
+```
+
+Which is exactly the shape ADR-006's amendment teaches us to read: the evidence
+is there (the improvement is not a coin flip) and the EFFECT fails — +0.6%
+relative, while individual invariants move +0.12 to −0.20. It is a reshuffle
+whose mean leans slightly the right way.
+
+*And it could not have been otherwise.* Across all 600,288 invariant × passage
+pairs the median cosine is **0.298**, and `vector_similarity_min` is **0.35** —
+the 67th percentile of arbitrary pairs. A third of all possible pairs clear the
+bar, every passage "supports" 226 of 676 invariants, and the database carries
+452,959 edges. Gaining 0.004 inside a graph that dense changes nothing.
+
+**What it would have bought, and the cheaper way to get it.** Readable
+evidence: the excerpt stored on each edge is the passage's first 100 characters,
+today a mid-sentence fragment 59% of the time. That is a legibility gain, not a
+relevance one, and it does not need re-chunking — taking the first complete
+sentence instead is a one-line change with no re-embedding and no re-curation.
+Re-chunking would change nearly every passage's text, clear every curation
+checkpoint, and cost a full re-read of the corpus.
+
+**Declined, and not queued.** It was briefly proposed as free-riding on the next
+prompt-version bump, where the re-curation is paid anyway. The owner rejected the
+reasoning and was right: a window that makes a change free is not a reason to
+make a change whose measured effect is nil.
+
+**Trigger to revisit.** `vector_similarity_min` is the lever this study actually
+found. Nobody has measured precision at 0.45 / 0.55 / 0.60 (which would give 73,
+13 and 5 edges per passage instead of 226), and what the Planner retrieves at
+each. That measurement, not the chunk boundary, is what would improve retrieval.
+
+---
+
+## I-64 — The curation fingerprint cannot say "the vocabulary changed", and the escape hatch named in the schema does not exist
+
+`curation_fingerprint` is `v<CURATION_PROMPT_VERSION>/<model>/<effort>`, and the
+`curated_passage` checkpoint means "this passage was read by THIS curator". The
+signal registry is deliberately excluded — the comment in `db/schema.py` is
+explicit that a new alias is a real reason to re-curate but "must be a decision
+(bump CURATION_PROMPT_VERSION, or `--force`), never a silent 45-minute side
+effect of an edited seed_data.py". That reasoning is sound: seed_data changes
+often and hashing it would make every edit trigger ~100 LLM calls.
+
+Two gaps follow from it, both found 2026-09-20 while adding the debt leg:
+
+1. **`--force` does not exist.** It appears nowhere in the repository except
+   that sentence. The only real lever is bumping the prompt version — honest in
+   its effect (everything is re-read) and wrong in its meaning (the prompt did
+   not change; the vocabulary did), and it leaves no record of why.
+2. **Nothing records WHY a corpus was re-read.** The checkpoint keeps the
+   history across fingerprints, which is the right shape, but a fingerprint that
+   only knows prompt/model/effort cannot distinguish "we changed how it reads"
+   from "we changed what it can say".
+
+**Proposal.** A deliberately-bumped registry version as a fourth element:
+`v5/r2/<model>/<effort>`. It costs one constant, keeps the "it must be an act"
+property the current design is built on, and — unlike a `--force` flag — writes
+the reason into the checkpoint where a later reader can find it.
+
+**Not urgent, and here is why.** The debt leg's own re-read happens regardless:
+the `.env` swap from `deepseek-v4-flash` to `glm-5.3-flash` already changes the
+fingerprint, so the next weekly sweep re-curates the whole corpus with the debt
+vocabulary in place. This matters for the NEXT vocabulary change, made without a
+model swap to ride on.

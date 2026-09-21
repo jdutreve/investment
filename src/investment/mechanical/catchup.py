@@ -84,7 +84,7 @@ from investment.db.seed_data import (
     benchmarks_first,
 )
 from investment.db.sqlite import InvestmentDB
-from investment.market import derivatives, fetcher, growth, liquidity, regime, splice
+from investment.market import composites, derivatives, fetcher, regime, splice
 from investment.mechanical import ratios
 
 logger = logging.getLogger(__name__)
@@ -109,15 +109,6 @@ FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series
 # HTTP response per ticker per week; the cost of being tight is a silently wrong
 # speed on the newest print, which is the reading the regime detector acts on.
 FETCH_MARGIN_DAYS = 500
-
-# The composites and what they are built from (docs/TASKS.md Task 2.2). Their
-# inputs are read back from `market_data` rather than kept in memory as the seed
-# does: by the time they are computed the components' rows have just been
-# refreshed, so the database IS the full as-known history, and reading it costs
-# a query instead of a second network pass.
-GROWTH_INPUTS = ("INDPRO", "UNRATE")
-LIQUIDITY_COMPONENTS = liquidity.COMPONENTS
-LIQUIDITY_FX = ("DEXUSEU", "DEXJPUS")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -286,10 +277,10 @@ async def refresh_market_data(
 
 
 async def refresh_composites(db: InvestmentDB, lookback: int) -> tuple[list[str], int]:
-    """GROWTH_COMPOSITE and GLOBAL_LIQUIDITY from their refreshed components.
+    """The composites (market/composites.py), from their refreshed components.
 
-    Recomputed over the WHOLE stored history, not over a window, because both
-    are z-scores against a trailing window — 10 years for growth, 5 for
+    Recomputed over the WHOLE stored history, not over a window, because two
+    of them are z-scores against a trailing window — 10 years for growth, 5 for
     liquidity. A composite computed on a short window would be scored against a
     different distribution than the one the seed used and would drift from it on
     the same date, which is precisely the class of defect this project keeps
@@ -297,36 +288,29 @@ async def refresh_composites(db: InvestmentDB, lookback: int) -> tuple[list[str]
     written: list[str] = []
     rows_written = 0
 
-    inputs = {t: await stored_level(db, t) for t in GROWTH_INPUTS}
-    if all(not s.empty for s in inputs.values()):
-        composite = growth.compute_growth_composite(inputs["INDPRO"], inputs["UNRATE"])
-        deriv = derivatives.compute_derivatives(composite, "GROWTH_COMPOSITE", lookback)
-        rows = derivatives.market_data_rows("GROWTH_COMPOSITE", "MACRO", "USD", deriv, None)
-        # Authoritative: this recomputes the series WHOLE, so an additive
-        # write would leave the previous dating beside the new one on any
-        # re-dating (db/sqlite.replace_ts_series; I-57).
-        await db.replace_ts_series("market_data", "GROWTH_COMPOSITE", rows)
-        written.append("GROWTH_COMPOSITE")
+    # INPUTS READ BACK FROM `market_data`, not kept in memory as the seed does:
+    # by the time this runs the components' rows have just been refreshed, so a
+    # query costs less than a second network pass. What the store is NOT is the
+    # full as-known history — it begins at the backfill floor, while the seed
+    # computed from the whole fetch — which is why the write below is bounded
+    # rather than authoritative over everything.
+    for composite in composites.COMPOSITES:
+        inputs = {t: await stored_level(db, t) for t in composite.inputs}
+        absent = composites.missing_inputs(composite, inputs)
+        if absent:
+            logger.warning("catch-up: %s skipped, missing %s", composite.ticker, ", ".join(absent))
+            continue
+        rows = composites.rows_for(composite, inputs, lookback, None)
+        # Authoritative over what it can recompute, and no further. The whole
+        # delete would be wrong here: this reads its inputs back from the
+        # TRUNCATED store, so a composite needing a trailing window cannot
+        # reach as far back as the seed did and would delete the difference
+        # every Sunday (db/sqlite.replace_ts_series, `keep_earlier_rows`).
+        # Additive would be wrong too — a re-dating would then leave two
+        # vintages of one observation side by side (I-57).
+        await db.replace_ts_series("market_data", composite.ticker, rows, keep_earlier_rows=True)
+        written.append(composite.ticker)
         rows_written += len(rows)
-    else:
-        logger.warning("catch-up: GROWTH_COMPOSITE skipped, missing INDPRO/UNRATE")
-
-    components = {t: await stored_level(db, t) for t in (*LIQUIDITY_COMPONENTS, *LIQUIDITY_FX)}
-    if all(not s.empty for s in components.values()):
-        eurusd, usdjpy = components["DEXUSEU"], components["DEXJPUS"]
-        usd = {
-            t: liquidity.usd_convert(t, components[t], eurusd, usdjpy) for t in LIQUIDITY_COMPONENTS
-        }
-        composite = liquidity.compute_global_liquidity(usd)
-        deriv = derivatives.compute_derivatives(composite, "GLOBAL_LIQUIDITY", lookback)
-        rows = derivatives.market_data_rows(
-            "GLOBAL_LIQUIDITY", "GLOBAL_LIQUIDITY", "USD", deriv, None
-        )
-        await db.replace_ts_series("market_data", "GLOBAL_LIQUIDITY", rows)
-        written.append("GLOBAL_LIQUIDITY")
-        rows_written += len(rows)
-    else:
-        logger.warning("catch-up: GLOBAL_LIQUIDITY skipped, missing components")
 
     return written, rows_written
 

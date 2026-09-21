@@ -334,11 +334,25 @@ CREATE TABLE IF NOT EXISTS designed_for (
   PRIMARY KEY (portfolio_id, regime_type_id)
 );
 
+-- TWO INDEPENDENT FACTS ABOUT ONE PAIR, which is why `cited` exists
+-- (ADDED_COLUMNS, 2026-09-20). A passage reaches an invariant two ways: the
+-- ingester's cosine scoring (`strength`, `excerpt`) and the curator having
+-- READ the claim from it (`cited`). A pair can legitimately be both, and the
+-- primary key allows one row, so before `cited` the two meanings overwrote
+-- each other and the only way to tell them apart was `excerpt IS NULL` — a
+-- consequence, not a declaration.
+--
+-- THAT IS WHY THE LOSS WAS INVISIBLE. `_replace_derived` deleted every edge of
+-- a re-ingested document and the loop rebuilt only the cosine ones, so the
+-- 2026-08-23 re-ingestion destroyed 13,411 citations and left one; nothing in
+-- the schema claimed to be a citation, so nothing could notice they had gone.
+-- Found 2026-09-20 while tracing which passage an invariant came from.
 CREATE TABLE IF NOT EXISTS supports (
   passage_id   TEXT NOT NULL REFERENCES passage(id),
   invariant_id TEXT NOT NULL REFERENCES invariant(id),
   strength     REAL,
   excerpt      TEXT,
+  cited        INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (passage_id, invariant_id)
 );
 
@@ -768,4 +782,9 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("portfolio_weekly_snapshot", "nav", "REAL"),
     ("portfolio", "cagr", "REAL"),
     ("portfolio_weekly_snapshot", "cagr", "REAL"),
+    # The curator READ this claim from this passage — independent of the
+    # cosine similarity stored beside it (see the `supports` comment). 0 on
+    # every pre-existing row, which is why it reads as "not recorded as a
+    # citation" and never as "certainly not one".
+    ("supports", "cited", "INTEGER NOT NULL DEFAULT 0"),
 )

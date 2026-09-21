@@ -27,6 +27,12 @@ _JPY_TICKERS = frozenset({"JPNASSETS"})
 COMPONENTS: tuple[str, ...] = ("M2SL", "WALCL", "ECBASSETSW", "JPNASSETS")
 PROXY_DESCRIPTION = "US M2 + Fed/ECB/BoJ balance sheets"
 
+# The FX series `usd_convert` needs to do its job, named HERE beside the
+# components they convert. They were a tuple in `mechanical/catchup.py` and an
+# inline pair in `seed.py` — two copies of a fact that belongs to this module,
+# which is what the composite registry (market/composites.py) now reads.
+FX_TICKERS: tuple[str, ...] = ("DEXUSEU", "DEXJPUS")
+
 # THE FOUR STATES, and the reason there are four rather than two.
 #
 # The composite has a STOCK (is liquidity abundant against its own 5y norm) and

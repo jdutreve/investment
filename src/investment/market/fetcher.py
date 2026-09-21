@@ -58,7 +58,15 @@ YAHOO_TIMEOUT_SECONDS = 30.0
 # Meaningfully-revised FRED series (ADR-003) — backfilled via ALFRED
 # first-release vintages. Everything else uses the current vintage, which
 # for these series (non-revised in practice) IS the first release.
-REVISED_SERIES = frozenset({"INDPRO", "CPIAUCSL", "UNRATE"})
+#
+# GDP joins them for DEBT_TO_GDP's denominator: it is revised three times a
+# quarter and then benchmarked, and its ALFRED vintages start 1991-12-04, so
+# first-release dating costs no history. Its numerator TCMDODNS is revised
+# too and is deliberately NOT here — ALFRED holds only 57 vintages of it,
+# starting 2010-06-10, so this path would truncate the series to 2010; it
+# takes the current-vintage path with an `availability_lag_days` instead
+# (market/debt.py, "TWO SOURCES, TWO DATING PATHS").
+REVISED_SERIES = frozenset({"INDPRO", "CPIAUCSL", "UNRATE", "GDP"})
 
 
 async def _with_retry[T](fn: Callable[[], Awaitable[T]], *, label: str) -> T:
@@ -207,8 +215,30 @@ def parse_alfred_first_release(observations: list[dict[str, str]]) -> pd.Series:
     `<series_id>_<vintage_date YYYYMMDD>` holding the value as known as of
     that vintage. The first release is the value in the EARLIEST-dated
     column; that column's date suffix IS the true publication date
-    (ADR-003)."""
-    prices: dict[date, float] = {}
+    (ADR-003).
+
+    ONE VINTAGE CAN PUBLISH MANY REFERENCE DATES, which is what makes the
+    naive `prices[pub_date] = value` wrong (found 2026-09-20 on GDP). A
+    benchmark revision republishes history: BEA's 1992-12-22 vintage was the
+    first to carry 1947 through 1958, so forty-eight reference dates shared
+    that publication date and the dict kept whichever came last — a 1958 level
+    of 472.3 stamped as what was known in December 1992, between 5967.1 and
+    6061.9. The same collapse happens benignly at ALFRED's own floor
+    (1991-12-04 carries 131 reference dates for GDP), where the last one IS the
+    most recent and nobody noticed.
+
+    So a publication date is recorded only when it brings a NEWER reference
+    date than anything already known. Republishing old history is not news: it
+    changes neither the newest reading nor the date it was learned, which is
+    the only thing a level series means under ADR-003 — and emitting a point
+    for it would invent an observation whose change is zero, on series whose
+    derivative lookback is ONE OBSERVATION.
+
+    Measured over all four revised series, this drops exactly one point and
+    corrects one other, both on GDP (the 1992-12-22 vintage above); CPIAUCSL,
+    INDPRO and UNRATE are identical either way.
+    """
+    triples: list[tuple[date, date, float]] = []
     for row in observations:
         vintages = [
             (key.rsplit("_", 1)[-1], value)
@@ -221,7 +251,14 @@ def parse_alfred_first_release(observations: list[dict[str, str]]) -> pd.Series:
         pub_date = date.fromisoformat(
             f"{earliest_vintage[:4]}-{earliest_vintage[4:6]}-{earliest_vintage[6:8]}"
         )
-        prices[pub_date] = float(value)
+        triples.append((pub_date, date.fromisoformat(str(row["date"])), float(value)))
+
+    prices: dict[date, float] = {}
+    latest_ref: date | None = None
+    for pub_date, reference_date, observed in sorted(triples):
+        if latest_ref is None or reference_date >= latest_ref:
+            latest_ref = reference_date
+            prices[pub_date] = observed
     return _series_from_date_map(prices)
 
 

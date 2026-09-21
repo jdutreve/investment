@@ -13,9 +13,30 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
-# Monthly-observation series (docs/DATA_MODELS.md "MarketData semantics"):
-# derivative lookback = 1 observation, not a calendar-day window.
-MONTHLY_OBSERVATION_TICKERS = frozenset({"CPIAUCSL", "UNRATE", "INDPRO", "GROWTH_COMPOSITE"})
+# Series whose derivative lookback is ONE OBSERVATION rather than a
+# calendar-day window (docs/DATA_MODELS.md "MarketData semantics") — a
+# calendar window on a series that prints monthly or quarterly is either
+# trivially satisfied or silently zero between prints.
+#
+# NAMED FOR THE ONLY CADENCE IT HELD (CLAUDE.md "when a second one arrives"):
+# this was MONTHLY_OBSERVATION_TICKERS while every member printed monthly.
+# The debt series arrive QUARTERLY (Z.1 and the delinquency rate), which is a
+# second cadence with the same need, so the name now says the RULE — one
+# observation — instead of one of the cadences that obey it.
+OBSERVATION_LOOKBACK_TICKERS = frozenset(
+    {
+        # monthly
+        "CPIAUCSL",
+        "UNRATE",
+        "INDPRO",
+        "GROWTH_COMPOSITE",
+        # quarterly (market/debt.py)
+        "TCMDODNS",
+        "GDP",
+        "DRSFRMACBS",
+        "DEBT_TO_GDP",
+    }
+)
 
 # Per-ticker CALENDAR-DAY lookback overrides for speed/acceleration, for
 # daily series whose natural derivative window is neither 1 observation nor
@@ -40,10 +61,14 @@ def apply_transform(series: pd.Series, transform: str) -> pd.Series:
     raise ValueError(f"unknown transform: {transform!r}")
 
 
-def _asof_lag(level: pd.Series, days: int) -> pd.Series:
+def asof_lag(level: pd.Series, days: int) -> pd.Series:
     """Value as of (t - days) for every t in `level`'s index, via the latest
     known observation at or before that date — the calendar-day analogue of
-    `.diff(1)` for a series that isn't evenly spaced (weekends/holidays)."""
+    `.diff(1)` for a series that isn't evenly spaced (weekends/holidays).
+
+    Public because a second caller arrived: `market/debt.py` needs the same
+    as-of reading for CREDIT_GROWTH's calendar year-on-year window (CLAUDE.md,
+    and the precedent `market_data_rows` records below)."""
     idx = level.index.values
     target = idx - np.timedelta64(days, "D")
     pos = np.searchsorted(idx, target, side="right") - 1
@@ -59,13 +84,13 @@ def compute_derivatives(level: pd.Series, ticker: str, default_lookback_days: in
     (diff of speed over the SAME lookback — docs/DATA_MODELS.md: CPIAUCSL
     'speed = delta1m of YoY, accel = delta of speed')."""
     level = level.sort_index()
-    if ticker in MONTHLY_OBSERVATION_TICKERS:
+    if ticker in OBSERVATION_LOOKBACK_TICKERS:
         speed = level.diff(1)
         acceleration = speed.diff(1)
     else:
         days = WEEKLY_LOOKBACK_DAYS_TICKERS.get(ticker, default_lookback_days)
-        speed = level - _asof_lag(level, days)
-        acceleration = speed - _asof_lag(speed, days)
+        speed = level - asof_lag(level, days)
+        acceleration = speed - asof_lag(speed, days)
     return pd.DataFrame({"level": level, "speed": speed, "acceleration": acceleration})
 
 

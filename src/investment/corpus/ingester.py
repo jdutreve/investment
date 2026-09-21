@@ -395,6 +395,19 @@ class CorpusIngester:
                         "embedding": to_blob(vector),
                     },
                 )
+            # `create_edge` is INSERT OR REPLACE — it rewrites the WHOLE row —
+            # so a pair that is also a citation must carry `cited` forward in
+            # the props, or re-scoring it would silently un-cite it. Read the
+            # surviving declarations once and restate them.
+            cited = {
+                (str(r["passage_id"]), str(r["invariant_id"]))
+                for r in await tx.query(
+                    "SELECT s.passage_id, s.invariant_id FROM supports s "
+                    "JOIN passage p ON p.id = s.passage_id "
+                    "WHERE p.document_id = :doc AND s.cited = 1",
+                    doc=document_id,
+                )
+            }
             created = 0
             for row_index, chunk in enumerate(chunks):
                 passage_id = chunk_id_for(document_id, chunk.position)
@@ -403,7 +416,11 @@ class CorpusIngester:
                         "supports",
                         passage_id,
                         invariant_id,
-                        {"strength": score, "excerpt": chunk.content[:EXCERPT_CHARS]},
+                        {
+                            "strength": score,
+                            "excerpt": chunk.content[:EXCERPT_CHARS],
+                            "cited": 1 if (passage_id, invariant_id) in cited else 0,
+                        },
                     )
                     created += 1
 
@@ -505,7 +522,20 @@ class CorpusIngester:
             elif replacement != str(row["content"]):
                 changed.append(passage_id)
 
-        await self._delete_by_passage(tx, "supports", [str(r["id"]) for r in existing])
+        # TWO SPECIES OF SUPPORTS EDGE, and only one of them is rebuilt below.
+        # The cosine edges this ingestion re-scores must all go (see above).
+        # The CURATOR's citations — the `cited` flag writeback/knowledge.py
+        # stamps to record which passage a claim was read from — are
+        # rebuilt by nothing: their only source is an LLM response that is not
+        # replayed, and the curation checkpoint of an unchanged passage
+        # survives, so the curator is never asked again. Deleting them
+        # unconditionally is how 452,958 cosine edges came to stand beside ONE
+        # surviving citation after the 2026-08-23 re-ingestion (found
+        # 2026-09-20). They are kept for every passage whose TEXT is unchanged,
+        # and dropped only where the text moved — there the checkpoint is
+        # cleared too, so the curator will re-read and re-cite.
+        await self._clear_cosine_scoring(tx, [str(r["id"]) for r in existing])
+        await self._delete_by_passage(tx, "supports", stale + changed)
         await self._delete_by_passage(tx, "curated_passage", stale + changed)
         await self._delete_by_passage(tx, "passage", stale)
         if changed:
@@ -515,6 +545,30 @@ class CorpusIngester:
                 len(changed),
             )
         return len(stale)
+
+    @staticmethod
+    async def _clear_cosine_scoring(tx: InvestmentDB, passage_ids: list[str]) -> None:
+        """Retire the MECHANICAL half of these passages' supports edges — the
+        half `score_supports` is about to recompute — while leaving the
+        curator's `cited` declaration alone (db/schema.py, `supports`).
+
+        Two statements because a pair can be either one thing or both: a row
+        that is only a cosine edge has nothing left to say and goes; a row that
+        is also a citation keeps its `cited` and merely forgets a similarity
+        that this ingestion is about to restate."""
+        if not passage_ids:
+            return
+        placeholders = ", ".join(f":p{n}" for n in range(len(passage_ids)))
+        params = {f"p{n}": pid for n, pid in enumerate(passage_ids)}
+        await tx.command(
+            f"DELETE FROM supports WHERE passage_id IN ({placeholders}) AND cited = 0",
+            **params,
+        )
+        await tx.command(
+            f"UPDATE supports SET strength = NULL, excerpt = NULL "
+            f"WHERE passage_id IN ({placeholders}) AND cited = 1",
+            **params,
+        )
 
     @staticmethod
     async def _delete_by_passage(tx: InvestmentDB, table: str, passage_ids: list[str]) -> None:

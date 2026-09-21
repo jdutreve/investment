@@ -16,6 +16,7 @@ from investment.corpus.ingester import (
     MIN_PAGE_CHARS,
     CorpusIngester,
     UnsupportedSourceError,
+    chunk_id_for,
     chunk_text,
     document_id_for,
     extract_pages,
@@ -442,3 +443,118 @@ async def test_a_watched_event_is_still_recorded_as_a_url(
     row = (await db.query("SELECT source_type, source_path FROM document"))[0]
     assert row["source_type"] == "url"
     assert row["source_path"] == "https://example.org/press/2026-08-13"
+
+
+# -- curator citations survive a re-ingestion (2026-09-20) -----------------
+#
+# `_replace_derived` deleted every supports edge of a re-ingested document and
+# the loop rebuilt only the cosine ones, so the citations recording WHICH
+# passage a claim was read from were destroyed on every re-ingestion and
+# rebuilt by nothing. The live database showed the damage: 452,958 cosine
+# edges beside a single surviving citation.
+
+
+async def _cited_pairs(db: InvestmentDB) -> set[tuple[str, str]]:
+    rows = await db.query("SELECT passage_id, invariant_id FROM supports WHERE cited = 1")
+    return {(str(r["passage_id"]), str(r["invariant_id"])) for r in rows}
+
+
+async def test_reingestion_keeps_curator_citations_for_unchanged_text(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """The text did not move, so the claim still came from that passage."""
+    src = tmp_path / "unchanged book.txt"
+    src.write_text("Debt service costs rise faster than debts themselves. " * 60)
+    ing = CorpusIngester(db, embedder, chunk_size=400, chunk_overlap=80)
+    first = await ing.ingest_file(src)
+    await _seed_invariant(db)
+
+    passage_id = chunk_id_for(first.document_id, 0)
+    await db.create_edge(
+        "supports", passage_id, "inv-test-inflation", {"strength": 0.8, "cited": 1}
+    )
+    assert (passage_id, "inv-test-inflation") in await _cited_pairs(db)
+
+    await ing.ingest_file(src)
+    assert (passage_id, "inv-test-inflation") in await _cited_pairs(db), (
+        "a citation to unchanged text must survive re-ingestion"
+    )
+
+
+async def test_reingestion_drops_citations_whose_passage_text_changed(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """The text moved, so the claim no longer comes from there — and the
+    curation checkpoint is cleared alongside, so the curator will re-read."""
+    src = tmp_path / "revised book.txt"
+    src.write_text("First edition sentence about bonds and inflation. " * 60)
+    ing = CorpusIngester(db, embedder, chunk_size=400, chunk_overlap=80)
+    first = await ing.ingest_file(src)
+    await _seed_invariant(db)
+
+    passage_id = chunk_id_for(first.document_id, 0)
+    await db.create_edge(
+        "supports", passage_id, "inv-test-inflation", {"strength": 0.8, "cited": 1}
+    )
+
+    src.write_text("Second edition says something else entirely about equities. " * 60)
+    await ing.ingest_file(src)
+    assert (passage_id, "inv-test-inflation") not in await _cited_pairs(db)
+
+
+async def test_rescoring_a_cited_pair_does_not_un_cite_it(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """`create_edge` rewrites the whole row, so the cosine rebuild has to
+    carry `cited` forward. Before the column, the two facts shared one field
+    and whichever was written last erased the other."""
+    src = tmp_path / "scored book.txt"
+    src.write_text("When inflation rises, nominal bond returns fall. " * 60)
+    ing = CorpusIngester(db, embedder, chunk_size=400, chunk_overlap=80, similarity_min=0.0)
+    first = await ing.ingest_file(src)
+    await _seed_invariant(db)
+
+    passage_id = chunk_id_for(first.document_id, 0)
+    await db.create_edge(
+        "supports", passage_id, "inv-test-inflation", {"strength": 0.9, "cited": 1}
+    )
+    # similarity_min=0.0 guarantees this pair IS re-scored by the next pass.
+    await ing.ingest_file(src)
+    rows = await db.query(
+        "SELECT strength, excerpt, cited FROM supports "
+        "WHERE passage_id = :p AND invariant_id = 'inv-test-inflation'",
+        p=passage_id,
+    )
+    assert rows and rows[0]["cited"] == 1, "a re-scored pair must stay cited"
+    assert rows[0]["excerpt"] is not None, "and must carry the fresh cosine excerpt"
+
+
+async def test_a_citation_does_not_erase_the_cosine_scoring_on_the_same_pair(
+    db: InvestmentDB, embedder: InProcessEmbedder, tmp_path: Path
+) -> None:
+    """The mirror of the test above, and the second half of the same defect:
+    ingestion runs BEFORE curation, so a cited pair usually already carries a
+    cosine `strength` and `excerpt`. Marking it cited with `create_edge`
+    (INSERT OR REPLACE) wiped them; writeback stamps the flag instead."""
+    from investment.writeback.knowledge import _mark_cited
+
+    src = tmp_path / "evidence book.txt"
+    src.write_text("When inflation rises, nominal bond returns fall. " * 60)
+    ing = CorpusIngester(db, embedder, chunk_size=400, chunk_overlap=80, similarity_min=0.0)
+    first = await ing.ingest_file(src)
+    await _seed_invariant(db)
+    passage_id = chunk_id_for(first.document_id, 0)
+    await db.create_edge(
+        "supports", passage_id, "inv-test-inflation", {"strength": 0.42, "excerpt": "a quote"}
+    )
+
+    await _mark_cited(db, passage_id, "inv-test-inflation")
+
+    rows = await db.query(
+        "SELECT strength, excerpt, cited FROM supports "
+        "WHERE passage_id = :p AND invariant_id = 'inv-test-inflation'",
+        p=passage_id,
+    )
+    assert rows[0]["cited"] == 1
+    assert rows[0]["excerpt"] == "a quote", "the citation must not erase the cosine excerpt"
+    assert rows[0]["strength"] == pytest.approx(0.42)

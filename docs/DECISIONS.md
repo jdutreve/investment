@@ -107,6 +107,31 @@ Non-revised series (ETF prices, ^VIX, ^IRX, T10Y2Y, WALCL & liquidity
 components) are unaffected. Cost: one extra fetch path
 (`fetch_alfred_first_release`) used only by the backfill.
 
+**Amendment (2026-09-20) — a publication date carries the LATEST REFERENCE
+DATE known as of then, not the last row the parser happened to iterate.**
+
+ALFRED's `output_type=2` is WIDE: one row per reference date, one column per
+vintage. `parse_alfred_first_release` took, per reference date, the value in
+the earliest-dated column and keyed the result by that column's date — the
+true publication date, which is the right rule per observation. But ONE VINTAGE
+CAN PUBLISH MANY REFERENCE DATES, and the result was a dict keyed by
+publication date: the whole group collapsed onto one key and the last row
+iterated won.
+
+Found on GDP while adding the debt leg. BEA's 1992-12-22 vintage was the first
+to carry 1947 through 1958, so forty-eight reference dates shared that
+publication date and the series recorded a 1958 level of **472.3 as what was
+known in December 1992** — between 5967.1 and 6061.9. The same collapse happens
+benignly at ALFRED's own coverage floor (1991-12-04 carries 131 reference dates
+for GDP) where the last of the group IS the most recent, which is why it had
+never shown.
+
+The rule that replaces it: republishing old history does not change what the
+newest reading is. Measured across all four revised series, the correction
+changes **exactly one persisted point** — the GDP one above; CPIAUCSL, INDPRO
+and UNRATE are identical either way. Two regression tests pin both halves, the
+benchmark revision and the benign floor.
+
 ---
 
 ## ADR-004 — SQLite as the single engine (supersedes ADR-001)

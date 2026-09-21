@@ -401,3 +401,44 @@ def test_a_generous_lag_never_dates_an_observation_in_the_future() -> None:
     yesterday = date.today() - timedelta(days=1)
     series = parse_fred_current([{"date": yesterday.isoformat(), "value": "1.0"}], lag_days=60)
     assert series.index.max().date() == date.today()
+
+
+def test_a_vintage_that_republishes_history_does_not_rewrite_the_latest_value() -> None:
+    """ALFRED's wide format lets ONE vintage carry many reference dates, and a
+    benchmark revision does exactly that. Keying by publication date alone,
+    the last row iterated won: BEA's 1992-12-22 GDP vintage first carried 1947
+    through 1958, so a 1958 level of 472.3 was stored as what December 1992
+    knew, between 5967.1 and 6061.9 (found 2026-09-20). What a publication
+    date means is the LATEST reference date known as of then."""
+    observations = [
+        # Published 1992-10-27: the then-current quarter.
+        {"date": "1992-07-01", "GDP_19921027": "5967.1"},
+        # Published 1992-12-22: a benchmark revision extending the history
+        # backwards. Three reference dates, all older than what is known.
+        {"date": "1947-01-01", "GDP_19921222": "226.7"},
+        {"date": "1958-04-01", "GDP_19921222": "461.4"},
+        {"date": "1958-10-01", "GDP_19921222": "472.3"},
+        # Published 1993-01-28: the next real quarter.
+        {"date": "1992-10-01", "GDP_19930128": "6061.9"},
+    ]
+    series = fetcher.parse_alfred_first_release(observations)
+    assert series.loc["1992-10-27"] == pytest.approx(5967.1)
+    assert series.loc["1993-01-28"] == pytest.approx(6061.9)
+    # Not merely "not 472.3": the vintage brought no newer reference date, so
+    # it is not an observation at all. Recording it would invent a reading
+    # whose change is zero on a series whose lookback is ONE observation.
+    assert pd.Timestamp("1992-12-22") not in series.index, "backfilled history is not news"
+
+
+def test_the_first_vintage_still_reports_its_most_recent_reference_date() -> None:
+    """The benign half of the same collapse: ALFRED's own floor carries every
+    reference date that predates it (131 of them for GDP), and there the
+    answer is the newest of the group — which is what it already was."""
+    observations = [
+        {"date": "1959-01-01", "GDP_19911204": "483.5"},
+        {"date": "1991-04-01", "GDP_19911204": "5678.0"},
+        {"date": "1991-07-01", "GDP_19911204": "5707.4"},
+    ]
+    series = fetcher.parse_alfred_first_release(observations)
+    assert len(series) == 1
+    assert series.iloc[0] == pytest.approx(5707.4)

@@ -560,6 +560,58 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 1,
     },
+    # THE DEBT LEG (2026-09-20) — see market/debt.py for why these exist and
+    # why GDP alone takes the ALFRED first-release path.
+    #
+    # availability_lag_days is measured from the OBSERVATION date, and FRED
+    # dates a quarterly observation at the quarter's START, so the lag spans
+    # the quarter plus the release delay. Z.1 lands about ten weeks after the
+    # quarter ends: Q2 2026 is dated 2026-04-01 and published ~2026-09-10,
+    # hence 165. Verified against the live series on 2026-09-20 (Q2 present,
+    # Q3 absent).
+    {
+        "ticker": "TCMDODNS",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 165,
+        "description": "Z.1 domestic nonfinancial debt, millions USD (DEBT_TO_GDP numerator)",
+    },
+    # GDP is in REVISED_SERIES (market/fetcher.py): its ALFRED vintages start
+    # 1991-12-04, which covers the whole backfill window, so it is dated by
+    # true first release and needs no lag.
+    {
+        "ticker": "GDP",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 0,
+        "description": "GDP, billions USD SAAR (DEBT_TO_GDP denominator)",
+    },
+    # H.8 is weekly, published Fridays for the week ending the prior Wednesday.
+    {
+        "ticker": "TOTBKCR",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 10,
+        "description": "Bank credit, all commercial banks, billions USD (CREDIT_GROWTH input)",
+    },
+    # Delinquency lands about eight weeks after the quarter ends; same
+    # quarter-start dating as Z.1, hence 150. Dalio's early-top marker: "the
+    # riskiest debtors start to miss payments, lenders begin to worry".
+    {
+        "ticker": "DRSFRMACBS",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 150,
+        "description": "Single-family residential mortgage delinquency rate, percent",
+    },
     {
         "ticker": "GROWTH_COMPOSITE",
         "asset_class": "MACRO",
@@ -570,6 +622,27 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     {
         "ticker": "GLOBAL_LIQUIDITY",
         "asset_class": "GLOBAL_LIQUIDITY",
+        "currency": "USD",
+        "source": "composite",
+        "transform": "composite",
+    },
+    # The debt leg's two composites. A row here is NOT decoration: it is what
+    # exposes a series to the Worker's `market_fetch` (worker/tools.py gates on
+    # `active = 1` in this table) and what keeps `seed._prune_retired_series`
+    # from deleting the series on every run — its keep-set is this table plus
+    # DERIVED_SIGNALS, and a composite in neither is pruned, then silently left
+    # missing if its inputs fail to fetch. HOW they are built is
+    # market/composites.py's business; this row is what makes them visible.
+    {
+        "ticker": "DEBT_TO_GDP",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "composite",
+        "transform": "composite",
+    },
+    {
+        "ticker": "CREDIT_GROWTH",
+        "asset_class": "MACRO",
         "currency": "USD",
         "source": "composite",
         "transform": "composite",
@@ -639,9 +712,13 @@ NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
     {"MACRO", "RISK_FREE", "VOLATILITY", "GLOBAL_LIQUIDITY"}
 )
 
+# The derived series that are NOT composites. The four composites used to be
+# listed here too — two of them, anyway, which is how DEBT_TO_GDP and
+# CREDIT_GROWTH came to be in neither this map nor ALLOWED_TICKERS and were
+# pruned on every seed run. They are declared in market/composites.py and
+# carried in ALLOWED_TICKERS above, so this map no longer names any of them
+# rather than naming half of them.
 DERIVED_SIGNALS: dict[str, str] = {
-    "GROWTH_COMPOSITE": "INDPRO,UNRATE (see market/growth.py)",
-    "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
     "real_rate": "irx - CPIAUCSL(yoy_pct)   # nominal SHORT rate minus inflation",
     # The LONG real yield — a distinct signal, not a refinement of real_rate:
     # opportunity-cost claims (gold vs a yielding alternative) are stated
@@ -698,6 +775,15 @@ SIGNAL_ALIASES: dict[str, str] = {
     # Gold/10y-yield ratio vs its 7y trend (see DERIVED_SIGNALS) — the signal
     # backing inv-gold-ratio-trend-tilt.
     "gold_10y_dev": "gold_10y_dev",
+    # THE DEBT LEG (2026-09-20). A recall study of the corpus's largest book —
+    # Dalio on big debt cycles — found the curator's reading complete and its
+    # yield capped by this vocabulary instead: it kept writing "requires debt
+    # aggregates that do not exist in the signal vocabulary" as its reason for
+    # demoting a claim to a reference note. The agent now measures the thing
+    # the book is about. See market/debt.py for what each series answers.
+    "debt_to_gdp": "DEBT_TO_GDP",
+    "credit_growth": "CREDIT_GROWTH",
+    "delinquency": "DRSFRMACBS",
 }
 # The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
 # The Writeback VALIDATION GATE rejects a condition signal not in the registry.

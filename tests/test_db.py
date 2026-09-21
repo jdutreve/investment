@@ -530,3 +530,77 @@ async def test_replace_refuses_a_table_that_is_not_a_time_series(tmp_path: Path)
             await db.replace_ts_series("invariant", "x", [{"ticker": "x", "ts": "2026-01-01"}])
     finally:
         await db.close()
+
+
+# -- replace_ts_series(keep_earlier_rows=True) -----------------------------
+
+
+async def _stamps_of(db: InvestmentDB, ticker: str) -> list[str]:
+    rows = await db.query("SELECT ts FROM market_data WHERE ticker = :t ORDER BY ts", t=ticker)
+    return [str(r["ts"]) for r in rows]
+
+
+def _ts_row(ticker: str, ts: str, level: float) -> dict[str, object]:
+    return {
+        "ticker": ticker,
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "ts": ts,
+        "level": level,
+        "speed": None,
+        "acceleration": None,
+    }
+
+
+async def test_keep_earlier_rows_preserves_what_the_caller_cannot_recompute(
+    db: InvestmentDB,
+) -> None:
+    """CREDIT_GROWTH is a year-on-year: the seed computes it from the full
+    fetch and stores 1825 rows, the weekly catch-up reads the TRUNCATED store
+    back and can only recompute 1772. A whole delete would drop the first year
+    every Sunday, and the span guard does not catch one year in 35."""
+    await db.append_ts_batch(
+        "market_data",
+        [
+            _ts_row("CG", "1991-10-05", 1.0),
+            _ts_row("CG", "1992-10-02", 2.0),
+            _ts_row("CG", "2026-09-19", 3.0),
+        ],
+    )
+    await db.replace_ts_series(
+        "market_data",
+        "CG",
+        [_ts_row("CG", "1992-10-02", 20.0), _ts_row("CG", "2026-09-19", 30.0)],
+        keep_earlier_rows=True,
+    )
+    assert await _stamps_of(db, "CG") == ["1991-10-05", "1992-10-02", "2026-09-19"]
+    fresh = await db.query("SELECT level FROM market_data WHERE ticker='CG' AND ts='1992-10-02'")
+    assert fresh[0]["level"] == 20.0, "the overlapping window is still rewritten, not merged"
+
+
+async def test_keep_earlier_rows_replaces_its_own_window_and_admits_its_limit(
+    db: InvestmentDB,
+) -> None:
+    """Why the additive write is not an option (I-57): a re-dating must not
+    leave two vintages of one observation. Everything from the fresh series'
+    first date onward goes — the 19th here, which the new dating dropped.
+
+    AND THE LIMIT, written down rather than claimed away: rows before that
+    date are preserved on purpose, so a re-dating that moves the series' START
+    later leaves a stale prefix (the 12th below). The mode cannot tell that
+    case from the one it exists for — a window the caller genuinely cannot
+    recompute — because both look like "nothing fresh reaches back here". It is
+    bounded by the composite's warm-up, and the whole-series doubling I-57 is
+    about remains impossible: the overlapping window is always fully replaced."""
+    await db.append_ts_batch(
+        "market_data",
+        [
+            _ts_row("CG", "2026-01-05", 1.0),
+            _ts_row("CG", "2026-01-12", 2.0),
+            _ts_row("CG", "2026-01-19", 3.0),
+        ],
+    )
+    await db.replace_ts_series(
+        "market_data", "CG", [_ts_row("CG", "2026-01-13", 9.0)], keep_earlier_rows=True
+    )
+    assert await _stamps_of(db, "CG") == ["2026-01-05", "2026-01-12", "2026-01-13"]

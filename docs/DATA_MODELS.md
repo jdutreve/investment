@@ -717,6 +717,23 @@ Portfolio -[DESIGNED_FOR]-> RegimeType
 Passage -[SUPPORTS]-> Invariant
   strength : FLOAT
   excerpt  : STRING
+  cited    : INT (0/1)
+  -- TWO INDEPENDENT FACTS about one pair, and `cited` exists because they
+  --   used to share one field (added 2026-09-20). A passage reaches an
+  --   invariant two ways: the ingester's cosine scoring (`strength`,
+  --   `excerpt`) and the curator having READ the claim from it (`cited`).
+  --   A pair can be both, the primary key allows one row, and `create_edge`
+  --   is INSERT OR REPLACE — so whichever was written last erased the other's
+  --   meaning, and the only way to tell them apart was `excerpt IS NULL`, a
+  --   consequence rather than a declaration.
+  -- THAT IS WHY THE LOSS WAS INVISIBLE. `_replace_derived` deleted every edge
+  --   of a re-ingested document and the loop rebuilt only the cosine ones, so
+  --   the 2026-08-23 re-ingestion destroyed 13,411 citations and left ONE.
+  --   Nothing in the schema claimed to be a citation, so nothing could notice
+  --   they had gone. Rebuilt 2026-09-20 by batch segmentation on the
+  --   `curated_passage.curated_at` boundaries (one KnowledgeEvent records the
+  --   method); the ingester now clears only the cosine half and carries
+  --   `cited` through a re-scoring.
 
 Proposal -[CITES]-> Invariant
   -- The invariants a REALLOCATION cited (the Worker's supporting_invariants),
@@ -805,8 +822,31 @@ point-in-time by construction: they simply read `ts ≤ t`.
 | INDPRO              | MACRO            | **YoY %** of the index                 | 1 obs (monthly)               |
 | GROWTH_COMPOSITE    | MACRO            | composite index (see below)            | 1 obs (monthly)               |
 | GLOBAL_LIQUIDITY    | GLOBAL_LIQUIDITY | composite index (see below)            | 7d (weekly components)        |
+| TCMDODNS            | MACRO            | Z.1 domestic nonfinancial debt, millions USD | 1 obs (quarterly)       |
+| GDP                 | MACRO            | GDP, billions USD SAAR                 | 1 obs (quarterly)             |
+| TOTBKCR             | MACRO            | H.8 bank credit, billions USD          | 30d                           |
+| DRSFRMACBS          | MACRO            | mortgage delinquency rate, percent points | 1 obs (quarterly)          |
+| DEBT_TO_GDP         | MACRO            | composite, percent of GDP (see below)  | 1 obs (quarterly)             |
+| CREDIT_GROWTH       | MACRO            | composite, YoY % of bank credit        | 30d                           |
+
+A QUARTERLY series takes the 1-observation lookback for the same reason a
+monthly one does: a 30-day window on a series that prints four times a year is
+zero between prints. The set that carries this rule is
+`derivatives.OBSERVATION_LOOKBACK_TICKERS` — named `MONTHLY_OBSERVATION_TICKERS`
+until the debt leg arrived with a second cadence that needed it (2026-09-20).
 
 ### Composite series (computed in Python, stored as MarketData rows)
+
+All four are DECLARED ONCE, in `market/composites.py` — ticker, asset class,
+inputs and compute function — and built by one shared pair of functions that
+both producers call (the UC0 seed and the weekly catch-up). Each producer keeps
+only what genuinely differs: where the input series come from (memory at full
+history for the seed, a read-back from SQLite for the catch-up), how far back
+rows are kept, how the write is persisted, and how a missing input is reported.
+Until 2026-09-21 each composite had a hand-written block in BOTH producers —
+eight blocks that had to agree, and had already drifted. The FORMULAS stay in
+the modules that own them (`growth.py`, `liquidity.py`, `debt.py`), each beside
+the reasoning that justifies it.
 
 **GROWTH_COMPOSITE** — the 4 Seasons growth axis (replaces ISM PMI, which has
 no free perennial source — decision recorded in IMPROVEMENTS I-20):
@@ -830,6 +870,50 @@ measures: `level_in_sigma = (level − 100) / 10`, the mean component z-score.
 95.8 is "the components average 0.42σ under their five-year norm". And it is a
 PROXY — US M2 plus three central-bank balance sheets, no China, a money stock
 mixed with balance sheets — named that way on every front.
+
+**DEBT_TO_GDP** and **CREDIT_GROWTH** — the debt leg (`market/debt.py`, added
+2026-09-20). They exist because a recall study of the corpus's largest book,
+Dalio's *Big Debt Crises*, found the curator's reading COMPLETE and its yield
+capped by the vocabulary instead: three of the eight reference notes one batch
+produced were demoted with the same reason, "requires debt aggregates that do
+not exist in the signal vocabulary". A book about debt cycles was being read by
+an agent that measured no debt.
+
+```
+DEBT_TO_GDP   = 100 × (TCMDODNS ÷ 1000) / GDP      -- millions -> billions, then percent
+CREDIT_GROWTH = 100 × (TOTBKCR / TOTBKCR[t−365d] − 1)
+```
+
+Observed 1991-2026: DEBT_TO_GDP runs 189.7 → 310.9 (the peak is 2020 Q2,
+where GDP collapsed), which is where Dalio's "total debt-to-income around 300
+percent of GDP at the top" is read; its `speed` is the quarter-on-quarter
+change in points of GDP — median move 1.07 points — where "leveraging up 20 to
+25 percent of GDP over three years" is read. CREDIT_GROWTH runs −5.5 → +12.4.
+
+TWO DATING PATHS, deliberately. GDP is in `fetcher.REVISED_SERIES` (ALFRED
+first release; its vintages start 1991-12-04, the whole window). TCMDODNS is
+revised too but ALFRED holds only 57 vintages of it from 2010-06-10, so that
+path would truncate 19 years — it is dated by `availability_lag_days` (165: a
+quarterly observation is dated at the quarter's START and the Z.1 lands about
+ten weeks after the quarter ENDS). Each leg is dated by when it became
+KNOWABLE, as ADR-003 requires; they simply learn it by different means.
+
+THE RATIO PRINTS ON THE NUMERATOR'S CALENDAR — one point per debt print,
+against the GDP known then — and **not** on the union of the two. On the union
+it sawtoothed by ±3 points, because each leg lifted its own side alone: a GDP
+print pushed the ratio down, the next debt print pushed it back up, and `speed`
+measured which leg had just published rather than whether debt was rising
+against income. GDP for a quarter prints ~115 days after that quarter starts
+and the debt figure ~165, so the debt print normally finds its own quarter's
+GDP already waiting. When a release slips it does not — Q3 2025 GDP appeared
+ten days AFTER that quarter's debt figure — so a GDP print more than
+`debt.GDP_STALE_DAYS` (90) old is treated as a different quarter and the point
+is skipped rather than guessed. Over 1991-2026 that rejects exactly one quarter
+of 140.
+
+CREDIT_GROWTH's year is a CALENDAR window, not `apply_transform`'s `yoy_pct`:
+that transform is a 12-OBSERVATION shift, which is a year on a monthly series
+and twelve weeks on this weekly one.
 
 **The four states** (`market/liquidity.py`, `liquidity_state`) — THE one
 definition, read by the Regime tag, the narrative event, the digest and the

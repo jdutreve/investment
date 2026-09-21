@@ -449,7 +449,7 @@ class KnowledgeWriteback:
             },
         )
         for passage_id in _cited(note.supporting_passages, passage_ids):
-            await tx.create_edge("supports", passage_id, note_id, {"excerpt": None})
+            await _mark_cited(tx, passage_id, note_id)
         return note_id
 
     async def _attach_evidence(
@@ -464,12 +464,7 @@ class KnowledgeWriteback:
         Idempotent by composite PK, so a merge into an invariant that already
         cites the passage is a no-op rather than a duplicate."""
         for passage_id in _cited(item.candidate.supporting_passages, passage_ids):
-            await tx.create_edge(
-                "supports",
-                passage_id,
-                invariant_id,
-                {"strength": item.interest_score / 100.0, "excerpt": None},
-            )
+            await _mark_cited(tx, passage_id, invariant_id)
 
 
 @dataclass(frozen=True)
@@ -660,6 +655,31 @@ def find_duplicate(
         logger.info("dedup: merged into %s (cosine %.3f)", existing.id, score)
         return existing.id
     return None
+
+
+async def _mark_cited(tx: InvestmentDB, passage_id: str, invariant_id: str) -> None:
+    """Declare that the curator read this claim from this passage, WITHOUT
+    disturbing the cosine scoring that may already be on the same row.
+
+    Not `create_edge`: that is INSERT OR REPLACE, so it rewrites the whole row
+    — and since ingestion runs before curation, a cited pair usually already
+    carries a cosine `strength` and `excerpt` that the citation would erase.
+    That is the mirror image of the defect `cited` was added to end (found in
+    the same review, 2026-09-20): one row, two relations, and whichever wrote
+    last silently destroyed the other.
+
+    `strength` and `excerpt` are deliberately left to the cosine relation.
+    They used to be written here too — `excerpt` as NULL and `strength` as the
+    interest score — which put two different scales in one column, cosine
+    similarity on one row and a 0-100 triage score divided by 100 on the next,
+    with nothing to say which was which. The citation's own weight already
+    lives on the invariant (`weight_initial`, clamped to the author band)."""
+    await tx.command(
+        "INSERT INTO supports (passage_id, invariant_id, cited) VALUES (:p, :i, 1) "
+        "ON CONFLICT(passage_id, invariant_id) DO UPDATE SET cited = 1",
+        p=passage_id,
+        i=invariant_id,
+    )
 
 
 def _cited(claimed: list[str], batch: list[str]) -> list[str]:

@@ -31,7 +31,7 @@ def compute_growth_composite(indpro_yoy: pd.Series, unrate: pd.Series) -> pd.Ser
     UNRATE's freshest known reading is forward-filled onto INDPRO's own
     (monthly) publication dates instead: PIT-correct (never looks ahead)
     and keeps the composite's cadence at 1 row/month, matching derivatives.py
-    MONTHLY_OBSERVATION_TICKERS' 1-observation lookback for this ticker."""
+    OBSERVATION_LOOKBACK_TICKERS' 1-observation lookback for this ticker."""
     indpro_yoy = indpro_yoy.sort_index()
     delta3m_unrate = unrate.sort_index().diff(3)
     delta3m_unrate_aligned = (

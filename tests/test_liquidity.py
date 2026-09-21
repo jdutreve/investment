@@ -73,8 +73,12 @@ def test_the_level_is_restated_as_what_it_measures() -> None:
 
 def test_the_components_are_named_once() -> None:
     """`mechanical/catchup.py` and `seed.py` each carried their own copy of this
-    tuple before the digest's freshness line would have been the third."""
-    from investment.mechanical.catchup import LIQUIDITY_COMPONENTS
+    tuple before the digest's freshness line would have been the third. The
+    copies are gone (2026-09-21): both producers now read the composite
+    registry, which reads THIS module — so the components, and the FX series
+    needed to convert them, are declared here and nowhere else."""
+    from investment.market.composites import COMPOSITES
 
-    assert LIQUIDITY_COMPONENTS is L.COMPONENTS
     assert set(L.COMPONENTS) == {"M2SL", "WALCL", "ECBASSETSW", "JPNASSETS"}
+    (registered,) = [c for c in COMPOSITES if c.ticker == "GLOBAL_LIQUIDITY"]
+    assert registered.inputs == (*L.COMPONENTS, *L.FX_TICKERS)

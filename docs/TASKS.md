@@ -621,17 +621,29 @@ DERIVED_SIGNALS = {
     "GROWTH_COMPOSITE": "INDPRO,UNRATE (see market/growth.py)",
     "GLOBAL_LIQUIDITY": "M2SL,WALCL,ECBASSETSW,JPNASSETS",
     "real_rate":        "irx − CPIAUCSL(yoy_pct)   # nominal short rate minus inflation",
+    "DEBT_TO_GDP":      "TCMDODNS/GDP (see market/debt.py)   # percent of GDP, quarterly",
+    "CREDIT_GROWTH":    "TOTBKCR yoy on a CALENDAR year      # weekly bank credit",
 }
 
 # SIGNAL ALIASES (pinned) — the readable `signal` names usable in invariant
 # `condition` predicates, resolved to the underlying series/derived id:
-SIGNAL_ALIASES = {
-    "inflation": "CPIAUCSL",          # yoy_pct transform
-    "growth":    "GROWTH_COMPOSITE",
-    "liquidity": "GLOBAL_LIQUIDITY",
-    "irx":       "^IRX",
-    "real_rate": "real_rate",         # derived (see DERIVED_SIGNALS)
-    "regime":    "regime",            # special: feature='type' vs a RegimeType id
+SIGNAL_ALIASES = {   # MIRROR of db/seed_data.py, which is authoritative
+    "inflation":          "CPIAUCSL",                # yoy_pct transform
+    "growth":             "GROWTH_COMPOSITE",
+    "liquidity":          "GLOBAL_LIQUIDITY",
+    "irx":                "^IRX",
+    "real_rate":          "real_rate",               # derived (see DERIVED_SIGNALS)
+    "real_yield":         "real_yield_10y",          # derived
+    "broad_money":        "m2_yoy",                  # DEPOSIT money (M2), not central-bank liquidity
+    "broad_money_accel":  "m2_accel_12m",
+    "equity_trend":       "equity_trend",
+    "regime":             "regime",                  # special: feature='type' vs a RegimeType id
+    "credit_spread":      "BAA10Y",                  # market-priced business cycle, primary
+    "yield_slope":        "T10Y2Y",                  # market-priced business cycle, secondary
+    "gold_10y_dev":       "gold_10y_dev",            # gold/10y ratio vs its 7y trend
+    "debt_to_gdp":        "DEBT_TO_GDP",             # the debt leg (2026-09-20, see market/debt.py)
+    "credit_growth":      "CREDIT_GROWTH",           # the debt leg
+    "delinquency":        "DRSFRMACBS",              # the debt leg
 }
 # The signal registry = SIGNAL_ALIASES ∪ any raw allowed_tickers series.
 # The Writeback VALIDATION GATE rejects a condition signal not in the registry.

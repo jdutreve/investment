@@ -74,8 +74,16 @@ its code.
   exemption did not follow, freezing the stack through the 2022 drawdown), a
   hand-written `describe_rule` sentence, a hand-listed "every reachable state"
   test that stopped covering them, and a digest line saying "redirected to IEF"
-  when the target was cash. Grep for the singular name; ask what else is now of
-  its kind.
+  when the target was cash. Two more on 2026-09-20, both in the debt leg:
+  `MONTHLY_OBSERVATION_TICKERS` named the only CADENCE that needed a
+  one-observation lookback until a quarterly series arrived (now
+  `OBSERVATION_LOOKBACK_TICKERS`, which states the rule instead of one of its
+  cases), and `supports` held the only KIND of passage-to-invariant edge that
+  existed — cosine similarity — until the curator's citations became a second
+  kind, sharing its primary key, distinguishable only by `excerpt IS NULL`, and
+  therefore destroyed unnoticed on every re-ingestion (13,411 of them; now a
+  `cited` column that declares itself). Grep for the singular name; ask what
+  else is now of its kind.
 - **A bound whose consumption is not logged cannot be re-derived.** The Worker's
   12-tool-call budget was undiagnosable for a day — refused calls raised before
   the log line, so the budget counted fifteen and the log showed seven, and
