@@ -625,6 +625,18 @@ DERIVED_SIGNALS = {
     "CREDIT_GROWTH":    "TOTBKCR yoy on a CALENDAR year      # weekly bank credit",
 }
 
+# CORPUS DEPOSITS (owner, 2026-09-21) — a book names its author in its own
+# filename, `Author + Title.ext`, read by BOTH entry points (the inbox watcher
+# and the UC0 seed) via `corpus/ingester.author_from`. The author sets the
+# invariant weight FLOOR (dalio 0.40, marks 0.35, anything else 0.20), and no
+# separator means no author, which is the conservative tier.
+#   Ray Dalio + Principles_For_Navigating_Big_Debt_Crises.pdf
+# The spaces around "+" are load-bearing: a bare "+" occurs inside a real
+# corpus filename. `-` and `_` cannot serve — the title cleanup turns both into
+# spaces. The author prefix is stripped from the title, so `document_id` (a
+# hash of the TITLE) is unchanged by declaring one: a book can be renamed and
+# re-ingested into the same document rather than forked into a second copy.
+
 # SIGNAL ALIASES (pinned) — the readable `signal` names usable in invariant
 # `condition` predicates, resolved to the underlying series/derived id:
 SIGNAL_ALIASES = {   # MIRROR of db/seed_data.py, which is authoritative

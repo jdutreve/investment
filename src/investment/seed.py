@@ -34,7 +34,6 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 from typing import Any, cast
 
 import pandas as pd
@@ -107,17 +106,6 @@ RESAMPLED_VALIDATION_TICKERS = frozenset({"GLD", "SHY", "VCIT"})
 # Steps deferred to later milestones (docs/MILESTONES.md "Incremental seed").
 # Steps 6/6b (corpus + initial curation) landed with M7 and are no longer here.
 DEFERRED_STEPS: dict[str, str] = {}
-
-# Filename substring -> document author, for step 6. Only authors with their
-# own weight tier need an entry (CLAUDE.md "Invariant weight model": dalio
-# 0.40, marks 0.35); everything else is the 'other' tier by default and needs
-# no mapping. Keyed on the filename because the corpus lives outside the repo
-# and the file IS the only metadata we have.
-CORPUS_AUTHORS = {
-    "principles": "Ray Dalio",
-    "big_debt": "Ray Dalio",
-    "changing_world_order": "Ray Dalio",
-}
 
 
 def _without_id(props: dict[str, object]) -> dict[str, object]:
@@ -808,26 +796,14 @@ async def _seed_corpus(db: InvestmentDB, settings: Settings) -> dict[str, Any]:
     )
     results: dict[str, Any] = {"documents": 0, "passages": 0, "supports": 0}
     for path in sources:
-        result = await ingester.ingest_file(path, kind="book", author=_corpus_author(path))
+        result = await ingester.ingest_file(
+            path, kind="book", author=corpus_ingester.author_from(path)
+        )
         results["documents"] += 1
         results["passages"] += result.chunk_count
         results["supports"] += result.supports_created
     logger.info("UC0 step 6: %s", results)
     return results
-
-
-def _corpus_author(path: Path) -> str | None:
-    """The document's author, read from the filename.
-
-    Deliberately crude, and it only has to be: `writeback/knowledge.py` maps
-    this to an author TIER by substring, and anything unrecognised falls to
-    the conservative 'other' tier (floor 0.20). Getting it wrong under-weights
-    a book; it can never over-weight one."""
-    stem = path.stem.lower()
-    for needle, author in CORPUS_AUTHORS.items():
-        if needle in stem:
-            return author
-    return None
 
 
 async def _seed_curation(db: InvestmentDB, settings: Settings) -> dict[str, Any]:

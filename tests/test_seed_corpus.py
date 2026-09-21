@@ -12,8 +12,9 @@ from pathlib import Path
 import pytest
 
 from investment.config import Settings
+from investment.corpus.ingester import author_from
 from investment.db.sqlite import InvestmentDB
-from investment.seed import _corpus_author, _seed_corpus, _seed_curation
+from investment.seed import _seed_corpus, _seed_curation
 
 CORPUS_TEXT = """# Chapter 1
 
@@ -131,8 +132,15 @@ async def test_a_total_curation_failure_is_raised_not_reported_as_success(
     assert int(rows[0]["n"]) == 0
 
 
-def test_author_tier_is_read_from_the_filename() -> None:
-    assert _corpus_author(Path("Principles_For_Navigating_Big_Debt_Crises.pdf")) == "Ray Dalio"
-    assert _corpus_author(Path("the_changing_world_order.pdf")) == "Ray Dalio"
+def test_the_seed_reads_the_author_the_deposit_declares() -> None:
+    """One convention for both entry points (owner, 2026-09-21). The seed used
+    to GUESS the author from three filename needles — `principles`, `big_debt`,
+    `changing_world_order`, all Ray Dalio — which named the only books present
+    when they were written and left every inbox deposit with no author at all.
+    A file now says who wrote it, and the seed reads the same `author_from` the
+    watcher does."""
+    assert author_from(Path("Ray Dalio + Big_Debt_Crises.pdf")) == "Ray Dalio"
+    # The needles are gone: an undeclared author is not guessed, it is absent.
+    assert author_from(Path("Principles_For_Navigating_Big_Debt_Crises.pdf")) is None
     # Unrecognised -> None -> the conservative 'other' tier (floor 0.20).
-    assert _corpus_author(Path("Asset allocation book.md")) is None
+    assert author_from(Path("Asset allocation book.md")) is None

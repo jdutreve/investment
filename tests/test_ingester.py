@@ -16,6 +16,7 @@ from investment.corpus.ingester import (
     MIN_PAGE_CHARS,
     CorpusIngester,
     UnsupportedSourceError,
+    author_from,
     chunk_id_for,
     chunk_text,
     document_id_for,
@@ -558,3 +559,44 @@ async def test_a_citation_does_not_erase_the_cosine_scoring_on_the_same_pair(
     assert rows[0]["cited"] == 1
     assert rows[0]["excerpt"] == "a quote", "the citation must not erase the cosine excerpt"
     assert rows[0]["strength"] == pytest.approx(0.42)
+
+
+# -- the author a deposit declares (owner, 2026-09-21) ---------------------
+
+
+@pytest.mark.parametrize(
+    ("filename", "author", "title"),
+    [
+        # The convention, on both tiers that carry a raised weight floor.
+        ("Ray Dalio + Big Debt Crises.pdf", "Ray Dalio", "Big Debt Crises"),
+        ("Howard Marks + The Most Important Thing.pdf", "Howard Marks", "The Most Important Thing"),
+        # No separator: no author, which is every deposit made before today.
+        ("Asset allocation book.md", None, "Asset allocation book"),
+        # A BARE "+" is not the separator, and this is a real corpus filename:
+        # without the spaces it would have declared the author "Countercyclical".
+        ("Countercyclical+Investing_vF.1.md", None, "Countercyclical+Investing vF.1"),
+        # The author is everything before the FIRST separator, so a title may
+        # contain one.
+        ("Ray Dalio + Principles + Life and Work.pdf", "Ray Dalio", "Principles + Life and Work"),
+        # Underscores and hyphens are cleaned on both halves.
+        ("Ray_Dalio + Big_Debt-Crises.pdf", "Ray Dalio", "Big Debt Crises"),
+    ],
+)
+def test_a_filename_declares_its_author(filename: str, author: str | None, title: str) -> None:
+    """The author sets an invariant's weight FLOOR (dalio 0.40, marks 0.35,
+    other 0.20), and until today only the seed set it — from three needles
+    hard-coded for the books that existed. A deposit now says so itself."""
+    assert author_from(Path(filename)) == author
+    assert title_from(Path(filename)) == title
+
+
+def test_declaring_an_author_does_not_fork_the_document() -> None:
+    """`document_id` hashes the TITLE, so stripping the author prefix is what
+    lets an existing book be renamed to declare its author and re-ingested
+    into the SAME document instead of a second copy of itself."""
+    plain = Path("Principles_For_Navigating_Big_Debt_Crise.pdf")
+    attributed = Path("Ray Dalio + Principles_For_Navigating_Big_Debt_Crise.pdf")
+    assert title_from(plain) == title_from(attributed)
+    assert document_id_for(plain, title_from(plain)) == document_id_for(
+        attributed, title_from(attributed)
+    )

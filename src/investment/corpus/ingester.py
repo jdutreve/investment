@@ -192,13 +192,58 @@ def document_id_for(path: Path, title: str) -> str:
     return f"doc-{digest}"
 
 
+# HOW A DEPOSIT DECLARES ITS AUTHOR (owner, 2026-09-21): `Author + Title.pdf`.
+#
+# The author decides an invariant's WEIGHT FLOOR — dalio 0.40, marks 0.35,
+# anything else 0.20 (CLAUDE.md "Invariant weight model") — and until now only
+# the UC0 seed set it, from three filename needles hard-coded in `seed.py` that
+# named the only books present when they were written. A book dropped in the
+# inbox arrived with no author at all and its knowledge was under-weighted for
+# good. One convention now serves both entry points, and the owner can name any
+# author instead of the three the code happened to know.
+#
+# SPACES AROUND THE SEPARATOR are the whole design. A bare "+" already occurs
+# inside a real corpus filename (`Countercyclical+Investing_vF.1.md`), which
+# would have been read as the author "Countercyclical"; " + " occurs in none of
+# them. `-` and `_` cannot serve at all — `title_from` turns both into spaces.
+AUTHOR_SEPARATOR = " + "
+
+
+def _split_author(stem: str) -> tuple[str | None, str]:
+    """`(author, title_part)` — the author is everything before the FIRST
+    separator, so a title may contain one. No separator: no author, which is
+    what every existing deposit does."""
+    author, found, title = stem.partition(AUTHOR_SEPARATOR)
+    if not found:
+        return None, stem
+    return _clean(author) or None, title
+
+
+def _clean(text: str) -> str:
+    """Separators to spaces, squeezed — the light cleanup both halves get."""
+    return re.sub(r"\s{2,}", " ", text.replace("_", " ").replace("-", " ")).strip()
+
+
+def author_from(path: Path) -> str | None:
+    """The author a deposit declares, or None.
+
+    Deliberately crude, and it only has to be: `writeback/knowledge.py` maps
+    this to an author TIER by substring (`dalio`, `marks`), and anything
+    unrecognised falls to the conservative 'other' tier. Getting it wrong
+    under-weights a book; it can never over-weight one."""
+    return _split_author(path.stem)[0]
+
+
 def title_from(path: Path) -> str:
-    """Filename without suffix, lightly cleaned — separators to spaces and
-    squeezed. Deliberately not parsed from PDF metadata: that field is empty or
-    wrong in most real-world books, and a silently wrong title becomes a wrong
-    `document_id`."""
-    stem = path.stem.replace("_", " ").replace("-", " ")
-    return re.sub(r"\s{2,}", " ", stem).strip()
+    """Filename without suffix or author prefix, lightly cleaned. Deliberately
+    not parsed from PDF metadata: that field is empty or wrong in most
+    real-world books, and a silently wrong title becomes a wrong `document_id`.
+
+    STRIPPING THE AUTHOR KEEPS THE TITLE STABLE, which is what lets an existing
+    book be renamed to declare its author and re-ingested INTO THE SAME
+    document: `document_id` hashes the title, so `Big Debt Crises.pdf` and
+    `Ray Dalio + Big Debt Crises.pdf` are one document, not two."""
+    return _clean(_split_author(path.stem)[1])
 
 
 # -- extraction ------------------------------------------------------------
