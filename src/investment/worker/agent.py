@@ -18,12 +18,18 @@ the error appended, then raise, never a silent pass).
 WHAT THIS ROLE REQUIRES OF A MODEL — the contract a swap must satisfy, stated
 here so a swap can be checked instead of guessed:
 
-  1. structured output AND function tools in the same run. Unlike the curator
-     (which only needs a final object, and overrides to native output because
-     reasoning models mangled forced tool calls), the Worker must call the
-     three tools MID-reasoning, so the bundled profile's default tool-mode
-     output path is kept rather than overridden. A model that cannot do both
-     at once needs its own profile override here, not a prompt change.
+  1. structured output AND function tools in the same run, through PROMPTED
+     output: the schema travels in the instructions and the final answer is
+     plain JSON, validated (and retried) by PydanticAI. Neither provider-side
+     mode survives this contract (measured 2026-09-27 on a thinking model):
+     TOOL output forces `tool_choice`, which thinking models reject outright
+     ("tool_choice: type "tool" and "any" are not supported"); NATIVE output
+     is strict JSON schema, where a free-form `dict` (`ImprovementProposal.
+     spec`) compiles to `properties: {}` and comes back EMPTY even when the
+     model is told what to put in it — so `spec.parameters` never reached
+     `measure_revision` and a knob revision silently lost its measurement.
+     Prompted output forces nothing and constrains nothing; the tools stay
+     free to be called mid-reasoning.
   2. a `reasoning_effort` knob the provider accepts (`WORKER_REASONING_EFFORT`).
   3. tolerance for being corrected: it will get a tool argument wrong, and
      `ToolInputError` is a `ModelRetry` precisely so that costs a turn instead
@@ -40,7 +46,7 @@ import json
 import logging
 from pathlib import Path
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, PromptedOutput
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic_ai.usage import UsageLimits
@@ -333,7 +339,7 @@ def build_worker_agent(
     tools = WorkerTools(db)
     agent: Agent[None, WorkerResult] = Agent(
         model,
-        output_type=WorkerResult,
+        output_type=PromptedOutput(WorkerResult),  # see requirement 1 above
         instructions=build_system_prompt(skills),
         # The three bridged tools as BOUND methods (worker/tools.py) — the
         # connection is captured in the closure, never passed as a deps object

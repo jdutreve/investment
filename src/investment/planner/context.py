@@ -34,6 +34,7 @@ from investment.db.seed_data import SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.planner.baseline import Baseline
 from investment.planner.retrieval import RetrievalPool
+from investment.worker.tools import round_for_model
 
 _OPS: dict[str, Callable[[Any, Any], bool]] = {
     "<": operator.lt,
@@ -243,9 +244,18 @@ def render_baseline_summary(baseline: Baseline) -> str:
         f"Regime: {regime.get('regime_name', 'unknown')} "
         f"({regime.get('regime_type_id', '?')}), confidence {regime.get('confidence', '?')}"
     ]
-    events = regime.get("events") or []
-    if events:
-        lines.append("  events: " + "; ".join(str(e) for e in events[:5]))
+    # TODAY'S TAPE, each line dated — NOT the regime's `events`, which are the
+    # snapshot taken when the regime OPENED. Rendered bare, they framed the
+    # 2026-09-27 cycle on the 2026-01-16 figures (CPI 2.8 while the tape read
+    # 3.72), and the Worker had to catch the contradiction in the coach notes.
+    if baseline.macro:
+        lines.append("Macro tape (today's clock, level / speed / accel, as of):")
+        for row in baseline.macro:
+            lines.append(
+                f"  {row.get('ticker')}: {round_for_model(row.get('level'))} "
+                f"({round_for_model(row.get('speed'))} / "
+                f"{round_for_model(row.get('acceleration'))}, {row.get('ts')})"
+            )
 
     liq = baseline.global_liquidity
     if liq:

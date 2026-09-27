@@ -144,7 +144,7 @@ def _overrides(pre: PlannerPre, worker: object, post: PlannerPost, worker_out: d
     select = TestModel(
         custom_output_args={"invariant_ids": ["inv-gold"], "passage_ids": [], "notes": "storm"}
     )
-    wk = TestModel(call_tools=[], custom_output_args=worker_out)
+    wk = TestModel(call_tools=[], custom_output_text=json.dumps(worker_out))
     pp = TestModel(
         custom_output_args={
             "evaluations": [],

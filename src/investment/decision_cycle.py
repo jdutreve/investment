@@ -172,8 +172,12 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
         "of the two is regularly published a day ahead of the other; if you fetch "
         "the raw series yourself and find a newer print for one of them, say so "
         "as a one-sided reading and keep the paired one above as the comparison.",
+        # 'signal_state' is what the signal said ON THE DECISION DATE, before
+        # hysteresis — not today's tape. Labelled "signal now" it contradicted the
+        # TWO CLOCKS rule above: on 2026-09-27 it read "steep" beside a slope
+        # printed 0.10 below its median, and the Worker flagged it as a defect.
         f"  book in force: {state.get('held_book', '?')} "
-        f"(signal now: {state.get('signal_state', '?')}), "
+        f"(signalled at that decision, before hysteresis: {state.get('signal_state', '?')}), "
         f"decided {state.get('decision_date', '?')}",
         f"  currently held: {held or '(nothing yet — this is the opening entry)'}",
     ]

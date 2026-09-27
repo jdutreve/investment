@@ -6,6 +6,7 @@ own). The LLM roles are driven by PydanticAI TestModel; everything else — gate
 persistence, EventLog ordering, digest — is the production code.
 """
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -113,15 +114,19 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
     )
     worker_out = TestModel(
         call_tools=[],
-        custom_output_args={
-            "regime_assessment": "stagflation deepening",
-            "ranking_commentary": "defender leads",
-            "market_signal_assessment": "right book for the spread, blind to the fiscal impulse",
-            "scenario_adjustments": [],
-            "evaluations": [],
-            "innovations_proposed": [],
-            "reasoning": "tilt to gold",
-        },
+        custom_output_text=json.dumps(
+            {
+                "regime_assessment": "stagflation deepening",
+                "ranking_commentary": "defender leads",
+                "market_signal_assessment": (
+                    "right book for the spread, blind to the fiscal impulse"
+                ),
+                "scenario_adjustments": [],
+                "evaluations": [],
+                "innovations_proposed": [],
+                "reasoning": "tilt to gold",
+            }
+        ),
     )
     extract = TestModel(
         custom_output_args={

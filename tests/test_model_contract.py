@@ -7,6 +7,7 @@ calling a tool, because that is the half-met contract UC8 breaks on and the one
 that looks like success from every other angle.
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -92,7 +93,7 @@ async def test_a_worker_that_never_calls_a_tool_fails_the_contract(
     And it must be checked against the BRIDGED tools specifically: in tool-output
     mode the structured answer arrives as a `final_result` tool call, so a naive
     "any tool was called" test passes this exact case."""
-    model = TestModel(call_tools=[], custom_output_args=WORKER_OUTPUT)
+    model = TestModel(call_tools=[], custom_output_text=json.dumps(WORKER_OUTPUT))
     real = worker_agent.build_worker_agent
 
     def _built(*args: object, **kwargs: object) -> object:
@@ -111,7 +112,7 @@ async def test_a_worker_that_never_calls_a_tool_fails_the_contract(
 async def test_a_worker_that_calls_a_tool_passes(
     tmp_path: Path, db_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    model = TestModel(call_tools=["portfolio_check"], custom_output_args=WORKER_OUTPUT)
+    model = TestModel(call_tools=["portfolio_check"], custom_output_text=json.dumps(WORKER_OUTPUT))
     real = worker_agent.build_worker_agent
 
     def _built(*args: object, **kwargs: object) -> object:

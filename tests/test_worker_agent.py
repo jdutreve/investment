@@ -157,13 +157,27 @@ def test_the_persona_names_the_field_its_contribution_must_land_in() -> None:
     assert "market_signal_assessment" in WorkerResult.model_fields
 
 
+# The Worker's answer as TEXT: it runs on prompted output (worker/agent.py,
+# requirement 1), so TestModel must be handed the JSON a real model writes —
+# left to itself it answers "success (no tool calls)", which is not a result.
+_VALID_OUTPUT = WorkerResult(
+    regime_assessment="calm",
+    ranking_commentary="as ranked",
+    market_signal_assessment="the book fits the spread",
+    reasoning="—",
+    scenario_adjustments=[],
+    evaluations=[],
+    innovations_proposed=[],
+).model_dump_json()
+
+
 async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> None:
     """The Phase-5 Definition of Done: a Worker round-trip returns a valid
     WorkerResult. TestModel drives the agent's output path (call_tools=[] keeps
     it to the structured output — the tools themselves are covered in
     test_worker_tools.py)."""
     agent = build_worker_agent(db, "test/worker", "sk-test")
-    with agent.override(model=TestModel(call_tools=[])):
+    with agent.override(model=TestModel(call_tools=[], custom_output_text=_VALID_OUTPUT)):
         result = await run_worker(agent, "the prepared context")
     # A schema-valid WorkerResult came back through the real output path. The
     # empty state is no longer asserted here: with the fields required, TestModel
@@ -184,7 +198,10 @@ async def test_a_runaway_tool_loop_is_stopped_by_the_budget(db: InvestmentDB) ->
     agent = build_worker_agent(db, "test/worker", "sk-test")
     # TestModel(call_tools='all') calls every registered tool, then answers; the
     # budget is squeezed below that to force the runaway path deterministically.
-    with agent.override(model=TestModel()), pytest.raises(UsageLimitExceeded):
+    with (
+        agent.override(model=TestModel(custom_output_text=_VALID_OUTPUT)),
+        pytest.raises(UsageLimitExceeded),
+    ):
         await run_worker_with_limits(agent, "ctx", tool_calls_limit=1, request_limit=2)
 
 
@@ -195,7 +212,7 @@ async def test_the_shipped_budget_does_not_bite_a_normal_cycle(db: InvestmentDB)
     tools-and-all happy path cannot be simulated here; the runaway case above is
     what the budget exists for, and this pins that it stays out of the way."""
     agent = build_worker_agent(db, "test/worker", "sk-test")
-    with agent.override(model=TestModel(call_tools=[])):
+    with agent.override(model=TestModel(call_tools=[], custom_output_text=_VALID_OUTPUT)):
         result = await run_worker(agent, "ctx")
     assert isinstance(result, WorkerResult)
 

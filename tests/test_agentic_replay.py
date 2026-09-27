@@ -257,7 +257,7 @@ async def _run(live: Path, tmp_path: Path, *, innovations: bool = False) -> Any:
         custom_output_args={"invariant_ids": ["inv-gold"], "passage_ids": [], "notes": "storm"}
     )
     worker_out = TestModel(
-        call_tools=[], custom_output_args=_worker_output(innovations=innovations)
+        call_tools=[], custom_output_text=json.dumps(_worker_output(innovations=innovations))
     )
     extract = TestModel(
         custom_output_args={

@@ -98,9 +98,9 @@ def build_native_output_model(
     tool-calling path.
 
     FOR ROLES THAT NEED A FINAL OBJECT AND NO FUNCTION TOOLS — the curator and
-    the UC3 event triage. The Worker deliberately does NOT use this: it must
-    call its three bridged tools mid-reasoning, so it keeps the bundled
-    profile's tool-mode path (worker/agent.py states that requirement).
+    the UC3 event triage. The Worker deliberately does NOT use this: strict
+    native schemas empty its free-form `spec` dict, so it uses prompted output
+    (worker/agent.py states that requirement).
 
     WHY THE OVERRIDE. PydanticAI's bundled profile for these routes declares
     `supports_json_schema_output=False` and defaults to `tool`. It is stale, and

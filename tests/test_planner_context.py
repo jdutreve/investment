@@ -140,6 +140,23 @@ def test_summary_carries_the_deltas_call_1a_needs() -> None:
     assert "s1/base" not in text
 
 
+def test_summary_reads_todays_tape_not_the_regime_opening_events() -> None:
+    # The regime's `events` are its OPENING snapshot; a Planner read them as this
+    # week's tape (2026-09-27 cycle framed on 2026-01-16 figures).
+    macro = [
+        {
+            "ticker": "CPIAUCSL",
+            "level": 3.7249,
+            "speed": 0.2061,
+            "acceleration": 0.4267,
+            "ts": "2026-09-11",
+        }
+    ]
+    text = C.render_baseline_summary(_baseline(macro=macro))
+    assert "CPI up" not in text
+    assert "CPIAUCSL: 3.7249 (0.2061 / 0.4267, 2026-09-11)" in text
+
+
 # -- integration: active_invariant_ids ---------------------------------------
 
 
