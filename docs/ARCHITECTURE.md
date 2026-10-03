@@ -436,7 +436,7 @@ FROM PROPOSALS (source='proposal') — closes the loop on emitted proposals:
 
 Each confrontation: append invariant_confrontations doc → update counts →
 update_invariant_weights() (weight_effective formula in ../CLAUDE.md) →
-Invariant.updated_at = today (drives recency_factor).
+Invariant.updated_at = today.
 Severity is recorded but unused in market_score in V1 (IMPROVEMENTS I-24).
 ```
 
@@ -454,8 +454,8 @@ agent-discovery, user note, UC3 event. Provenance affects only metadata
   did `i.effect` materialise? → `market_score`. *Truth / track record.*
 
 The 2×2: active+veridical = reliable & applicable now; **inactive+veridical =
-dormant but trustworthy** (its condition simply is not present — must NOT
-decay, see recency); active+unproven; inactive+refuted.
+dormant but trustworthy** (its condition simply is not present — its
+weight does not move, no date enters it); active+unproven; inactive+refuted.
 
 ```
 mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commit):
@@ -627,10 +627,12 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   the mechanical replay is blind to invariant weights; see DATA_MODELS
   system_thresholds note).
 
-  RECENCY is CONDITION-RELATIVE. recency_factor must NOT decay i for its
-  condition being ABSENT — a dormant-but-veridical invariant is not stale, it
-  waits for its condition. days_since counts moment-time (since the condition
-  was last PRESENT), not wall-clock. (Formula pinned in DATA_MODELS.)
+  AN INVARIANT IS TIMELESS (owner, 2026-10-03). No date enters the weight: a
+  dormant-but-veridical invariant is not stale, it waits for its condition.
+  The recency_factor that used to multiply in was pinned as wall-clock days
+  since the condition last held, which decayed exactly what this paragraph
+  said must not decay; it is removed, not repaired — applied as intended it
+  equals 1 whether the condition is present or absent.
 
   NOT reducible to condition+effect over known signals (axiomatic — "keep costs
   low"; hard caps like concentration/drawdown): NOT a weighted invariant.
@@ -677,7 +679,7 @@ and rejections.
 |---------------------|-------------------|-----------------------------------------------|------------------------------|--------------------------------------------------|
 | Proposal (switch)   | Writeback gates   | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
 | Proposal (realloc)  | Worker            | proposed vs incumbent NAV since `date`        | proposal_outcome_weeks (12)  | outcome.verdict won/lost + confrontations        |
-| Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (recency decay) | weight_effective vs floor; realloc gate 6 eligibility |
+| Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (every confrontation) | weight_effective vs floor; realloc gate 6 eligibility |
 | Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
 | Scenario probabilities | seed WARM-START (35y base rates, UC0 step 11c) + weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
 | Strategy (ADOPTED, `source='corpus'`) | ADR-007 / the owner | `mechanical/attribution.py`: the stack against its control arm AND the whole enabled board, 1y/3y/5y/10y/full | continuous (a reading a week) | REPORTS ONLY — digest line always, `signal_attribution` alert when Pareto-dominated |

@@ -820,8 +820,7 @@ async def test_evaluated_market_signal_proposal_reaches_a_verdict(db: Investment
     await _market(db, spread=1.0, slope=2.0)
     await db.command(
         "INSERT INTO system_thresholds (key, value, updated_at) VALUES "
-        "('proposal_outcome_weeks', 12, 't'), ('replay_cost_bps', 10, 't'), "
-        "('recency_half_life_days', 365, 't')"
+        "('proposal_outcome_weeks', 12, 't'), ('replay_cost_bps', 10, 't')"
     )
     proposed = {"IEF": 50.0, "VCIT": 50.0}
     await db.command(

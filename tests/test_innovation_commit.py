@@ -27,7 +27,6 @@ from investment.writeback.writeback import commit_innovations
 # the invariant-maturation thresholds mature_seed_invariants reads
 _MATURATION_THRESHOLDS = {
     "proposal_outcome_weeks": 12.0,
-    "recency_half_life_days": 365.0,
     "invariant_min_confrontations": 3.0,
     "invariant_time_validation_score": 0.6,
     "invariant_refuted_min_confrontations": 4.0,
@@ -148,7 +147,7 @@ async def test_a_zero_weight_proposal_is_lifted_to_the_band_not_born_inert(
     db: InvestmentDB,
 ) -> None:
     """`ImprovementProposal` defaults both weights to 0.0 (worker/result.py), and
-    `weight_effective = max(0 x score x recency, 0)` is zero forever — an
+    `weight_effective = max(0 x score, 0)` is zero forever — an
     invariant that could never influence anything however often confirmed."""
     innovation = _innovation("Gold beats on negative real yields")
     result = PostPlannerResult(

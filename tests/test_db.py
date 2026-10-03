@@ -604,3 +604,39 @@ async def test_keep_earlier_rows_replaces_its_own_window_and_admits_its_limit(
         "market_data", "CG", [_ts_row("CG", "2026-01-13", 9.0)], keep_earlier_rows=True
     )
     assert await _stamps_of(db, "CG") == ["2026-01-05", "2026-01-12", "2026-01-13"]
+
+
+async def test_a_dropped_column_leaves_and_takes_its_discount_with_it(tmp_path: Path) -> None:
+    """`DROPPED_COLUMNS` on a database that predates the removal (owner,
+    2026-10-03 — an invariant is timeless). The dormant invariant below carried
+    `weight_effective = 0.4 x 1.0 x 0.5137`; opening the database re-derives it
+    from what is left of the formula, drops the column and its threshold, and a
+    second open is a no-op because the column is the guard."""
+    path = tmp_path / "old.db"
+    old = await asyncio.to_thread(InvestmentDB, path)
+    await old.close()
+    con = sqlite3.connect(path)
+    con.execute("ALTER TABLE invariant ADD COLUMN recency_factor REAL NOT NULL DEFAULT 1.0")
+    con.execute(
+        "INSERT INTO invariant (id, title, description, source, status, weight_initial, "
+        "floor_weight, weight_effective, confirmation_count, market_score, recency_factor, "
+        "trace, created_at, updated_at) "
+        "VALUES ('inv-dormant', 't', 'd', 's', 'integrated', 0.4, 0.05, 0.2055, 8, 1.0, 0.5137, "
+        "'t', 'n', 'n')"
+    )
+    con.execute(
+        "INSERT INTO system_thresholds (key, value, updated_at) "
+        "VALUES ('recency_half_life_days', 365.0, 'n')"
+    )
+    con.commit()
+    con.close()
+
+    for _ in range(2):
+        db = await asyncio.to_thread(InvestmentDB, path)
+        row = await db.query("SELECT * FROM invariant WHERE id = 'inv-dormant'")
+        assert "recency_factor" not in row[0]
+        assert row[0]["weight_effective"] == pytest.approx(0.4)
+        assert not await db.query(
+            "SELECT 1 FROM system_thresholds WHERE key = 'recency_half_life_days'"
+        )
+        await db.close()

@@ -178,15 +178,15 @@ Strategy#four-seasons-rp -[BACKED_BY strength:0.9 added_at:2026-03-02
 
 ### Invariant weight mechanics
 
-**Rule:** `weight_effective = max(weight_initial × market_score × recency_factor, floor_weight)`
+**Rule:** `weight_effective = max(weight_initial × market_score, floor_weight)`
 
-`weight_initial` is the **ceiling** — weight can only decay below it (via
-refutations or time) or be floored. Confirmations **preserve** weight against
-decay; they do not push it above `weight_initial`. Authority gradient is
+`weight_initial` is the **ceiling** — weight can only fall below it (via
+refutations) or be floored. Confirmations **preserve** weight against
+refutation; they do not push it above `weight_initial`. Authority gradient is
 enforced at creation via initial weight and floor (`author:"dalio"` → floor
 0.40, `author:"system"` → floor 0.05).
-`recency_factor = 0.5 + 0.5 × exp(−days_since/365)` — decays from 1.0 toward
-an asymptotic floor of 0.5.
+No date enters the weight: an invariant is timeless, and whether its condition
+holds today is applicability, not weight (owner, 2026-10-03).
 
 ---
 
@@ -224,8 +224,7 @@ Invariant {
                                      negative-real-rate episodes in 35y
   infirmation_count: 0
   market_score: 1.0               ← 3/(3+0) ≥ θ(0.60), confrontations 3 ≥ N_min(3)
-  recency_factor: 0.992           ← condition-relative: 6d since real_rate last < 0
-  weight_effective: 0.248         ← max(0.25 × 1.0 × 0.992, 0.05)
+  weight_effective: 0.250         ← max(0.25 × 1.0, 0.05)
   embedding: [384 floats]         ← encode(title + "\n" + description)
   trace: "Discovered analyzing stagflation 2021-2022; generalized to the
           fundamental driver (negative real rates). Matured mechanically at
@@ -258,8 +257,7 @@ Invariant {
   confirmation_count: 2
   infirmation_count: 1
   market_score: 0.667             ← 2/(2+1)
-  recency_factor: 0.920           ← 0.5+0.5×exp(-63/365); 63d since last confrontation
-  weight_effective: 0.123         ← max(0.20 × 0.667 × 0.920, 0.05)
+  weight_effective: 0.133         ← max(0.20 × 0.667, 0.05)
   embedding: [384 floats]
   trace: "One refutation: 2023 bull run where high-Sharpe strategies
           outperformed. This invariant motivates the calmar<1.0 ranking
@@ -292,9 +290,7 @@ Invariant {
   confirmation_count: 8
   infirmation_count: 1
   market_score: 0.889             ← 8/(8+1)
-  recency_factor: 1.0             ← condition (CPI>2.5 & speed>0) active NOW →
-                                     days_since = 0 (condition-relative rule)
-  weight_effective: 0.756         ← max(0.85 × 0.889 × 1.0, 0.40)
+  weight_effective: 0.756         ← max(0.85 × 0.889, 0.40)
   embedding: [384 floats]
   trace: "Dalio All Weather principle. Only refutation: 2020 deflation
           (extreme case out of scope)."
@@ -542,7 +538,7 @@ WorkerResult {
                 top-FAVORS base allocation). Tactical bear shift (+35pts,
                 55%) justifies a 0.4-weighted tilt: +5 GLD, +5 TIP, +2.5 DJP,
                 +2.5 cash funded from -7.5 TLT, -7.5 SPY. Gold tilt backed by
-                gold-stagflation-hedge (0.248, 3/3 confirmed); TIP tilt by
+                gold-stagflation-hedge (0.250, 3/3 confirmed); TIP tilt by
                 Dalio inv-inflation-persistence-tips (0.756, 8/9)."
   }
 
@@ -593,8 +589,7 @@ Invariant {
   floor_weight: 0.05, weight_initial: 0.15
   confirmation_count: 2, infirmation_count: 1   ← over 3 historical episodes at birth
   market_score: 0.667            ← 2/(2+1) ≥ θ(0.60); confrontations 3 ≥ N_min(3)
-  recency_factor: 1.0            ← condition present now
-  weight_effective: 0.100        ← max(0.15 × 0.667 × 1.0, 0.05)
+  weight_effective: 0.100        ← max(0.15 × 0.667, 0.05)
   source: "Backtests 2008 / 2020 / 2022 (computed 2026-05-12)"
   trace: "Matured mechanically at birth over 3 episodes; time-validated."
   created_at: 2026-05-12, validated_at: 2026-05-12, updated_at: 2026-05-12
@@ -725,8 +720,8 @@ row by Writeback.
 
 🔑 Key Invariants (effective weight):
    • TIPS inflation persistence : 0.756 (8/9 confirmed)     [Dalio]
-   • GLD stagflation hedge      : 0.248 (3/3, near ceiling) [system]
-   • Calmar > 1.5 filter        : 0.123 (2/3 confirmed)     [system]
+   • GLD stagflation hedge      : 0.250 (3/3, at ceiling)   [system]
+   • Calmar > 1.5 filter        : 0.133 (2/3 confirmed)     [system]
 
 🔧 Reallocation proposal (paper-test) — defender stays, allocation tilts:
    TIP 20→25 | GLD 10→15 | DJP 7.5→10 | cash 2.5→5

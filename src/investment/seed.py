@@ -299,7 +299,6 @@ async def _seed_regime_types(db: InvestmentDB) -> int:
 
 _MATURATION_FIELDS = (
     "market_score",
-    "recency_factor",
     "confirmation_count",
     "infirmation_count",
     "weight_effective",
@@ -311,8 +310,8 @@ _MATURATION_FIELDS = (
 
 async def _seed_invariants(db: InvestmentDB) -> int:
     """Step 4 — status='proposed'; matured over 35y at M5 (ADR-006: belief
-    does not grant integration, history does). market_score/recency_factor
-    default to 1.0 pre-confrontation; weight_effective follows the pinned
+    does not grant integration, history does). market_score
+    defaults to 1.0 pre-confrontation; weight_effective follows the pinned
     formula (CLAUDE.md 'Invariant weight model'). A RE-RUN must not clobber
     an already-matured invariant's mechanical state back to these pristine
     defaults — for a row that already exists, `_MATURATION_FIELDS` are
@@ -324,7 +323,7 @@ async def _seed_invariants(db: InvestmentDB) -> int:
     existing = {
         str(r["id"]): r
         for r in await db.query(
-            "SELECT id, market_score, recency_factor, confirmation_count, infirmation_count, "
+            "SELECT id, market_score, confirmation_count, infirmation_count, "
             "weight_effective, status, validated_at, trace FROM invariant"
         )
     }
@@ -333,7 +332,6 @@ async def _seed_invariants(db: InvestmentDB) -> int:
         existing_row = existing.get(_vertex_id(inv))
         if existing_row is None:
             props["market_score"] = 1.0
-            props["recency_factor"] = 1.0
             props["confirmation_count"] = 0
             props["infirmation_count"] = 0
             weight_initial = cast("float", props["weight_initial"])

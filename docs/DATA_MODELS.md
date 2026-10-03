@@ -42,7 +42,7 @@ vertex/edge.
 - Percent formatting happens only at the Telegram display layer.
 
 See IMPROVEMENTS.md for deferred schema elements (Benchmark, Hypothesis,
-multi-tier recency, per-invariant floor override).
+per-invariant floor override).
 
 ---
 
@@ -194,8 +194,10 @@ Invariant {
 
   weight_initial   : FLOAT
   floor_weight     : FLOAT
-  weight_effective : FLOAT  -- = max(weight_initial × market_score × recency_factor,
-                            --        floor_weight)
+  weight_effective : FLOAT  -- = max(weight_initial × market_score, floor_weight).
+                            --   TIMELESS: no date enters it (owner, 2026-10-03).
+                            --   Whether the condition holds today is
+                            --   applicability, not weight.
 
   confirmation_count : INT
   infirmation_count  : INT
@@ -212,29 +214,19 @@ Invariant {
                               --   measured against. Exception: an 'always'
                               --   condition is scored absolutely (it makes no
                               --   conditional claim).
-  recency_factor     : FLOAT  -- 0.5 + 0.5 × exp(-days_since/half_life);
-                              --   CONDITION-RELATIVE, NOT wall-clock — a dormant
-                              --   invariant whose condition is absent does NOT
-                              --   decay. Concretely:
-                              --     days_since = 0            if condition active now
-                              --                = today − last_active_day  otherwise
-                              --   where last_active_day = the most recent day the
-                              --   condition held (end of its last episode / last
-                              --   occurrence). For an 'always' condition this is
-                              --   days-since-last-confrontation.
 
   trace           : STRING  -- MANDATORY
   created_at      : DATETIME
   validated_at    : DATETIME  -- TIME-validation timestamp (mechanical: when it
                               --   first met N_min/θ, not refuted) — not a user
                               --   click; null while still a candidate (ADR-006)
-  updated_at      : DATETIME  -- last confrontation (drives recency_factor)
+  updated_at      : DATETIME  -- last confrontation
 }
 ```
 
 An Invariant with an **empty `condition` / no `effect`** (equivalently no
 BACKED_BY edge) is **reference knowledge**: never confronted (market_score
-stays 1.0), weight = authority × recency; it informs Worker reasoning without
+stays 1.0), weight = authority; it informs Worker reasoning without
 backing a strategy — intended, not an accident. A weighted (maturable)
 invariant MUST carry a machine-readable `condition` + `effect` over known
 signals; an observation not reducible to that is a ponctual fact, not an
@@ -245,7 +237,6 @@ an event Document/Passage that may `SUPPORTS` the invariant it illustrates.
 Invariants extracted from UC3 events or user notes carry `author=null` → floor
 0.20 ('other corpus' tier).
 
-Half-life uniform in V1: 365 days (see IMPROVEMENTS I-5).
 Floor by **author** tier, persisted at creation:
 `author='dalio'`=0.40, `author='marks'`=0.35, `author=null` (other corpus)=0.20,
 `author='system'` (agent-discovery)=0.05.
@@ -1015,7 +1006,7 @@ CREATE TABLE IF NOT EXISTS allowed_tickers (...);
 
 CREATE TABLE IF NOT EXISTS system_thresholds (...);
 -- key STRING (PK), value FLOAT, description STRING, updated_at DATE
--- Seed includes regime thresholds, rolling window (756d), recency half-life,
+-- Seed includes regime thresholds, rolling window (756d),
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
 -- proposal_expiry_days (seeded but UNWIRED — ADR-006, see mechanical/catchup.py),
 -- invariant_min_confrontations (N_min, 3) and invariant_time_validation_score

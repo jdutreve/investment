@@ -530,7 +530,6 @@ SYSTEM_THRESHOLDS = {
     "strategy_probation_weeks": 12.0,    # new/revised strategy probation window
     "scenario_calibration_weeks": 4.0,   # scenario probability scoring horizon
     # invariants
-    "recency_half_life_days": 365.0,
     "confrontation_margin": 0.10,        # effect-vs-benchmark no-op band (±)
     "vector_similarity_min": 0.35,
     # regime detection (see ARCHITECTURE formal algorithm)
@@ -2318,8 +2317,8 @@ agent-discovery invariants are absent from the run.
    indicators, from `system_thresholds.rolling_window_days`. All other
    formulas pinned in DATA_MODELS.md "Calculation conventions".
 10. **Currency** — USD for indicators. CHFUSD=X for user display only.
-11. **Recency formula** — `0.5 + 0.5 * exp(-days_since / 365)` (asymptotic
-    floor 0.5; no clamp).
+11. **No recency in the weight** — an invariant is timeless (owner,
+    2026-10-03); `weight_effective = max(weight_initial × market_score, floor)`.
 12. **Floor on Invariant vertex** — set at creation from `author` tier
     (dalio=0.40, marks=0.35, null=0.20, system=0.05). `source` is real provenance.
 13. **Growth axis** — GROWTH_COMPOSITE (INDPRO YoY, UNRATE Δ3m), never PMI.

@@ -133,7 +133,6 @@ async def _seed_invariant(db: InvestmentDB) -> None:
             "confirmation_count": 0,
             "infirmation_count": 0,
             "market_score": 1.0,
-            "recency_factor": 1.0,
             "trace": "test",
         },
     )

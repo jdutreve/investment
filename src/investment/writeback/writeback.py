@@ -471,7 +471,6 @@ async def _commit_confrontations(
     post_result: PostPlannerResult,
     context_regime_type: str | None,
     active: set[str],
-    thresholds: dict[str, float],
     today: date,
 ) -> int:
     """source='evaluation' confrontations (docs/ARCHITECTURE.md confrontation
@@ -479,8 +478,7 @@ async def _commit_confrontations(
     dormant lighthouse describes a market not present, so crediting/blaming it
     would be noise. Each confrontation bumps the count and recomputes the
     weight through the SHARED primitive (`compute_weight_update`) every
-    confrontation source funnels into; `days_since=0` because the condition is
-    active right now."""
+    confrontation source funnels into."""
     confrontations = [c for c in post_result.confrontations if c.invariant_id in active]
     if not confrontations:
         return 0
@@ -494,7 +492,6 @@ async def _commit_confrontations(
         **params,
     )
     inv = {str(r["id"]): r for r in rows}
-    half_life = thresholds["recency_half_life_days"]
     descriptor = f"evaluation:{context_regime_type}"
     now = datetime.now(UTC).isoformat()
 
@@ -513,8 +510,8 @@ async def _commit_confrontations(
                 continue
             cc = int(row["confirmation_count"]) + (1 if cf.verdict == "confirmed" else 0)
             ic = int(row["infirmation_count"]) + (1 if cf.verdict == "refuted" else 0)
-            score, recency, w_eff = compute_weight_update(
-                float(row["weight_initial"]), float(row["floor_weight"]), cc, ic, 0, half_life
+            score, w_eff = compute_weight_update(
+                float(row["weight_initial"]), float(row["floor_weight"]), cc, ic
             )
             await db.command(
                 "INSERT INTO invariant_confrontations "
@@ -528,12 +525,11 @@ async def _commit_confrontations(
             )
             await db.command(
                 "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-                "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
+                "market_score = :score, weight_effective = :weff, "
                 "updated_at = :now WHERE id = :id",
                 cc=cc,
                 ic=ic,
                 score=score,
-                recency=recency,
                 weff=w_eff,
                 now=now,
                 id=cf.invariant_id,
@@ -1256,7 +1252,7 @@ async def _commit_invariant_innovation(
     # band decides what it may be. Without this the Worker's own
     # `weight_initial`/`floor_weight` were written raw, and `ImprovementProposal`
     # defaults BOTH to 0.0 (worker/result.py) for the proposals that do not
-    # bother to invent them: `weight_effective = max(0 x score x recency, 0)` is
+    # bother to invent them: `weight_effective = max(0 x score, 0)` is
     # zero forever, so the invariant was born already unable to influence
     # anything, and no amount of confirmation could lift it off the floor.
     band = await author_band(db, proposal.author)
@@ -1367,7 +1363,6 @@ async def commit_knowledge(
     db: InvestmentDB,
     post_result: PostPlannerResult,
     regime_type: str | None,
-    thresholds: dict[str, float],
     today: date | None = None,
     embedder: Embedder | None = None,
 ) -> KnowledgeCommit:
@@ -1382,9 +1377,7 @@ async def commit_knowledge(
     active = await active_invariant_ids(
         db, [c.invariant_id for c in post_result.confrontations], regime_type
     )
-    confrontations = await _commit_confrontations(
-        db, post_result, regime_type, active, thresholds, today
-    )
+    confrontations = await _commit_confrontations(db, post_result, regime_type, active, today)
     conviction = await _commit_evaluations(db, post_result, today)
     scenarios = await _commit_scenario_updates(db, post_result, today)
     innovations = await commit_innovations(db, post_result, today, embedder=embedder)

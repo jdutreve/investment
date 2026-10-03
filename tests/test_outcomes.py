@@ -52,7 +52,6 @@ async def _seed_common(db: InvestmentDB) -> None:
     for key, value in (
         ("proposal_outcome_weeks", 12.0),
         ("replay_cost_bps", 10.0),
-        ("recency_half_life_days", 365.0),
     ):
         await cmd(
             "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",

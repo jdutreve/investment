@@ -208,7 +208,7 @@ improvement cycle (docs/ARCHITECTURE.md) covers Proposals (verdict at +12w),
 strategies (12w probation), scenarios (calibration scoring).
 
 **Invariant weight model** —
-`weight_effective = max(weight_initial × market_score × recency_factor, floor_weight)`.
+`weight_effective = max(weight_initial × market_score, floor_weight)`.
 **NOTORIETY SETS WHERE A CLAIM STARTS, NOT WHERE IT STOPS** (owner,
 2026-09-21): the `author` tier fixes the STARTING band — dalio 0.80-0.90 ·
 marks 0.75-0.85 · null/other 0.40-0.70 · system 0.15-0.25 — and
@@ -220,8 +220,14 @@ confirm at 0.506-0.536 and are pairwise indistinguishable, Dalio's rate being
 the closest to chance and the best measured. Belief buys the head start,
 history is free to take it back.
 `market_score = confirmations / (confirmations + infirmations)` (1.0
-until first confrontation). `recency_factor = 0.5 + 0.5 × exp(-days_since/365)`
-with `days_since` CONDITION-RELATIVE (a dormant invariant does not decay).
+until first confrontation). **AN INVARIANT IS TIMELESS** (owner, 2026-10-03):
+no date enters its weight. Whether its condition holds TODAY is applicability
+(ACTIVE, `active_invariant_ids`), never weight. A `recency_factor` multiplied
+in here until then; the spec said a dormant invariant "must NOT decay" and
+pinned `days_since = today − last_active_day`, which decayed it — 114 of 250
+measurable weights were halved because their condition slept. The intent was
+right and the formula was not, so the factor is gone rather than repaired:
+applied as intended it is 1 in both cases.
 Weight-like fields are 0–1 fractions everywhere. Every invariant matures over
 35y at birth; details: docs/ARCHITECTURE.md "Birth maturation".
 

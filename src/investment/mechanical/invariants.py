@@ -95,17 +95,15 @@ def market_score(confirmations: int, infirmations: int) -> float:
     return confirmations / total if total > 0 else 1.0
 
 
-def recency_factor(days_since: int, half_life_days: float) -> float:
-    """`0.5 + 0.5 * exp(-days_since / half_life)` — `days_since` must already
-    be CONDITION-RELATIVE (0 if the condition is active now, else time since
-    it was last active), computed by the caller, not here."""
-    return 0.5 + 0.5 * math.exp(-days_since / half_life_days)
-
-
-def weight_effective(
-    weight_initial: float, score: float, recency: float, floor_weight: float
-) -> float:
-    return max(weight_initial * score * recency, floor_weight)
+def weight_effective(weight_initial: float, score: float, floor_weight: float) -> float:
+    """AN INVARIANT IS TIMELESS (owner, 2026-10-03): its weight is where it
+    started times what history measured, and nothing else. Whether its
+    condition holds TODAY is applicability (`active_invariant_ids`), a separate
+    question the weight must not answer. A `recency_factor` used to multiply
+    in here, counting days since the condition last held — the spec said a
+    dormant invariant "must NOT decay" and pinned a formula that decayed it,
+    halving 114 of 250 weights for the sole reason their condition slept."""
+    return max(weight_initial * score, floor_weight)
 
 
 def compute_weight_update(
@@ -113,16 +111,13 @@ def compute_weight_update(
     floor_weight: float,
     confirmations: int,
     infirmations: int,
-    days_since: int,
-    half_life_days: float,
-) -> tuple[float, float, float]:
-    """`(market_score, recency_factor, weight_effective)` — the single
-    computation every confrontation source (backtest/evaluation/proposal)
-    funnels into (docs/ARCHITECTURE.md 'Invariant confrontation rule':
+) -> tuple[float, float]:
+    """`(market_score, weight_effective)` — the single computation every
+    confrontation source (backtest/evaluation/proposal) funnels into
+    (docs/ARCHITECTURE.md 'Invariant confrontation rule':
     "update_invariant_weights()")."""
     score = market_score(confirmations, infirmations)
-    recency = recency_factor(days_since, half_life_days)
-    return score, recency, weight_effective(weight_initial, score, recency, floor_weight)
+    return score, weight_effective(weight_initial, score, floor_weight)
 
 
 def _binomial_pmf(successes: int, total: int, rate: float) -> float:
@@ -868,7 +863,7 @@ async def _force_uncertified(
         # 1.0" — docs/DATA_MODELS.md).
         "UPDATE invariant SET status = :status, validated_at = NULL, "
         "market_score = 1.0, confirmation_count = 0, infirmation_count = 0, "
-        "weight_effective = MAX(weight_initial * recency_factor, floor_weight), "
+        "weight_effective = MAX(weight_initial, floor_weight), "
         "trace = trace || :suffix, updated_at = :now WHERE id = :id",
         status=status,
         suffix=f" [NOT CERTIFIED: {reason}]",
@@ -898,7 +893,6 @@ async def _persist_maturation(
     confirmations: int,
     infirmations: int,
     score: float,
-    recency: float,
     w_eff: float,
     status: str,
     fingerprint: str,
@@ -925,7 +919,7 @@ async def _persist_maturation(
             )
         await db.command(
             "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-            "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
+            "market_score = :score, weight_effective = :weff, "
             "status = :status, "
             # Set on the FIRST integration and held (COALESCE) while it lasts,
             # cleared the moment it ends — the verdict is stateless, so
@@ -940,7 +934,6 @@ async def _persist_maturation(
             cc=confirmations,
             ic=infirmations,
             score=score,
-            recency=recency,
             weff=w_eff,
             status=status,
             status2=status,
@@ -986,7 +979,6 @@ async def _mature_one(
     registries: Registries,
     thresholds: dict[str, float],
     horizon: pd.Timedelta,
-    half_life: float,
     n_min: float,
     theta: float,
     refuted_min: float,
@@ -1070,13 +1062,6 @@ async def _mature_one(
         frames_for_condition = {s: signal_frames[s] for s in needed if s in signal_frames}
         active = evaluate_condition(condition, frames_for_condition, regime_type_series)
     moment_dates = sample_moments(active, horizon)
-    active_now = bool(active.iloc[-1]) if len(active) else False
-    # Dormancy counts from the last day the condition HELD — NOT from the
-    # last sampled moment, which can trail it by up to a horizon; a
-    # long-running condition must not read as stale while still active
-    # (recency is CONDITION-RELATIVE, docs/DATA_MODELS.md).
-    active_days = active.index[active.fillna(False).to_numpy(dtype=bool)]
-    last_active_day = active_days[-1] if len(active_days) else None
 
     metric, direction = effect["metric"], effect["direction"]
     margin = margin_for_metric(metric, thresholds)
@@ -1120,15 +1105,8 @@ async def _mature_one(
             }
         )
 
-    days_since = (
-        0
-        if (active_now or last_active_day is None)
-        else (pd.Timestamp(date.today()) - last_active_day).days
-    )
     weight_initial, floor_weight = float(inv["weight_initial"]), float(inv["floor_weight"])
-    score, recency, w_eff = compute_weight_update(
-        weight_initial, floor_weight, confirmations, infirmations, max(days_since, 0), half_life
-    )
+    score, w_eff = compute_weight_update(weight_initial, floor_weight, confirmations, infirmations)
     status = time_validation_verdict(
         confirmations,
         infirmations,
@@ -1148,7 +1126,6 @@ async def _mature_one(
         confirmations,
         infirmations,
         score,
-        recency,
         w_eff,
         status,
         fingerprint,
@@ -1171,7 +1148,6 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
     # (backtest here, proposal in outcomes.py at M8) on ONE horizon, so their
     # verdicts mean the same thing.
     horizon = pd.Timedelta(weeks=thresholds["proposal_outcome_weeks"])
-    half_life = thresholds["recency_half_life_days"]
     n_min = thresholds["invariant_min_confrontations"]
     theta = thresholds["invariant_time_validation_score"]
     refuted_min = thresholds["invariant_refuted_min_confrontations"]
@@ -1219,7 +1195,6 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
             registries,
             thresholds,
             horizon,
-            half_life,
             n_min,
             theta,
             refuted_min,

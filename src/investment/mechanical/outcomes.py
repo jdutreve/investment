@@ -302,7 +302,7 @@ async def _cited_invariants(db: InvestmentDB, proposal: dict[str, Any]) -> list[
 
 
 async def _confront_cited(
-    db: InvestmentDB, proposal: dict[str, Any], won: bool, half_life: float, today: date
+    db: InvestmentDB, proposal: dict[str, Any], won: bool, today: date
 ) -> None:
     """source='proposal' confrontations (docs/ARCHITECTURE.md: "won -> confirmation
     for each qualifying cited invariant; lost -> infirmation"). Called inside
@@ -327,8 +327,8 @@ async def _confront_cited(
     for row in rows:
         cc = int(row["confirmation_count"]) + (1 if won else 0)
         ic = int(row["infirmation_count"]) + (0 if won else 1)
-        score, recency, w_eff = compute_weight_update(
-            float(row["weight_initial"]), float(row["floor_weight"]), cc, ic, 0, half_life
+        score, w_eff = compute_weight_update(
+            float(row["weight_initial"]), float(row["floor_weight"]), cc, ic
         )
         await db.command(
             "INSERT INTO invariant_confrontations "
@@ -343,12 +343,11 @@ async def _confront_cited(
         )
         await db.command(
             "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-            "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
+            "market_score = :score, weight_effective = :weff, "
             "updated_at = :now WHERE id = :id",
             cc=cc,
             ic=ic,
             score=score,
-            recency=recency,
             weff=w_eff,
             now=now,
             id=str(row["id"]),
@@ -360,7 +359,6 @@ async def _evaluate_one(
     proposal: dict[str, Any],
     cost_bps: float,
     horizon: timedelta,
-    half_life: float,
     today: date,
 ) -> ProposalOutcome:
     pid = str(proposal["id"])
@@ -411,7 +409,7 @@ async def _evaluate_one(
             id=pid,
         )
         # Close the loop: confront the invariants the proposal cited (same txn).
-        await _confront_cited(db, proposal, won=v == "won", half_life=half_life, today=today)
+        await _confront_cited(db, proposal, won=v == "won", today=today)
     return ProposalOutcome(pid, v, proposed_return, incumbent_return)
 
 
@@ -428,7 +426,6 @@ async def evaluate_proposals(db: InvestmentDB, today: date | None = None) -> lis
     }
     horizon = timedelta(weeks=int(thresholds["proposal_outcome_weeks"]))
     cost_bps = float(thresholds["replay_cost_bps"])
-    half_life = float(thresholds["recency_half_life_days"])
 
     # Pending = NULL outcome (fresh) OR verdict still 'pending'. `json_extract`
     # on a NULL column returns NULL, so both are captured by the IS NULL / =
@@ -440,7 +437,7 @@ async def evaluate_proposals(db: InvestmentDB, today: date | None = None) -> lis
     )
     results = []
     for proposal in proposals:
-        results.append(await _evaluate_one(db, proposal, cost_bps, horizon, half_life, today))
+        results.append(await _evaluate_one(db, proposal, cost_bps, horizon, today))
     return results
 
 

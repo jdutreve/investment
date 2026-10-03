@@ -69,7 +69,6 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "strategy_probation_weeks": 12.0,
     "scenario_calibration_weeks": 4.0,  # horizon at which a dominant Scenario is scored vs reality (UNWIRED)
     # invariants
-    "recency_half_life_days": 365.0,  # days for recency_factor to decay halfway from 1.0 to 0.5
     # Default effect-vs-benchmark no-op band, used for any metric without an
     # explicit per-metric override below.
     "confrontation_margin": 0.10,  # fallback margin for any metric with no per-metric override below

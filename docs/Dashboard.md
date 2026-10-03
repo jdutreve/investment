@@ -255,7 +255,7 @@ actually reads before placing an order by hand.
 - Invariant table over the full corpus (674 rows today): filter by regime type,
   tag, status, author tier; sort by `weight_effective`; text search.
 - Detail: statement, provenance, author tier and its floor,
-  `weight_initial × market_score × recency_factor` shown as a computation with
+  `weight_initial × market_score` shown as a computation with
   the floor marked *when it is what binds*, confrontation timeline
   (`invariant_confrontations`), N / score, and the verdict **in words**.
 - **Three verdicts, never two**: `integrated`, `rejected`, and `proposed` =
@@ -271,8 +271,8 @@ actually reads before placing an order by hand.
 
 - The three verdicts are visually and textually distinct, and "proposed" reads
   as insufficient evidence.
-- A dormant invariant's recency factor does not decay on the page — decay is
-  condition-relative, not wall-clock.
+- A dormant invariant's weight is the same on the page as when its condition
+  last held — no date enters the weight.
 - Filters compose, and the displayed row count is the true filtered count.
 - Semantic search returns the same top-k as `invest search` for the same query.
 - A passage containing markup renders escaped and cannot break the page.

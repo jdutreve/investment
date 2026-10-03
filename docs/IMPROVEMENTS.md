@@ -136,21 +136,14 @@ confidence in a specific invariant via UC9.
 
 ---
 
-## I-5 — Two-tier recency half-life
+## I-5 — Two-tier recency half-life (WITHDRAWN 2026-10-03)
 
-**Why deferred:** A single half-life of 365 days works adequately for both
-structural and market invariants in MVP. Differentiation matters at maturity
-when the corpus has >50 invariants of mixed origin.
-
-**Trigger to add:** when Dalio-grade invariants visibly suffer from the short
-half-life (drop below their natural confidence after 1y of market silence).
-
-**Spec:**
-- Structural invariants (author dalio/marks/other): `half_life = 730 days`
-- Market invariants (author system, and I-10 user tiers): `half_life = 180 days`
-- Store in `invariant_author_config.half_life_days`.
-- `recency_factor = 0.5 + 0.5 × exp(-days_since / half_life)` (asymptotic
-  floor 0.5)
+Withdrawn, not deferred: the recency factor it refined no longer exists. An
+invariant is timeless and no date enters its weight (owner, 2026-10-03 —
+CLAUDE.md "Invariant weight model"). If structural drift ever needs measuring,
+it is a question about the AGE OF THE EVIDENCE inside `market_score` (do recent
+confrontations confirm less than old ones?), not about when the condition last
+held.
 
 ---
 
@@ -1680,7 +1673,7 @@ If/when adding from this list, prioritize by dependency and impact:
    settled inside the Step 6 plan or not at all.
 4. **I-21** (cost model) — needed before the V2 boundary can be evaluated.
 5. **I-3 + I-11** (Hypothesis) — closes the epistemic loop, prevents post-hoc bias.
-6. **I-5** (two-tier half-life) — small change, real fairness gain for Dalio-grade.
+6. ~~**I-5** (two-tier half-life)~~ — withdrawn 2026-10-03, the weight is timeless.
 7. **I-8** (monthly scorecard) — visibility, builds user trust.
 8. **I-7** (auto-disable) — needed when the strategy library grows.
 9. **I-1** (multi-framework) — only when 4 Seasons shows clear blind spots.

@@ -31,35 +31,24 @@ def test_market_score_is_confirmation_ratio() -> None:
     assert invariants.market_score(3, 1) == pytest.approx(0.75)
 
 
-def test_recency_factor_decays_from_one_toward_half() -> None:
-    assert invariants.recency_factor(0, 365.0) == pytest.approx(1.0)
-    # A very stale condition asymptotically approaches 0.5, never below it.
-    assert invariants.recency_factor(10_000_000, 365.0) == pytest.approx(0.5, abs=1e-6)
-
-
 def test_weight_effective_never_drops_below_floor() -> None:
-    assert invariants.weight_effective(0.85, 0.0, 0.5, 0.40) == pytest.approx(0.40)
+    assert invariants.weight_effective(0.85, 0.0, 0.40) == pytest.approx(0.40)
 
 
 def test_confrontation_fixture_moves_weight_by_hand() -> None:
     """M5 DoV: an active-condition invariant whose effect beats its
     benchmark (by method) moves weight_effective as computed by hand.
     inv-inflation-persistence-tips: weight_initial=0.85, floor=0.40
-    (dalio tier); 4 confirmations, 1 infirmation, condition active NOW
-    (days_since=0) -> recency=1.0."""
+    (dalio tier); 4 confirmations, 1 infirmation. The weight takes no date:
+    an invariant is timeless, so whether its condition holds today cannot move
+    it (owner, 2026-10-03)."""
     weight_initial, floor_weight = 0.85, 0.40
     confirmations, infirmations = 4, 1
-    score, recency, w_eff = invariants.compute_weight_update(
-        weight_initial,
-        floor_weight,
-        confirmations,
-        infirmations,
-        days_since=0,
-        half_life_days=365.0,
+    score, w_eff = invariants.compute_weight_update(
+        weight_initial, floor_weight, confirmations, infirmations
     )
-    # By hand: score=4/5=0.8; recency=1.0 (active now); weight=max(0.85*0.8*1.0, 0.40)=0.68.
+    # By hand: score=4/5=0.8; weight=max(0.85*0.8, 0.40)=0.68.
     assert score == pytest.approx(0.8)
-    assert recency == pytest.approx(1.0)
     assert w_eff == pytest.approx(0.68)
 
 

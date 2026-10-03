@@ -126,7 +126,7 @@ UC8 reads EventLog weekly to assemble its inputs.
       CHFUSD=X, ^IRX, ^VIX, CPIAUCSL, T10Y2Y, UNRATE, INDPRO,
       GROWTH_COMPOSITE, GLOBAL_LIQUIDITY, ...)
     - system_thresholds (regime thresholds, calmar window 756d,
-      recency half-life 365d, vector similarity 0.35, proposal gates for
+      vector similarity 0.35, proposal gates for
       switch AND reallocation, proposal_expiry_days, ...)
     - invariant_author_config (dalio/marks/corpus-other/system
       floors and initial weight bands — keyed by `author` field on Invariant)

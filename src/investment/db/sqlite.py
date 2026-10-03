@@ -44,6 +44,7 @@ from ulid import ULID
 from investment.db.schema import (
     ADDED_COLUMNS,
     DOCUMENT_TABLES,
+    DROPPED_COLUMNS,
     ENTITY_TABLES,
     RELATION_TABLES,
     SCHEMA_SQL,
@@ -111,6 +112,17 @@ class InvestmentDB:
             existing = {r["name"] for r in self._con.execute(f"PRAGMA table_info({table})")}
             if column not in existing:
                 self._con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+        for table, column, before_drop in DROPPED_COLUMNS:
+            existing = {r["name"] for r in self._con.execute(f"PRAGMA table_info({table})")}
+            if column in existing:
+                # One transaction: a crash between the re-derivation and the
+                # drop would otherwise leave the guard column in place and the
+                # statements ready to run a second time on moved data.
+                self._con.execute("BEGIN")
+                for statement in before_drop:
+                    self._con.execute(statement)
+                self._con.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+                self._con.execute("COMMIT")
         self._columns_cache: dict[str, set[str]] = {}
         # Transaction-granularity serialization (see module docstring). The
         # owner task is tracked alongside the lock because the transaction's OWN

@@ -46,7 +46,6 @@ from investment.mechanical.invariants import (
 from investment.mechanical.ratios import value_portfolios
 from investment.mechanical.scenarios import warm_start_scenario_probabilities
 from investment.mechanical.snapshots import build_snapshot
-from investment.planner.context import active_invariant_ids
 
 logger = logging.getLogger(__name__)
 
@@ -142,13 +141,6 @@ async def reweigh_invariants_asof(
     STANDING is 2008's. Measured on the live DB at 2008-10-01, the four
     integrated invariants carry 27, 29, 20 and 3 confrontations from before that
     date: enough to be judged, and judged differently than in 2026.
-
-    `days_since` is CONDITION-RELATIVE and approximated by the last confrontation
-    at or before t (0 when the condition is active now). A confrontation is only
-    written at a moment the condition HELD, so its date is when the invariant was
-    last live — the same quantity the birth sweep walks the condition series to
-    find, without walking it 253 times per decision date. Stated because it is an
-    approximation, not a derivation.
     """
     rows = await db.query(
         "SELECT id, weight_initial, floor_weight, status FROM invariant WHERE status != :reference",
@@ -162,35 +154,21 @@ async def reweigh_invariants_asof(
         for r in await db.query(
             "SELECT invariant_id, "
             " SUM(CASE WHEN verdict = 'confirmed' THEN 1 ELSE 0 END) AS confirmations, "
-            " SUM(CASE WHEN verdict = 'refuted' THEN 1 ELSE 0 END) AS infirmations, "
-            ' MAX("date") AS last_seen '
+            " SUM(CASE WHEN verdict = 'refuted' THEN 1 ELSE 0 END) AS infirmations "
             "FROM invariant_confrontations GROUP BY invariant_id"
         )
     }
-    regime = await db.query("SELECT regime_type_id FROM regime WHERE is_current = 1")
-    regime_type = str(regime[0]["regime_type_id"]) if regime else None
-    active = await active_invariant_ids(db, [str(r["id"]) for r in rows], regime_type)
-
-    half_life = thresholds["recency_half_life_days"]
     updated = 0
     for row in rows:
         invariant_id = str(row["id"])
         tallies = counts.get(invariant_id)
         confirmations = int(tallies["confirmations"] or 0) if tallies else 0
         infirmations = int(tallies["infirmations"] or 0) if tallies else 0
-        last_seen = str(tallies["last_seen"]) if tallies and tallies["last_seen"] else None
-        if invariant_id in active or last_seen is None:
-            days_since = 0
-        else:
-            days_since = max((as_of - date.fromisoformat(last_seen[:10])).days, 0)
-
-        score, recency, weight = compute_weight_update(
+        score, weight = compute_weight_update(
             float(row["weight_initial"]),
             float(row["floor_weight"]),
             confirmations,
             infirmations,
-            days_since,
-            half_life,
         )
         status = time_validation_verdict(
             confirmations,
@@ -205,12 +183,11 @@ async def reweigh_invariants_asof(
         )
         await db.command(
             "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-            "market_score = :score, recency_factor = :recency, weight_effective = :weff, "
+            "market_score = :score, weight_effective = :weff, "
             "status = :status, updated_at = :now WHERE id = :id",
             cc=confirmations,
             ic=infirmations,
             score=score,
-            recency=recency,
             weff=weight,
             status=status,
             now=as_of.isoformat(),

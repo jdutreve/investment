@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS invariant (
   confirmation_count INTEGER NOT NULL DEFAULT 0,
   infirmation_count  INTEGER NOT NULL DEFAULT 0,
   market_score       REAL NOT NULL DEFAULT 1.0,
-  recency_factor     REAL NOT NULL DEFAULT 1.0,
   trace              TEXT NOT NULL,
   created_at         TEXT NOT NULL,
   validated_at       TEXT,                   -- null while still a candidate
@@ -787,4 +786,26 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # every pre-existing row, which is why it reads as "not recorded as a
     # citation" and never as "certainly not one".
     ("supports", "cited", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+# The mirror of ADDED_COLUMNS, under the same pre-go-live caveat: a column
+# removed from the DDL above stays in every existing database, where it keeps
+# its last values and reads as if it still meant something. Each entry is
+# `(table, column, statements run once BEFORE the drop)`; the column's presence
+# is the idempotence guard, so the statements run exactly as often as the drop.
+#
+# `invariant.recency_factor` (owner, 2026-10-03 — an invariant is timeless, see
+# `mechanical/invariants.weight_effective`): the weights it had discounted are
+# re-derived from what remains of the formula, and its half-life threshold goes
+# with it.
+DROPPED_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "invariant",
+        "recency_factor",
+        (
+            "UPDATE invariant "
+            "SET weight_effective = MAX(weight_initial * market_score, floor_weight)",
+            "DELETE FROM system_thresholds WHERE key = 'recency_half_life_days'",
+        ),
+    ),
 )
