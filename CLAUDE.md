@@ -44,6 +44,7 @@ auto-execution and learning from real performance.
 | `docs/DECISIONS.md` | ADRs (SQLite, local Mac, vintage discipline, ops layer, no-user-gate). Never contradict an accepted ADR silently. |
 | `docs/IMPROVEMENTS.md` | Deferred features (I-N) and the triggers to revisit them. |
 | `docs/EXAMPLE.md` | One full weekly cycle traced end to end (stagflation 2026). |
+| `docs/INVARIANT_AUDIT_BRIEF.md` | Invariants and reference notes for an external auditor: birth, valuation, verdict, lifecycle, and the open points to audit (figures as of 2026-10-03). |
 
 Read TASKS + DATA_MODELS + ARCHITECTURE sections for an area before writing
 its code.
@@ -208,7 +209,15 @@ improvement cycle (docs/ARCHITECTURE.md) covers Proposals (verdict at +12w),
 strategies (12w probation), scenarios (calibration scoring).
 
 **Invariant weight model** —
-`weight_effective = max(weight_initial × market_score, floor_weight)`.
+`weight_effective = max((weight_initial × 4 + confirmations) / (4 + N), floor_weight)`,
+N = confirmations + infirmations. **BELIEF IS A PRIOR THE EVIDENCE REPLACES**
+(owner, 2026-10-03): `weight_initial` counts as 4 confrontations at that rate
+(`invariants.PRIOR_CONFRONTATIONS`), so an unmeasured claim weighs what it was
+born with and a measured one converges on its record, from above OR below. It
+was `weight_initial × market_score` until then, which made the starting weight
+a CEILING — measurement could only take weight away, an unmeasured claim
+outweighed the same claim confirmed 65% of the time, and reference notes
+averaged 0.656 against 0.562 for the integrated invariants.
 **NOTORIETY SETS WHERE A CLAIM STARTS, NOT WHERE IT STOPS** (owner,
 2026-09-21): the `author` tier fixes the STARTING band — dalio 0.80-0.90 ·
 marks 0.75-0.85 · null/other 0.40-0.70 · system 0.15-0.25 — and
@@ -227,7 +236,10 @@ in here until then; the spec said a dormant invariant "must NOT decay" and
 pinned `days_since = today − last_active_day`, which decayed it — 114 of 250
 measurable weights were halved because their condition slept. The intent was
 right and the formula was not, so the factor is gone rather than repaired:
-applied as intended it is 1 in both cases.
+applied as intended it is 1 in both cases. **ONE WRITER OF AN INVARIANT'S
+STANDING**: `invariants.restate_invariant` writes score, weight AND verdict
+together for every confrontation source; the evaluation and proposal paths used
+to move the score and leave `status` as the last weekly restatement wrote it.
 Weight-like fields are 0–1 fractions everywhere. Every invariant matures over
 35y at birth; details: docs/ARCHITECTURE.md "Birth maturation".
 

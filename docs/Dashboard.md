@@ -255,7 +255,7 @@ actually reads before placing an order by hand.
 - Invariant table over the full corpus (674 rows today): filter by regime type,
   tag, status, author tier; sort by `weight_effective`; text search.
 - Detail: statement, provenance, author tier and its floor,
-  `weight_initial × market_score` shown as a computation with
+  `(weight_initial × 4 + confirmations) / (4 + N)` shown as a computation with
   the floor marked *when it is what binds*, confrontation timeline
   (`invariant_confrontations`), N / score, and the verdict **in words**.
 - **Three verdicts, never two**: `integrated`, `rejected`, and `proposed` =

@@ -470,7 +470,7 @@ async def run_decision_cycle(
 
     regime_type = context.regime.get("regime_type_id")
     knowledge = await commit_knowledge(
-        db, post_result, regime_type, today=today, embedder=planner_pre.embedder
+        db, post_result, regime_type, thresholds, today=today, embedder=planner_pre.embedder
     )
 
     # LAST, and only on the success of everything above — this is what the

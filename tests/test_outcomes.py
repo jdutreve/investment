@@ -52,6 +52,13 @@ async def _seed_common(db: InvestmentDB) -> None:
     for key, value in (
         ("proposal_outcome_weeks", 12.0),
         ("replay_cost_bps", 10.0),
+        # what `restate_invariant` reads to give a cited invariant its verdict
+        ("invariant_min_confrontations", 3.0),
+        ("invariant_time_validation_score", 0.6),
+        ("invariant_refuted_min_confrontations", 4.0),
+        ("invariant_refuted_score", 0.35),
+        ("invariant_verdict_confidence", 0.95),
+        ("invariant_null_score", 0.5),
     ):
         await cmd(
             "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",
@@ -229,10 +236,15 @@ async def test_won_reallocation_confirms_its_cited_invariants(db: InvestmentDB) 
     (res,) = await outcomes.evaluate_proposals(db, today=TODAY)
     assert res.verdict == "won"  # SPY beats flat TLT defender
     inv = (
-        await db.query("SELECT confirmation_count, market_score FROM invariant WHERE id='inv-c'")
+        await db.query(
+            "SELECT confirmation_count, market_score, status FROM invariant WHERE id='inv-c'"
+        )
     )[0]
     assert inv["confirmation_count"] == 5  # 4 -> 5, a won proposal confirms its citation
     assert inv["market_score"] == pytest.approx(5 / 6)
+    # The verdict is restated with the counts, not left as the fixture stamped
+    # it: 5 of 6 is something a coin does 11% of the time, so 'integrated' goes.
+    assert inv["status"] == "proposed"
     conf = await db.query(
         "SELECT source, verdict, source_id FROM invariant_confrontations WHERE invariant_id='inv-c'"
     )

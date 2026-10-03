@@ -95,15 +95,41 @@ def market_score(confirmations: int, infirmations: int) -> float:
     return confirmations / total if total > 0 else 1.0
 
 
-def weight_effective(weight_initial: float, score: float, floor_weight: float) -> float:
-    """AN INVARIANT IS TIMELESS (owner, 2026-10-03): its weight is where it
-    started times what history measured, and nothing else. Whether its
+# How many confrontations an author's reputation is worth (owner, 2026-10-03).
+# `weight_initial` enters the weight as this many observations at that rate, so
+# 4 real confrontations weigh as much as the prior and every one after that
+# outweighs it. 4 because it is the count at which the verdict first allows
+# itself to reject (`invariant_refuted_min_confrontations`): the prior stops
+# dominating exactly when the evidence is first trusted to overrule it.
+PRIOR_CONFRONTATIONS = 4.0
+
+
+def weight_effective(
+    weight_initial: float, confirmations: int, infirmations: int, floor_weight: float
+) -> float:
+    """BELIEF IS A PRIOR THE EVIDENCE REPLACES (owner, 2026-10-03):
+    `(weight_initial x k + confirmations) / (k + N)`, k = `PRIOR_CONFRONTATIONS`.
+    With no confrontation it is `weight_initial`; as N grows it converges on the
+    measured rate, from above or from below.
+
+    It used to be `weight_initial x market_score`, which made the starting
+    weight a CEILING: the score is a proportion, so measurement could only ever
+    take weight away. An unmeasured claim (score 1.0 by default) outweighed the
+    same claim confirmed 65% of the time, a system-tier invariant could never
+    exceed 0.25 whatever its record, and reference notes averaged 0.656 against
+    0.562 for the integrated invariants. "Notoriety sets where a claim starts,
+    not where it stops" (CLAUDE.md) was true downward only.
+
+    AN INVARIANT IS TIMELESS (owner, same day): no date enters here. Whether the
     condition holds TODAY is applicability (`active_invariant_ids`), a separate
-    question the weight must not answer. A `recency_factor` used to multiply
-    in here, counting days since the condition last held — the spec said a
-    dormant invariant "must NOT decay" and pinned a formula that decayed it,
-    halving 114 of 250 weights for the sole reason their condition slept."""
-    return max(weight_initial * score, floor_weight)
+    question the weight must not answer. A `recency_factor` used to multiply in,
+    counting days since the condition last held — the spec said a dormant
+    invariant "must NOT decay" and pinned a formula that decayed it."""
+    total = confirmations + infirmations
+    posterior = (weight_initial * PRIOR_CONFRONTATIONS + confirmations) / (
+        PRIOR_CONFRONTATIONS + total
+    )
+    return max(posterior, floor_weight)
 
 
 def compute_weight_update(
@@ -116,8 +142,10 @@ def compute_weight_update(
     confrontation source (backtest/evaluation/proposal) funnels into
     (docs/ARCHITECTURE.md 'Invariant confrontation rule':
     "update_invariant_weights()")."""
-    score = market_score(confirmations, infirmations)
-    return score, weight_effective(weight_initial, score, floor_weight)
+    return (
+        market_score(confirmations, infirmations),
+        weight_effective(weight_initial, confirmations, infirmations, floor_weight),
+    )
 
 
 def _binomial_pmf(successes: int, total: int, rate: float) -> float:
@@ -884,6 +912,57 @@ async def _demote_to_reference(db: InvestmentDB, invariant_id: str, reason: str)
         now=now,
         id=invariant_id,
     )
+
+
+async def restate_invariant(
+    db: InvestmentDB,
+    row: dict[str, Any],
+    confirmations: int,
+    infirmations: int,
+    thresholds: dict[str, float],
+    as_of: date,
+) -> str:
+    """Counts in, STANDING out: score, weight and verdict written together, and
+    the verdict returned. `row` carries `id`, `weight_initial`, `floor_weight`.
+
+    ONE WRITER BECAUSE THERE WERE THREE, and they disagreed. The verdict is
+    stateless — "recomputed from current counts at every confrontation"
+    (`time_validation_verdict`) — but the evaluation and proposal paths each
+    carried their own UPDATE and neither wrote `status`, so a confrontation
+    moved the score and left the verdict of the previous Sunday's weekly
+    restatement standing for up to a week. `validated_at` follows the same rule
+    as at birth: set on the first integration, cleared when it ends."""
+    score, weight = compute_weight_update(
+        float(row["weight_initial"]), float(row["floor_weight"]), confirmations, infirmations
+    )
+    status = time_validation_verdict(
+        confirmations,
+        infirmations,
+        score,
+        n_min=thresholds["invariant_min_confrontations"],
+        theta=thresholds["invariant_time_validation_score"],
+        refuted_min_confrontations=thresholds["invariant_refuted_min_confrontations"],
+        refuted_score=thresholds["invariant_refuted_score"],
+        verdict_confidence=thresholds["invariant_verdict_confidence"],
+        null_score=thresholds["invariant_null_score"],
+    )
+    await db.command(
+        "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
+        "market_score = :score, weight_effective = :weff, status = :status, "
+        "validated_at = CASE WHEN :status2 = 'integrated' "
+        "THEN COALESCE(validated_at, :as_of) ELSE NULL END, "
+        "updated_at = :now WHERE id = :id",
+        cc=confirmations,
+        ic=infirmations,
+        score=score,
+        weff=weight,
+        status=status,
+        status2=status,
+        as_of=as_of.isoformat(),
+        now=datetime.now(UTC).isoformat(),
+        id=str(row["id"]),
+    )
+    return status
 
 
 async def _persist_maturation(

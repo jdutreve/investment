@@ -32,7 +32,21 @@ def test_market_score_is_confirmation_ratio() -> None:
 
 
 def test_weight_effective_never_drops_below_floor() -> None:
-    assert invariants.weight_effective(0.85, 0.0, 0.40) == pytest.approx(0.40)
+    # 0 of 100: the posterior is (0.85 x 4 + 0) / 104 = 0.033, and the floor holds.
+    assert invariants.weight_effective(0.85, 0, 100, 0.40) == pytest.approx(0.40)
+
+
+def test_weight_starts_at_the_prior_and_evidence_can_lift_it_above() -> None:
+    """Notoriety sets where a claim starts, not where it stops — in BOTH
+    directions (owner, 2026-10-03). Unmeasured, the weight is the starting
+    belief; measured, it converges on the record, so a system-tier invariant
+    confirmed 65 times in 100 ends far above the 0.20 it was born with. Under
+    `weight_initial x market_score` it was capped at 0.13."""
+    assert invariants.weight_effective(0.20, 0, 0, 0.05) == pytest.approx(0.20)
+    # By hand: (0.20 x 4 + 65) / (4 + 100) = 65.8 / 104.
+    assert invariants.weight_effective(0.20, 65, 35, 0.05) == pytest.approx(65.8 / 104)
+    # And a high prior is taken back by a record near chance.
+    assert invariants.weight_effective(0.85, 53, 47, 0.05) == pytest.approx(56.4 / 104)
 
 
 def test_confrontation_fixture_moves_weight_by_hand() -> None:
@@ -47,9 +61,9 @@ def test_confrontation_fixture_moves_weight_by_hand() -> None:
     score, w_eff = invariants.compute_weight_update(
         weight_initial, floor_weight, confirmations, infirmations
     )
-    # By hand: score=4/5=0.8; weight=max(0.85*0.8, 0.40)=0.68.
+    # By hand: score=4/5=0.8; weight=max((0.85*4 + 4) / (4 + 5), 0.40)=7.4/9.
     assert score == pytest.approx(0.8)
-    assert w_eff == pytest.approx(0.68)
+    assert w_eff == pytest.approx(7.4 / 9)
 
 
 def _verdict(confirmations: int, infirmations: int) -> str:

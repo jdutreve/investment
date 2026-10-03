@@ -2318,7 +2318,8 @@ agent-discovery invariants are absent from the run.
    formulas pinned in DATA_MODELS.md "Calculation conventions".
 10. **Currency** — USD for indicators. CHFUSD=X for user display only.
 11. **No recency in the weight** — an invariant is timeless (owner,
-    2026-10-03); `weight_effective = max(weight_initial × market_score, floor)`.
+    2026-10-03); `weight_effective = max((weight_initial × 4 + confirmations) /
+    (4 + N), floor)` — the starting weight is a prior, not a ceiling.
 12. **Floor on Invariant vertex** — set at creation from `author` tier
     (dalio=0.40, marks=0.35, null=0.20, system=0.05). `source` is real provenance.
 13. **Growth axis** — GROWTH_COMPOSITE (INDPRO YoY, UNRATE Δ3m), never PMI.

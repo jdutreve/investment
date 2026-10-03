@@ -40,8 +40,7 @@ from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.backtests import run_backtests_and_favors
 from investment.mechanical.invariants import (
     REFERENCE_STATUS,
-    compute_weight_update,
-    time_validation_verdict,
+    restate_invariant,
 )
 from investment.mechanical.ratios import value_portfolios
 from investment.mechanical.scenarios import warm_start_scenario_probabilities
@@ -164,34 +163,6 @@ async def reweigh_invariants_asof(
         tallies = counts.get(invariant_id)
         confirmations = int(tallies["confirmations"] or 0) if tallies else 0
         infirmations = int(tallies["infirmations"] or 0) if tallies else 0
-        score, weight = compute_weight_update(
-            float(row["weight_initial"]),
-            float(row["floor_weight"]),
-            confirmations,
-            infirmations,
-        )
-        status = time_validation_verdict(
-            confirmations,
-            infirmations,
-            score,
-            n_min=thresholds["invariant_min_confrontations"],
-            theta=thresholds["invariant_time_validation_score"],
-            refuted_min_confrontations=thresholds["invariant_refuted_min_confrontations"],
-            refuted_score=thresholds["invariant_refuted_score"],
-            verdict_confidence=thresholds["invariant_verdict_confidence"],
-            null_score=thresholds["invariant_null_score"],
-        )
-        await db.command(
-            "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-            "market_score = :score, weight_effective = :weff, "
-            "status = :status, updated_at = :now WHERE id = :id",
-            cc=confirmations,
-            ic=infirmations,
-            score=score,
-            weff=weight,
-            status=status,
-            now=as_of.isoformat(),
-            id=invariant_id,
-        )
+        await restate_invariant(db, row, confirmations, infirmations, thresholds, as_of)
         updated += 1
     return updated

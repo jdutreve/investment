@@ -194,7 +194,12 @@ Invariant {
 
   weight_initial   : FLOAT
   floor_weight     : FLOAT
-  weight_effective : FLOAT  -- = max(weight_initial × market_score, floor_weight).
+  weight_effective : FLOAT  -- = max((weight_initial × 4 + confirmations) / (4 + N),
+                            --        floor_weight), N = confirmations + infirmations.
+                            --   weight_initial is a PRIOR worth 4 confrontations
+                            --   (owner, 2026-10-03): unmeasured, the weight is
+                            --   weight_initial; measured, it converges on the
+                            --   record, above or below where it started.
                             --   TIMELESS: no date enters it (owner, 2026-10-03).
                             --   Whether the condition holds today is
                             --   applicability, not weight.

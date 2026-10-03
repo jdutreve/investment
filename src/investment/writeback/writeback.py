@@ -52,9 +52,10 @@ from investment.mechanical.gates import (
     weights_well_formed,
 )
 from investment.mechanical.invariants import (
-    compute_weight_update,
+    REFERENCE_STATUS,
     is_absolute_claim,
     mature_seed_invariants,
+    restate_invariant,
 )
 from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
@@ -471,14 +472,17 @@ async def _commit_confrontations(
     post_result: PostPlannerResult,
     context_regime_type: str | None,
     active: set[str],
+    thresholds: dict[str, float],
     today: date,
 ) -> int:
     """source='evaluation' confrontations (docs/ARCHITECTURE.md confrontation
     rule). CONDITION GATE: only invariants ACTIVE now are confronted — a
     dormant lighthouse describes a market not present, so crediting/blaming it
     would be noise. Each confrontation bumps the count and recomputes the
-    weight through the SHARED primitive (`compute_weight_update`) every
-    confrontation source funnels into."""
+    STANDING — score, weight and verdict — through the SHARED primitive
+    (`restate_invariant`) every confrontation source funnels into. Reference
+    knowledge is never confronted (docs/DATA_MODELS.md): its empty condition
+    reads as "always active", so it is excluded by status, not by the gate."""
     confrontations = [c for c in post_result.confrontations if c.invariant_id in active]
     if not confrontations:
         return 0
@@ -488,12 +492,12 @@ async def _commit_confrontations(
     params = {f"i{n}": iid for n, iid in enumerate(ids)}
     rows = await db.query(
         "SELECT id, weight_initial, floor_weight, confirmation_count, infirmation_count "
-        f"FROM invariant WHERE id IN ({placeholders})",
+        f"FROM invariant WHERE id IN ({placeholders}) AND status != :reference",
+        reference=REFERENCE_STATUS,
         **params,
     )
     inv = {str(r["id"]): r for r in rows}
     descriptor = f"evaluation:{context_regime_type}"
-    now = datetime.now(UTC).isoformat()
 
     committed = 0
     async with db.transaction():
@@ -510,9 +514,6 @@ async def _commit_confrontations(
                 continue
             cc = int(row["confirmation_count"]) + (1 if cf.verdict == "confirmed" else 0)
             ic = int(row["infirmation_count"]) + (1 if cf.verdict == "refuted" else 0)
-            score, w_eff = compute_weight_update(
-                float(row["weight_initial"]), float(row["floor_weight"]), cc, ic
-            )
             await db.command(
                 "INSERT INTO invariant_confrontations "
                 "(id, invariant_id, moment_context, date, verdict, severity, source, source_id) "
@@ -523,17 +524,7 @@ async def _commit_confrontations(
                 date=today.isoformat(),
                 verdict=cf.verdict,
             )
-            await db.command(
-                "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-                "market_score = :score, weight_effective = :weff, "
-                "updated_at = :now WHERE id = :id",
-                cc=cc,
-                ic=ic,
-                score=score,
-                weff=w_eff,
-                now=now,
-                id=cf.invariant_id,
-            )
+            await restate_invariant(db, row, cc, ic, thresholds, today)
             committed += 1
     return committed
 
@@ -1363,6 +1354,7 @@ async def commit_knowledge(
     db: InvestmentDB,
     post_result: PostPlannerResult,
     regime_type: str | None,
+    thresholds: dict[str, float],
     today: date | None = None,
     embedder: Embedder | None = None,
 ) -> KnowledgeCommit:
@@ -1377,7 +1369,9 @@ async def commit_knowledge(
     active = await active_invariant_ids(
         db, [c.invariant_id for c in post_result.confrontations], regime_type
     )
-    confrontations = await _commit_confrontations(db, post_result, regime_type, active, today)
+    confrontations = await _commit_confrontations(
+        db, post_result, regime_type, active, thresholds, today
+    )
     conviction = await _commit_evaluations(db, post_result, today)
     scenarios = await _commit_scenario_updates(db, post_result, today)
     innovations = await commit_innovations(db, post_result, today, embedder=embedder)

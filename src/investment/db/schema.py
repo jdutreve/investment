@@ -795,17 +795,15 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
 # is the idempotence guard, so the statements run exactly as often as the drop.
 #
 # `invariant.recency_factor` (owner, 2026-10-03 — an invariant is timeless, see
-# `mechanical/invariants.weight_effective`): the weights it had discounted are
-# re-derived from what remains of the formula, and its half-life threshold goes
-# with it.
+# `mechanical/invariants.weight_effective`): its half-life threshold goes with
+# it. The weights it had discounted are NOT re-derived here — the weekly
+# "invariant-weights" step restates every one of them from its confrontations,
+# and a second copy of the weight formula in SQL is a copy that drifts (it did,
+# the same day: the formula changed hours after this entry was written).
 DROPPED_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
         "invariant",
         "recency_factor",
-        (
-            "UPDATE invariant "
-            "SET weight_effective = MAX(weight_initial * market_score, floor_weight)",
-            "DELETE FROM system_thresholds WHERE key = 'recency_half_life_days'",
-        ),
+        ("DELETE FROM system_thresholds WHERE key = 'recency_half_life_days'",),
     ),
 )

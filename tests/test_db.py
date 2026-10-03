@@ -608,10 +608,10 @@ async def test_keep_earlier_rows_replaces_its_own_window_and_admits_its_limit(
 
 async def test_a_dropped_column_leaves_and_takes_its_discount_with_it(tmp_path: Path) -> None:
     """`DROPPED_COLUMNS` on a database that predates the removal (owner,
-    2026-10-03 — an invariant is timeless). The dormant invariant below carried
-    `weight_effective = 0.4 x 1.0 x 0.5137`; opening the database re-derives it
-    from what is left of the formula, drops the column and its threshold, and a
-    second open is a no-op because the column is the guard."""
+    2026-10-03 — an invariant is timeless). Opening the database drops the
+    column and its threshold, keeps the row, and a second open is a no-op
+    because the column is the guard. The weight is left to the weekly
+    restatement — the migration carries no copy of the formula."""
     path = tmp_path / "old.db"
     old = await asyncio.to_thread(InvestmentDB, path)
     await old.close()
@@ -635,7 +635,7 @@ async def test_a_dropped_column_leaves_and_takes_its_discount_with_it(tmp_path: 
         db = await asyncio.to_thread(InvestmentDB, path)
         row = await db.query("SELECT * FROM invariant WHERE id = 'inv-dormant'")
         assert "recency_factor" not in row[0]
-        assert row[0]["weight_effective"] == pytest.approx(0.4)
+        assert row[0]["confirmation_count"] == 8
         assert not await db.query(
             "SELECT 1 FROM system_thresholds WHERE key = 'recency_half_life_days'"
         )
