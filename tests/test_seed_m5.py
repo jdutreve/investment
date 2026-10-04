@@ -18,7 +18,7 @@ import pandas as pd
 from test_seed_market import _make_stub, _settings
 
 from investment import seed
-from investment.db.seed_data import INVARIANTS, SCENARIOS
+from investment.db.seed_data import INVARIANTS, SCENARIOS, SYSTEM_THRESHOLDS
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import backtests, outcomes
 from investment.mechanical.invariants import REFERENCE_STATUS
@@ -866,3 +866,22 @@ async def test_a_retired_portfolio_keeps_its_history(tmp_path: Path) -> None:
     assert await db.query("SELECT id FROM portfolio WHERE id = 'worker-book'")
     assert await db.query("SELECT ts FROM portfolio_nav WHERE portfolio_id = 'worker-book'")
     await db.close()
+
+
+async def test_a_threshold_the_seed_no_longer_names_leaves_the_table(tmp_path: Path) -> None:
+    """INSERT OR REPLACE never removes a key, so a threshold deleted from
+    `SYSTEM_THRESHOLDS` stayed in every existing database, reading as a setting
+    and setting nothing (`invariant_merge_threshold`, 2026-10-04). The seed
+    names the keys; what it does not name goes."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await db.command(
+            "INSERT INTO system_thresholds (key, value, updated_at) "
+            "VALUES ('invariant_merge_threshold', 0.8, 'n')"
+        )
+        await seed._seed_reference_tables(db, settings)
+        keys = {r["key"] for r in await db.query("SELECT key FROM system_thresholds")}
+        assert keys == set(SYSTEM_THRESHOLDS)
+    finally:
+        await db.close()

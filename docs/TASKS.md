@@ -519,7 +519,6 @@ SYSTEM_THRESHOLDS = {
     "proposal_max_turnover_pct": 30.0,   # realloc gate 4: Σ|delta|/2
     "proposal_expiry_days": 14.0,        # pending → expired
     "inbox_quiet_seconds": 300.0,        # watcher: quiet period before a batch
-    "invariant_merge_threshold": 0.80,   # dedup gate: cosine vs existing invariants
     "curation_sanity_ceiling": 40.0,     # candidates/document → stricter re-merge + flag
     "proposal_outcome_weeks": 12.0,      # maturation before outcome verdict
     "proposal_cooldown_weeks": 4.0,      # anti-repetition after user rejection
@@ -1702,7 +1701,7 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 #   candidate of the same batch → merged into it (SUPPORTS edges accrue on the
 #   incumbent) — no duplicate is ever proposed. Prose similarity no longer
 #   proposes a merge: with a co-occurrence test it deleted distinct definitions
-#   ("inflation > 3" vs "inflation > 5"). `invariant_merge_threshold` is unread.
+#   ("inflation > 3" vs "inflation > 5"). `invariant_merge_threshold` is gone.
 # Innovations (fully mechanical — no user gate, ADR-006):
 #   InnovationEvent → vertex(status=proposed).
 #   type=new_invariant → Invariant vertex → mature_invariant() (35y) →

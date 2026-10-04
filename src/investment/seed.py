@@ -160,6 +160,16 @@ async def _seed_reference_tables(db: InvestmentDB, settings: Settings) -> int:
             value=value,
             now=now,
         )
+    # A threshold the seed no longer names leaves the table with it. The seed is
+    # this table's only writer of KEYS (calibration updates values), and
+    # INSERT OR REPLACE alone never removes one: `invariant_merge_threshold`
+    # outlived the cosine dedup pass it tuned (2026-10-04) and would have sat
+    # here indefinitely, a number that reads as a setting and sets nothing.
+    placeholders = ",".join(f":k{n}" for n in range(len(SYSTEM_THRESHOLDS)))
+    await db.command(
+        f"DELETE FROM system_thresholds WHERE key NOT IN ({placeholders})",
+        **{f"k{n}": key for n, key in enumerate(SYSTEM_THRESHOLDS)},
+    )
     return 1 + len(ALLOWED_TICKERS) + len(INVARIANT_AUTHOR_CONFIG) + len(SYSTEM_THRESHOLDS)
 
 
@@ -504,6 +514,33 @@ async def _seed_market_data(
                 level, report = splice_fn(ticker, proxy_ticker, raw, proxy_raw)
                 splice_reports.append(dataclasses.asdict(report))
             except Exception as exc:
+                # THE ETF-ONLY FLOOR IS A FALLBACK FOR AN EMPTY SERIES, NOT A
+                # REPLACEMENT FOR A STORED SPLICE. The two are different
+                # constructions under one ticker — the splice lives on the
+                # proxy's scale — and `replace_ts_series`' span guard, seeing a
+                # short fresh series, keeps the long one and writes the fresh
+                # rows over its tail. On 2026-10-04 LBMA answered 403 and GLD
+                # ended up reading 1263.50 on 2004-11-17 and 44.38 the day
+                # after; `^BCOM` had failed the same way without damage only
+                # because DJP's splice happens to sit on the ETF's scale. A
+                # failed proxy now leaves what is stored exactly as it was.
+                stored_from = (
+                    await db.query(
+                        "SELECT MIN(ts) AS first FROM market_data WHERE ticker = :t", t=ticker
+                    )
+                )[0]["first"]
+                if stored_from is not None and str(stored_from)[:10] < str(raw.index.min().date()):
+                    logger.warning(
+                        "step 9: splice %s/%s rejected, stored history from %s KEPT untouched: %s",
+                        ticker,
+                        proxy_ticker,
+                        stored_from,
+                        exc,
+                    )
+                    skipped[ticker] = (
+                        f"splice with {proxy_ticker} rejected, stored history kept: {exc}"
+                    )
+                    continue
                 logger.warning(
                     "step 9: splice %s/%s rejected, ETF-only floor: %s",
                     ticker,

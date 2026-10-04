@@ -50,7 +50,6 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "curator_weight_actionability": 0.20,  # (UNWIRED)
     "curator_weight_evidence_quality": 0.15,  # (UNWIRED)
     "curator_weight_novelty": 0.10,  # (UNWIRED)
-    "invariant_merge_threshold": 0.80,  # UNREAD: the dedup gate merges on structure alone since 2026-10-04 (knowledge.find_duplicate)
     "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
     "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)
     "proposal_cooldown_weeks": 4.0,  # anti-repetition: weeks before a near-identical realloc may repeat

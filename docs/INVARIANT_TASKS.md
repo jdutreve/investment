@@ -16,9 +16,10 @@ changes (plan, last paragraph).
   is equivalence, that pass was unreachable. Owner decision 2026-10-04.
   Guarantee tested: "inflation > 3" and "inflation > 5" with one effect stay
   two invariants (`test_a_different_threshold_is_a_different_definition`).
-- [ ] **6.1 residue.** `system_thresholds.invariant_merge_threshold` is seeded
-  and read by nothing. Removing a seeded threshold touches the live table —
-  do it with the next schema-level change (lot 1), not alone.
+- [x] **6.1 residue.** `invariant_merge_threshold` is removed from the seed,
+  and the seed now deletes any threshold it no longer names
+  (`_seed_reference_tables`; INSERT OR REPLACE alone never removed a key). The
+  live row leaves at the next seed run.
 - [ ] **6.2 Stop marking the whole batch as cited.** WAITING on the next
   curator reading (owner, 2026-10-04). `_cited` now logs what the model wrote
   when it cited nothing usable; the fallback itself is unchanged. Known so far:
@@ -51,8 +52,9 @@ changes (plan, last paragraph).
 
 ## Lot 1 — Define and date a piece of evidence (P1)
 
-Code done and DEPLOYED 2026-10-04 (agent stopped, backup
-`investment.db.bak-pre-evidence-dates-20261004`, seed, agent restarted).
+DONE and deployed 2026-10-04. The live database is the backup
+`investment.db.bak-pre-evidence-dates-20261004` migrated, with the invariant
+steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 - [x] **1.1 Two dates.** `invariant_confrontations.date` → `signal_date`, plus
   `available_at` (`RENAMED_COLUMNS` / `ADDED_COLUMNS` with a backfill:
@@ -60,8 +62,14 @@ Code done and DEPLOYED 2026-10-04 (agent stopped, backup
   written). `as_of_snapshot` bounds on `available_at`. Guarantee tested: a
   confrontation whose signal predates t and whose window closes after it does
   not reach the replay (`test_agentic_replay_semipit`).
-- [ ] **1.1 follow-up.** Re-run the as-of replay at 2008-10-01 and 2022-12-31
-  and count the verdicts that move (the audit reported 12 and 6).
+- [x] **1.1 follow-up — what the outcome-date bound changes, measured
+  2026-10-04 on the re-swept live database.** At 2008-10-01, 144 verdict rows
+  had a signal before t and an outcome after it; removing them touches 144
+  invariants and changes 16 verdicts (9 `rejected` → `proposed`, 4 `proposed`
+  → `rejected`, 2 `integrated` → `proposed`, 1 `proposed` → `integrated`;
+  integrated as-of t 9 → 8). At 2022-12-31: 51 rows, 51 invariants, 4 verdicts
+  (integrated 11 → 10). The audit had reported 142 / 12 and 52 / 6 on the
+  records before the re-sweep.
 - [x] **1.2 Definition fingerprint on each confrontation.** `definition` =
   `definition_fingerprint(condition, effect)`, apart from the maturation
   fingerprint, which also hashes the verdict thresholds. `restate_invariant`
@@ -87,16 +95,30 @@ Code done and DEPLOYED 2026-10-04 (agent stopped, backup
   `01KZG80DPFB0Z72RMVTAB32BM9` 5/0 → 4/0, all to `proposed`), and 6 `rejected`
   returned to `proposed`. This is plan lesson 8 measured: a birth record goes
   stale.
-- [x] **Deployed.** Live database after the seed: 9 integrated, 177 proposed,
-  69 rejected, 820 reference; 16,607 confrontations (5,320 confirmed, 5,032
-  refuted, 5,457 neutral, 787 no data, 11 evaluations), none with a NULL
-  `available_at` or `definition`; every invariant's stored count equals its
-  rows. The figures differ slightly from the core sample because the seed
-  refetched market data.
-- [ ] **Seen during the seed, not this plan's:** Yahoo returns nothing for
-  `^BCOM` (three attempts, six minutes), so the DBC splice is rejected and DBC
-  keeps its ETF-only history from 2006 — unchanged from before the seed.
-- [ ] **6.1 residue** — drop `system_thresholds.invariant_merge_threshold`.
+- [x] **Deployed.** Live database: 9 integrated, 178 proposed, 68 rejected,
+  820 reference; 16,699 confrontations (5,351 confirmed, 5,038 refuted, 5,491
+  neutral, 808 no data, 11 evaluations), none with a NULL `available_at` or
+  `definition`; every invariant's stored count equals its rows; no floor other
+  than 0.05; `invariant_merge_threshold` gone. Identical to the core sample.
+- [x] **Incident during deployment — the full seed corrupted GLD, found by the
+  anti-drift tests, repaired the same day.** LBMA answered 403, the GLD splice
+  was rejected, and the seed's "ETF-only floor" fallback wrote ETF-scale prices
+  over the tail of the stored splice (proxy scale): 1263.50 on 2004-11-17,
+  44.38 the day after. The stack's control arm then showed a -39% drawdown.
+  Repair: database restored from the backup, then ONLY the invariant steps of
+  the seed re-run (reference tables, seed invariants, 35y re-sweep,
+  contradiction check; a SeedEvent records that it was partial). Fix: a
+  rejected splice now leaves a stored longer history untouched and reports the
+  ticker as skipped (`seed._seed_market_data`), tested by
+  `test_a_rejected_splice_does_not_overwrite_the_spliced_history`. The damaged
+  file is kept as `investment.db.damaged-gld-splice-20261004`.
+- [ ] **Left open by the incident, not this plan's.** (1) Two proxies no longer
+  answer: LBMA (403) and Yahoo `^BCOM` (no data) — the spliced histories of
+  GLD, DJP and DBC can no longer be rebuilt from source. (2) The same full seed
+  also wrote GLOBAL_LIQUIDITY additively (fresh span 8,617 days against 12,788
+  stored, 649 rows moved by up to 0.46%) and slid the start of the FRED series
+  by ten rows; neither was examined, the restore undid both.
+
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
 

@@ -226,3 +226,40 @@ async def test_step9_failed_fetch_is_skipped_not_fatal(tmp_path: Path) -> None:
         assert rows[0]["n"] > 0
     finally:
         await db.close()
+
+
+async def test_a_rejected_splice_does_not_overwrite_the_spliced_history(tmp_path: Path) -> None:
+    """A proxy that fails on a RE-SEED must leave the stored series alone.
+
+    What happened on 2026-10-04: LBMA answered 403, the GLD splice was rejected,
+    and the seed fell back to the ETF-only series — which is on the ETF's own
+    scale, while the stored GLD was the splice, on the proxy's. The span guard
+    kept the 35 years and wrote the fresh rows over their tail, so GLD read
+    1263.50 on 2004-11-17 and 44.38 the day after: two constructions in one
+    series, a 28-fold cliff, and the stack's control arm showing a -39%
+    drawdown that never happened.
+
+    The ETF-only floor is the right fallback on an EMPTY database. On one that
+    already holds a longer history for the ticker, it is a different series
+    arriving under the same name."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await seed._seed_market_data(
+            db, settings, fetch_raw=_make_stub(), yahoo_rate_limit_seconds=0.0
+        )
+        gld = "SELECT ts, level FROM market_data WHERE ticker = 'GLD' ORDER BY ts"
+        spliced = [dict(r) for r in await db.query(gld)]
+        assert spliced[0]["ts"] < "2004-11-18"  # the splice reaches before the ETF existed
+
+        inventory = await seed._seed_market_data(
+            db,
+            settings,
+            fetch_raw=_make_stub(frozenset({"LBMA_GOLD_AM"})),
+            yahoo_rate_limit_seconds=0.0,
+        )
+        assert [dict(r) for r in await db.query(gld)] == spliced
+        assert "GLD" in inventory["tickers_skipped"]
+        assert "GLD" not in inventory["authoritative_write_shortfalls"]
+    finally:
+        await db.close()
