@@ -34,10 +34,8 @@ changes (plan, last paragraph).
   told without `seed.py` running.
 - [x] **6.4 Legacy floors to 0.05 — code.** The 10 seed invariants use
   `VISIBILITY_FLOOR`.
-- [ ] **6.4 Legacy floors — live database.** The 10 rows keep 0.20/0.35/0.40
-  until the seed is re-run; their weights follow at the next weekly
-  `invariant-weights` step. Check afterwards:
-  `SELECT COUNT(*) FROM invariant WHERE floor_weight != 0.05` → 0.
+- [x] **6.4 Legacy floors — live database.** Re-seeded 2026-10-04: no row
+  with `floor_weight != 0.05`.
 - [x] **6.5 Justifications that are no longer true.** `planner/baseline.py`,
   `mechanical/gates.py` (re-measured figures), `AuthorBand` and `AUTHOR_TIERS`
   in `writeback/knowledge.py`, `docs/EXAMPLE.md`, `docs/TASKS.md`,
@@ -53,9 +51,8 @@ changes (plan, last paragraph).
 
 ## Lot 1 — Define and date a piece of evidence (P1)
 
-Code done 2026-10-04, NOT YET DEPLOYED: the live database still has the old
-column and the running agent the old code. Deployment is one stop of the agent
-— backup, seed (which migrates and re-sweeps), restart.
+Code done and DEPLOYED 2026-10-04 (agent stopped, backup
+`investment.db.bak-pre-evidence-dates-20261004`, seed, agent restarted).
 
 - [x] **1.1 Two dates.** `invariant_confrontations.date` → `signal_date`, plus
   `available_at` (`RENAMED_COLUMNS` / `ADDED_COLUMNS` with a backfill:
@@ -81,16 +78,24 @@ column and the running agent the old code. Deployment is one stop of the agent
   confirmed, 5,038 refuted, 5,491 neutral, 808 no data — a third of all
   moments sit inside the margin. Old code and new code give IDENTICAL counts
   and verdicts on the same data, so the change of code moves nothing.
-- [ ] **What the re-sweep itself moves — owner to see before deployment.** The
-  stored records date from each invariant's birth and the data has moved since
-  (composite repair 2026-09-21, debt leg, 12 more weeks). Re-measured today, 71
-  invariants change counts and 9 change verdict: integrated 12 → 9
-  (`inv-high-inflation-equities` 30/16 → 28/18, `inv-gold-ratio-trend-tilt`
-  28/16 → 27/18, `01KZG80DPFB0Z72RMVTAB32BM9` 5/0 → 4/0, all to `proposed`),
-  and 6 `rejected` return to `proposed`. This is plan lesson 8 measured: a
-  birth record goes stale.
-- [ ] **Deploy.** Stop the agent, back up, run the seed, restart. Check:
-  `floor_weight != 0.05` → 0 rows; no NULL `available_at` or `definition`.
+- [x] **What the re-sweep itself moves — seen and accepted by the owner
+  ("needed to realign on the intention").** The stored records dated from each
+  invariant's birth and the data had moved since (composite repair 2026-09-21,
+  debt leg, 12 more weeks). On the core sample 71 invariants changed counts and
+  9 changed verdict: integrated 12 → 9 (`inv-high-inflation-equities` 30/16 →
+  28/18, `inv-gold-ratio-trend-tilt` 28/16 → 27/18,
+  `01KZG80DPFB0Z72RMVTAB32BM9` 5/0 → 4/0, all to `proposed`), and 6 `rejected`
+  returned to `proposed`. This is plan lesson 8 measured: a birth record goes
+  stale.
+- [x] **Deployed.** Live database after the seed: 9 integrated, 177 proposed,
+  69 rejected, 820 reference; 16,607 confrontations (5,320 confirmed, 5,032
+  refuted, 5,457 neutral, 787 no data, 11 evaluations), none with a NULL
+  `available_at` or `definition`; every invariant's stored count equals its
+  rows. The figures differ slightly from the core sample because the seed
+  refetched market data.
+- [ ] **Seen during the seed, not this plan's:** Yahoo returns nothing for
+  `^BCOM` (three attempts, six minutes), so the DBC splice is rejected and DBC
+  keeps its ETF-only history from 2006 — unchanged from before the seed.
 - [ ] **6.1 residue** — drop `system_thresholds.invariant_merge_threshold`.
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
