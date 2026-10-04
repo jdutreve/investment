@@ -1634,7 +1634,7 @@ removed the field, so completeness now means every REQUIRED key present, with
 - `outcomes.py` (weekly 08:52) — the unified improvement cycle's measuring
   arm (full spec in ARCHITECTURE): `evaluate_proposals()` (outcome verdicts
   at +proposal_outcome_weeks, net of replay_cost_bps, → OutcomeEvent
-  kind=proposal → Proposal.outcome + confrontations source='proposal';
+  kind=proposal → Proposal.outcome;
   weekly paper-test tracking from paper_started), `score_scenarios()`
   (calibration at +scenario_calibration_weeks → scenario_calibration docs +
   OutcomeEvent kind=calibration), `strategy_probation_check()` (FAVORS
@@ -2365,6 +2365,5 @@ matches the MILESTONES.md per-increment sum.
     proposal cycle when the report shows no net value-add on the validation
     window (override `--force-live`).
 13. A Proposal older than `proposal_outcome_weeks` carries an
-    `outcome.verdict` (won/lost), its cited invariants show a matching
-    `invariant_confrontations` row with `source='proposal'`, and the digest
+    `outcome.verdict` (won/lost), and the digest
     renders the scoreboard (hit-rate, paper-tests, probations).

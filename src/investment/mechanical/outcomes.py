@@ -8,8 +8,9 @@ Functions of the cycle:
   weeks` (12) is measured: the proposed allocation's synthetic-NAV return since
   `Proposal.date`, net of `replay_cost_bps x turnover`, vs the incumbent held.
   proposed > incumbent -> 'won'. The verdict lands as `Proposal.outcome` + an
-  OutcomeEvent, and CONFRONTS the invariants the proposal cited (source=
-  'proposal', via the proposal_cites relation / a switch's BACKED_BY).
+  OutcomeEvent. It confronts no invariant: the only proposal written on the
+  live path is the market-signal decision, which cites none (ADR-012), and a
+  won portfolio would not demonstrate each claim it leaned on anyway.
 - `strategy_probation_check()` — INNOVATION-born strategies (`status='proposed'`)
   judged on their FAVORS standing in the current regime at
   +strategy_probation_weeks, and the verdict APPLIED: 'keep' activates the vertex
@@ -42,7 +43,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from ulid import ULID
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
@@ -51,11 +51,6 @@ from investment.mechanical.gates import (
     allocation_well_formed,
     concentration_ok,
     effective_caps,
-)
-from investment.mechanical.invariants import (
-    REFERENCE_STATUS,
-    restate_invariant,
-    stored_definition,
 )
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 
@@ -277,90 +272,11 @@ async def _proposed_allocation(db: InvestmentDB, proposal: dict[str, Any]) -> di
     return {str(k): float(v) for k, v in parsed.items()}
 
 
-async def _cited_invariants(db: InvestmentDB, proposal: dict[str, Any]) -> list[str]:
-    """The invariants a Proposal leaned on (docs/ARCHITECTURE.md confrontation
-    rule, FROM PROPOSALS): a SWITCH's are the challenger portfolio's BACKED_BY
-    invariants (challenger -> holds -> strategy -> backed_by); every other kind
-    reads the `proposal_cites` relation written at commit.
-
-    The branch is keyed on `proposal_type == 'switch'`, not on `== 'reallocation'`
-    — ADR-008 added a third type, and a market-signal proposal has a NULL
-    `challenger_id`, so the old else-branch would have queried `holds` for
-    `challenger_id IS NULL`, returned nothing, and silently skipped the
-    confrontation instead of reading its (empty) citation set. Same answer today,
-    since a market-signal decision cites nothing (writeback `market_signal_gates`),
-    but for the wrong reason — and the wrong reason is what breaks when a fourth
-    type arrives."""
-    pid = str(proposal["id"])
-    if proposal["proposal_type"] == "switch":
-        rows = await db.query(
-            "SELECT DISTINCT b.invariant_id FROM holds h "
-            "JOIN backed_by b ON b.strategy_id = h.strategy_id WHERE h.portfolio_id = :c",
-            c=str(proposal["challenger_id"]),
-        )
-    else:
-        rows = await db.query(
-            "SELECT invariant_id FROM proposal_cites WHERE proposal_id = :id", id=pid
-        )
-    return [str(r["invariant_id"]) for r in rows]
-
-
-async def _confront_cited(
-    db: InvestmentDB,
-    proposal: dict[str, Any],
-    won: bool,
-    thresholds: dict[str, float],
-    today: date,
-) -> None:
-    """source='proposal' confrontations (docs/ARCHITECTURE.md: "won -> confirmation
-    for each qualifying cited invariant; lost -> infirmation"). Called inside
-    `_evaluate_one`'s transaction. The reallocation's cited invariants were
-    proven condition-ACTIVE by gate 6 at proposal time, so they qualify by
-    construction; a per-window as-of re-check is a refinement (deferred).
-    Standing moves through the SAME `restate_invariant` primitive as every other
-    source."""
-    pid = str(proposal["id"])
-    cited = await _cited_invariants(db, proposal)
-    if not cited:
-        return
-    verdict_tag = "confirmed" if won else "refuted"
-    placeholders = ",".join(f":i{n}" for n in range(len(cited)))
-    params = {f"i{n}": iid for n, iid in enumerate(cited)}
-    rows = await db.query(
-        f"SELECT id, condition, effect FROM invariant WHERE id IN ({placeholders}) "
-        "AND status != :reference",
-        reference=REFERENCE_STATUS,
-        **params,
-    )
-    for row in rows:
-        invariant_id = str(row["id"])
-        await db.command(
-            "INSERT INTO invariant_confrontations "
-            "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
-            " severity, source, source_id, definition) "
-            "VALUES (:id, :iid, :ctx, :signal_date, :available_at, :verdict, 1.0, 'proposal', "
-            " :src, :definition)",
-            id=str(ULID()),
-            iid=invariant_id,
-            ctx=f"proposal:{pid}",
-            # The two dates of this piece of evidence: the proposal cited the
-            # invariant the day it was made, and the verdict is known today,
-            # when its outcome window closes.
-            signal_date=str(proposal["created_at"])[:10],
-            available_at=today.isoformat(),
-            verdict=verdict_tag,
-            src=pid,
-            definition=stored_definition(row),
-        )
-        await restate_invariant(db, invariant_id, thresholds, today)
-
-
 async def _evaluate_one(
     db: InvestmentDB,
     proposal: dict[str, Any],
     cost_bps: float,
     horizon: timedelta,
-    thresholds: dict[str, float],
     today: date,
 ) -> ProposalOutcome:
     pid = str(proposal["id"])
@@ -410,8 +326,6 @@ async def _evaluate_one(
             when=today.isoformat(),
             id=pid,
         )
-        # Close the loop: confront the invariants the proposal cited (same txn).
-        await _confront_cited(db, proposal, v == "won", thresholds, today)
     return ProposalOutcome(pid, v, proposed_return, incumbent_return)
 
 
@@ -439,7 +353,7 @@ async def evaluate_proposals(db: InvestmentDB, today: date | None = None) -> lis
     )
     results = []
     for proposal in proposals:
-        results.append(await _evaluate_one(db, proposal, cost_bps, horizon, thresholds, today))
+        results.append(await _evaluate_one(db, proposal, cost_bps, horizon, today))
     return results
 
 

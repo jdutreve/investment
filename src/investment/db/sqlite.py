@@ -46,6 +46,7 @@ from investment.db.schema import (
     DOCUMENT_TABLES,
     DROPPED_COLUMNS,
     ENTITY_TABLES,
+    LATE_INDEXES,
     RELATION_TABLES,
     RENAMED_COLUMNS,
     SCHEMA_SQL,
@@ -136,6 +137,8 @@ class InvestmentDB:
                     self._con.execute(statement)
                 self._con.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
                 self._con.execute("COMMIT")
+        for statement in LATE_INDEXES:
+            self._con.execute(statement)
         self._columns_cache: dict[str, set[str]] = {}
         # Transaction-granularity serialization (see module docstring). The
         # owner task is tracked alongside the lock because the transaction's OWN

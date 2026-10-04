@@ -52,6 +52,7 @@ from investment.mechanical.gates import (
     weights_well_formed,
 )
 from investment.mechanical.invariants import (
+    CONFRONTATION_EVENT,
     REFERENCE_STATUS,
     is_absolute_claim,
     mature_seed_invariants,
@@ -93,7 +94,6 @@ PROPOSAL_EVENT = "ProposalEvent"
 # without that row the record would show only the months the stack moved, which
 # is precisely the evidence forward paper-mode is NOT allowed to lose.
 MARKET_SIGNAL_EVENT = "MarketSignalDecisionEvent"
-CONFRONTATION_EVENT = "ConfrontationEvent"
 EVALUATION_EVENT = "EvaluationEvent"
 SCENARIO_EVENT = "ScenarioEvent"
 INNOVATION_EVENT = "InnovationEvent"

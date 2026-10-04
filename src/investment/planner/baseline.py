@@ -36,12 +36,11 @@ from investment.mechanical.rule_revision import measured_verdicts
 # that gate, and the Worker cites nothing structurally any more. What remains is
 # what a weight can and cannot say. A 'proposed' invariant's `weight_effective`
 # is its starting BELIEF pulled toward a record that settled nothing, and a
-# reference note's is the belief alone: re-measured 2026-10-04, 65 of 169
-# 'proposed' and 410 of 820 notes weigh 0.60 or more, against 12 integrated.
-# Widening on weight would hand the reading mostly unmeasured belief, which is a
-# worse context, not a richer one — so the Worker still reads the corpus's
-# SETTLED knowledge. (The M8 figure this comment used to quote, 2 -> 218 of 253,
-# blamed an author-tier floor that was flattened to 0.05 on 2026-09-21.)
+# reference note's is the belief alone — and the heavy ones among them far
+# outnumber the integrated set. Widening on weight would hand the reading
+# mostly unmeasured belief, which is a worse context, not a richer one — so the
+# Worker still reads the corpus's SETTLED knowledge. (The measured counts are
+# dated records and live in docs/INVARIANT_IMPROVEMENT_PLAN.md, action 4.3.)
 BUCKET_K = 8
 INVARIANTS_CAP = 20
 RECENT_PROPOSALS = 3

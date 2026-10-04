@@ -394,11 +394,9 @@ def turnover_pct(current: Mapping[str, float], proposed: Mapping[str, float]) ->
 # resume if the cognitive path ever gets a measurable output to cite from
 # (docs/IMPROVEMENTS.md I-46): belief was never enough, history was. A high
 # `weight_effective` on a 'proposed' invariant is starting belief that no record
-# has yet replaced — re-measured 2026-10-04, 65 of 169 'proposed' weigh 0.60 or
-# more against 12 integrated — so weight alone admits belief, not evidence. (M8
-# first measured it as 2 -> 218 of 253, under an author-tier floor that was
-# flattened to 0.05 on 2026-09-21.) Any future citation channel inherits that
-# finding, not a fresh start.
+# has yet replaced, and the heavy 'proposed' ones outnumber the integrated set
+# several times over — so weight alone admits belief, not evidence. Any future
+# citation channel inherits that finding, not a fresh start.
 
 
 def _inadmissible(

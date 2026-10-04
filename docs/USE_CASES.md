@@ -60,6 +60,11 @@ alert. Times in ../CLAUDE.md are indicative.)
                               mechanical/momentum_minvar.py). A benchmark, no
                               decision and no gate; same category and same
                               reason for its position as the step above.
+  —    Benchmark valuations → benchmark_valuation + the derived signals
+                              (08:04, backtests.materialize_benchmark_valuation
+                              — the seed's step 10b, run weekly since
+                              2026-10-04). Closes the refresh block: the series
+                              an invariant's effect and condition are read on.
   UC2  (absorbed — see tombstone below)
   UC3  Event Watch          → Document(kind=event) deposits (pinned
                               official sources, LLM triage + enrichment)
@@ -645,8 +650,8 @@ If not warranted:
 Every Proposal is measured at `proposal_outcome_weeks` (12) by
 `evaluate_proposals()` (weekly 08:52): synthetic NAV of the proposed
 allocation vs the incumbent defender allocation since `Proposal.date`, net
-of costs → `outcome.verdict` 'won'/'lost' → invariant confrontations
-`source='proposal'`. Accepted paper-tests are tracked weekly from
+of costs → `outcome.verdict` 'won'/'lost' (it confronts no invariant since
+2026-10-04 — ARCHITECTURE "FROM PROPOSALS"). Accepted paper-tests are tracked weekly from
 `paper_started`. The digest scoreboard renders cumulative hit-rate —
 the live continuation of the Phase 9 replay metric. Full spec in
 ARCHITECTURE "Unified improvement cycle".

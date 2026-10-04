@@ -21,6 +21,8 @@ Nothing else in the suite touches the network: every other module runs against a
 real throwaway SQLite with synthetic market data (CLAUDE.md "Tests").
 """
 
+from datetime import date, timedelta
+
 import pytest
 
 from investment.corpus.embedding import InProcessEmbedder
@@ -67,7 +69,9 @@ async def give_invariant_a_record(
     the counts from the confrontations of the definition in force, so a count
     with no row behind it is overwritten by the first restatement. The rows are
     stamped with the invariant's own definition and dated in the past, outcome
-    already knowable."""
+    already knowable — one horizon apart, as the sweep spaces them: two
+    mechanical confrontations of one definition cannot share a signal date
+    (`schema.LATE_INDEXES`)."""
     row = (await db.query("SELECT condition, effect FROM invariant WHERE id = :i", i=invariant_id))[
         0
     ]
@@ -75,9 +79,11 @@ async def give_invariant_a_record(
         await db.command(
             "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
             "signal_date, available_at, verdict, severity, source, definition) VALUES "
-            "(:id, :i, 'fixture', '2020-01-01', '2020-03-25', :v, 1.0, 'backtest', :d)",
+            "(:id, :i, 'fixture', :signal_date, :available_at, :v, 1.0, 'backtest', :d)",
             id=f"{invariant_id}-record-{n}",
             i=invariant_id,
+            signal_date=(date(2020, 1, 1) + timedelta(weeks=12 * n)).isoformat(),
+            available_at=(date(2020, 1, 1) + timedelta(weeks=12 * (n + 1))).isoformat(),
             v=verdict,
             d=stored_definition(row),
         )

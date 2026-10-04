@@ -429,8 +429,7 @@ Proposal {
   outcome             : MAP     -- {proposed_return, incumbent_return,
                                 --   verdict: 'won'|'lost'|'pending'} — written
                                 --   by evaluate_proposals() at
-                                --   proposal_outcome_weeks (12); drives
-                                --   confrontations source='proposal'
+                                --   proposal_outcome_weeks (12)
                                 --   (ARCHITECTURE "Unified improvement cycle")
   evaluated_at        : DATE    -- when outcome verdict was computed
   trace               : STRING  -- MANDATORY
@@ -740,9 +739,10 @@ Passage -[SUPPORTS]-> Invariant
 Proposal -[CITES]-> Invariant
   -- The invariants a REALLOCATION cited (the Worker's supporting_invariants),
   --   written by Writeback when gate 6 admits them. A RELATION and not a
-  --   column, so `outcomes.evaluate_proposals` can read the cited set back at
-  --   +12w and confront each one (source='proposal'), and the digest can join
-  --   it. A SWITCH proposal derives its citations from the challenger's
+  --   column, so the cited set could be read back at +12w and the digest
+  --   could join it. NOTHING READS OR WRITES IT since 2026-10-04: the
+  --   confrontation of cited invariants went with its last possible writer
+  --   (ADR-012; docs/INVARIANT_TASKS.md 5.2). A SWITCH proposal derives its citations from the challenger's
   --   BACKED_BY instead, so this table carries reallocation citations only —
   --   and since ADR-012 removed the cognitive reallocation, nothing live
   --   writes it; the retained bridge's replay is its remaining reader.
@@ -1071,7 +1071,10 @@ CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
 -- verdict STRING ('confirmed'|'refuted'|'neutral'|'no_data'), severity FLOAT,
 --   -- only confirmed/refuted count in N. 'neutral' = measured, inside the
 --   --   margin; 'no_data' = not measurable. Stored so coverage is reportable.
--- source STRING ('backtest'|'evaluation'|'proposal'|'adaptation' (V2)),
+-- source STRING ('backtest'|'forward'|'evaluation'|'adaptation' (V2)),
+--   -- 'backtest' and 'forward' are the two MECHANICAL sources (the birth
+--   --   sweep and its weekly continuation): unique per (invariant, source,
+--   --   signal_date, definition), and replaced together by a re-sweep.
 -- source_id STRING,
 -- definition STRING
 --   -- fingerprint of the (condition, effect) the row TESTED. An invariant's
@@ -1104,7 +1107,8 @@ CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
 --   --   protected/cash, never vs 'gold-commodities'. This is what lets a
 --   --   single-asset claim ("gold outperforms across asset classes") be
 --   --   scored on gold rather than on a GLD+DJP+DBC blend.
---   -- Rebuilt over 35y at seed, extended weekly.
+--   -- Rebuilt over 35y at seed, extended weekly by the chain's
+--   --   `benchmark-valuations` step (same call as the seed's).
 
 CREATE TABLE IF NOT EXISTS portfolio_weekly_snapshot (...);
 -- date DATE, portfolio_id STRING (unique index on (date, portfolio_id)),

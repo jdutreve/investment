@@ -1605,7 +1605,7 @@ them is what the owner still has to decide:
   longer has. `gates.cited_invariant_eligible` (gate 6) has no caller;
   `decision_cycle._not_citable_because` exists only to render those flags; and
   nothing writes `proposal_cites` on the live path, so `outcomes._confront_cited`
-  now confronts nothing there. Either citation is dead and all of it goes, or it
+  confronted nothing there (deleted 2026-10-04, docs/INVARIANT_TASKS.md 5.2). Either citation is dead and all of it goes, or it
   is re-pointed at `innovations_proposed` — which would give ADR-006 back a
   confrontation source the live path has silently lost.
 - OPEN: five spec documents (ARCHITECTURE, USE_CASES, DATA_MODELS, TASKS,

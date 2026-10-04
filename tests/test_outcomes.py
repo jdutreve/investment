@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from conftest import give_invariant_a_record
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import outcomes
@@ -53,13 +52,6 @@ async def _seed_common(db: InvestmentDB) -> None:
     for key, value in (
         ("proposal_outcome_weeks", 12.0),
         ("replay_cost_bps", 10.0),
-        # what `restate_invariant` reads to give a cited invariant its verdict
-        ("invariant_min_confrontations", 3.0),
-        ("invariant_time_validation_score", 0.6),
-        ("invariant_refuted_min_confrontations", 4.0),
-        ("invariant_refuted_score", 0.35),
-        ("invariant_verdict_confidence", 0.95),
-        ("invariant_null_score", 0.5),
     ):
         await cmd(
             "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",
@@ -220,41 +212,6 @@ async def test_a_proposal_before_its_window_is_left_pending(db: InvestmentDB) ->
     row = (await db.query("SELECT outcome, evaluated_at FROM proposal WHERE id='p-young'"))[0]
     assert row["outcome"] is None
     assert row["evaluated_at"] is None
-
-
-async def test_won_reallocation_confirms_its_cited_invariants(db: InvestmentDB) -> None:
-    # a reallocation into the rising asset, citing an invariant via proposal_cites
-    await db.command(
-        "INSERT INTO invariant (id, title, description, source, status, condition, "
-        "weight_initial, floor_weight, weight_effective, confirmation_count, infirmation_count, "
-        "market_score, trace, created_at, updated_at) VALUES ('inv-c', 't', 'd', 's', "
-        "'integrated', '[]', 0.6, 0.2, 0.6, 4, 1, 0.8, 'tr', '2026-01-01', '2026-01-01')"
-    )
-    await give_invariant_a_record(db, "inv-c", confirmed=4, refuted=1)
-    await _add_proposal(db, "p-cite", "reallocation", START, proposed_allocation='{"SPY": 100}')
-    await db.command(
-        "INSERT INTO proposal_cites (proposal_id, invariant_id) VALUES ('p-cite', 'inv-c')"
-    )
-    (res,) = await outcomes.evaluate_proposals(db, today=TODAY)
-    assert res.verdict == "won"  # SPY beats flat TLT defender
-    inv = (
-        await db.query(
-            "SELECT confirmation_count, market_score, status FROM invariant WHERE id='inv-c'"
-        )
-    )[0]
-    assert inv["confirmation_count"] == 5  # 4 -> 5, a won proposal confirms its citation
-    assert inv["market_score"] == pytest.approx(5 / 6)
-    # The verdict is restated with the counts, not left as the fixture stamped
-    # it: 5 of 6 is something a coin does 11% of the time, so 'integrated' goes.
-    assert inv["status"] == "proposed"
-    conf = await db.query(
-        "SELECT verdict, source_id, signal_date, available_at FROM invariant_confrontations "
-        "WHERE invariant_id='inv-c' AND source = 'proposal'"
-    )
-    assert conf[0]["verdict"] == "confirmed"
-    assert conf[0]["source_id"] == "p-cite"
-    # two dates: cited when the proposal was made, known when its window closed
-    assert conf[0]["signal_date"] < conf[0]["available_at"] == TODAY.isoformat()
 
 
 async def test_paper_tracking_prices_a_market_signal_test_against_what_was_held(

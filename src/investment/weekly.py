@@ -42,11 +42,15 @@ from investment.gmail.render import collect_live_trend_snapshot, render_digest_h
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
 from investment.mechanical.attribution import run_signal_attribution
-from investment.mechanical.backtests import run_backtests_and_favors
+from investment.mechanical.backtests import (
+    materialize_benchmark_valuation,
+    run_backtests_and_favors,
+)
 from investment.mechanical.catchup import run_catchup
+from investment.mechanical.invariants import confront_completed_moments
 from investment.mechanical.momentum_minvar import run_aaaf_r_cycle
 from investment.mechanical.outcomes import evaluate_proposals, strategy_probation_check
-from investment.mechanical.ratios import value_portfolios
+from investment.mechanical.ratios import TRADING_DAYS_PER_WEEK, value_portfolios
 from investment.mechanical.scenarios import warm_start_scenario_probabilities
 from investment.mechanical.snapshots import build_snapshot
 from investment.ops.run_lock import AlreadyRunning
@@ -300,6 +304,26 @@ def weekly_steps(
         # no gate, no proposal, just a weekly NAV refresh, same category as the
         # market-signal step above and placed right beside it for that reason.
         ("aaaf-r", lambda: run_aaaf_r_cycle(db, today=today)),
+        # LAST OF THE REFRESH BLOCK: the series every invariant is measured on
+        # — the benchmark valuations an effect is read against, and the derived
+        # signals (real rates, broad money, equity trend, gold deviation) a
+        # condition reads. After the three NAV producers because the strategy
+        # benchmarks are built from `portfolio_nav`.
+        #
+        # ONLY THE SEED WROTE THEM until 2026-10-04, so both stood still between
+        # two seeds: no outcome window ever completed, which is why an
+        # invariant's mechanical record stopped the day it was born, and
+        # "is this condition active today?" was answered on the derived signals
+        # of the last seed. Same call as the seed's step 10b, on the same
+        # window — the confrontation horizon, not the ranking window.
+        (
+            "benchmark-valuations",
+            lambda: materialize_benchmark_valuation(
+                db,
+                int(thresholds["proposal_outcome_weeks"] * TRADING_DAYS_PER_WEEK),
+                int(thresholds["derivative_lookback_short"]),
+            ),
+        ),
         ("event-watch", event_watch),
         # 08:10. Free on a stable corpus — the checkpoint answers "already
         # curated" without an LLM call — and the retry path for an ingestion
@@ -307,6 +331,12 @@ def weekly_steps(
         ("curation", lambda: sweep_corpus(db, settings, embedder=runtime.embedder)),
         ("backtests", lambda: run_backtests_and_favors(db, window, today=today)),
         ("scenarios", lambda: warm_start_scenario_probabilities(db, today=today)),
+        # Before `invariant-weights`, which restates every invariant on whatever
+        # rows it finds. NOT in `as_of_cycle`, and that is the one exception to
+        # "a step added here belongs there too": an as-of snapshot keeps the
+        # confrontations whose outcome was knowable at t, and the birth sweep
+        # already holds every such moment — there is nothing forward of it.
+        ("invariant-forward", lambda: confront_completed_moments(db, today)),
         ("invariant-weights", lambda: reweigh_invariants_asof(db, today, thresholds)),
         ("valuations", lambda: value_portfolios(db, window)),
         ("ranking", lambda: build_snapshot(db, thresholds["ranking_tiebreak_window"], today)),

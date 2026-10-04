@@ -21,8 +21,7 @@ Every improvable resource (Proposal, Invariant, Strategy, scenario
 probabilities, thresholds) follows the same loop: **measure current
 performance → propose → mechanical maturation window → adopt or reject** —
 fully mechanical, no user gate (ADR-006). Proposals get an outcome verdict at +12 weeks
-(won/lost vs the incumbent, feeding invariant confrontations
-`source='proposal'`); new/revised strategies run a 12-week probation;
+(won/lost vs the incumbent); new/revised strategies run a 12-week probation;
 scenario probabilities are calibration-scored; thresholds are calibrated by
 the Phase 9 walk-forward replay. The weekly digest scoreboard renders these
 measurements — week-over-week improvement is measured, not asserted. Spec

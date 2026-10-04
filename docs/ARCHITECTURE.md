@@ -407,12 +407,33 @@ blend, not confrontation):
   "Once" means ONCE PER DEFINITION, keyed on a fingerprint of
   (i.condition, i.effect): both are mutable — the seed rewrites them on every
   run and M7's consolidation revises them — and a verdict belongs to the
-  definition it was earned under. An EDIT re-sweeps (replacing its own prior
-  source='backtest' rows; evaluation/proposal rows are forward evidence and
-  survive); an unchanged definition still skips. Keyed on "was ever matured"
+  definition it was earned under. An EDIT re-sweeps (replacing every
+  MECHANICAL row of the invariant, source='backtest' and source='forward';
+  evaluation rows are readings and survive); an unchanged definition still
+  skips. Keyed on "was ever matured"
   instead, an edited invariant keeps a score measured against its old
   condition: rewriting the gold invariant's condition to one that can never
   fire preserved 0.646/INTEGRATED, citable by gate 6 (M5).
+
+FORWARD (source='forward') — the same measurement, continued after birth:
+  Run by confront_completed_moments() (weekly step `invariant-forward`, before
+  the restatement). The birth sweep covers everything up to the day it runs;
+  from then on, each week:
+    - a moment the birth sweep sampled and left 'no_data' because its window
+      was still open is confronted once that window completes;
+    - the sampler RESUMES one horizon after the last stored moment, so the
+      windows stay disjoint from one week to the next.
+  A moment is written ONCE, when its window completes — never before, not even
+  as a placeholder. Unique on (invariant, source, signal_date, definition).
+  BASELINE: the no-condition null as it stood the day the window completed
+  (frames bounded at signal_date + horizon), not the whole sample — the birth
+  sweep may look back with everything known today, a forward moment may not
+  look ahead (owner decision D1, 2026-10-04). Bounded on the moment's own
+  date, so a sweep catching up after weeks asleep writes what the weekly
+  sweeps would have.
+  PREREQUISITE: the weekly `benchmark-valuations` step, which extends
+  benchmark_valuation and the derived signals. Until 2026-10-04 only the seed
+  wrote them, so no window ever completed between two seeds.
 
 FROM EVALUATIONS (source='evaluation'):
   CONDITION GATE — confront ONLY invariants whose `condition` was ACTIVE at
@@ -424,15 +445,11 @@ FROM EVALUATIONS (source='evaluation'):
     verdict='invalidates'  → infirmation (severity=1.0)
     'weakens' | 'neutral'  → no count change
 
-FROM PROPOSALS (source='proposal') — closes the loop on emitted proposals:
-  Run by evaluate_proposals() (weekly 08:52 — see "Unified improvement
-  cycle" below). When a Proposal reaches proposal_outcome_weeks (12) of age:
-  CONDITION GATE — of the cited invariants (reallocation: supporting_invariants;
-  switch: the challenger's BACKED_BY invariants), confront ONLY those whose
-  `condition` was active during the outcome window [Proposal.date, +12w]
-  ('always' always qualifies).
-    verdict='won'  → confirmation for each qualifying cited invariant (severity=1.0)
-    verdict='lost' → infirmation, severity=1.0
+FROM PROPOSALS — REMOVED 2026-10-04. A Proposal's +12w verdict used to
+  confirm or refute each invariant it cited. Since ADR-012 the only proposal
+  written on the live path is the market-signal decision, which cites nothing,
+  so the source had no writer; and a won portfolio does not demonstrate each
+  claim it leaned on. evaluate_proposals() still gives the Proposal its verdict.
 
 Each confrontation: append an invariant_confrontations row carrying its TWO
 dates (signal_date, available_at) and the `definition` it tested →
@@ -707,7 +724,6 @@ evaluate_proposals():
     outcome = {proposed_return, incumbent_return,
                verdict: 'won' if proposed > incumbent else 'lost'}
     → OutcomeEvent (kind=proposal) → Proposal.outcome + evaluated_at
-    → invariant confrontations source='proposal' (rule above)
   Accepted paper-tests (paper_started set) are additionally tracked EVERY
   week from paper_started and rendered in the digest scoreboard.
 

@@ -138,9 +138,13 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   monthly cadence needs no separate schedule. It refreshes the stack's
   `portfolio_nav` on EVERY run, before that monthly check — the NAV is a weekly
   artefact feeding the ranking and the drawdown alert, only the DECISION is
-  monthly) → 08:03 AAAF-R NAV refresh → 08:05 UC3 event watch →
+  monthly) → 08:03 AAAF-R NAV refresh → 08:04 benchmark valuations + derived
+  signals (the series every invariant is measured on; seed-only until
+  2026-10-04) → 08:05 UC3 event watch →
   08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
-  probabilities → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
+  probabilities → 08:38 invariant forward sweep (`source='forward'`: every
+  moment whose 12-week window has completed since the last sweep, confronted
+  once) → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
   ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 08:54
   signal attribution (`mechanical/attribution.py` — the ADOPTED strategy's own
   measurement: the stack against its CONTROL ARM `ms-trend-baseline` and against
@@ -158,6 +162,8 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   best-effort, never able to abort the chain). Full annotated timeline:
   docs/USE_CASES.md.
   **THE REFRESH BLOCK IS THE FIRST THREE STEPS, and the order is load-bearing.**
+  (A fourth step closes the block since 2026-10-04 — `benchmark-valuations`,
+  which reads the NAV and must follow all three.)
   catch-up rebuilds the STATIC portfolios' NAV and deliberately skips
   `seed_data.TIME_VARYING_PORTFOLIOS`; the market-signal and AAAF-R steps are the
   producers of those three series (`ms-stack`, `ms-trend-baseline`,

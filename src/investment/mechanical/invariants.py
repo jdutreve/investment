@@ -31,6 +31,7 @@ disjointness) and a thin async DB layer that reads `market_data` /
 import dataclasses
 import hashlib
 import json
+import logging
 import math
 import operator
 from collections.abc import Callable, Mapping
@@ -51,6 +52,8 @@ from investment.mechanical.backtests import (
     BENCHMARK_METRICS,
     investable_tickers,
 )
+
+logger = logging.getLogger(__name__)
 
 _OPS: dict[str, Callable[[Any, Any], Any]] = {
     "<": operator.lt,
@@ -330,6 +333,18 @@ CONFIRMED, REFUTED = "confirmed", "refuted"
 NEUTRAL = "neutral"  # measured, and inside the margin band
 NO_DATA = "no_data"  # not measurable: a missing series or an incomplete window
 COUNTED_VERDICTS = (CONFIRMED, REFUTED)
+
+# The two MECHANICAL sources of a confrontation: a defined effect measured over
+# a completed window. The birth sweep looks back over the whole history; the
+# forward sweep confronts, week after week, the moments whose window has
+# completed since. Both are re-derivable from the data, which is why a re-sweep
+# may replace them — and the other sources (a reading, a proposal outcome) are
+# not.
+BIRTH_SOURCE = "backtest"
+FORWARD_SOURCE = "forward"
+
+CONFRONTATION_EVENT = "ConfrontationEvent"
+SOURCE_UC = "invariant-forward"
 
 
 def confront_moment(
@@ -1051,15 +1066,21 @@ async def _persist_maturation(
     returned — one transaction."""
     today = date.today()
     async with db.transaction():
-        # The birth sweep REPLACES its own prior output: re-maturing an edited
-        # definition must not stack new confirmations on top of rows measured
-        # against the old condition. Only source='backtest' (this sweep) is
-        # cleared — a forward confrontation is not ours to discard, and it no
-        # longer needs discarding: it carries the definition it tested, and
+        # The sweep REPLACES every mechanical row, the forward ones included.
+        # It runs again for one of three reasons — the definition was edited,
+        # the rule changed (margin, horizon), or the data was repaired — and
+        # each makes a forward row stale in the same way as a birth row: it
+        # answers a question that is no longer the one asked. The sweep covers
+        # those dates again, so keeping them would count one moment twice.
+        # A reading or a proposal outcome is not ours to discard, and needs no
+        # discarding: it carries the definition it tested, and
         # `restate_invariant` counts the current one only.
         await db.command(
-            "DELETE FROM invariant_confrontations WHERE invariant_id = :id AND source = 'backtest'",
+            "DELETE FROM invariant_confrontations "
+            "WHERE invariant_id = :id AND source IN (:birth, :forward)",
             id=invariant_id,
+            birth=BIRTH_SOURCE,
+            forward=FORWARD_SOURCE,
         )
         # Forward rows written before `definition` existed (ADDED_COLUMNS,
         # 2026-10-04) carry NULL. Nothing recorded which definition they
@@ -1103,6 +1124,104 @@ async def _persist_maturation(
 
 
 @dataclasses.dataclass(frozen=True)
+class MeasurementInputs:
+    """Everything a sweep reads to measure an invariant, loaded once for all of
+    them: the rule, the condition's signals on one daily calendar, and the
+    benchmark series an effect is read against. Shared by the birth sweep and
+    the forward sweep so that the two cannot measure one claim two ways."""
+
+    thresholds: dict[str, float]
+    horizon: pd.Timedelta
+    signal_frames: dict[str, pd.DataFrame]
+    regime_type_series: pd.Series
+    benchmark_asset_class: dict[str, pd.DataFrame]
+    benchmark_strategy: dict[str, pd.DataFrame]
+    benchmark_asset: dict[str, pd.DataFrame]
+    asset_to_class: dict[str, str]
+    registries: Registries
+
+
+async def _load_measurement_inputs(
+    db: InvestmentDB, invariant_rows: list[dict[str, Any]]
+) -> MeasurementInputs:
+    threshold_rows = await db.query("SELECT key, value FROM system_thresholds")
+    thresholds = {r["key"]: r["value"] for r in threshold_rows}
+    # The effect is measured over the horizon FOLLOWING a condition-moment;
+    # reusing proposal_outcome_weeks keeps the two confrontation sources
+    # (backtest here, proposal in outcomes.py at M8) on ONE horizon, so their
+    # verdicts mean the same thing.
+    horizon = pd.Timedelta(weeks=thresholds["proposal_outcome_weeks"])
+
+    asset_to_class = await investable_tickers(db)
+    registries = Registries(
+        signals=set(SIGNAL_ALIASES),
+        asset_classes=set(BENCHMARK_CLASSES),
+        strategies={str(r["id"]) for r in await db.query("SELECT id FROM strategy")},
+        assets=set(asset_to_class),
+        regime_types={str(r["id"]) for r in await db.query("SELECT id FROM regime_type")},
+    )
+
+    needed_aliases: set[str] = set()
+    for inv in invariant_rows:
+        condition = json.loads(inv["condition"]) if inv["condition"] else []
+        needed_aliases.update(p["signal"] for p in condition if p["signal"] != "regime")
+    signal_frames = {
+        alias: await _signal_frame(db, SIGNAL_ALIASES[alias])
+        for alias in needed_aliases
+        if alias in SIGNAL_ALIASES
+    }
+    signal_frames, regime_type_series = _align_daily(signal_frames, await _regime_type_series(db))
+
+    return MeasurementInputs(
+        thresholds=thresholds,
+        horizon=horizon,
+        signal_frames=signal_frames,
+        regime_type_series=regime_type_series,
+        benchmark_asset_class=await _benchmark_frames(db, BENCHMARK_KIND_ASSET_CLASS),
+        benchmark_strategy=await _benchmark_frames(db, BENCHMARK_KIND_STRATEGY),
+        benchmark_asset=await _benchmark_frames(db, BENCHMARK_KIND_ASSET),
+        asset_to_class=asset_to_class,
+        registries=registries,
+    )
+
+
+def _benchmark_for(
+    effect: dict[str, Any], inputs: MeasurementInputs
+) -> tuple[pd.DataFrame | None, dict[str, pd.DataFrame]]:
+    """The handle's own series and the series it is compared against."""
+    method, handle = effect["method"], effect["handle"]
+    handle_id = _handle_id(handle)
+    if method == "cross_strategy" or (method == "absolute" and handle.startswith("strategy:")):
+        strategies = inputs.benchmark_strategy
+        return strategies.get(handle_id), {b: f for b, f in strategies.items() if b != handle_id}
+    classes = inputs.benchmark_asset_class
+    if handle.startswith("asset:"):
+        # An asset is compared against the OTHER classes — excluding the one
+        # it belongs to, which contains it (GLD vs 'gold-commodities' would
+        # be partly GLD against itself, and against DJP, which the invariant
+        # does not claim anything about).
+        own_class = inputs.asset_to_class.get(handle_id)
+        return inputs.benchmark_asset.get(handle_id), {
+            b: f for b, f in classes.items() if b != own_class
+        }
+    return classes.get(handle_id), {b: f for b, f in classes.items() if b != handle_id}
+
+
+def _condition_active(
+    condition: list[dict[str, Any]], own_frame: pd.DataFrame, inputs: MeasurementInputs
+) -> pd.Series:
+    """The daily 'condition holds' series a sweep samples its moments from."""
+    if is_absolute_claim(condition):
+        # 'always' is just a condition active on every date — same sampler,
+        # no special case (and no cliff between it and a near-always
+        # condition; see `sample_moments`).
+        return pd.Series(True, index=own_frame.index)
+    needed = {p["signal"] for p in condition if p["signal"] != "regime"}
+    frames = {s: inputs.signal_frames[s] for s in needed if s in inputs.signal_frames}
+    return evaluate_condition(condition, frames, inputs.regime_type_series)
+
+
+@dataclasses.dataclass(frozen=True)
 class MaturationResult:
     invariant_id: str
     confirmations: int
@@ -1127,18 +1246,11 @@ class MaturationResult:
 async def _mature_one(
     db: InvestmentDB,
     inv: dict[str, Any],
-    signal_frames: dict[str, pd.DataFrame],
-    regime_type_series: pd.Series,
-    benchmark_asset_class: dict[str, pd.DataFrame],
-    benchmark_strategy: dict[str, pd.DataFrame],
-    benchmark_asset: dict[str, pd.DataFrame],
-    asset_to_class: dict[str, str],
-    registries: Registries,
-    thresholds: dict[str, float],
-    horizon: pd.Timedelta,
+    inputs: MeasurementInputs,
     remeasure_on_changed_data: bool,
 ) -> MaturationResult:
     invariant_id = str(inv["id"])
+    registries, thresholds, horizon = inputs.registries, inputs.thresholds, inputs.horizon
     condition = json.loads(inv["condition"]) if inv["condition"] else []
     effect = json.loads(inv["effect"]) if inv["effect"] else None
 
@@ -1185,35 +1297,12 @@ async def _mature_one(
 
     method = effect["method"]
     handle = effect["handle"]
-    handle_id = _handle_id(handle)
-    if method == "cross_strategy" or (method == "absolute" and handle.startswith("strategy:")):
-        own_frame = benchmark_strategy.get(handle_id)
-        others = {bid: f for bid, f in benchmark_strategy.items() if bid != handle_id}
-    elif handle.startswith("asset:"):
-        # An asset is compared against the OTHER classes — excluding the one
-        # it belongs to, which contains it (GLD vs 'gold-commodities' would
-        # be partly GLD against itself, and against DJP, which the invariant
-        # does not claim anything about).
-        own_frame = benchmark_asset.get(handle_id)
-        own_class = asset_to_class.get(handle_id)
-        others = {bid: f for bid, f in benchmark_asset_class.items() if bid != own_class}
-    else:
-        own_frame = benchmark_asset_class.get(handle_id)
-        others = {bid: f for bid, f in benchmark_asset_class.items() if bid != handle_id}
+    own_frame, others = _benchmark_for(effect, inputs)
     if own_frame is None or own_frame.empty or not others:
         await _force_uncertified(db, invariant_id, f"no benchmark for handle {handle!r}")
         return MaturationResult(invariant_id, 0, 0, 0, 1.0, "proposed", "no_benchmark")
 
-    if is_absolute_claim(condition):
-        # 'always' is just a condition active on every date — same sampler,
-        # no special case (and no cliff between it and a near-always
-        # condition; see `sample_moments`).
-        active = pd.Series(True, index=own_frame.index)
-    else:
-        needed = {p["signal"] for p in condition if p["signal"] != "regime"}
-        frames_for_condition = {s: signal_frames[s] for s in needed if s in signal_frames}
-        active = evaluate_condition(condition, frames_for_condition, regime_type_series)
-    moment_dates = sample_moments(active, horizon)
+    moment_dates = sample_moments(_condition_active(condition, own_frame, inputs), horizon)
 
     metric, direction = effect["metric"], effect["direction"]
     margin = margin_for_metric(metric, thresholds)
@@ -1257,7 +1346,7 @@ async def _mature_one(
                 "available_at": (moment_date + horizon).date().isoformat(),
                 "verdict": verdict,
                 "severity": 1.0 if verdict in COUNTED_VERDICTS else None,
-                "source": "backtest",
+                "source": BIRTH_SOURCE,
                 "source_id": None,
                 "definition": definition,
             }
@@ -1295,58 +1384,217 @@ async def mature_seed_invariants(
     was measured ON: when a price history is repaired (DJP, 2026-10-04 — a
     phantom -71% day sat in it for two weeks), the stored records are the
     answer to a question put to data that no longer exists."""
-    threshold_rows = await db.query("SELECT key, value FROM system_thresholds")
-    thresholds = {r["key"]: r["value"] for r in threshold_rows}
-    # The effect is measured over the horizon FOLLOWING a condition-moment;
-    # reusing proposal_outcome_weeks keeps the two confrontation sources
-    # (backtest here, proposal in outcomes.py at M8) on ONE horizon, so their
-    # verdicts mean the same thing.
-    horizon = pd.Timedelta(weeks=thresholds["proposal_outcome_weeks"])
-
     invariant_rows = await db.query("SELECT * FROM invariant ORDER BY id")
+    inputs = await _load_measurement_inputs(db, invariant_rows)
+    return [await _mature_one(db, inv, inputs, remeasure_on_changed_data) for inv in invariant_rows]
 
-    benchmark_asset_class = await _benchmark_frames(db, BENCHMARK_KIND_ASSET_CLASS)
-    benchmark_strategy = await _benchmark_frames(db, BENCHMARK_KIND_STRATEGY)
-    benchmark_asset = await _benchmark_frames(db, BENCHMARK_KIND_ASSET)
-    asset_to_class = await investable_tickers(db)
-    registries = Registries(
-        signals=set(SIGNAL_ALIASES),
-        asset_classes=set(BENCHMARK_CLASSES),
-        strategies={str(r["id"]) for r in await db.query("SELECT id FROM strategy")},
-        assets=set(asset_to_class),
-        regime_types={str(r["id"]) for r in await db.query("SELECT id FROM regime_type")},
-    )
-    regime_type_series = await _regime_type_series(db)
 
-    needed_aliases: set[str] = set()
-    for inv in invariant_rows:
-        condition = json.loads(inv["condition"]) if inv["condition"] else []
-        needed_aliases.update(p["signal"] for p in condition if p["signal"] != "regime")
-    signal_frames = {
-        alias: await _signal_frame(db, SIGNAL_ALIASES[alias])
-        for alias in needed_aliases
-        if alias in SIGNAL_ALIASES
-    }
-    signal_frames, regime_type_series = _align_daily(signal_frames, regime_type_series)
+@dataclasses.dataclass(frozen=True)
+class ForwardSweepResult:
+    """One weekly forward sweep. `waiting` is reported because it is the other
+    half of the count: a moment sampled and not yet confronted is the reason a
+    quiet week wrote nothing, and without it "nothing was due" and "nothing was
+    looked at" read the same."""
 
-    results = []
-    for inv in invariant_rows:
-        result = await _mature_one(
-            db,
-            inv,
-            signal_frames,
-            regime_type_series,
-            benchmark_asset_class,
-            benchmark_strategy,
-            benchmark_asset,
-            asset_to_class,
-            registries,
-            thresholds,
+    invariants_swept: int
+    invariants_confronted: int
+    confirmed: int
+    refuted: int
+    neutral: int
+    no_data: int
+    waiting: int  # moments whose outcome window has not completed yet
+
+
+def _baseline_knowable_at(
+    knowable: pd.Timestamp,
+    own_frame: pd.DataFrame,
+    others: dict[str, pd.DataFrame],
+    effect: dict[str, Any],
+    condition: list[dict[str, Any]],
+    horizon: pd.Timedelta,
+) -> float:
+    """The no-condition null AS IT STOOD the day a forward moment's window
+    completed (owner decision D1, 2026-10-04). The birth sweep takes its
+    baseline over the whole sample because it looks back; a forward moment is
+    judged when it happens, on what was known then. Bounded on the moment's own
+    date rather than on the day the chain ran, so that a sweep catching up
+    after three weeks asleep writes what three weekly sweeps would have."""
+    return baseline_excess(
+        _all_excess(
+            own_frame.loc[:knowable],
+            {bid: frame.loc[:knowable] for bid, frame in others.items()},
+            effect["metric"],
+            effect["method"],
             horizon,
-            remeasure_on_changed_data,
+        ),
+        condition,
+    )
+
+
+async def _forward_rows(
+    db: InvestmentDB, inv: dict[str, Any], inputs: MeasurementInputs
+) -> tuple[list[dict[str, Any]], int] | None:
+    """The confrontations one invariant has newly earned, and how many of its
+    moments are still waiting for their window. `None` when the forward sweep
+    has nothing to say about it: not measurable, or not yet swept at birth
+    under its current definition and rule (that sweep comes first, and covers
+    everything up to the day it runs)."""
+    invariant_id = str(inv["id"])
+    condition = json.loads(inv["condition"]) if inv["condition"] else []
+    effect = json.loads(inv["effect"]) if inv["effect"] else None
+    if effect is None or validate_invariant(condition, effect, inputs.registries) is not None:
+        return None
+    metric = effect["metric"]
+    fingerprint = maturation_fingerprint(condition, effect, verdict_rule(inputs.thresholds, metric))
+    if not await _already_matured(db, invariant_id, fingerprint):
+        return None
+    own_frame, others = _benchmark_for(effect, inputs)
+    if own_frame is None or own_frame.empty or not others:
+        return None
+
+    horizon = inputs.horizon
+    definition = definition_fingerprint(condition, effect)
+    stored = await db.query(
+        "SELECT signal_date, verdict, source FROM invariant_confrontations "
+        "WHERE invariant_id = :id AND definition = :definition "
+        "AND source IN (:birth, :forward) ORDER BY signal_date",
+        id=invariant_id,
+        definition=definition,
+        birth=BIRTH_SOURCE,
+        forward=FORWARD_SOURCE,
+    )
+
+    # TWO KINDS OF MOMENT ARE DUE. The birth sweep sampled up to the day it ran
+    # and stored its last moments as 'no_data', their window still open: those
+    # are taken up here once the window completes, and they are recognised by
+    # position — past the last moment that was measured — so that a moment
+    # unmeasurable for want of a series, decades back, is not asked again every
+    # week. Then the sampler RESUMES one horizon after the last stored moment,
+    # which is why every moment is stored, measured or not: the spacing that
+    # keeps the windows disjoint has to survive from one week to the next.
+    confronted_forward = {str(r["signal_date"]) for r in stored if r["source"] == FORWARD_SOURCE}
+    measured_dates = [str(r["signal_date"]) for r in stored if r["verdict"] != NO_DATA]
+    last_measured = max(measured_dates, default="")
+    left_open = [
+        pd.Timestamp(str(r["signal_date"]))
+        for r in stored
+        if r["source"] == BIRTH_SOURCE
+        and r["verdict"] == NO_DATA
+        and str(r["signal_date"]) > last_measured
+        and str(r["signal_date"]) not in confronted_forward
+    ]
+    active = _condition_active(condition, own_frame, inputs)
+    if stored:
+        last_stored = pd.Timestamp(max(str(r["signal_date"]) for r in stored))
+        active = active[active.index >= last_stored + horizon]
+    resumed = sample_moments(active, horizon)
+
+    direction = effect["direction"]
+    margin = margin_for_metric(metric, inputs.thresholds)
+    descriptor = condition_descriptor(condition)
+    data_reaches = own_frame.index.max()
+    rows: list[dict[str, Any]] = []
+    waiting = 0
+    for moment_date in [*left_open, *resumed]:
+        knowable = moment_date + horizon
+        if knowable > data_reaches:
+            # Not written: it is confronted ONCE, when its window completes.
+            waiting += 1
+            continue
+        excess = _excess_at(own_frame, others, metric, effect["method"], moment_date, horizon)
+        if excess is None and moment_date in left_open:
+            continue  # still not measurable, and already recorded as such
+        baseline = _baseline_knowable_at(knowable, own_frame, others, effect, condition, horizon)
+        verdict = confront_moment(excess, baseline, direction, margin)
+        rows.append(
+            {
+                "id": str(ULID()),
+                "invariant_id": invariant_id,
+                "moment_context": descriptor,
+                "signal_date": moment_date.date().isoformat(),
+                "available_at": knowable.date().isoformat(),
+                "verdict": verdict,
+                "severity": 1.0 if verdict in COUNTED_VERDICTS else None,
+                "source": FORWARD_SOURCE,
+                "source_id": None,
+                "definition": definition,
+            }
         )
-        results.append(result)
-    return results
+    return rows, waiting
+
+
+async def confront_completed_moments(db: InvestmentDB, today: date) -> ForwardSweepResult:
+    """The weekly FORWARD sweep (docs/ARCHITECTURE.md "Forward confrontation"):
+    every moment whose outcome window has completed since the last sweep is
+    confronted, once, and the invariants it touches are restated.
+
+    WHY IT EXISTS. "35 years at birth, then forward" was the stated intention
+    and only the first half was mechanical: a matured definition is skipped by
+    the birth sweep, the weekly restatement only recounts the rows it finds, so
+    an invariant's mechanical record stopped the day it was born and the only
+    evidence arriving afterwards was the Worker's reading.
+
+    Idempotent: a moment is written when its window completes and the sampler
+    resumes after the last one stored, so a second run finds nothing due — and
+    `ux_confrontation_mechanical_moment` refuses the row if it ever did.
+
+    Prerequisite: this week's `benchmark_valuation` rows and derived signals
+    (`backtests.materialize_benchmark_valuation`). On stale series nothing ever
+    completes."""
+    invariant_rows = await db.query(
+        "SELECT * FROM invariant WHERE status != :reference ORDER BY id",
+        reference=REFERENCE_STATUS,
+    )
+    inputs = await _load_measurement_inputs(db, invariant_rows)
+
+    rows: list[dict[str, Any]] = []
+    swept = waiting = 0
+    for inv in invariant_rows:
+        earned = await _forward_rows(db, inv, inputs)
+        if earned is None:
+            continue
+        swept += 1
+        rows.extend(earned[0])
+        waiting += earned[1]
+
+    tally = dict.fromkeys((CONFIRMED, REFUTED, NEUTRAL, NO_DATA), 0)
+    for row in rows:
+        tally[row["verdict"]] += 1
+    confronted = sorted({str(row["invariant_id"]) for row in rows})
+    result = ForwardSweepResult(
+        invariants_swept=swept,
+        invariants_confronted=len(confronted),
+        confirmed=tally[CONFIRMED],
+        refuted=tally[REFUTED],
+        neutral=tally[NEUTRAL],
+        no_data=tally[NO_DATA],
+        waiting=waiting,
+    )
+    logger.info("invariant forward sweep %s: %s", today, result)
+    if not rows:
+        return result
+
+    async with db.transaction():
+        # EventLog append precedes the writes it describes (CLAUDE.md "EventLog").
+        await db.append_event(
+            type=CONFRONTATION_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=None,
+            payload={"source": FORWARD_SOURCE, **dataclasses.asdict(result)},
+            event_date=today,
+        )
+        for row in rows:
+            await db.command(
+                "INSERT INTO invariant_confrontations "
+                "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
+                " severity, source, source_id, definition) "
+                "VALUES (:id, :invariant_id, :moment_context, :signal_date, :available_at, "
+                " :verdict, :severity, :source, :source_id, :definition)",
+                **row,
+            )
+        for invariant_id in confronted:
+            await restate_invariant(db, invariant_id, inputs.thresholds, today)
+    return result
 
 
 async def check_contradictions(db: InvestmentDB) -> list[ContradictionPair]:

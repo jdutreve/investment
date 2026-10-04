@@ -151,20 +151,53 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
 
-- [ ] **2.1 Weekly forward sweep.** A step `invariant-forward` before
-  `invariant-weights`: resume `sample_moments` from the last stored moment
-  (which is why 1.3 comes first), confront only windows that have completed,
-  against the baseline as it stands that day (D1). Own source `forward`; unique
-  on (invariant, source, signal_date, definition). Guarantee: two runs write
-  the same rows; mechanical confrontations no longer stop at 2026-07-03.
+- [x] **2.1 Weekly forward sweep.** `invariants.confront_completed_moments`,
+  step `invariant-forward` before `invariant-weights`. It takes up the moments
+  the birth sweep left open (stored `no_data`, window incomplete) once their
+  window completes, then resumes `sample_moments` one horizon after the last
+  stored moment. A moment is written once, when its window completes; its
+  baseline is bounded at `signal_date + horizon` (D1), so a catch-up after
+  weeks asleep writes what the weekly runs would have. Source `forward`;
+  `ux_confrontation_mechanical_moment` is unique on (invariant, source,
+  signal_date, definition) for the two mechanical sources. Guarantees tested
+  (`tests/test_invariant_forward.py`): measurement continues after birth, a
+  second run writes nothing, nothing is written before a window completes,
+  one catch-up equals thirty weekly runs, a re-sweep does not count a moment
+  twice.
+- [x] **2.1 — the cause found on the way: the series stood still.**
+  `benchmark_valuation` and the derived signals (real rates, broad money,
+  equity trend, gold deviation) were written by the seed ONLY. No window could
+  complete between two seeds — that, not the skipped re-sweep, is why
+  mechanical confrontations stopped at birth — and `active_invariant_ids`
+  answered "is this condition active today?" on the derived signals of the
+  last seed. New step `benchmark-valuations`, last of the refresh block, same
+  call as the seed's step 10b.
+- [x] **2.1 — a re-sweep replaces the forward rows too.** It runs again
+  because the definition, the rule or the data changed, and each makes a
+  forward row as stale as a birth row; it then covers those dates itself. The
+  forward baseline (as known that day) is lost for those moments and replaced
+  by the whole-sample one — consistent with D1, stated here because it is a
+  choice.
+- [x] **Core sample on a copy of the live database (2026-10-04).** As it
+  stands: `benchmark-valuations` 3.9 s and changes no value; forward sweep
+  0.4 s, 254 invariants swept, nothing due, 100 moments waiting. With the
+  records rewound to 2026-04-03: 232 moments confronted over 138 invariants
+  in 65 s (60 confirmed, 77 refuted, 95 neutral) — the same dates and the same
+  verdict as the birth sweep on every one of them, statuses unchanged, second
+  run empty. The cost is the as-of baseline, about 0.3 s per moment; a normal
+  week has some twenty.
 - [ ] **5.1 One counter per source.** The mechanical score counts `backtest` +
   `forward` only; `evaluation` rows stay visible as readings.
   `_commit_confrontations` stops calling `restate_invariant`.
   `skill-evaluate-strategy.md` tells the Worker its confrontations move the
   weights — prompt edit. Owner decision D2.
-- [ ] **5.2 Proposal source.** Check whether `outcomes._confront_cited` is
-  still reachable since ADR-012 (0 rows, nothing writes `proposal_cites` on
-  the live path); delete it if not.
+- [x] **5.2 Proposal source — unreachable, deleted.** The only proposal
+  written on the live path is `market-signal`, which cites nothing; no code
+  creates a `switch` or `reallocation` Proposal outside the replay's shadow
+  ones. `_confront_cited` and `_cited_invariants` are gone with their two
+  tests. LEFT FOR THE OWNER: the `proposal_cites` table now has no reader and
+  no writer (the as-of prune aside) — dropping it changes the relation count
+  in CLAUDE.md and DATA_MODELS, so it is a decision, not a cleanup.
 - [ ] **2.2 Encoded effect versus the text.** The cause of N = 0 is now
   measured (core sample, 12 invariants): 5 have a condition that was never
   active in 35 years (0 moments), 7 are neutral at every moment (2 to 86

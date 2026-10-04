@@ -804,16 +804,6 @@ async def test_opening_proposal_is_scored_against_the_best_available_portfolio(
     assert await outcomes._incumbent_allocation(db, opening) == best
 
 
-async def test_outcome_reads_citations_from_proposal_cites_for_a_market_signal_row(
-    db: InvestmentDB,
-) -> None:
-    """The old branch keyed on `== 'reallocation'`, sending a market-signal row
-    (challenger_id NULL) down the switch query. It must read `proposal_cites` —
-    empty here, since the mechanical decision cites nothing."""
-    proposal = {"id": "p1", "proposal_type": "market-signal", "challenger_id": None}
-    assert await outcomes._cited_invariants(db, proposal) == []
-
-
 async def test_evaluated_market_signal_proposal_reaches_a_verdict(db: InvestmentDB) -> None:
     """The full tail: a proposal past its +12w window gets an outcome written,
     so a market-signal decision is measurable — not stuck pending forever."""

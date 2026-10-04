@@ -498,7 +498,8 @@ CREATE TABLE IF NOT EXISTS invariant_confrontations (
   available_at   TEXT NOT NULL,
   verdict        TEXT NOT NULL,              -- 'confirmed'|'refuted'|'neutral'|'no_data'
   severity       REAL,
-  source         TEXT NOT NULL,              -- 'backtest'|'evaluation'|'proposal'|'adaptation'
+  -- 'backtest'|'forward'|'evaluation'|'proposal'|'adaptation'
+  source         TEXT NOT NULL,
   source_id      TEXT,
   definition     TEXT
 );
@@ -854,6 +855,21 @@ ADDED_COLUMNS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     # the column: the next maturation of its invariant attributes those rows to
     # the definition it finds in force (`invariants._persist_maturation`).
     ("invariant_confrontations", "definition", "TEXT", ()),
+)
+
+# Indexes on columns that RENAMED_COLUMNS / ADDED_COLUMNS bring to an existing
+# database: created after those run, because inside the schema script they
+# would name a column an older file does not have yet.
+#
+# One mechanical confrontation per moment of a definition. The forward sweep
+# is check-before-append, and this is what holds if the check is ever wrong:
+# a moment counted twice is evidence that does not exist. Partial, because a
+# reading ('evaluation') has no such rule — two of them on one day is a fact
+# about the reader, and stored as it happened.
+LATE_INDEXES: tuple[str, ...] = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_confrontation_mechanical_moment "
+    "ON invariant_confrontations (invariant_id, source, signal_date, definition) "
+    "WHERE source IN ('backtest', 'forward')",
 )
 
 # The mirror of ADDED_COLUMNS, under the same pre-go-live caveat: a column
