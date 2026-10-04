@@ -244,11 +244,32 @@ class ScoredCandidate:
 # -- pure mechanics (no LLM, no I/O — the parts that must be deterministic) --
 
 
+def curation_generation() -> str:
+    """WHAT INVALIDATES A READING: the prompt version, and nothing else.
+
+    A passage read under these instructions is read (owner, 2026-10-04). The
+    model and the reasoning effort used to count too, on the reasoning that
+    they are "everything that would change what the model returns" — true, and
+    not the question. The intention was "read again when the INSTRUCTIONS
+    change, because the old extractions no longer represent what this curator
+    is asked to produce". A different reader under the same instructions does
+    not make the earlier extraction wrong: an invariant is judged by its
+    confrontations, not by who read the passage. Meanwhile `.env` alone names
+    the model (CLAUDE.md: a swap is "a `.env` edit plus a smoke test"), so one
+    edited line silently asked for the whole corpus again — 2.5 hours of calls
+    in front of the Sunday digest on 2026-10-04.
+
+    Re-reading stays available and stays deliberate: bump
+    `CURATION_PROMPT_VERSION`."""
+    return f"v{CURATION_PROMPT_VERSION}"
+
+
 def curation_fingerprint(model_name: str, reasoning_effort: str) -> str:
-    """The identity of a curation pass: everything that would change what the
-    model returns for the same passage. The signal registry is deliberately
+    """WHO READ IT, recorded on every checkpoint row: the generation plus the
+    model and effort that did the reading. Provenance only — the checkpoint is
+    asked by `curation_generation`. The signal registry is deliberately
     excluded — see the `curated_passage` comment in db/schema.py."""
-    return f"v{CURATION_PROMPT_VERSION}/{model_name}/{reasoning_effort}"
+    return f"{curation_generation()}/{model_name}/{reasoning_effort}"
 
 
 def interest_score(scores: CandidateScores, weights: dict[str, float] | None = None) -> float:
@@ -598,7 +619,7 @@ class KnowledgeCurator:
         batches, run them CONCURRENTLY, then score/gate/rank the union.
 
         With a `writeback`, the job is IDEMPOTENT and RESUMABLE: only passages
-        this fingerprint has not seen are sent, and each batch is persisted the
+        this prompt generation has not seen are sent, and each batch is persisted the
         moment it returns. Without one it is a dry run that returns candidates
         and keeps nothing — which is how the 2026-07-21 full-corpus run lost 29
         admissible candidates and all 50 reference notes. Dry runs are for the
@@ -629,12 +650,14 @@ class KnowledgeCurator:
         )
         fingerprint = curation_fingerprint(self._model_name, self._reasoning_effort)
         if writeback is not None:
-            rows = await writeback.uncurated_passages(document_id, fingerprint)
+            rows = await writeback.uncurated_passages(document_id, curation_generation())
             if not rows:
                 # The Monday sweep over a stable corpus lands here: no call,
                 # no cost, no duplicate. That is the whole point of the
                 # checkpoint — re-running must be free, not merely safe.
-                logger.info("curator: %s already curated under %s", document_id, fingerprint)
+                logger.info(
+                    "curator: %s already curated under %s", document_id, curation_generation()
+                )
                 return []
         else:
             rows = await self._db.query(

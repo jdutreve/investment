@@ -570,12 +570,15 @@ CREATE TABLE IF NOT EXISTS scenario_calibration (
 -- runs, the passages still do). Written per batch as it returns, so a crash
 -- at 95% loses only the batch in flight.
 --
--- `fingerprint` is what would CHANGE the output: model + reasoning effort +
--- prompt version. It deliberately does NOT hash the signal registry: a new
--- alias is a real reason to re-curate, but it must be a decision (bump
--- CURATION_PROMPT_VERSION, or --force), never a silent 45-minute side effect
--- of an edited seed_data.py. Composite PK keeps the history across
--- fingerprints rather than overwriting it.
+-- `fingerprint` records WHO READ IT: `<prompt generation>/<model>/<effort>`.
+-- Only the generation prefix decides whether a passage is read again
+-- (`curator.curation_generation`); the model and effort are provenance. They
+-- were part of the key until 2026-10-04, when a model swap in `.env` re-read
+-- the whole corpus unasked — the same silent side effect this comment already
+-- refused for the signal registry: a new alias is a real reason to re-curate,
+-- but it must be a decision (bump CURATION_PROMPT_VERSION, or --force), never
+-- a silent 45-minute side effect of an edited seed_data.py. Composite PK keeps
+-- the history across fingerprints rather than overwriting it.
 CREATE TABLE IF NOT EXISTS curated_passage (
   passage_id      TEXT NOT NULL REFERENCES passage(id),
   fingerprint     TEXT NOT NULL,

@@ -105,11 +105,27 @@ async def test_a_fully_checkpointed_corpus_costs_no_model_call(
     assert sweep.candidates == 0
 
 
-async def test_a_bumped_fingerprint_makes_the_corpus_uncurated_again(
+async def test_a_swapped_model_does_not_make_the_corpus_uncurated_again(
+    db: InvestmentDB, tmp_path: Path
+) -> None:
+    """A checkpoint written by ANOTHER model under the SAME prompt generation
+    answers for this one (owner, 2026-10-04): a `.env` edit is not a request to
+    read the corpus again. No model is called — against the stub key a call
+    would be a recorded failure."""
+    settings = _settings(tmp_path)
+    passages = await _document(db, "doc-1", passages=2)
+    await _checkpoint(db, passages, curation_fingerprint("another-model", "low"))
+
+    sweep = await sweep_corpus(db, settings)
+    assert sweep.documents == 1
+    assert sweep.candidates == 0
+
+
+async def test_a_bumped_prompt_version_makes_the_corpus_uncurated_again(
     db: InvestmentDB, tmp_path: Path
 ) -> None:
     """The second occasion the sweep exists for. A checkpoint written under a
-    DIFFERENT fingerprint — a bumped prompt version, a swapped model — does not
+    DIFFERENT prompt version does not
     answer for this one, so the document is read again. Here that means the
     model IS called, which against the stub key is a recorded failure: the
     assertion is that the sweep TRIED, not that it succeeded."""

@@ -26,10 +26,12 @@ from investment.worker.curator import (
     ReferenceNote,
     ScoredCandidate,
     curation_fingerprint,
+    curation_generation,
 )
 from investment.writeback.knowledge import KnowledgeWriteback, author_tier
 
 FINGERPRINT = curation_fingerprint("test-model", "high")
+GENERATION = curation_generation()
 
 
 @pytest.fixture
@@ -135,7 +137,7 @@ async def test_uncurated_passages_shrinks_as_batches_land(
     passage_ids = await _document(db)
     writeback = KnowledgeWriteback(db, embedder)
 
-    assert len(await writeback.uncurated_passages("doc-1", FINGERPRINT)) == 4
+    assert len(await writeback.uncurated_passages("doc-1", GENERATION)) == 4
     await writeback.persist_batch(
         document_id="doc-1",
         fingerprint=FINGERPRINT,
@@ -143,27 +145,29 @@ async def test_uncurated_passages_shrinks_as_batches_land(
         scored=[_candidate("real rates below zero favour gold")],
         notes=[],
     )
-    remaining = await writeback.uncurated_passages("doc-1", FINGERPRINT)
+    remaining = await writeback.uncurated_passages("doc-1", GENERATION)
     assert [row["id"] for row in remaining] == passage_ids[2:]
 
 
-async def test_a_new_fingerprint_re_exposes_every_passage(
+async def test_a_new_prompt_generation_re_exposes_every_passage_and_a_new_model_does_not(
     db: InvestmentDB, embedder: InProcessEmbedder
 ) -> None:
     """A prompt-version bump MUST re-curate — that is what makes the exclusion
-    of the signal registry from the fingerprint safe."""
+    of the signal registry from the fingerprint safe. A model swap must NOT
+    (owner, 2026-10-04): the reading was made under these instructions, and
+    who made it is provenance. `v5` must not answer for `v50` either."""
     passage_ids = await _document(db)
     writeback = KnowledgeWriteback(db, embedder)
     await writeback.persist_batch(
         document_id="doc-1",
-        fingerprint=FINGERPRINT,
+        fingerprint=curation_fingerprint("another-model", "xhigh"),
         passage_ids=passage_ids,
         scored=[],
         notes=[],
     )
-    assert await writeback.uncurated_passages("doc-1", FINGERPRINT) == []
-    other = curation_fingerprint("test-model", "xhigh")
-    assert len(await writeback.uncurated_passages("doc-1", other)) == 4
+    assert await writeback.uncurated_passages("doc-1", GENERATION) == []
+    assert len(await writeback.uncurated_passages("doc-1", f"{GENERATION}0")) == 4
+    assert len(await writeback.uncurated_passages("doc-1", "v0")) == 4
 
 
 async def test_replaying_the_same_batch_creates_no_second_invariant(

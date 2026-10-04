@@ -205,8 +205,11 @@ class KnowledgeWriteback:
 
     # -- checkpoint --------------------------------------------------------
 
-    async def uncurated_passages(self, document_id: str, fingerprint: str) -> list[dict[str, Any]]:
-        """The passages this fingerprint has NOT yet seen, in reading order.
+    async def uncurated_passages(self, document_id: str, generation: str) -> list[dict[str, Any]]:
+        """The passages this prompt GENERATION has NOT yet seen, in reading
+        order — whichever model read them (`curator.curation_generation`). The
+        stored fingerprint is `<generation>/<model>/<effort>`, so a generation
+        owns every fingerprint it prefixes.
 
         An empty result means there is nothing to spend a token on — the
         caller skips the LLM entirely rather than calling it and discarding
@@ -215,10 +218,10 @@ class KnowledgeWriteback:
             "SELECT p.id, p.page, p.content FROM passage p "
             "WHERE p.document_id = :d AND NOT EXISTS ("
             "  SELECT 1 FROM curated_passage c "
-            "  WHERE c.passage_id = p.id AND c.fingerprint = :f"
+            "  WHERE c.passage_id = p.id AND c.fingerprint LIKE :g || '/%'"
             ") ORDER BY p.position",
             d=document_id,
-            f=fingerprint,
+            g=generation,
         )
 
     # -- persistence -------------------------------------------------------
