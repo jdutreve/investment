@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from investment.db.seed_data import SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import Caps
+from investment.mechanical.invariants import REFERENCE_STATUS
 from investment.planner.baseline import Baseline
 from investment.planner.retrieval import QueryStrategies, RetrievalPool
 from investment.worker.tools import round_for_model
@@ -205,6 +206,16 @@ async def active_invariant_ids(
     return {
         iid for iid, cond in conditions.items() if condition_active_now(cond, latest, regime_type)
     }
+
+
+def standing_label(invariant: dict[str, Any]) -> str:
+    """How much an invariant has been MEASURED, as one phrase for a prompt line.
+    One renderer for the Planner's pool and the Worker's context, so that a
+    reference note is never shown with a number in one and without in the
+    other: it has no weight, and saying so is the information."""
+    if invariant.get("status") == REFERENCE_STATUS:
+        return "reference note, not measured"
+    return f"weight {invariant.get('weight_effective', '?')}"
 
 
 # -- assembly ---------------------------------------------------------------

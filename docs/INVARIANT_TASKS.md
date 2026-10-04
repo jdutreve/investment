@@ -224,7 +224,15 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 - [ ] **4.1 Display.** N, interval, effect size and coverage beside the weight
   (dashboard, digest, Worker context). Sensitivity of `PRIOR_CONFRONTATIONS`
   at 2 / 4 / 8.
-- [ ] **4.3 Reference notes out of weight ordering.** Owner decision D4.
+- [x] **4.3 A reference note carries no weight (D4).** `weight_effective` is
+  NULL for `status='reference'` (`_force_uncertified`); the retrieval pool
+  orders measured invariants by weight and places the notes after them, in the
+  order retrieval found them; the Planner's pool and the Worker's context
+  render a note as "reference note, not measured" through one function
+  (`context.standing_label`), and the Worker's system prompt says so in half a
+  sentence. Guarantees tested: a note has no weight after a sweep, a note
+  never outranks a measured invariant whatever its author, a note is never
+  shown with a number. The live rows lose their weight at the next sweep.
 
 ## Lot 4 — Calibrate the verdict (P3) — last
 
@@ -251,8 +259,12 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
   rest on measurements only, a principle the project already states.
 - [x] **D3 — demote (owner, 2026-10-04):** too few claims and too much work
   for what a real-return metric would add.
-- [ ] **D4** — reference notes: out of the ordering, or a weight that does not
-  claim measurement.
-- [ ] **D5** — P3: fixed checkpoints or confidence sequences; and what the
-  Worker reads if none of the 12 integrated invariants survives.
+- [x] **D4 — out of the ordering, and no weight at all (owner, 2026-10-04):**
+  a weight on what is not measured does not respect the project's motto. They
+  are treated as what they are, unmeasured notes.
+- [x] **D5 — fixed checkpoints (owner, 2026-10-04).** And if few or none of
+  the integrated invariants survive the calibrated rule, the Worker reads the
+  best candidates, labelled with their real standing: it decides nothing, its
+  role is to stir. This needs 4.1's display (N, interval, coverage) in the
+  Worker context, so 4.1 comes before 3.1 lands.
 - [x] **D6** — rename `date` → `signal_date`: yes (2026-10-04).

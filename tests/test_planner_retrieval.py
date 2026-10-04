@@ -199,3 +199,24 @@ async def test_zoom_regime_history_is_bounded(zoomdb: InvestmentDB) -> None:
 async def test_zoom_proposal_thread(zoomdb: InvestmentDB) -> None:
     out = await R.execute_zoom(zoomdb, R.Zoom(kind=R.ZoomKind.proposal_thread, arg="prop1"))
     assert [r["id"] for r in out["rows"]] == ["prop1"]
+
+
+async def test_a_reference_note_never_outranks_a_measured_invariant(corpus: InvestmentDB) -> None:
+    """A weight is belief that evidence has replaced. A reference note cannot be
+    measured, so it has none, and its author's reputation does not place it:
+    measured invariants come first, by weight, and the notes follow in the order
+    retrieval found them."""
+    for note_id, author_belief in (("n-late", 0.9), ("n-early", 0.4)):
+        await corpus.command(
+            "INSERT INTO invariant (id, title, description, source, status, tags, "
+            "weight_initial, floor_weight, trace, created_at, updated_at) VALUES (:id, 't', "
+            "'d', 'curator', 'reference', '[]', :belief, 0.05, 'tr', '2026-01-01', '2026-01-01')",
+            id=note_id,
+            belief=author_belief,
+        )
+    await corpus.command("UPDATE invariant SET weight_effective = 0.3 WHERE id = 'i-linked'")
+
+    rows = await R._fetch_invariants(corpus, ["n-early", "i-linked", "n-late", "i-direct"])
+
+    assert [r["id"] for r in rows] == ["i-direct", "i-linked", "n-early", "n-late"]
+    assert [r["weight_effective"] for r in rows[2:]] == [None, None]

@@ -202,8 +202,11 @@ async def test_reference_knowledge_gets_its_own_terminal_status(db: InvestmentDB
         "0.4, 'tr', '2026-01-01', '2026-01-01')"
     )
     await mature_seed_invariants(db)
-    row = (await db.query("SELECT status FROM invariant WHERE id = 'inv-ref'"))[0]
+    row = (await db.query("SELECT status, weight_effective FROM invariant WHERE id = 'inv-ref'"))[0]
     assert row["status"] == REFERENCE_STATUS
+    # ...and it carries no weight: what cannot be measured has no measured
+    # standing, whatever it was born with (0.4 in this fixture).
+    assert row["weight_effective"] is None
 
 
 async def test_the_backfill_is_the_maturation_sweep_itself(db: InvestmentDB) -> None:

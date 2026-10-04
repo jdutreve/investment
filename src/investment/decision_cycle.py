@@ -43,7 +43,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.mechanical.rule_revision import describe_measured
-from investment.planner.context import PlannerContext
+from investment.planner.context import PlannerContext, standing_label
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.worker.agent import run_worker
@@ -366,8 +366,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
         state = f"{inv.get('status', '?')}" + ("" if inv.get("active") else ", dormant")
         lines.append(
             f"  {inv.get('id')} — {inv.get('title', '')} "
-            f"(weight {inv.get('weight_effective', '?')}, {inv.get('author', 'null')}, "
-            f"{state})"
+            f"({standing_label(inv)}, {inv.get('author', 'null')}, {state})"
         )
     if context.passages:
         lines.append("")

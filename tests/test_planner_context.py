@@ -201,3 +201,13 @@ async def test_active_invariant_ids_evaluates_conditions_against_now(db: Investm
     ids = ["i-active", "i-inactive", "i-regime", "i-always"]
     active = await C.active_invariant_ids(db, ids, regime_type="stag")
     assert active == {"i-active", "i-regime", "i-always"}  # i-inactive (growth rising) excluded
+
+
+def test_a_reference_note_is_shown_as_not_measured_never_with_a_number() -> None:
+    """The Planner's pool and the Worker's context render an invariant's standing
+    through one function, so a note cannot read as weighted in one and not in
+    the other — even on a row that still carries a number from before notes
+    lost their weight."""
+    assert C.standing_label({"status": "integrated", "weight_effective": 0.62}) == "weight 0.62"
+    stale_note = {"status": "reference", "weight_effective": 0.8}
+    assert C.standing_label(stale_note) == "reference note, not measured"

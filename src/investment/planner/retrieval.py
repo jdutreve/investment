@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from investment.corpus.embedding import cosine_matrix, from_blob
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import REFERENCE_STATUS
 
 # The margin is BOUNDED by contract (docs/ARCHITECTURE.md: "≤3", "never raw
 # SQL"). Caps live here so both the model schema (validators below) and the
@@ -90,7 +91,9 @@ class RetrievalPool:
     invariant-matrix hits (deduped)."""
 
     passages: list[dict[str, Any]]  # id, excerpt, similarity
-    invariants: list[dict[str, Any]]  # id, title, weight_effective, tags, author, status
+    # id, title, weight_effective, tags, author, status — measured invariants
+    # by weight, then the unmeasured reference notes by relevance.
+    invariants: list[dict[str, Any]]
     zoom_results: list[dict[str, Any]]  # {kind, arg, rows}
 
 
@@ -165,17 +168,29 @@ async def _fetch_invariants(db: InvestmentDB, invariant_ids: list[str]) -> list[
     are `integrated`-only (baseline.py); this path is looser on purpose — a
     `proposed` invariant still maturing is legitimate reading for the Worker —
     but a rejected one has been MEASURABLY refuted (ADR-006), and showing a
-    refuted lighthouse as guidance is the one thing the corpus must not do."""
+    refuted lighthouse as guidance is the one thing the corpus must not do.
+
+    TWO ORDERS, because the pool holds two kinds of thing. A measured invariant
+    is ordered by its weight, which its record has earned. A reference note has
+    no weight — it cannot be measured — so it follows, in the order retrieval
+    found it: by relevance to the question, not by its author's reputation."""
     if not invariant_ids:
         return []
     placeholders = ",".join(f":i{n}" for n in range(len(invariant_ids)))
     params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
-    return await db.query(
+    rows = await db.query(
         "SELECT id, title, weight_effective, tags, author, status FROM invariant "
         f"WHERE id IN ({placeholders}) AND status != 'rejected' "
         "ORDER BY weight_effective DESC",
         **params,
     )
+    retrieved_at = {iid: position for position, iid in enumerate(invariant_ids)}
+    measured = [r for r in rows if r["status"] != REFERENCE_STATUS]
+    notes = sorted(
+        (r for r in rows if r["status"] == REFERENCE_STATUS),
+        key=lambda r: retrieved_at[str(r["id"])],
+    )
+    return [*measured, *notes]
 
 
 async def execute_zoom(db: InvestmentDB, zoom: Zoom) -> dict[str, Any]:

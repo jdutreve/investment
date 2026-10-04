@@ -236,6 +236,12 @@ times out of five; measured over 4,452 confrontations the corpus's four books
 confirm at 0.506-0.536 and are pairwise indistinguishable, Dalio's rate being
 the closest to chance and the best measured. Belief buys the head start,
 history is free to take it back.
+**A REFERENCE NOTE CARRIES NO WEIGHT** (owner, 2026-10-04): it has no condition
+and no effect, so nothing can ever measure it, and a weight on what is not
+measured is the author's reputation under another name. `weight_effective` is
+NULL for `status='reference'`; retrieval orders measured invariants by weight
+and places the notes after them, by relevance; the Planner and the Worker read
+"reference note, not measured" where a number used to be.
 `market_score = confirmations / (confirmations + infirmations)` (1.0
 until first confrontation). **AN INVARIANT IS TIMELESS** (owner, 2026-10-03):
 no date enters its weight. Whether its condition holds TODAY is applicability

@@ -44,6 +44,7 @@ from investment.planner.context import (
     invariant_pool,
     passage_pool,
     render_baseline_summary,
+    standing_label,
 )
 from investment.planner.retrieval import QueryStrategies, RetrievalPool, retrieve
 
@@ -174,9 +175,9 @@ def build_context_agent(
 def _render_pool(summary: str, inv_pool: dict[str, dict[str, Any]], pool: RetrievalPool) -> str:
     """The Call 1b prompt: the baseline summary + the candidate pool the model
     selects from (invariant ids it may keep, passages, and any zoom results)."""
-    lines = [summary, "", "CANDIDATE INVARIANTS (id — title [weight]):"]
+    lines = [summary, "", "CANDIDATE INVARIANTS (id — title [standing]):"]
     for iid, inv in inv_pool.items():
-        lines.append(f"  {iid} — {inv.get('title', '')} [{inv.get('weight_effective', '?')}]")
+        lines.append(f"  {iid} — {inv.get('title', '')} [{standing_label(inv)}]")
     if pool.passages:
         lines.append("CANDIDATE PASSAGES (id — excerpt):")
         for p in pool.passages:

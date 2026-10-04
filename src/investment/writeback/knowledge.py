@@ -442,8 +442,9 @@ class KnowledgeWriteback:
 
         Not a new entity — DATA_MODELS.md is explicit that "a ponctual fact is
         NOT a new entity", and that an invariant with empty condition/no effect
-        IS reference knowledge: never confronted, market_score stays 1.0,
-        weight = authority. It informs Worker reasoning without
+        IS reference knowledge: never confronted, market_score stays 1.0, and
+        no weight at all — `weight_initial` is stored because the column
+        demands one, and nothing reads it for a note. It informs Worker reasoning without
         backing a strategy.
 
         STATUS RESOLVED: `REFERENCE_STATUS`, not 'proposed'. They can never

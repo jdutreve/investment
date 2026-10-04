@@ -965,9 +965,18 @@ async def _force_uncertified(
         # 1.0" — docs/DATA_MODELS.md).
         "UPDATE invariant SET status = :status, validated_at = NULL, "
         "market_score = 1.0, confirmation_count = 0, infirmation_count = 0, "
-        "weight_effective = MAX(weight_initial, floor_weight), "
+        # A REFERENCE NOTE CARRIES NO WEIGHT (owner, 2026-10-04). A weight is
+        # belief that evidence replaces; a note can never be confronted, so its
+        # weight was the author's reputation, for good — and retrieval ordered
+        # by it, so what was never measured outranked what had been. NULL says
+        # what is true: not measured. An unmeasured 'proposed' invariant keeps
+        # its prior, because its evidence is still to come.
+        "weight_effective = CASE WHEN :status_is = :reference THEN NULL "
+        "ELSE MAX(weight_initial, floor_weight) END, "
         "trace = trace || :suffix, updated_at = :now WHERE id = :id",
         status=status,
+        status_is=status,
+        reference=REFERENCE_STATUS,
         suffix=f" [NOT CERTIFIED: {reason}]",
         now=now,
         id=invariant_id,

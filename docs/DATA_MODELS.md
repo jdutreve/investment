@@ -231,7 +231,9 @@ Invariant {
 
 An Invariant with an **empty `condition` / no `effect`** (equivalently no
 BACKED_BY edge) is **reference knowledge**: never confronted (market_score
-stays 1.0), weight = authority; it informs Worker reasoning without
+stays 1.0) and carrying NO weight (`weight_effective` NULL, owner 2026-10-04:
+a weight on what is not measured is not a measurement — retrieval places a
+note by relevance, after the measured invariants); it informs Worker reasoning without
 backing a strategy — intended, not an accident. A weighted (maturable)
 invariant MUST carry a machine-readable `condition` + `effect` over known
 signals; an observation not reducible to that is a ponctual fact, not an
