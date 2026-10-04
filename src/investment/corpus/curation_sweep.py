@@ -14,7 +14,7 @@ RE-RUNNING IS FREE, which is the property that makes a weekly sweep sane at all.
 FINGERPRINT — prompt version + model + reasoning effort — has already seen, and
 returns without an LLM call when the answer is "all of them". So on a stable
 corpus the weekly sweep costs one query per document and nothing else; it earns
-its place on exactly two occasions:
+its place on exactly three occasions:
 
   - an ingestion whose curation FAILED (the watcher quarantines the file or the
     curator's batch raised) — those passages stay unmarked and the next sweep
@@ -22,7 +22,17 @@ its place on exactly two occasions:
   - a bumped `CURATION_PROMPT_VERSION`, which changes the fingerprint and asks
     the whole corpus to be read again with the new instructions. That is a
     deliberate act, and the sweep is what carries it out over the following
-    Sunday rather than in one interactive sitting.
+    Sunday rather than in one interactive sitting;
+  - a MODEL SWAP, which is the same thing arriving unannounced. The model is
+    part of the fingerprint and `.env` alone names it (CLAUDE.md), so editing
+    one line there asks for the whole corpus to be read again — and since this
+    step sits before the digest, the Sunday that follows waits on it (about a
+    minute per 20 passages: 2026-10-04 would have held the digest ~2.5 hours).
+    This list named two occasions until the third cost a morning.
+
+A re-reading REPLACES the reference notes the previous reading left on the same
+passages (`KnowledgeWriteback._superseded_notes`); invariants go through the
+dedup gate as always.
 
 WHAT IT DOES NOT DO: re-curate on its own initiative. UC4's trigger-2 sentence
 also mentions "re-curation opportunities on existing invariants", and there is

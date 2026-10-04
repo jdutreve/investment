@@ -158,6 +158,7 @@ class WritebackReport:
     created: int = 0
     merged: int = 0
     notes_created: int = 0
+    notes_replaced: int = 0
     passages_marked: int = 0
     demoted: int = 0
 
@@ -166,6 +167,7 @@ class WritebackReport:
             created=self.created + other.created,
             merged=self.merged + other.merged,
             notes_created=self.notes_created + other.notes_created,
+            notes_replaced=self.notes_replaced + other.notes_replaced,
             passages_marked=self.passages_marked + other.passages_marked,
             demoted=self.demoted + other.demoted,
         )
@@ -252,11 +254,12 @@ class KnowledgeWriteback:
             )
 
         logger.info(
-            "writeback: %s +%d invariants, %d merged, %d notes, %d passages marked",
+            "writeback: %s +%d invariants, %d merged, %d notes (%d replaced), %d passages marked",
             document_id,
             report.created,
             report.merged,
             report.notes_created,
+            report.notes_replaced,
             report.passages_marked,
         )
         return report
@@ -275,6 +278,7 @@ class KnowledgeWriteback:
         author = author_tier(await self._document_author(document_id))
         band = await self._author_band(author)
         corpus = await self._existing_embeddings()
+        superseded = await self._superseded_notes(passage_ids)
 
         report = WritebackReport()
         async with self._db.transaction() as tx:
@@ -291,9 +295,17 @@ class KnowledgeWriteback:
                     "admissible": len(admissible),
                     "demoted": candidate_count - len(admissible),
                     "reference_notes": len(notes),
+                    "notes_replaced": len(superseded),
                     "author_tier": author,
                 },
             )
+
+            # BEFORE the new notes are written, so the ones just created can
+            # never be mistaken for the reading they replace.
+            for note_id in superseded:
+                await tx.command("DELETE FROM supports WHERE invariant_id = :i", i=note_id)
+                await tx.command("DELETE FROM invariant WHERE id = :i", i=note_id)
+            report += WritebackReport(notes_replaced=len(superseded))
 
             for item in admissible:
                 # Descending score IS the "keep the best" rule: the strongest
@@ -401,6 +413,45 @@ class KnowledgeWriteback:
                 "trace": f"UC4 curator (score {item.interest_score:.1f})",
             },
         )
+
+    async def _superseded_notes(self, passage_ids: list[str]) -> list[str]:
+        """The curator's reference notes that an EARLIER reading left on these
+        passages — every one of their cited passages lies inside this batch.
+
+        A RE-CURATION REPLACES ITS OWN PRIOR NOTES, the way a re-maturation
+        replaces its own prior confrontations (`_persist_maturation`). A note
+        is never a merge target — it has no structure to compare, and the dedup
+        gate rightly distrusts wording alone — so nothing stopped a second
+        reading of a passage from writing its notes beside the first's. Every
+        fingerprint change (a new prompt version, and since `.env` names the
+        model, a MODEL SWAP) re-read the whole corpus and stacked a generation:
+        on 2026-10-04, 647 of 1,467 curator notes were an older reading of
+        passages read again since, and Dalio's book carried three.
+
+        By PROVENANCE, not by similarity, because similarity was measured and
+        cannot do it: the same fact restated by two models sat anywhere from
+        cosine 0.60 to 0.93, and distinct facts from one passage reached 0.70.
+
+        Lossless for the same reason it is needed: a reference note carries no
+        measurement, so replacing it discards nothing history earned. A note
+        citing a passage OUTSIDE the batch is left alone — this batch does not
+        speak for that passage. Only `source = 'curator'` notes: an invariant
+        demoted to reference by validation is not this reading's to remove."""
+        if not passage_ids:
+            return []
+        placeholders = ",".join(f":p{n}" for n in range(len(passage_ids)))
+        params = {f"p{n}": pid for n, pid in enumerate(passage_ids)}
+        rows = await self._db.query(
+            "SELECT n.id FROM invariant n "
+            "WHERE n.status = :reference AND n.source = 'curator' "
+            "AND EXISTS (SELECT 1 FROM supports s WHERE s.invariant_id = n.id AND s.cited = 1) "
+            "AND NOT EXISTS (SELECT 1 FROM supports s WHERE s.invariant_id = n.id "
+            f" AND s.cited = 1 AND s.passage_id NOT IN ({placeholders})) "
+            "ORDER BY n.id",
+            reference=REFERENCE_STATUS,
+            **params,
+        )
+        return [str(r["id"]) for r in rows]
 
     async def _create_reference_note(
         self,

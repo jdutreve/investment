@@ -428,6 +428,75 @@ async def test_reference_notes_persist_as_unconfrontable_invariants(
     assert "reference-knowledge" in rows[0]["tags"]
 
 
+def _note(claim: str) -> ReferenceNote:
+    return ReferenceNote(claim=claim, description=claim, why_not_reducible="no series for it")
+
+
+async def test_a_re_curation_replaces_the_notes_of_the_previous_reading(
+    db: InvestmentDB, embedder: InProcessEmbedder
+) -> None:
+    """A note is never a merge target, so a second reading of the same passages
+    used to write its notes BESIDE the first's — one generation per fingerprint
+    change, 647 stale notes on the live corpus by 2026-10-04. The new reading
+    now replaces the old one's notes on the passages it re-reads, and leaves a
+    note on a passage it did not read alone."""
+    passage_ids = await _document(db)
+    writeback = KnowledgeWriteback(db, embedder)
+    first, elsewhere = passage_ids[:2], passage_ids[2:]
+    await writeback.persist_batch(
+        document_id="doc-1",
+        fingerprint="v1/model-a/high",
+        passage_ids=first,
+        scored=[],
+        notes=[_note("Wealth gaps precede political upheaval"), _note("Reserve currencies end")],
+    )
+    await writeback.persist_batch(
+        document_id="doc-1",
+        fingerprint="v1/model-a/high",
+        passage_ids=elsewhere,
+        scored=[],
+        notes=[_note("Empires overextend before they decline")],
+    )
+    report = await writeback.persist_batch(
+        document_id="doc-1",
+        fingerprint="v1/model-b/high",
+        passage_ids=first,
+        scored=[],
+        notes=[_note("Large wealth gaps tend to come before political conflict")],
+    )
+    assert report.notes_replaced == 2 and report.notes_created == 1
+    titles = {r["title"] for r in await db.query("SELECT title FROM invariant")}
+    assert titles == {
+        "Large wealth gaps tend to come before political conflict",
+        "Empires overextend before they decline",
+    }
+    # No edge is left pointing at a note that no longer exists.
+    assert not await db.query(
+        "SELECT 1 FROM supports s WHERE NOT EXISTS "
+        "(SELECT 1 FROM invariant i WHERE i.id = s.invariant_id)"
+    )
+
+
+async def test_a_re_curation_never_removes_a_measurable_invariant(
+    db: InvestmentDB, embedder: InProcessEmbedder
+) -> None:
+    """Replacement is lossless only because a note carries no measurement. An
+    invariant cited from the same passages keeps its row and its history; the
+    second reading merges into it through the dedup gate instead."""
+    passage_ids = await _document(db)
+    writeback = KnowledgeWriteback(db, embedder)
+    candidate = _candidate("when real rates turn negative, gold outperforms other assets")
+    for fingerprint in ("v1/model-a/high", "v1/model-b/high"):
+        await writeback.persist_batch(
+            document_id="doc-1",
+            fingerprint=fingerprint,
+            passage_ids=passage_ids,
+            scored=[candidate],
+            notes=[],
+        )
+    assert await _count(db, "invariant") == 1
+
+
 async def test_author_tier_sets_the_starting_band_and_binds_the_proposed_weight(
     db: InvestmentDB, embedder: InProcessEmbedder
 ) -> None:
