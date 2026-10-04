@@ -112,13 +112,42 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
   ticker as skipped (`seed._seed_market_data`), tested by
   `test_a_rejected_splice_does_not_overwrite_the_spliced_history`. The damaged
   file is kept as `investment.db.damaged-gld-splice-20261004`.
-- [ ] **Left open by the incident, not this plan's.** (1) Two proxies no longer
-  answer: LBMA (403) and Yahoo `^BCOM` (no data) — the spliced histories of
-  GLD, DJP and DBC can no longer be rebuilt from source. (2) The same full seed
-  also wrote GLOBAL_LIQUIDITY additively (fresh span 8,617 days against 12,788
-  stored, 649 rows moved by up to 0.46%) and slid the start of the FRED series
-  by ten rows; neither was examined, the restore undid both.
-
+- [x] **Span guard counts values, not rows.** GLOBAL_LIQUIDITY carried 406
+  NULL warm-up rows over 1991-2003, which passed for twelve years of history
+  held, so every seed abandoned the delete and wrote the series additively.
+  `replace_ts_series` now measures both spans on rows that carry a value
+  (`schema.TS_VALUE_COLUMN`); the 406 rows are deleted from the live database.
+  Tested by `test_rows_without_a_value_are_not_history_held`. (The ten FRED
+  rows the full seed dropped were the 35-year window sliding — not a defect.)
+- [x] **The spliced histories are archived.** LBMA (403, browser user-agent
+  included) and Yahoo `^BCOM` (no data) no longer answer, so gold before 2004
+  and commodities before 2006 could not be rebuilt on an empty database.
+  `market/spliced_history_archive.py`: one CSV per spliced ticker in
+  `~/data/investment/spliced_history/` (beside the database, NOT in the public
+  repository — licensed data). The seed archives every splice that succeeds,
+  and on a rejected splice with nothing longer stored it rebuilds from the
+  archive and chains the ETF's returns onto it. An archive is refused when the
+  series mixes two scales or reaches less far back than the one kept. Exported
+  2026-10-04 for 11 of the 12 spliced tickers.
+- [x] **DJP was damaged in the live database from 2026-09-21 to 2026-10-04 —
+  found by the archive's refusal, repaired.** 169.79 on 2006-10-27, 48.55 on
+  2006-10-30: a phantom -71% day. Same failure as GLD, two weeks earlier — the
+  seed of 2026-09-21 17:43 met a dead `^BCOM` and wrote ETF-scale prices over
+  the splice. Holders: `4s-balanced-defender` (7.5%), `momentum-macro-rotation`
+  (10%), `all-weather-USD` (7.5%) and three disabled portfolios; the
+  market-signal stack holds none. Repair (owner, 2026-10-04): the spliced
+  history from `investment.db.bak-pre-seed-20260921`, the returns since
+  2026-09-18 chained onto it, then NAV, benchmark valuations, backtests and
+  FAVORS, the invariant sweep (`mature_seed_invariants(
+  remeasure_on_changed_data=True)`, new) and the snapshot recomputed; a
+  SeedEvent records it; DJP is now archived like the others. Effect: ranking
+  unchanged (the 36-month window never saw 2006), CAGR +0.2pp on the three
+  enabled holders, 31 invariants moved by a count or two, 2 `rejected` back to
+  `proposed`, integrated still 9. Backup before the repair:
+  `investment.db.bak-pre-djp-repair-20261004`. The digests of 2026-09-27 and
+  2026-10-04 were issued on the damaged series and stand as issued.
+- [x] **Live database, final state 2026-10-04:** 9 integrated, 180 proposed,
+  66 rejected, 820 reference.
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
 

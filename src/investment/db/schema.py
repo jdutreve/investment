@@ -752,6 +752,14 @@ ENTITY_TABLES = {
 }
 RELATION_TABLES = {"favors", "backed_by", "holds", "designed_for", "supports", "proposal_cites"}
 TS_TABLES = {"market_data", "scenario_probability", "portfolio_nav"}
+# The column that makes a time-series row an OBSERVATION. A row whose value is
+# NULL has a `ts` and says nothing — a z-score's warm-up, typically — and must
+# not count as history held (`InvestmentDB.replace_ts_series`' span guard).
+TS_VALUE_COLUMN = {
+    "market_data": "level",
+    "scenario_probability": "probability",
+    "portfolio_nav": "nav",
+}
 DOCUMENT_TABLES = {
     "user_profile",
     "invariant_author_config",

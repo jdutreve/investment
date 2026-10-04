@@ -35,7 +35,7 @@ import sqlite3
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -51,6 +51,7 @@ from investment.db.schema import (
     SCHEMA_SQL,
     TRACE_EXEMPT,
     TS_TABLES,
+    TS_VALUE_COLUMN,
 )
 
 _T = TypeVar("_T")
@@ -481,14 +482,29 @@ class InvestmentDB:
             )
             await self.append_ts_batch(type, rows)
             return None
+        # THE SPAN OF WHAT IS ACTUALLY HELD — rows that carry a value. Counting
+        # every row let 406 NULL warm-up rows (1991-2003, GLOBAL_LIQUIDITY)
+        # pass for twelve years of history: the composite cannot exist before
+        # 2003, so every fresh series looked truncated, the delete was
+        # abandoned on every seed, and the series was never once rewritten
+        # whole (found 2026-10-04). The fresh span is measured the same way.
+        value = TS_VALUE_COLUMN[type]
         stored = (
             await self.query(
-                f"SELECT COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi FROM {type} WHERE ticker = :t",
+                f"SELECT COUNT(*) AS n, MIN(ts) AS lo, MAX(ts) AS hi FROM {type} "
+                f"WHERE ticker = :t AND {value} IS NOT NULL",
                 t=ticker,
             )
         )[0]
+        valued = [str(r["ts"]) for r in rows if r.get(value) is not None]
         if stored["n"]:
-            fresh = date.fromisoformat(max(stamps)) - date.fromisoformat(min(stamps))
+            # A fresh series with no value at all spans nothing, and so never
+            # replaces one that holds some.
+            fresh = (
+                date.fromisoformat(max(valued)) - date.fromisoformat(min(valued))
+                if valued
+                else timedelta(0)
+            )
             held = date.fromisoformat(str(stored["hi"])) - date.fromisoformat(str(stored["lo"]))
             if fresh < held * TS_SPAN_TOLERANCE:
                 message = (

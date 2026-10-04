@@ -21,12 +21,17 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from investment import seed
 from investment.config import Settings
 from investment.db.seed_data import ALLOWED_TICKERS
 from investment.db.sqlite import InvestmentDB
 from investment.market import splice
+from investment.market.spliced_history_archive import (
+    archive_spliced_history,
+    read_spliced_history,
+)
 
 _FULL_END = pd.Timestamp("2026-06-30")
 _BDAYS = pd.bdate_range("1980-01-01", _FULL_END)
@@ -263,3 +268,62 @@ async def test_a_rejected_splice_does_not_overwrite_the_spliced_history(tmp_path
         assert "GLD" not in inventory["authoritative_write_shortfalls"]
     finally:
         await db.close()
+
+
+async def test_a_dead_proxy_does_not_cost_an_empty_database_its_history(tmp_path: Path) -> None:
+    """The spliced history outlives its source. A first seed archives each
+    splice beside the database; a seed on a NEW, empty database whose gold
+    proxy no longer answers rebuilds GLD from that archive — reaching as far
+    back as before, on the same scale, and without the cliff a raw ETF series
+    laid over a splice produces. Without the archive it would start at the
+    ETF's inception and 24 years of gold would be gone."""
+    settings = _settings(tmp_path)
+    first = InvestmentDB(settings.db_path)
+    gld = "SELECT ts, level FROM market_data WHERE ticker = 'GLD' ORDER BY ts"
+    try:
+        await seed._seed_market_data(
+            first, settings, fetch_raw=_make_stub(), yahoo_rate_limit_seconds=0.0
+        )
+        spliced = {r["ts"]: r["level"] for r in await first.query(gld)}
+    finally:
+        await first.close()
+    assert (settings.db_path.parent / "spliced_history" / "GLD.csv").is_file()
+
+    settings.db_path.unlink()
+    for leftover in settings.db_path.parent.glob(settings.db_path.name + "-*"):
+        leftover.unlink()
+    empty = InvestmentDB(settings.db_path)
+    try:
+        inventory = await seed._seed_market_data(
+            empty,
+            settings,
+            fetch_raw=_make_stub(frozenset({"LBMA_GOLD_AM"})),
+            yahoo_rate_limit_seconds=0.0,
+        )
+        rebuilt = {r["ts"]: r["level"] for r in await empty.query(gld)}
+    finally:
+        await empty.close()
+
+    assert "GLD" in inventory["rebuilt_from_archive"]
+    assert min(rebuilt) == min(spliced) < "2004-11-18"
+    assert rebuilt == pytest.approx(spliced)
+
+
+def test_a_series_that_mixes_two_scales_is_never_archived(tmp_path: Path) -> None:
+    """The archive is the last copy of a dead proxy's history, so it refuses
+    the one series that would destroy it: GLD as the failed seed of 2026-10-04
+    left it, 1263.50 one day and 44.38 the next."""
+    days = pd.bdate_range("2004-11-10", periods=8)
+    sound = pd.Series([1240.0, 1242.0, 1249.0, 1245.0, 1263.5, 1262.9, 1274.3, 1279.2], days)
+    assert archive_spliced_history(tmp_path, "GLD", sound) is None
+
+    broken = sound.copy()
+    broken.iloc[5:] = [44.38, 44.78, 44.95]
+    refusal = archive_spliced_history(tmp_path, "GLD", broken)
+    assert refusal is not None and "two scales" in refusal
+    kept = read_spliced_history(tmp_path, "GLD")
+    assert kept is not None and kept.iloc[-1] == pytest.approx(1279.2)
+
+    # nor by one that reaches less far back than what is already kept
+    refusal = archive_spliced_history(tmp_path, "GLD", sound.iloc[3:])
+    assert refusal is not None and "archive kept" in refusal

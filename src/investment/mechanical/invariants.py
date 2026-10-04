@@ -1136,6 +1136,7 @@ async def _mature_one(
     registries: Registries,
     thresholds: dict[str, float],
     horizon: pd.Timedelta,
+    remeasure_on_changed_data: bool,
 ) -> MaturationResult:
     invariant_id = str(inv["id"])
     condition = json.loads(inv["condition"]) if inv["condition"] else []
@@ -1171,7 +1172,7 @@ async def _mature_one(
         condition, effect, verdict_rule(thresholds, effect["metric"])
     )
 
-    if await _already_matured(db, invariant_id, fingerprint):
+    if not remeasure_on_changed_data and await _already_matured(db, invariant_id, fingerprint):
         return MaturationResult(
             invariant_id,
             int(inv["confirmation_count"]),
@@ -1279,12 +1280,21 @@ async def _mature_one(
     )
 
 
-async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
+async def mature_seed_invariants(
+    db: InvestmentDB, *, remeasure_on_changed_data: bool = False
+) -> list[MaturationResult]:
     """UC0 step 11b (docs/USE_CASES.md) — `mature_invariant()` on every
     invariant, the SAME factored, source-blind mechanism later applied to
     every post-launch birth (seed invariants are just the first batch).
     Prerequisite: step 10 (regime instances) + step 10b (benchmark_valuation)
-    + the market TS must already be persisted."""
+    + the market TS must already be persisted.
+
+    `remeasure_on_changed_data` sweeps every measurable invariant again even
+    though its definition and rule are unchanged. The fingerprint that decides
+    "already matured" knows what was ASKED and how it was judged, not what it
+    was measured ON: when a price history is repaired (DJP, 2026-10-04 — a
+    phantom -71% day sat in it for two weeks), the stored records are the
+    answer to a question put to data that no longer exists."""
     threshold_rows = await db.query("SELECT key, value FROM system_thresholds")
     thresholds = {r["key"]: r["value"] for r in threshold_rows}
     # The effect is measured over the horizon FOLLOWING a condition-moment;
@@ -1333,6 +1343,7 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
             registries,
             thresholds,
             horizon,
+            remeasure_on_changed_data,
         )
         results.append(result)
     return results

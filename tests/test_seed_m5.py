@@ -20,7 +20,7 @@ from test_seed_market import _make_stub, _settings
 from investment import seed
 from investment.db.seed_data import INVARIANTS, SCENARIOS, SYSTEM_THRESHOLDS
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical import backtests, outcomes
+from investment.mechanical import backtests, invariants, outcomes
 from investment.mechanical.invariants import REFERENCE_STATUS
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal, ImprovementType
@@ -883,5 +883,36 @@ async def test_a_threshold_the_seed_no_longer_names_leaves_the_table(tmp_path: P
         await seed._seed_reference_tables(db, settings)
         keys = {r["key"] for r in await db.query("SELECT key FROM system_thresholds")}
         assert keys == set(SYSTEM_THRESHOLDS)
+    finally:
+        await db.close()
+
+
+async def test_repaired_data_can_be_measured_again_under_an_unchanged_definition(
+    tmp_path: Path,
+) -> None:
+    """A matured invariant is skipped on a re-run — its definition and rule are
+    unchanged — which is right until the DATA it was measured on is repaired.
+    `remeasure_on_changed_data` sweeps it again, and replaces its own rows
+    rather than stacking a second record beside the first."""
+    settings = _settings(tmp_path)
+    db = InvestmentDB(settings.db_path)
+    try:
+        await _seed_through_step_10(db, settings)
+        await seed._seed_portfolio_nav(db)
+        await seed._materialize_benchmark_valuation(db)
+        await seed._run_backtests_favors(db)
+        first = await invariants.mature_seed_invariants(db)
+        rows_before = (await db.query("SELECT COUNT(*) AS n FROM invariant_confrontations"))[0]["n"]
+
+        skipped = await invariants.mature_seed_invariants(db)
+        assert all(r.skipped_reason is not None for r in skipped)
+
+        again = await invariants.mature_seed_invariants(db, remeasure_on_changed_data=True)
+        assert [r.skipped_reason for r in again] == [r.skipped_reason for r in first]
+        assert [(r.confirmations, r.infirmations) for r in again] == [
+            (r.confirmations, r.infirmations) for r in first
+        ]
+        rows_after = (await db.query("SELECT COUNT(*) AS n FROM invariant_confrontations"))[0]["n"]
+        assert rows_after == rows_before
     finally:
         await db.close()

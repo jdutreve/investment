@@ -61,8 +61,14 @@ from investment.db.seed_data import (
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import composites, derivatives, fetcher, regime, splice
+from investment.market.spliced_history_archive import (
+    archive_directory,
+    archive_spliced_history,
+    read_spliced_history,
+)
 from investment.mechanical import (
     backtests,
+    catchup,
     invariants,
     market_signal,
     momentum_minvar,
@@ -472,6 +478,8 @@ async def _seed_market_data(
     splice_reports: list[dict[str, Any]] = []
     skipped: dict[str, str] = {}
     shortfalls: dict[str, str] = {}
+    rebuilt_from_archive: dict[str, str] = {}
+    archive = archive_directory(settings.db_path)
     row_count = 0
     yahoo_calls = 0
 
@@ -513,6 +521,12 @@ async def _seed_market_data(
                 )
                 level, report = splice_fn(ticker, proxy_ticker, raw, proxy_raw)
                 splice_reports.append(dataclasses.asdict(report))
+                # A splice that just succeeded is the freshest truth there is:
+                # archive it while its proxy still answers
+                # (market/spliced_history_archive.py).
+                refusal = archive_spliced_history(archive, ticker, level)
+                if refusal is not None:
+                    logger.warning("step 9: %s spliced history not archived: %s", ticker, refusal)
             except Exception as exc:
                 # THE ETF-ONLY FLOOR IS A FALLBACK FOR AN EMPTY SERIES, NOT A
                 # REPLACEMENT FOR A STORED SPLICE. The two are different
@@ -541,12 +555,33 @@ async def _seed_market_data(
                         f"splice with {proxy_ticker} rejected, stored history kept: {exc}"
                     )
                     continue
-                logger.warning(
-                    "step 9: splice %s/%s rejected, ETF-only floor: %s",
-                    ticker,
-                    proxy_ticker,
-                    exc,
-                )
+                # Nothing longer is stored — an empty database, typically. The
+                # archive holds the splice as it last stood; the ETF's own
+                # returns since then are chained onto it, the same join the
+                # weekly catch-up makes (`catchup.rebase_onto`), so no
+                # cross-instrument jump is invented.
+                archived = read_spliced_history(archive, ticker)
+                if archived is not None and archived.index.min() < raw.index.min():
+                    level = (
+                        catchup.rebase_onto(raw, archived, chain=True)
+                        .combine_first(archived)
+                        .sort_index()
+                    )
+                    rebuilt_from_archive[ticker] = str(archived.index.min().date())
+                    logger.warning(
+                        "step 9: splice %s/%s rejected, REBUILT from the archive (from %s): %s",
+                        ticker,
+                        proxy_ticker,
+                        archived.index.min().date(),
+                        exc,
+                    )
+                else:
+                    logger.warning(
+                        "step 9: splice %s/%s rejected, ETF-only floor: %s",
+                        ticker,
+                        proxy_ticker,
+                        exc,
+                    )
 
         tradable_floor[ticker] = str(level.sort_index().index.min().date())
 
@@ -590,6 +625,7 @@ async def _seed_market_data(
         "tickers_ok": tickers_ok,
         "tickers_skipped": skipped,
         "authoritative_write_shortfalls": shortfalls,
+        "rebuilt_from_archive": rebuilt_from_archive,
         "tradable_floor": tradable_floor,
         "splice_reports": splice_reports,
     }

@@ -688,3 +688,39 @@ async def test_a_confrontation_gets_its_two_dates_on_a_database_that_had_one(
         assert rows["reading"]["available_at"] == rows["reading"]["signal_date"] == "2026-09-27"
         assert rows["moment"]["definition"] is None  # stamped by the next maturation
         await db.close()
+
+
+async def test_rows_without_a_value_are_not_history_held(tmp_path: Path) -> None:
+    """The span guard protects HISTORY, and a row whose value is NULL is not
+    any. GLOBAL_LIQUIDITY carried 406 NULL warm-up rows over 1991-2003, before
+    the composite can exist; counted as twelve years held, they made every
+    fresh series look truncated, so the series was written additively on every
+    seed and never once replaced whole. Measured on values, the fresh series
+    covers what is held and the stale rows leave with the rewrite."""
+    db = InvestmentDB(tmp_path / "warmup.db")
+
+    def row(ts: str, level: float | None) -> dict[str, object]:
+        return {"ticker": "GL", "asset_class": "MACRO", "currency": "USD", "ts": ts, "level": level}
+
+    try:
+        await db.append_ts_batch(
+            "market_data",
+            [
+                row("1991-10-01", None),
+                row("1997-06-01", None),
+                row("2003-03-01", 1.0),
+                row("2026-09-01", 2.0),
+            ],
+        )
+        shortfall = await db.replace_ts_series(
+            "market_data", "GL", [row("2003-03-01", 1.1), row("2026-10-01", 2.1)]
+        )
+        assert shortfall is None
+        rows = await db.query("SELECT ts FROM market_data WHERE ticker = 'GL' ORDER BY ts")
+        assert [r["ts"] for r in rows] == ["2003-03-01", "2026-10-01"]
+
+        # and a fresh series holding no value at all replaces nothing
+        shortfall = await db.replace_ts_series("market_data", "GL", [row("2026-10-08", None)])
+        assert shortfall is not None and "delete abandoned" in shortfall
+    finally:
+        await db.close()
