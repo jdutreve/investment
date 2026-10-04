@@ -73,6 +73,7 @@ _REGIME_SIGNAL = "regime"
 _REGIME_FEATURES = {"type"}
 _VALID_METHODS = {"cross_class", "cross_strategy", "absolute"}
 _VALID_DIRECTIONS = {"outperform", "underperform"}
+_CASH_HANDLE = "asset-class:cash"
 
 # The FOURTH invariant status (docs/DATA_MODELS.md reference knowledge: "an
 # invariant with empty condition/no effect IS reference knowledge: never
@@ -338,8 +339,13 @@ COUNTED_VERDICTS = (CONFIRMED, REFUTED)
 # a completed window. The birth sweep looks back over the whole history; the
 # forward sweep confronts, week after week, the moments whose window has
 # completed since. Both are re-derivable from the data, which is why a re-sweep
-# may replace them — and the other sources (a reading, a proposal outcome) are
-# not.
+# may replace them.
+#
+# THEY ARE THE ONLY SOURCES THAT MOVE A STANDING (owner, 2026-10-04: decisions
+# rest on measurements only). A Worker evaluation is stored beside them as a
+# READING — dated, visible, and counted nowhere: it has no completed window, no
+# baseline and no margin, and the reader of a weight must not be one of its
+# writers.
 BIRTH_SOURCE = "backtest"
 FORWARD_SOURCE = "forward"
 
@@ -530,6 +536,16 @@ def validate_invariant(
             return f"method {method!r} inconsistent with asset-class handle"
         if handle.split(":", 1)[1] not in asset_classes:
             return f"unknown asset class: {handle!r}"
+        # AN ABSOLUTE CLAIM ON CASH IS A CLAIM ABOUT ITS REAL RETURN ("cash
+        # loses purchasing power when inflation runs hot"), and `return` is
+        # nominal: a bill's nominal return over one horizon never leaves the
+        # margin, so every moment is neutral and the claim keeps its starting
+        # weight for good — against "nothing stays proposed forever". No
+        # real-return indicator is computed (owner, 2026-10-04: too few claims
+        # for the work), so the claim is not expressible and is reference
+        # knowledge. Cash AGAINST the other classes is measurable and stays.
+        if handle == _CASH_HANDLE and method == "absolute" and metric == "return":
+            return "an absolute claim on cash is a real-return claim, which is not measured"
     elif handle.startswith("strategy:"):
         if method not in ("cross_strategy", "absolute"):
             return f"method {method!r} inconsistent with strategy handle"
@@ -978,8 +994,10 @@ async def restate_invariant(
     """An invariant's STANDING, re-derived from its evidence: score, weight and
     verdict written together, and the verdict returned.
 
-    IT COUNTS THE EVIDENCE ITSELF, from the confrontations of the definition in
-    force (`definition_fingerprint`). It used to be handed two counters, and
+    IT COUNTS THE EVIDENCE ITSELF, from the MEASURED confrontations (birth and
+    forward sweeps) of the definition in force (`definition_fingerprint`). A
+    reading — `source='evaluation'` — is not evidence and is not counted.
+    It used to be handed two counters, and
     each caller made them its own way: the evaluation and proposal paths added
     one to the stored count, the birth sweep overwrote it with its backtest
     rows alone — dropping every forward confrontation until the next weekly
@@ -1009,11 +1027,14 @@ async def restate_invariant(
             "SELECT COALESCE(SUM(verdict = :confirmed), 0) AS confirmations, "
             " COALESCE(SUM(verdict = :refuted), 0) AS infirmations "
             "FROM invariant_confrontations "
-            "WHERE invariant_id = :id AND definition = :definition",
+            "WHERE invariant_id = :id AND definition = :definition "
+            "AND source IN (:birth, :forward)",
             confirmed=CONFIRMED,
             refuted=REFUTED,
             id=invariant_id,
             definition=definition,
+            birth=BIRTH_SOURCE,
+            forward=FORWARD_SOURCE,
         )
     )[0]
     confirmations, infirmations = int(tally["confirmations"]), int(tally["infirmations"])

@@ -1074,7 +1074,9 @@ CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
 -- source STRING ('backtest'|'forward'|'evaluation'|'adaptation' (V2)),
 --   -- 'backtest' and 'forward' are the two MECHANICAL sources (the birth
 --   --   sweep and its weekly continuation): unique per (invariant, source,
---   --   signal_date, definition), and replaced together by a re-sweep.
+--   --   signal_date, definition), replaced together by a re-sweep, and the
+--   --   ONLY sources an invariant's counts are taken from. 'evaluation' is
+--   --   a Worker reading: recorded, never counted.
 -- source_id STRING,
 -- definition STRING
 --   -- fingerprint of the (condition, effect) the row TESTED. An invariant's

@@ -186,11 +186,15 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
   verdict as the birth sweep on every one of them, statuses unchanged, second
   run empty. The cost is the as-of baseline, about 0.3 s per moment; a normal
   week has some twenty.
-- [ ] **5.1 One counter per source.** The mechanical score counts `backtest` +
-  `forward` only; `evaluation` rows stay visible as readings.
-  `_commit_confrontations` stops calling `restate_invariant`.
-  `skill-evaluate-strategy.md` tells the Worker its confrontations move the
-  weights — prompt edit. Owner decision D2.
+- [x] **5.1 Only measurement moves a standing.** `restate_invariant` counts
+  `backtest` + `forward` only; `evaluation` rows are still written, as
+  readings. `_commit_confrontations` no longer restates, and
+  `commit_knowledge` no longer takes thresholds it had no other use for.
+  `skill-evaluate-strategy.md` no longer tells the Worker its verdicts move
+  the weights. Guarantee tested: a reading changes no count, score, weight or
+  verdict, at the commit or at the next restatement
+  (`test_a_reading_is_recorded_and_moves_no_standing`). On a copy of the live
+  database: 6 invariants lose one to three counts, no verdict changes.
 - [x] **5.2 Proposal source — unreachable, deleted.** The only proposal
   written on the live path is `market-signal`, which cites nothing; no code
   creates a `switch` or `reallocation` Proposal outside the replay's shadow
@@ -198,11 +202,19 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
   tests. LEFT FOR THE OWNER: the `proposal_cites` table now has no reader and
   no writer (the as-of prune aside) — dropping it changes the relation count
   in CLAUDE.md and DATA_MODELS, so it is a decision, not a cleanup.
-- [ ] **2.2 Encoded effect versus the text.** The cause of N = 0 is now
-  measured (core sample, 12 invariants): 5 have a condition that was never
-  active in 35 years (0 moments), 7 are neutral at every moment (2 to 86
-  moments, all inside the margin). Then add a `real_return` metric or demote.
-  Owner decision D3.
+- [x] **2.2 Encoded effect versus the text — demoted (D3).** Of the
+  invariants with N = 0, six are absolute claims on cash's `return`: claims
+  about REAL return encoded on a nominal series that never leaves the margin
+  (7 to 87 moments, every one neutral). `validate_invariant` now refuses that
+  shape — `asset-class:cash` + `absolute` + `return` — so the next sweep
+  demotes the six to reference knowledge and a new one is demoted at birth.
+  Cash AGAINST the other classes is measurable and stays. Verified on a copy
+  of the live database: 6 demoted, nothing else moves.
+  NOT TOUCHED, and why: six invariants whose condition never fired in 35
+  years (nothing to measure yet, they wait), and one equities claim with two
+  moments, both neutral — too little evidence, not an inexpressible claim.
+  The live database changes at the next sweep (the next `commit_innovations`
+  or seed), and a demotion ERASES the condition and the effect.
 
 ## Lot 3 — What the weight says and shows (P4)
 
@@ -235,9 +247,10 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
   must not leak is the outcome's DATE, which 1.1 settles. Consequence for 2.1:
   a forward moment is judged against the baseline as it stands when its window
   completes.
-- [ ] **D2** — LLM evaluations stop moving the score once 2.1 runs.
-  Recommended: yes.
-- [ ] **D3** — the N = 0 invariants: a real-return metric, or demotion.
+- [x] **D2 — yes (owner, 2026-10-04), and it was not a question:** decisions
+  rest on measurements only, a principle the project already states.
+- [x] **D3 — demote (owner, 2026-10-04):** too few claims and too much work
+  for what a real-return metric would add.
 - [ ] **D4** — reference notes: out of the ordering, or a weight that does not
   claim measurement.
 - [ ] **D5** — P3: fixed checkpoints or confidence sequences; and what the

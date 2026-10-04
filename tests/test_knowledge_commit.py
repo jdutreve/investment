@@ -68,32 +68,33 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await conn.close()
 
 
-async def test_confrontation_moves_weight_and_logs_source_evaluation(db: InvestmentDB) -> None:
-    before = (
-        await db.query(
-            "SELECT confirmation_count, market_score FROM invariant WHERE id='inv-active'"
-        )
-    )[0]
+async def test_a_reading_is_recorded_and_moves_no_standing(db: InvestmentDB) -> None:
+    """Decisions rest on measurements only. A Worker confrontation is stored as
+    a reading — dated, with the definition it read — and the invariant's
+    counts, score, weight and verdict stay where the measured record put them,
+    at the commit AND at the next restatement."""
+    standing = (
+        "SELECT confirmation_count, infirmation_count, market_score, weight_effective, status "
+        "FROM invariant WHERE id='inv-active'"
+    )
+    await restate_invariant(db, "inv-active", THRESHOLDS, date(2026, 10, 4))
+    before = dict((await db.query(standing))[0])
+
     result = PostPlannerResult(
         confrontations=[Confrontation(invariant_id="inv-active", verdict="confirmed")]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.confrontations == 1
+    assert dict((await db.query(standing))[0]) == before
 
-    after = (
-        await db.query(
-            "SELECT confirmation_count, infirmation_count, market_score "
-            "FROM invariant WHERE id='inv-active'"
-        )
-    )[0]
-    assert after["confirmation_count"] == before["confirmation_count"] + 1  # 4 -> 5
-    assert after["market_score"] == pytest.approx(5 / 6)  # 5 confirmed of 6
+    await restate_invariant(db, "inv-active", THRESHOLDS, date(2026, 10, 4))
+    assert dict((await db.query(standing))[0]) == before
 
     conf = await db.query(
-        "SELECT source, verdict FROM invariant_confrontations "
+        "SELECT source, verdict, definition FROM invariant_confrontations "
         "WHERE invariant_id='inv-active' AND source = 'evaluation'"
     )
-    assert conf[0]["source"] == "evaluation" and conf[0]["verdict"] == "confirmed"
+    assert conf[0]["verdict"] == "confirmed" and conf[0]["definition"]
     ev = await db.query("SELECT type FROM event_log WHERE type='ConfrontationEvent'")
     assert len(ev) == 1  # EventLog-first
 
@@ -114,56 +115,13 @@ async def _add_invariant(db: InvestmentDB, iid: str, status: str, cc: int, ic: i
     await give_invariant_a_record(db, iid, confirmed=cc, refuted=ic)
 
 
-async def test_a_confrontation_restates_the_verdict_not_only_the_score(db: InvestmentDB) -> None:
-    """The verdict is stateless — recomputed from current counts at every
-    confrontation — and this path used to move the score while leaving `status`
-    as the last weekly restatement wrote it. 4 of 4 is a coin's 6.25%, so
-    'proposed'; the fifth confirmation makes it 3.1% and the invariant
-    integrates in the SAME commit, dated. The mirror case loses it: 5 of 5 plus
-    one infirmation is 5 of 6 (10.9%), and `validated_at` clears with it."""
-    await _add_invariant(db, "inv-rising", "proposed", 4, 0)
-    await _add_invariant(db, "inv-falling", "integrated", 5, 0)
-    await db.command("UPDATE invariant SET validated_at = '2026-01-01' WHERE id = 'inv-falling'")
-    result = PostPlannerResult(
-        confrontations=[
-            Confrontation(invariant_id="inv-rising", verdict="confirmed"),
-            Confrontation(invariant_id="inv-falling", verdict="refuted"),
-        ]
-    )
-    await commit_knowledge(db, result, "stag", THRESHOLDS)
-
-    rows = {
-        r["id"]: r
-        for r in await db.query(
-            "SELECT id, status, validated_at, weight_effective FROM invariant "
-            "WHERE id IN ('inv-rising', 'inv-falling')"
-        )
-    }
-    assert rows["inv-rising"]["status"] == "integrated"
-    assert rows["inv-rising"]["validated_at"] is not None
-    # (0.6 x 4 + 5) / (4 + 5): five confirmations lift the weight ABOVE its start.
-    assert rows["inv-rising"]["weight_effective"] == pytest.approx(7.4 / 9)
-    assert rows["inv-falling"]["status"] == "proposed"
-    assert rows["inv-falling"]["validated_at"] is None
-
-
 async def test_a_revised_condition_does_not_inherit_the_old_ones_evidence(
     db: InvestmentDB,
 ) -> None:
     """Evidence belongs to the definition it tested. An invariant with a 4/1
-    record earns a fifth confirmation from an evaluation, then has its condition
-    rewritten: every one of those six confrontations was earned by a claim that
-    no longer exists, so the standing restarts from nothing. Before
-    `invariant_confrontations.definition`, the forward rows stayed counted —
-    the new condition opened with the old one's record."""
-    await commit_knowledge(
-        db,
-        PostPlannerResult(
-            confrontations=[Confrontation(invariant_id="inv-active", verdict="confirmed")]
-        ),
-        "stag",
-        THRESHOLDS,
-    )
+    measured record has its condition rewritten: every one of those five
+    confrontations was earned by a claim that no longer exists, so the standing
+    restarts from nothing."""
     await db.command(
         "UPDATE invariant SET condition = :c WHERE id = 'inv-active'",
         c='[{"signal": "inflation", "feature": "level", "op": ">", "value": 3}]',
@@ -183,7 +141,7 @@ async def test_a_revised_condition_does_not_inherit_the_old_ones_evidence(
     kept = await db.query(
         "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id = 'inv-active'"
     )
-    assert kept[0]["n"] == 6
+    assert kept[0]["n"] == 5
 
 
 async def test_reference_knowledge_is_never_confronted(db: InvestmentDB) -> None:
@@ -195,7 +153,7 @@ async def test_reference_knowledge_is_never_confronted(db: InvestmentDB) -> None
     result = PostPlannerResult(
         confrontations=[Confrontation(invariant_id="inv-note", verdict="confirmed")]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.confrontations == 0
     note = (await db.query("SELECT status, confirmation_count FROM invariant WHERE id='inv-note'"))[
         0
@@ -213,7 +171,7 @@ async def test_dormant_invariant_is_not_confronted(db: InvestmentDB) -> None:
     result = PostPlannerResult(
         confrontations=[Confrontation(invariant_id="inv-dormant", verdict="confirmed")]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.confrontations == 0  # condition can't fire -> not confronted
     after = (await db.query("SELECT confirmation_count FROM invariant WHERE id='inv-dormant'"))[0][
         "confirmation_count"
@@ -233,7 +191,7 @@ async def test_evaluation_nudges_conviction(db: InvestmentDB) -> None:
             ),
         ]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.conviction_updates == 1
     conviction = (await db.query("SELECT conviction FROM strategy WHERE id='s1'"))[0]["conviction"]
     assert conviction == pytest.approx(68.0)  # 60 + 8
@@ -258,7 +216,7 @@ async def test_evaluation_is_persisted_as_a_vertex_not_just_a_conviction_nudge(
             ),
         ]
     )
-    await commit_knowledge(db, result, "stag", THRESHOLDS)
+    await commit_knowledge(db, result, "stag")
     row = (await db.query("SELECT * FROM evaluation"))[0]
     assert row["strategy_id"] == "s1"  # UPDATES is the FK on the child
     assert row["verdict"] == "weakens"
@@ -280,7 +238,7 @@ async def test_a_neutral_evaluation_is_recorded_though_it_moves_no_conviction(
             ),
         ]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.conviction_updates == 0
     assert len(await db.query("SELECT id FROM evaluation")) == 1
 
@@ -305,7 +263,7 @@ async def test_an_evaluation_of_an_unknown_strategy_does_not_abort_the_commit(
             ),
         ]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.conviction_updates == 1  # only the real one
     rows = await db.query("SELECT strategy_id FROM evaluation")
     assert [r["strategy_id"] for r in rows] == ["s1"]
@@ -332,7 +290,7 @@ async def test_scenario_update_commits_a_coherent_triple(db: InvestmentDB) -> No
             _scen("s1", "bear", 15.0),
         ]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.scenario_updates == 3  # all three written
     probs = await db.query(
         "SELECT scenario, probability FROM scenario_probability WHERE strategy_id='s1' "
@@ -359,7 +317,7 @@ async def test_incoherent_scenario_update_is_skipped(db: InvestmentDB) -> None:
     result = PostPlannerResult(
         scenario_updates=[_scen("s1", "bull", 55.0), _scen("s1", "base", 30.0)]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.scenario_updates == 0
     assert await db.query("SELECT scenario FROM scenario_probability") == []
 
@@ -381,7 +339,7 @@ async def test_new_strategy_innovation_is_born_proposed_and_disabled(db: Investm
             )
         ]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.innovations == 1
     row = (await db.query("SELECT status, enabled, source FROM strategy WHERE id='strat-cc'"))[0]
     assert row["status"] == "proposed"
@@ -411,7 +369,7 @@ async def test_strategy_innovation_survives_an_invented_fk(db: InvestmentDB) -> 
             )
         ]
     )
-    summary = await commit_knowledge(db, result, "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, result, "stag")
     assert summary.innovations == 1
     row = (
         await db.query(
@@ -444,7 +402,7 @@ async def test_strategy_innovation_records_its_spec_for_activation(db: Investmen
             )
         ]
     )
-    await commit_knowledge(db, result, "stag", THRESHOLDS)
+    await commit_knowledge(db, result, "stag")
     payload = (
         await db.query(
             "SELECT json_extract(payload, '$.spec.cites[0]') AS cite FROM event_log "
@@ -455,7 +413,7 @@ async def test_strategy_innovation_records_its_spec_for_activation(db: Investmen
 
 
 async def test_empty_result_is_a_clean_no_op(db: InvestmentDB) -> None:
-    summary = await commit_knowledge(db, PostPlannerResult(), "stag", THRESHOLDS)
+    summary = await commit_knowledge(db, PostPlannerResult(), "stag")
     assert summary.confrontations == 0
     assert summary.conviction_updates == 0
     assert await db.query("SELECT id FROM event_log") == []

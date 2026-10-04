@@ -71,3 +71,13 @@ holdings are outside the existing cost model. A binary rate signal can miss
 bond carry or a quick yield reversal; the existing price-trend overlay may
 already cover most of the losses. Subperiod selection and bootstrap cannot
 prove future profitability or causal identification of a macro regime.
+
+## Warm-up clarification (before any candidate performance was calculated)
+
+The loader derives speeds on the common priceable calendar, which begins on
+1993-11-01, rather than on the older raw DGS10 history. Its first two monthly
+decisions (November 1 and December 1) consequently have unavailable 30-day
+speed. Preserve the baseline target for unavailable speed within the initial
+30-calendar-day warm-up plus a 7-day publication/calendar grace, and record
+these dates explicitly. Any later unavailable speed is an error, never a
+silent no-op. A missing DGS10 series still refuses the entire comparison.

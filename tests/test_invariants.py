@@ -523,6 +523,25 @@ def test_validate_invariant_accepts_every_computed_metric() -> None:
         assert invariants.validate_invariant([], effect, _seed_registries()) is None, metric
 
 
+def test_an_absolute_claim_on_cash_is_not_measurable_and_a_relative_one_is() -> None:
+    """ "Cash loses purchasing power when inflation runs hot" is a claim about
+    REAL return. Encoded on the nominal `return`, every moment is neutral and
+    the claim keeps its starting weight for good, so the gate sends it to
+    reference knowledge. Cash against the other classes is a different claim,
+    and a measurable one."""
+    condition = [{"signal": "inflation", "feature": "level", "op": ">", "value": 3.0}]
+    effect = {
+        "handle": "asset-class:cash",
+        "metric": "return",
+        "method": "absolute",
+        "direction": "underperform",
+    }
+    reason = invariants.validate_invariant(condition, effect, _seed_registries())
+    assert reason is not None and "real-return" in reason
+    relative = {**effect, "method": "cross_class"}
+    assert invariants.validate_invariant(condition, relative, _seed_registries()) is None
+
+
 def test_validate_invariant_rejects_type_feature_on_a_series_signal() -> None:
     """'feature valid FOR IT' (spec), not globally: a market series has no
     'type' column, so this reached the sweep as a KeyError instead of

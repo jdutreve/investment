@@ -2,7 +2,7 @@
 
 Run with the project's Python, passing a live DB or --inputs exported_inputs.csv.
 The latter reproduces the stored data vintage without opening a database.
-Research only: no production globals, schema, proposals or DB rows are mutated.
+Research only: no allocation globals, schema, proposals or DB rows are mutated.
 """
 
 import argparse
@@ -56,10 +56,11 @@ def duration_target(target: dict[str, float], speed: float, threshold: float) ->
         raise ValueError("duration candidate needs a knowable DGS10 speed at every decision")
     if speed <= threshold:
         return dict(target)
-    result = {ticker: weight for ticker, weight in target.items() if ticker not in DURATION_SLEEVES}
     released = sum(target.get(ticker, 0.0) for ticker in DURATION_SLEEVES)
-    if released:
-        result[ratios.CASH_TICKER] = result.get(ratios.CASH_TICKER, 0.0) + released
+    if not released:
+        return dict(target)
+    result = {ticker: weight for ticker, weight in target.items() if ticker not in DURATION_SLEEVES}
+    result[ratios.CASH_TICKER] = result.get(ratios.CASH_TICKER, 0.0) + released
     return result
 
 
@@ -73,8 +74,13 @@ def gated_decisions(
     """
     output: list[ms.Decision] = []
     previous: dict[str, float] | None = None
+    warmup_end = speed.index[0] + pd.Timedelta(days=ms.SPEED_LOOKBACK_DAYS + 7)
     for decision in decisions:
-        target = duration_target(decision.target, float(speed.loc[decision.date]), threshold)
+        reading = float(speed.loc[decision.date])
+        if math.isnan(reading) and decision.date <= warmup_end:
+            target = dict(decision.target)
+        else:
+            target = duration_target(decision.target, reading, threshold)
         assert math.isclose(sum(target.values()), 100.0, abs_tol=1e-9)
         assert all(weight >= 0 for weight in target.values())
         for ticker in set(target) | set(decision.target):
@@ -108,7 +114,7 @@ def input_frame(series: ms.StackSeries) -> pd.DataFrame:
 
 
 async def load_export(path: Path) -> ms.StackSeries:
-    frame = pd.read_csv(path, index_col=0, parse_dates=True)
+    frame = pd.read_csv(path, index_col=0, parse_dates=True, float_precision="round_trip")
 
     class ExportReader:
         async def query(self, _sql: str, **parameters: Any) -> list[dict[str, Any]]:
@@ -122,12 +128,17 @@ async def load_export(path: Path) -> ms.StackSeries:
                 {"ts": ts.date().isoformat(), "level": float(value)} for ts, value in values.items()
             ]
 
-    return await ms.load_series(cast("InvestmentDB", ExportReader()))
+    series = await ms.load_series(cast("InvestmentDB", ExportReader()))
+    # Use the exported daily cash curve itself, not floating-point roundoff
+    # from inverting it to IRX and transforming it back through load_series.
+    return dataclasses.replace(series, rf=frame["rf_daily"].dropna())
 
 
 def target_frame(decisions: list[ms.Decision], index: pd.DatetimeIndex) -> pd.DataFrame:
     frame = pd.DataFrame({d.date: d.target for d in decisions}).T.fillna(0.0)
-    return frame.reindex(index).ffill().fillna(0.0)
+    # Keep the standing target before a subwindow opens, not zero until its
+    # first monthly decision. Dropping the prior target loses the warm state.
+    return frame.reindex(frame.index.union(index)).ffill().reindex(index).fillna(0.0)
 
 
 def window_report(
@@ -249,6 +260,7 @@ async def main() -> None:
         "inputs_sha256": hashlib.sha256(inputs_path.read_bytes()).hexdigest(),
         "primary_threshold_pp": PRIMARY_THRESHOLD,
         "sensitivity_thresholds_pp": SENSITIVITY_THRESHOLDS,
+        "unavailable_speed_warmup_dates": [],
         "variants": {},
     }
     windows = {
@@ -264,6 +276,11 @@ async def main() -> None:
     }
     # Exactly one original walk supplies the book state and post-overlay targets.
     baseline = await ms.run_market_signal(cast("InvestmentDB", None), end=latest, series=series)
+    report["unavailable_speed_warmup_dates"] = [
+        d.date.date().isoformat()
+        for d in baseline.decisions
+        if pd.isna(series.long_yield_speed.loc[d.date])
+    ]
     for threshold in (PRIMARY_THRESHOLD, *SENSITIVITY_THRESHOLDS):
         decisions = gated_decisions(baseline.decisions, series.long_yield_speed, threshold)
         variant = price_decisions(decisions, series, ms.COST_BPS)

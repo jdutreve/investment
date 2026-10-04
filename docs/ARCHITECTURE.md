@@ -435,15 +435,19 @@ FORWARD (source='forward') — the same measurement, continued after birth:
   benchmark_valuation and the derived signals. Until 2026-10-04 only the seed
   wrote them, so no window ever completed between two seeds.
 
-FROM EVALUATIONS (source='evaluation'):
-  CONDITION GATE — confront ONLY invariants whose `condition` was ACTIVE at
-  the evaluation's as-of date (an 'always' condition always qualifies).
-  Confronting an invariant whose condition was absent would credit/blame it
-  for a market it does not claim to describe.
-    verdict='confirms'     → confirmation for each qualifying BACKED_BY
-                             invariant of the evaluated strategy (severity=1.0)
-    verdict='invalidates'  → infirmation (severity=1.0)
-    'weakens' | 'neutral'  → no count change
+FROM EVALUATIONS (source='evaluation') — A READING, NOT EVIDENCE:
+  Stored, dated, stamped with the definition it read — and counted nowhere
+  (owner, 2026-10-04: decisions rest on measurements only). restate_invariant()
+  counts the two mechanical sources alone. Until then a reading counted like a
+  measured moment, with no completed window, baseline or margin behind it, and
+  the Worker — who reads the weights — was one of their writers.
+  CONDITION GATE — record ONLY readings of invariants whose `condition` was
+  ACTIVE at the evaluation's as-of date (an 'always' condition always
+  qualifies): a reading of a market the invariant does not describe is noise.
+    verdict='confirms'     → a 'confirmed' reading for each qualifying
+                             BACKED_BY invariant of the evaluated strategy
+    verdict='invalidates'  → a 'refuted' reading
+    'weakens' | 'neutral'  → nothing recorded
 
 FROM PROPOSALS — REMOVED 2026-10-04. A Proposal's +12w verdict used to
   confirm or refute each invariant it cited. Since ADR-012 the only proposal
@@ -536,7 +540,10 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
     class (a BENCHMARK_CLASSES key) / enabled Strategy; `metric` a computed
     indicator; `method` in the enum AND consistent with the handle kind
     (cross_class ⇒ asset/class handle; cross_strategy ⇒ strategy handle;
-    absolute ⇒ any handle); `direction` valid. FAIL on any → the
+    absolute ⇒ any handle, EXCEPT `asset-class:cash` on `return`: an
+    absolute claim on cash is a claim about its REAL return, which is not a
+    computed indicator, and on the nominal series every moment is neutral);
+    `direction` valid. FAIL on any → the
     candidate is DEMOTED to reference knowledge (empty condition/effect,
     market_score frozen 1.0, reason in `trace`) — a malformed condition/effect
     never silently breaks maturation.

@@ -9,9 +9,11 @@ probabilities and the invariants backing it — all already in your context.
 **Method.** Compare what the strategy CLAIMS (its conditions) against what the
 data SHOWS. Cite the numbers you used.
 
-**Output contract** — this is not style guidance. Your verdicts feed
-confrontations: they move invariant weights, which change what later cycles are
-allowed to lean on. A verdict is an act, not a comment.
+**Output contract** — this is not style guidance. Your verdicts are recorded,
+dated, beside each invariant's measured record, and read in later cycles. They
+do not move an invariant's weight or status: only measured outcomes do. So a
+verdict has to stand on its own evidence, not on the effect you expect it to
+have.
 
 - `confirms` — current-regime data consistent with the strategy's conditions
   AND supportive FAVORS. Cite the numbers.

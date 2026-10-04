@@ -111,9 +111,10 @@ EVIDENCE_STOPWORDS = frozenset(
 
 class Confrontation(BaseModel):
     """A confrontation Call 2 derived from an evaluation — an invariant the
-    Worker's finding confirms or refutes. Writeback logs it source='evaluation'
-    (docs/ARCHITECTURE.md confrontation rule); the invariant must be one shown
-    in the context (the guardrail enforces it)."""
+    Worker's finding confirms or refutes. Writeback logs it source='evaluation',
+    a reading that moves no weight (docs/ARCHITECTURE.md confrontation rule);
+    the invariant must be one shown in the context (the guardrail enforces
+    it)."""
 
     invariant_id: str
     verdict: str  # 'confirmed' | 'refuted'

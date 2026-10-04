@@ -246,8 +246,11 @@ measurable weights were halved because their condition slept. The intent was
 right and the formula was not, so the factor is gone rather than repaired:
 applied as intended it is 1 in both cases. **ONE WRITER OF AN INVARIANT'S
 STANDING**: `invariants.restate_invariant` writes score, weight AND verdict
-together for every confrontation source; the evaluation and proposal paths used
-to move the score and leave `status` as the last weekly restatement wrote it.
+together, from the MEASURED confrontations alone — the birth sweep and its
+weekly forward continuation. **A WORKER EVALUATION IS A READING, NOT EVIDENCE**
+(owner, 2026-10-04: decisions rest on measurements only): it is recorded and
+counted nowhere. It used to count like a measured moment and moved the score
+while leaving `status` as the last weekly restatement wrote it.
 Weight-like fields are 0–1 fractions everywhere. Every invariant matures over
 35y at birth; details: docs/ARCHITECTURE.md "Birth maturation".
 

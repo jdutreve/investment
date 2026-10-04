@@ -9,8 +9,8 @@ TWO RESPONSIBILITIES, AND NEITHER IS A COGNITIVE ALLOCATION:
   the binding caps dispose, and the decision is journalled whether or not it
   moves money. `effective_caps` (stricter-of user/portfolio caps) binds here.
 - `commit_knowledge` persists the guardrailed PostPlannerResult to the graph:
-  source='evaluation' confrontations (weight-moving, condition-gated),
-  conviction nudges, coherent scenario-probability updates, and innovations
+  source='evaluation' confrontations (readings: condition-gated, recorded,
+  and moving no standing), conviction nudges, coherent scenario-probability updates, and innovations
   (dedup + maturation).
 
 WHAT USED TO BE HERE AND IS NOT, because a docstring that still describes it
@@ -56,7 +56,6 @@ from investment.mechanical.invariants import (
     REFERENCE_STATUS,
     is_absolute_claim,
     mature_seed_invariants,
-    restate_invariant,
     stored_definition,
 )
 from investment.mechanical.market_signal import (
@@ -472,15 +471,20 @@ async def _commit_confrontations(
     post_result: PostPlannerResult,
     context_regime_type: str | None,
     active: set[str],
-    thresholds: dict[str, float],
     today: date,
 ) -> int:
     """source='evaluation' confrontations (docs/ARCHITECTURE.md confrontation
     rule). CONDITION GATE: only invariants ACTIVE now are confronted — a
     dormant lighthouse describes a market not present, so crediting/blaming it
-    would be noise. Each confrontation bumps the count and recomputes the
-    STANDING — score, weight and verdict — through the SHARED primitive
-    (`restate_invariant`) every confrontation source funnels into. Reference
+    would be noise.
+
+    A READING, NOT EVIDENCE (owner, 2026-10-04: decisions rest on measurements
+    only). The row is stored, dated and stamped with the definition it read,
+    and it moves nothing: `restate_invariant` counts the measured sources
+    alone. It used to count like a backtest moment, with no completed window,
+    baseline or margin behind it — the same invariant was confirmed on two
+    consecutive Sundays, another confirmed and refuted on one day — and it
+    made the reader of a weight one of its writers. Reference
     knowledge is never confronted (docs/DATA_MODELS.md): its empty condition
     reads as "always active", so it is excluded by status, not by the gate."""
     confrontations = [c for c in post_result.confrontations if c.invariant_id in active]
@@ -530,7 +534,6 @@ async def _commit_confrontations(
                 verdict=cf.verdict,
                 definition=definition,
             )
-            await restate_invariant(db, cf.invariant_id, thresholds, today)
             committed += 1
     return committed
 
@@ -1358,14 +1361,13 @@ async def commit_knowledge(
     db: InvestmentDB,
     post_result: PostPlannerResult,
     regime_type: str | None,
-    thresholds: dict[str, float],
     today: date | None = None,
     embedder: Embedder | None = None,
 ) -> KnowledgeCommit:
     """Commit the guardrailed PostPlannerResult to the graph (docs/TASKS.md
     Phase 6). The guardrail already dropped every unknown id, every unevidenced
     verdict and every malformed/repeat confrontation, so this is pure mechanical
-    persistence: source='evaluation' confrontations (weight-moving,
+    persistence: source='evaluation' confrontations (readings,
     condition-gated), the evaluation record + conviction nudges, the coherent
     scenario-probability updates (bull/base/bear -> scenario id), and the
     innovations (dedup gate + 35y maturation)."""
@@ -1373,9 +1375,7 @@ async def commit_knowledge(
     active = await active_invariant_ids(
         db, [c.invariant_id for c in post_result.confrontations], regime_type
     )
-    confrontations = await _commit_confrontations(
-        db, post_result, regime_type, active, thresholds, today
-    )
+    confrontations = await _commit_confrontations(db, post_result, regime_type, active, today)
     conviction = await _commit_evaluations(db, post_result, today)
     scenarios = await _commit_scenario_updates(db, post_result, today)
     innovations = await commit_innovations(db, post_result, today, embedder=embedder)

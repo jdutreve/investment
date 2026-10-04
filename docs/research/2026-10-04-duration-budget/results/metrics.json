@@ -1,0 +1,1083 @@
+{
+  "provenance": {
+    "measured_at_utc": "2026-10-04T16:19:57.596641+00:00",
+    "git_head": "05428d58b265750621d5fbe904019fd85706eedf",
+    "source_sha256": {
+      "src/investment/mechanical/market_signal.py": "756daa578d4c1f46f5f782d49cdb89f6784b237e11ec12a2fa73c695499396a1",
+      "src/investment/mechanical/replay.py": "fcb8138f82909067d5d9fded5d89578bb593c7cc3b8f81e58ac32fb168e16adc",
+      "src/investment/mechanical/ratios.py": "7731bcf6363ea00a486803e00f3ad7ddc04d6e752e2e5ec902787fde2e02afdd",
+      "src/investment/mechanical/backtests.py": "2ae977d3dc46130dd3435c65bc6179be37068df9c18069ff4c536095fc1e9cf9",
+      "src/investment/mechanical/rule_revision.py": "8a6633090182fd363d10bf176a7ea6b6e4a5ceeeed8441e5c6641bfe5c2d1adf",
+      "src/investment/market/derivatives.py": "b856296ac8d3c617afbe5083613d75d0796e4d2a972badb0c755e4ac963299d4",
+      "docs/research/2026-10-04-duration-budget/comparison.py": "77b1781b3100226c8e0c266c9b6a16182e692177082005272585189d2db3ab23",
+      "docs/research/2026-10-04-duration-budget/PREREGISTRATION.md": "a10a60cc696849fa2e8da761cc1d1e3a5a6929a8ba5e340b51563003348092f7"
+    },
+    "calendar_start": "1993-11-01",
+    "calendar_end": "2026-10-02",
+    "books": {
+      "credit-spread-wide-yield-curve-flat": {
+        "IWN": 50.0,
+        "SPY": 50.0
+      },
+      "credit-spread-wide-yield-curve-steep": {
+        "SPY": 50.0,
+        "IWN": 40.0,
+        "GLD": 10.0
+      },
+      "credit-spread-tight-yield-curve-flat": {
+        "SPY": 60.0,
+        "GLD": 40.0
+      },
+      "credit-spread-tight-yield-curve-steep": {
+        "VCIT": 50.0,
+        "IEF": 40.0,
+        "IWN": 10.0
+      }
+    },
+    "ma_windows": [
+      150,
+      300
+    ],
+    "confirmation_decisions": 3,
+    "spread_speed_veto": 0.2,
+    "spread_stress_sleeve_gate": 0.2,
+    "slope_bear_veto": null,
+    "slope_speed_veto": null,
+    "speed_lookback_days": 30,
+    "cost_bps_per_order": 23.0,
+    "bootstrap_draws": 2000,
+    "bootstrap_seed": 20260916,
+    "raw_last_dates": {
+      "SPY": "2026-10-02",
+      "IWN": "2026-10-02",
+      "GLD": "2026-10-02",
+      "VCIT": "2026-10-02",
+      "IEF": "2026-10-02",
+      "SHY": "2026-10-02",
+      "TLT": "2026-10-02",
+      "BAA10Y": "2026-10-02",
+      "T10Y2Y": "2026-10-03",
+      "DGS10": "2026-10-02",
+      "rf_daily": "2026-10-02"
+    }
+  },
+  "inputs_sha256": "9387dd35458d3571e4ca04f56a2bc73e872b445f38ea3dd770f539e03ed0f34c",
+  "primary_threshold_pp": 0.2,
+  "sensitivity_thresholds_pp": [
+    0.1,
+    0.3
+  ],
+  "unavailable_speed_warmup_dates": [
+    "1993-11-01",
+    "1993-12-01"
+  ],
+  "variants": {
+    "0.20": {
+      "windows": {
+        "pinned_full": {
+          "start": "1993-11-01",
+          "end": "2026-07-01",
+          "nav_observations": 8170,
+          "baseline": {
+            "cagr": 0.1151292247382496,
+            "sortino": 1.2958746406340236,
+            "calmar": 0.6977362123088381,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10813486926946303,
+            "sortino": 1.2101722663966548,
+            "calmar": 0.6553471915938281,
+            "max_drawdown": -0.16500394089806825
+          },
+          "deltas": {
+            "cagr": -0.006994355468786573,
+            "sortino": -0.08570237423736882,
+            "calmar": -0.04238902071500994,
+            "max_drawdown": 1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.9905,
+            "p_degrade": 0.0095,
+            "ci_low": -0.16651037399613128,
+            "ci_high": -0.023016795834525462
+          },
+          "monthly_decisions": 393,
+          "modified_monthly_targets": 29,
+          "baseline_mean_target_cash_pct": 5.131578947368421,
+          "variant_mean_target_cash_pct": 9.520195838433292,
+          "baseline_total_return": 33.222596615629,
+          "variant_total_return": 26.907509519164442
+        },
+        "early_half": {
+          "start": "1993-11-01",
+          "end": "2008-12-31",
+          "nav_observations": 3770,
+          "baseline": {
+            "cagr": 0.12580013433910175,
+            "sortino": 1.294811811522366,
+            "calmar": 0.9728687981070594,
+            "max_drawdown": -0.1293084273890528
+          },
+          "variant": {
+            "cagr": 0.11107655238878378,
+            "sortino": 1.103793446992059,
+            "calmar": 0.8590047426266014,
+            "max_drawdown": -0.12930842738905268
+          },
+          "deltas": {
+            "cagr": -0.014723581950317977,
+            "sortino": -0.19101836453030696,
+            "calmar": -0.11386405548045797,
+            "max_drawdown": 1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.9955,
+            "p_degrade": 0.0045,
+            "ci_low": -0.29578112205191937,
+            "ci_high": -0.04183013554608998
+          },
+          "monthly_decisions": 182,
+          "modified_monthly_targets": 21,
+          "baseline_mean_target_cash_pct": 1.830238726790451,
+          "variant_mean_target_cash_pct": 8.858090185676392,
+          "baseline_total_return": 4.886773514970739,
+          "variant_total_return": 3.8344213691149136
+        },
+        "late_half": {
+          "start": "2009-01-02",
+          "end": "2026-07-01",
+          "nav_observations": 4400,
+          "baseline": {
+            "cagr": 0.10698014629121566,
+            "sortino": 1.3110201514110615,
+            "calmar": 0.6483490376590638,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10653366588032509,
+            "sortino": 1.3098762046254089,
+            "calmar": 0.6456431604026757,
+            "max_drawdown": -0.16500394089806825
+          },
+          "deltas": {
+            "cagr": -0.00044648041089057067,
+            "sortino": -0.0011439467856526608,
+            "calmar": -0.002705877256388156,
+            "max_drawdown": 1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.5375,
+            "p_degrade": 0.4625,
+            "ci_low": -0.033827589487505846,
+            "ci_high": 0.033073829307569275
+          },
+          "monthly_decisions": 211,
+          "modified_monthly_targets": 8,
+          "baseline_mean_target_cash_pct": 7.9602272727272725,
+          "variant_mean_target_cash_pct": 10.0875,
+          "baseline_total_return": 4.897873821743712,
+          "variant_total_return": 4.856476794052941
+        },
+        "through_latest": {
+          "start": "1993-11-01",
+          "end": "2026-10-02",
+          "nav_observations": 8235,
+          "baseline": {
+            "cagr": 0.11343213860649892,
+            "sortino": 1.2762520417879717,
+            "calmar": 0.6874510874656742,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10650337919508779,
+            "sortino": 1.1908576460435107,
+            "calmar": 0.645459609118552,
+            "max_drawdown": -0.16500394089806825
+          },
+          "deltas": {
+            "cagr": -0.006928759411411134,
+            "sortino": -0.08539439574446095,
+            "calmar": -0.041991478347122135,
+            "max_drawdown": 1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.9945,
+            "p_degrade": 0.0055,
+            "ci_low": -0.16333808878120304,
+            "ci_high": -0.02302846669324341
+          },
+          "monthly_decisions": 396,
+          "modified_monthly_targets": 29,
+          "baseline_mean_target_cash_pct": 5.445658773527626,
+          "variant_mean_target_cash_pct": 9.799635701275045,
+          "baseline_total_return": 32.489200513031335,
+          "variant_total_return": 26.30944681385777
+        },
+        "post_pinned_tail": {
+          "start": "2026-07-01",
+          "end": "2026-10-02",
+          "nav_observations": 66,
+          "baseline": {
+            "cagr": -0.07938538751509316,
+            "sortino": -4.682422076254415,
+            "calmar": -3.333354947431292,
+            "max_drawdown": -0.023815461829610474
+          },
+          "variant": {
+            "cagr": -0.07938538751509083,
+            "sortino": -4.682422076254243,
+            "calmar": -3.333354947431303,
+            "max_drawdown": -0.023815461829609696
+          },
+          "deltas": {
+            "cagr": 2.3314683517128287e-15,
+            "sortino": 1.723066134218243e-13,
+            "calmar": -1.1102230246251565e-14,
+            "max_drawdown": 7.771561172376096e-16
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 4,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 44.24242424242424,
+          "variant_mean_target_cash_pct": 44.24242424242424,
+          "baseline_total_return": -0.021430171147876598,
+          "variant_total_return": -0.02143017114787593
+        },
+        "year_1994": {
+          "start": "1994-01-04",
+          "end": "1994-12-30",
+          "nav_observations": 247,
+          "baseline": {
+            "cagr": -0.04372515040245706,
+            "sortino": -1.5201085322600831,
+            "calmar": -0.4763399019350151,
+            "max_drawdown": -0.09179401142930554
+          },
+          "variant": {
+            "cagr": -0.04372515040245706,
+            "sortino": -1.5201085322600831,
+            "calmar": -0.4763399019350151,
+            "max_drawdown": -0.09179401142930554
+          },
+          "deltas": {
+            "cagr": 0.0,
+            "sortino": 0.0,
+            "calmar": 0.0,
+            "max_drawdown": 0.0
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 27.93522267206478,
+          "variant_mean_target_cash_pct": 27.93522267206478,
+          "baseline_total_return": -0.042876461318437364,
+          "variant_total_return": -0.042876461318437364
+        },
+        "year_2008": {
+          "start": "2008-01-02",
+          "end": "2008-12-31",
+          "nav_observations": 253,
+          "baseline": {
+            "cagr": 0.12317538783860371,
+            "sortino": 1.8894514879185316,
+            "calmar": 2.5659806992332195,
+            "max_drawdown": -0.048003240194055885
+          },
+          "variant": {
+            "cagr": 0.013187296222873401,
+            "sortino": 0.04873292342699886,
+            "calmar": 0.27653539690519885,
+            "max_drawdown": -0.04768755237288569
+          },
+          "deltas": {
+            "cagr": -0.10998809161573031,
+            "sortino": -1.8407185644915327,
+            "calmar": -2.2894453023280206,
+            "max_drawdown": 0.00031568782117019634
+          },
+          "project_verdict": "insufficient",
+          "evidence": {
+            "p_improve": 0.8875,
+            "p_degrade": 0.1125,
+            "ci_low": -2.841898192908844,
+            "ci_high": 0.1342277848429495
+          },
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 4,
+          "baseline_mean_target_cash_pct": 0.0,
+          "variant_mean_target_cash_pct": 31.99604743083004,
+          "baseline_total_return": 0.12369323684400291,
+          "variant_total_return": 0.013239971675024442
+        },
+        "year_2020": {
+          "start": "2020-01-02",
+          "end": "2020-12-31",
+          "nav_observations": 253,
+          "baseline": {
+            "cagr": 0.17803512790785958,
+            "sortino": 1.540463523176836,
+            "calmar": 1.0789750047111983,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.17803512790786202,
+            "sortino": 1.540463523176855,
+            "calmar": 1.0789750047112137,
+            "max_drawdown": -0.16500394089806825
+          },
+          "deltas": {
+            "cagr": 2.4424906541753444e-15,
+            "sortino": 1.9095836023552692e-14,
+            "calmar": 1.532107773982716e-14,
+            "max_drawdown": 1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.0315,
+            "p_degrade": 0.9705,
+            "ci_low": 2.441102875394563e-15,
+            "ci_high": 4.973799150320701e-14
+          },
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 0.0,
+          "variant_mean_target_cash_pct": 0.0,
+          "baseline_total_return": 0.17880132374280988,
+          "variant_total_return": 0.17880132374281232
+        },
+        "year_2022": {
+          "start": "2022-01-03",
+          "end": "2022-12-30",
+          "nav_observations": 251,
+          "baseline": {
+            "cagr": -0.10509057996181281,
+            "sortino": -2.0803789953463894,
+            "calmar": -0.929989557557091,
+            "max_drawdown": -0.11300189244905734
+          },
+          "variant": {
+            "cagr": -0.10509057996181226,
+            "sortino": -2.0803789953463867,
+            "calmar": -0.9299895575570924,
+            "max_drawdown": -0.11300189244905656
+          },
+          "deltas": {
+            "cagr": 5.551115123125783e-16,
+            "sortino": 2.6645352591003757e-15,
+            "calmar": -1.4432899320127035e-15,
+            "max_drawdown": 7.771561172376096e-16
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 62.39043824701195,
+          "variant_mean_target_cash_pct": 62.39043824701195,
+          "baseline_total_return": -0.10469619040820399,
+          "variant_total_return": -0.10469619040820344
+        }
+      },
+      "baseline_target_change_turnover_total": 67.13158406615271,
+      "variant_target_change_turnover_total": 91.87433748819457,
+      "baseline_target_change_count": 167,
+      "variant_target_change_count": 187
+    },
+    "0.10": {
+      "windows": {
+        "pinned_full": {
+          "start": "1993-11-01",
+          "end": "2026-07-01",
+          "nav_observations": 8170,
+          "baseline": {
+            "cagr": 0.1151292247382496,
+            "sortino": 1.2958746406340236,
+            "calmar": 0.6977362123088381,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10235513559906861,
+            "sortino": 1.1340639360164413,
+            "calmar": 0.6203193392956519,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": -0.012774089139180989,
+            "sortino": -0.1618107046175823,
+            "calmar": -0.07741687301318623,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 1.0,
+            "p_degrade": 0.0,
+            "ci_low": -0.25154882493225195,
+            "ci_high": -0.08526213952727052
+          },
+          "monthly_decisions": 393,
+          "modified_monthly_targets": 48,
+          "baseline_mean_target_cash_pct": 5.131578947368421,
+          "variant_mean_target_cash_pct": 12.497552019583843,
+          "baseline_total_return": 33.222596615629,
+          "variant_total_return": 22.555420638892382
+        },
+        "early_half": {
+          "start": "1993-11-01",
+          "end": "2008-12-31",
+          "nav_observations": 3770,
+          "baseline": {
+            "cagr": 0.12580013433910175,
+            "sortino": 1.294811811522366,
+            "calmar": 0.9728687981070594,
+            "max_drawdown": -0.1293084273890528
+          },
+          "variant": {
+            "cagr": 0.10885021550493157,
+            "sortino": 1.0735430835089383,
+            "calmar": 0.8417874820906436,
+            "max_drawdown": -0.1293084273890528
+          },
+          "deltas": {
+            "cagr": -0.016949918834170186,
+            "sortino": -0.22126872801342756,
+            "calmar": -0.13108131601641582,
+            "max_drawdown": 0.0
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.9995,
+            "p_degrade": 0.0005,
+            "ci_low": -0.3230123833086846,
+            "ci_high": -0.070506519750789
+          },
+          "monthly_decisions": 182,
+          "modified_monthly_targets": 27,
+          "baseline_mean_target_cash_pct": 1.830238726790451,
+          "variant_mean_target_cash_pct": 10.913793103448276,
+          "baseline_total_return": 4.886773514970739,
+          "variant_total_return": 3.691509587890274
+        },
+        "late_half": {
+          "start": "2009-01-02",
+          "end": "2026-07-01",
+          "nav_observations": 4400,
+          "baseline": {
+            "cagr": 0.10698014629121566,
+            "sortino": 1.3110201514110615,
+            "calmar": 0.6483490376590638,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.09772612549022397,
+            "sortino": 1.196771021480032,
+            "calmar": 0.5922654026220773,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": -0.009254020800991691,
+            "sortino": -0.11424912993102954,
+            "calmar": -0.056083635036986546,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.9975,
+            "p_degrade": 0.0025,
+            "ci_low": -0.18859380456301758,
+            "ci_high": -0.038542852688426964
+          },
+          "monthly_decisions": 211,
+          "modified_monthly_targets": 21,
+          "baseline_mean_target_cash_pct": 7.9602272727272725,
+          "variant_mean_target_cash_pct": 13.854545454545455,
+          "baseline_total_return": 4.897873821743712,
+          "variant_total_return": 4.093755581052521
+        },
+        "through_latest": {
+          "start": "1993-11-01",
+          "end": "2026-10-02",
+          "nav_observations": 8235,
+          "baseline": {
+            "cagr": 0.11343213860649892,
+            "sortino": 1.2762520417879717,
+            "calmar": 0.6874510874656742,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10070766006132614,
+            "sortino": 1.1141582577647127,
+            "calmar": 0.6103348775380978,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": -0.01272447854517278,
+            "sortino": -0.16209378402325902,
+            "calmar": -0.0771162099275764,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 1.0,
+            "p_degrade": 0.0,
+            "ci_low": -0.24706341109948163,
+            "ci_high": -0.08995699085313472
+          },
+          "monthly_decisions": 396,
+          "modified_monthly_targets": 49,
+          "baseline_mean_target_cash_pct": 5.445658773527626,
+          "variant_mean_target_cash_pct": 12.817243472981177,
+          "baseline_total_return": 32.489200513031335,
+          "variant_total_return": 22.002819082420324
+        },
+        "post_pinned_tail": {
+          "start": "2026-07-01",
+          "end": "2026-10-02",
+          "nav_observations": 66,
+          "baseline": {
+            "cagr": -0.07938538751509316,
+            "sortino": -4.682422076254415,
+            "calmar": -3.333354947431292,
+            "max_drawdown": -0.023815461829610474
+          },
+          "variant": {
+            "cagr": -0.08665404882197492,
+            "sortino": -4.969480266466051,
+            "calmar": -3.3534876886627742,
+            "max_drawdown": -0.025839978215792647
+          },
+          "deltas": {
+            "cagr": -0.007268661306881752,
+            "sortino": -0.2870581902116358,
+            "calmar": -0.020132741231482232,
+            "max_drawdown": -0.0020245163861821736
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 4,
+          "modified_monthly_targets": 1,
+          "baseline_mean_target_cash_pct": 44.24242424242424,
+          "variant_mean_target_cash_pct": 52.196969696969695,
+          "baseline_total_return": -0.021430171147876598,
+          "variant_total_return": -0.023459634406173935
+        },
+        "year_1994": {
+          "start": "1994-01-04",
+          "end": "1994-12-30",
+          "nav_observations": 247,
+          "baseline": {
+            "cagr": -0.04372515040245706,
+            "sortino": -1.5201085322600831,
+            "calmar": -0.4763399019350151,
+            "max_drawdown": -0.09179401142930554
+          },
+          "variant": {
+            "cagr": -0.04372515040245706,
+            "sortino": -1.5201085322600831,
+            "calmar": -0.4763399019350151,
+            "max_drawdown": -0.09179401142930554
+          },
+          "deltas": {
+            "cagr": 0.0,
+            "sortino": 0.0,
+            "calmar": 0.0,
+            "max_drawdown": 0.0
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 27.93522267206478,
+          "variant_mean_target_cash_pct": 27.93522267206478,
+          "baseline_total_return": -0.042876461318437364,
+          "variant_total_return": -0.042876461318437364
+        },
+        "year_2008": {
+          "start": "2008-01-02",
+          "end": "2008-12-31",
+          "nav_observations": 253,
+          "baseline": {
+            "cagr": 0.12317538783860371,
+            "sortino": 1.8894514879185316,
+            "calmar": 2.5659806992332195,
+            "max_drawdown": -0.048003240194055885
+          },
+          "variant": {
+            "cagr": 0.01318729622287318,
+            "sortino": 0.0487329234270009,
+            "calmar": 0.2765353969051929,
+            "max_drawdown": -0.04768755237288591
+          },
+          "deltas": {
+            "cagr": -0.10998809161573053,
+            "sortino": -1.8407185644915307,
+            "calmar": -2.2894453023280263,
+            "max_drawdown": 0.0003156878211699743
+          },
+          "project_verdict": "insufficient",
+          "evidence": {
+            "p_improve": 0.8875,
+            "p_degrade": 0.1125,
+            "ci_low": -2.8418981929088734,
+            "ci_high": 0.13422778484297399
+          },
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 4,
+          "baseline_mean_target_cash_pct": 0.0,
+          "variant_mean_target_cash_pct": 31.99604743083004,
+          "baseline_total_return": 0.12369323684400291,
+          "variant_total_return": 0.01323997167502422
+        },
+        "year_2020": {
+          "start": "2020-01-02",
+          "end": "2020-12-31",
+          "nav_observations": 253,
+          "baseline": {
+            "cagr": 0.17803512790785958,
+            "sortino": 1.540463523176836,
+            "calmar": 1.0789750047111983,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.17216076499939414,
+            "sortino": 1.4921483008788106,
+            "calmar": 1.043373655576789,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": -0.005874362908465436,
+            "sortino": -0.04831522229802543,
+            "calmar": -0.03560134913440938,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "insufficient",
+          "evidence": {
+            "p_improve": 0.9035,
+            "p_degrade": 0.0965,
+            "ci_low": -0.13116387062143714,
+            "ci_high": 1.687538997430238e-14
+          },
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 2,
+          "baseline_mean_target_cash_pct": 0.0,
+          "variant_mean_target_cash_pct": 4.051383399209486,
+          "baseline_total_return": 0.17880132374280988,
+          "variant_total_return": 0.17289987250084526
+        },
+        "year_2022": {
+          "start": "2022-01-03",
+          "end": "2022-12-30",
+          "nav_observations": 251,
+          "baseline": {
+            "cagr": -0.10509057996181281,
+            "sortino": -2.0803789953463894,
+            "calmar": -0.929989557557091,
+            "max_drawdown": -0.11300189244905734
+          },
+          "variant": {
+            "cagr": -0.1050905799618117,
+            "sortino": -2.0803789953463685,
+            "calmar": -0.9299895575570949,
+            "max_drawdown": -0.11300189244905567
+          },
+          "deltas": {
+            "cagr": 1.1102230246251565e-15,
+            "sortino": 2.0872192862952943e-14,
+            "calmar": -3.885780586188048e-15,
+            "max_drawdown": 1.6653345369377348e-15
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 62.39043824701195,
+          "variant_mean_target_cash_pct": 62.39043824701195,
+          "baseline_total_return": -0.10469619040820399,
+          "variant_total_return": -0.10469619040820288
+        }
+      },
+      "baseline_target_change_turnover_total": 67.13158406615271,
+      "variant_target_change_turnover_total": 104.17525115071666,
+      "baseline_target_change_count": 167,
+      "variant_target_change_count": 198
+    },
+    "0.30": {
+      "windows": {
+        "pinned_full": {
+          "start": "1993-11-01",
+          "end": "2026-07-01",
+          "nav_observations": 8170,
+          "baseline": {
+            "cagr": 0.1151292247382496,
+            "sortino": 1.2958746406340236,
+            "calmar": 0.6977362123088381,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.11123014537357578,
+            "sortino": 1.2489860197717952,
+            "calmar": 0.6741059926701293,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": -0.0038990793646738187,
+            "sortino": -0.046888620862228336,
+            "calmar": -0.023630219638708816,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "insufficient",
+          "evidence": {
+            "p_improve": 0.932,
+            "p_degrade": 0.068,
+            "ci_low": -0.11484798858584289,
+            "ci_high": 0.0025001351240219083
+          },
+          "monthly_decisions": 393,
+          "modified_monthly_targets": 13,
+          "baseline_mean_target_cash_pct": 5.131578947368421,
+          "variant_mean_target_cash_pct": 7.1731946144430845,
+          "baseline_total_return": 33.222596615629,
+          "variant_total_return": 29.548875514043218
+        },
+        "early_half": {
+          "start": "1993-11-01",
+          "end": "2008-12-31",
+          "nav_observations": 3770,
+          "baseline": {
+            "cagr": 0.12580013433910175,
+            "sortino": 1.294811811522366,
+            "calmar": 0.9728687981070594,
+            "max_drawdown": -0.1293084273890528
+          },
+          "variant": {
+            "cagr": 0.11680441159313126,
+            "sortino": 1.179026582651595,
+            "calmar": 0.9033008439712877,
+            "max_drawdown": -0.12930842738905268
+          },
+          "deltas": {
+            "cagr": -0.008995722745970491,
+            "sortino": -0.1157852288707708,
+            "calmar": -0.06956795413577166,
+            "max_drawdown": 1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.9505,
+            "p_degrade": 0.0495,
+            "ci_low": -0.19460728516241604,
+            "ci_high": -0.0001703742479990903
+          },
+          "monthly_decisions": 182,
+          "modified_monthly_targets": 10,
+          "baseline_mean_target_cash_pct": 1.830238726790451,
+          "variant_mean_target_cash_pct": 5.249336870026525,
+          "baseline_total_return": 4.886773514970739,
+          "variant_total_return": 4.22099116676998
+        },
+        "late_half": {
+          "start": "2009-01-02",
+          "end": "2026-07-01",
+          "nav_observations": 4400,
+          "baseline": {
+            "cagr": 0.10698014629121566,
+            "sortino": 1.3110201514110615,
+            "calmar": 0.6483490376590638,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10738994479560127,
+            "sortino": 1.3195330528729454,
+            "calmar": 0.6508326056402594,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": 0.0004097985043856056,
+            "sortino": 0.008512901461883882,
+            "calmar": 0.0024835679811955336,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.213,
+            "p_degrade": 0.7885,
+            "ci_low": -0.0074786827753342885,
+            "ci_high": 0.032261014443851495
+          },
+          "monthly_decisions": 211,
+          "modified_monthly_targets": 3,
+          "baseline_mean_target_cash_pct": 7.9602272727272725,
+          "variant_mean_target_cash_pct": 8.82159090909091,
+          "baseline_total_return": 4.897873821743712,
+          "variant_total_return": 4.936112410082605
+        },
+        "through_latest": {
+          "start": "1993-11-01",
+          "end": "2026-10-02",
+          "nav_observations": 8235,
+          "baseline": {
+            "cagr": 0.11343213860649892,
+            "sortino": 1.2762520417879717,
+            "calmar": 0.6874510874656742,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.10956966892627729,
+            "sortino": 1.2295206614819445,
+            "calmar": 0.6640427394032011,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": -0.0038624696802216363,
+            "sortino": -0.04673138030602719,
+            "calmar": -0.02340834806247305,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "insufficient",
+          "evidence": {
+            "p_improve": 0.9325,
+            "p_degrade": 0.0675,
+            "ci_low": -0.11468986981498966,
+            "ci_high": 0.0028627192046459023
+          },
+          "monthly_decisions": 396,
+          "modified_monthly_targets": 13,
+          "baseline_mean_target_cash_pct": 5.445658773527626,
+          "variant_mean_target_cash_pct": 7.471159684274438,
+          "baseline_total_return": 32.489200513031335,
+          "variant_total_return": 28.894207883402085
+        },
+        "post_pinned_tail": {
+          "start": "2026-07-01",
+          "end": "2026-10-02",
+          "nav_observations": 66,
+          "baseline": {
+            "cagr": -0.07938538751509316,
+            "sortino": -4.682422076254415,
+            "calmar": -3.333354947431292,
+            "max_drawdown": -0.023815461829610474
+          },
+          "variant": {
+            "cagr": -0.07938538751509405,
+            "sortino": -4.682422076254408,
+            "calmar": -3.3333549474313138,
+            "max_drawdown": -0.023815461829610585
+          },
+          "deltas": {
+            "cagr": -8.881784197001252e-16,
+            "sortino": 7.105427357601002e-15,
+            "calmar": -2.1760371282653068e-14,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 4,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 44.24242424242424,
+          "variant_mean_target_cash_pct": 44.24242424242424,
+          "baseline_total_return": -0.021430171147876598,
+          "variant_total_return": -0.02143017114787682
+        },
+        "year_1994": {
+          "start": "1994-01-04",
+          "end": "1994-12-30",
+          "nav_observations": 247,
+          "baseline": {
+            "cagr": -0.04372515040245706,
+            "sortino": -1.5201085322600831,
+            "calmar": -0.4763399019350151,
+            "max_drawdown": -0.09179401142930554
+          },
+          "variant": {
+            "cagr": -0.04372515040245706,
+            "sortino": -1.5201085322600831,
+            "calmar": -0.4763399019350151,
+            "max_drawdown": -0.09179401142930554
+          },
+          "deltas": {
+            "cagr": 0.0,
+            "sortino": 0.0,
+            "calmar": 0.0,
+            "max_drawdown": 0.0
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 27.93522267206478,
+          "variant_mean_target_cash_pct": 27.93522267206478,
+          "baseline_total_return": -0.042876461318437364,
+          "variant_total_return": -0.042876461318437364
+        },
+        "year_2008": {
+          "start": "2008-01-02",
+          "end": "2008-12-31",
+          "nav_observations": 253,
+          "baseline": {
+            "cagr": 0.12317538783860371,
+            "sortino": 1.8894514879185316,
+            "calmar": 2.5659806992332195,
+            "max_drawdown": -0.048003240194055885
+          },
+          "variant": {
+            "cagr": 0.03482207673364912,
+            "sortino": 0.46588365134513354,
+            "calmar": 0.730213126925931,
+            "max_drawdown": -0.04768755237288591
+          },
+          "deltas": {
+            "cagr": -0.08835331110495459,
+            "sortino": -1.423567836573398,
+            "calmar": -1.8357675723072884,
+            "max_drawdown": 0.0003156878211699743
+          },
+          "project_verdict": "insufficient",
+          "evidence": {
+            "p_improve": 0.8255,
+            "p_degrade": 0.1745,
+            "ci_low": -2.7537220210410536,
+            "ci_high": 0.21872937735971534
+          },
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 3,
+          "baseline_mean_target_cash_pct": 0.0,
+          "variant_mean_target_cash_pct": 23.695652173913043,
+          "baseline_total_return": 0.12369323684400291,
+          "variant_total_return": 0.03496264758145329
+        },
+        "year_2020": {
+          "start": "2020-01-02",
+          "end": "2020-12-31",
+          "nav_observations": 253,
+          "baseline": {
+            "cagr": 0.17803512790785958,
+            "sortino": 1.540463523176836,
+            "calmar": 1.0789750047111983,
+            "max_drawdown": -0.16500394089806836
+          },
+          "variant": {
+            "cagr": 0.17803512790786225,
+            "sortino": 1.5404635231768427,
+            "calmar": 1.0789750047112137,
+            "max_drawdown": -0.16500394089806847
+          },
+          "deltas": {
+            "cagr": 2.6645352591003757e-15,
+            "sortino": 6.661338147750939e-15,
+            "calmar": 1.532107773982716e-14,
+            "max_drawdown": -1.1102230246251565e-16
+          },
+          "project_verdict": "reject",
+          "evidence": {
+            "p_improve": 0.0555,
+            "p_degrade": 0.949,
+            "ci_low": -1.1657341758564112e-16,
+            "ci_high": 2.4646951146678475e-14
+          },
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 0.0,
+          "variant_mean_target_cash_pct": 0.0,
+          "baseline_total_return": 0.17880132374280988,
+          "variant_total_return": 0.17880132374281255
+        },
+        "year_2022": {
+          "start": "2022-01-03",
+          "end": "2022-12-30",
+          "nav_observations": 251,
+          "baseline": {
+            "cagr": -0.10509057996181281,
+            "sortino": -2.0803789953463894,
+            "calmar": -0.929989557557091,
+            "max_drawdown": -0.11300189244905734
+          },
+          "variant": {
+            "cagr": -0.10509057996181159,
+            "sortino": -2.0803789953463943,
+            "calmar": -0.9299895575570929,
+            "max_drawdown": -0.11300189244905579
+          },
+          "deltas": {
+            "cagr": 1.2212453270876722e-15,
+            "sortino": -4.884981308350689e-15,
+            "calmar": -1.887379141862766e-15,
+            "max_drawdown": 1.5543122344752192e-15
+          },
+          "project_verdict": "reject",
+          "evidence": null,
+          "monthly_decisions": 12,
+          "modified_monthly_targets": 0,
+          "baseline_mean_target_cash_pct": 62.39043824701195,
+          "variant_mean_target_cash_pct": 62.39043824701195,
+          "baseline_total_return": -0.10469619040820399,
+          "variant_total_return": -0.10469619040820277
+        }
+      },
+      "baseline_target_change_turnover_total": 67.13158406615271,
+      "variant_target_change_turnover_total": 78.0492431644677,
+      "baseline_target_change_count": 167,
+      "variant_target_change_count": 176
+    }
+  },
+  "primary_block_sensitivity": {
+    "21": {
+      "p_improve": 0.989,
+      "p_degrade": 0.011,
+      "ci_low": -0.15304686519582825,
+      "ci_high": -0.022772853027951758
+    },
+    "63": {
+      "p_improve": 0.9905,
+      "p_degrade": 0.0095,
+      "ci_low": -0.16651037399613128,
+      "ci_high": -0.023016795834525462
+    },
+    "126": {
+      "p_improve": 0.9925,
+      "p_degrade": 0.0075,
+      "ci_low": -0.16285994930421324,
+      "ci_high": -0.021102001146528437
+    }
+  },
+  "primary_zero_cost_diagnostic": {
+    "start": "1993-11-01",
+    "end": "2026-07-01",
+    "nav_observations": 8170,
+    "baseline": {
+      "cagr": 0.12588424674130327,
+      "sortino": 1.438833619927503,
+      "calmar": 0.7682893211764985,
+      "max_drawdown": -0.16385005397255026
+    },
+    "variant": {
+      "cagr": 0.1227530719810701,
+      "sortino": 1.406175282492652,
+      "calmar": 0.7491793197799915,
+      "max_drawdown": -0.16385005397255026
+    },
+    "deltas": {
+      "cagr": -0.0031311747602331685,
+      "sortino": -0.032658337434851026,
+      "calmar": -0.01911000139650698,
+      "max_drawdown": 0.0
+    },
+    "project_verdict": "insufficient",
+    "evidence": {
+      "p_improve": 0.8115,
+      "p_degrade": 0.1885,
+      "ci_low": -0.10237586018560221,
+      "ci_high": 0.022854261542103804
+    },
+    "monthly_decisions": 393,
+    "modified_monthly_targets": 29,
+    "baseline_mean_target_cash_pct": 5.131578947368421,
+    "variant_mean_target_cash_pct": 9.520195838433292,
+    "baseline_total_return": 45.71537383367064,
+    "variant_total_return": 41.68225703885315
+  }
+}
