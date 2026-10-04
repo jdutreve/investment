@@ -473,15 +473,34 @@ CREATE TABLE IF NOT EXISTS detector_state (
 
 -- Analytical (8)
 
+-- A PIECE OF EVIDENCE HAS TWO DATES (docs/INVARIANT_IMPROVEMENT_PLAN.md 1.1).
+-- `signal_date` is the day the condition held and the claim was put to the
+-- test; `available_at` is the day its outcome became KNOWABLE — for a backtest
+-- moment, `signal_date` + the confrontation horizon. ADR-003 dates market data
+-- by knowability and nobody applied it here: the column was called `date`, it
+-- held the signal date, and the as-of replay bounded evidence on it — so 142
+-- outcomes not yet complete were visible at 2008-10-01.
+--
+-- `definition` is the fingerprint of the (condition, effect) pair the row
+-- TESTED (`invariants.definition_fingerprint`). Evidence belongs to the
+-- definition it was earned under: a revised condition does not inherit it.
+--
+-- `verdict` counts in N only when 'confirmed' or 'refuted'. 'neutral' (the
+-- effect stayed inside the margin) and 'no_data' (the outcome could not be
+-- measured) are stored because they are two different things, and without
+-- them coverage — how much of what the condition did was measurable at all —
+-- cannot be reported.
 CREATE TABLE IF NOT EXISTS invariant_confrontations (
   id             TEXT PRIMARY KEY,
   invariant_id   TEXT NOT NULL REFERENCES invariant(id),
   moment_context TEXT NOT NULL,
-  date           TEXT NOT NULL,
-  verdict        TEXT NOT NULL,              -- 'confirmed'|'refuted'
+  signal_date    TEXT NOT NULL,
+  available_at   TEXT NOT NULL,
+  verdict        TEXT NOT NULL,              -- 'confirmed'|'refuted'|'neutral'|'no_data'
   severity       REAL,
   source         TEXT NOT NULL,              -- 'backtest'|'evaluation'|'proposal'|'adaptation'
-  source_id      TEXT
+  source_id      TEXT,
+  definition     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS benchmark_valuation (
@@ -761,34 +780,72 @@ DOCUMENT_TABLES = {
 }
 
 
+# Columns renamed on a table that already exists somewhere, as
+# `(table, old name, new name)` — applied FIRST, so the additions and their
+# backfills below can speak the new name. The old column's presence is the
+# idempotence guard. Same pre-go-live caveat as the two lists below.
+#
+# `invariant_confrontations.date` named the only date there was (CLAUDE.md:
+# "when a second one arrives, find what named the first"). A confrontation has
+# two, and this one is the signal's.
+RENAMED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("invariant_confrontations", "date", "signal_date"),
+)
+
 # Columns added to a table that already exists somewhere. `CREATE TABLE IF NOT
 # EXISTS` is a no-op on a live database, so a new column in the DDL above
 # reaches a fresh install and NOTHING else — the code then fails at runtime on
 # "no such column", which is exactly what happened to `proposal.citation_verdict`
 # on 2026-08-08.
 #
+# Each entry is `(table, column, declaration, statements run once AFTER the
+# add)`: the backfill for rows that predate the column, in the same transaction
+# as the add so a crash cannot leave a column present and unfilled. The mirror
+# of `DROPPED_COLUMNS`' "before the drop".
+#
 # Applied idempotently after the schema script. This is NOT the numbered
 # migration convention: CLAUDE.md starts that at the first POST-go-live change,
 # and V1 is still pre-go-live. It is the smallest thing that keeps an existing
 # database in step with the DDL, and every entry should be deleted the day the
 # real migrations begin.
-ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
-    ("proposal", "citation_verdict", "TEXT"),
+ADDED_COLUMNS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    ("proposal", "citation_verdict", "TEXT", ()),
     # The evidence half of a revision verdict (ADR-006 amendment, 2026-09-16):
     # the share of paired bootstrap resamples in which the Sortino difference
     # is not an improvement, and the share in which it is not a degradation.
     # NULL on every row measured before the bootstrap existed, which is why it
     # is read as "evidence not measured" and never as "evidence absent".
-    ("revision_measurement", "sortino_p_improve", "REAL"),
-    ("revision_measurement", "sortino_p_degrade", "REAL"),
-    ("portfolio_weekly_snapshot", "nav", "REAL"),
-    ("portfolio", "cagr", "REAL"),
-    ("portfolio_weekly_snapshot", "cagr", "REAL"),
+    ("revision_measurement", "sortino_p_improve", "REAL", ()),
+    ("revision_measurement", "sortino_p_degrade", "REAL", ()),
+    ("portfolio_weekly_snapshot", "nav", "REAL", ()),
+    ("portfolio", "cagr", "REAL", ()),
+    ("portfolio_weekly_snapshot", "cagr", "REAL", ()),
     # The curator READ this claim from this passage — independent of the
     # cosine similarity stored beside it (see the `supports` comment). 0 on
     # every pre-existing row, which is why it reads as "not recorded as a
     # citation" and never as "certainly not one".
-    ("supports", "cited", "INTEGER NOT NULL DEFAULT 0"),
+    ("supports", "cited", "INTEGER NOT NULL DEFAULT 0", ()),
+    # The day a confrontation's outcome became knowable (see the table's
+    # comment). A backtest moment tested the horizon FOLLOWING its signal, so
+    # its outcome is knowable one horizon later; an evaluation or a proposal
+    # verdict was written the day it was known. Declared nullable because
+    # SQLite cannot add a NOT NULL column without a default to a populated
+    # table; the backfill leaves no NULL behind and the DDL above is NOT NULL.
+    (
+        "invariant_confrontations",
+        "available_at",
+        "TEXT",
+        (
+            "UPDATE invariant_confrontations SET available_at = CASE source "
+            "WHEN 'backtest' THEN date(signal_date, '+' || CAST(7 * COALESCE("
+            "(SELECT value FROM system_thresholds WHERE key = 'proposal_outcome_weeks'), 12) "
+            "AS INTEGER) || ' days') ELSE signal_date END",
+        ),
+    ),
+    # Which definition a confrontation tested. NULL on every row that predates
+    # the column: the next maturation of its invariant attributes those rows to
+    # the definition it finds in force (`invariants._persist_maturation`).
+    ("invariant_confrontations", "definition", "TEXT", ()),
 )
 
 # The mirror of ADDED_COLUMNS, under the same pre-go-live caveat: a column

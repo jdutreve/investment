@@ -29,6 +29,7 @@ from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import agentic_replay as AR
+from investment.mechanical.invariants import definition_fingerprint
 from investment.mechanical.market_signal import BOOK_PORTFOLIO_IDS, STACK_TICKERS
 from investment.mechanical.replay import load_inputs
 from investment.planner.post import PlannerPost
@@ -37,6 +38,10 @@ from investment.worker.agent import build_worker_agent
 
 OPENS = date(2008, 7, 1)
 CLOSES = date(2008, 10, 31)
+# What the fixture's invariant claims: no condition, no effect. Its
+# confrontations carry this stamp because a standing counts only the evidence
+# of the definition in force (`invariants.restate_invariant`).
+GOLD_DEFINITION = definition_fingerprint([], None)
 START = date(2005, 1, 1)
 END = date(2009, 12, 31)
 THRESHOLDS: dict[str, float] = {
@@ -147,11 +152,13 @@ async def _seed(db: InvestmentDB) -> None:
     # correct behaviour, and exactly what this fixture must not accidentally test.
     for i in range(9):
         await cmd(
-            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, date, "
-            "verdict, severity, source) VALUES (:id, 'inv-gold', '{}', :d, :v, 1.0, 'backtest')",
+            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
+            "signal_date, available_at, verdict, severity, source, definition) "
+            "VALUES (:id, 'inv-gold', '{}', :d, :d, :v, 1.0, 'backtest', :definition)",
             id=f"conf-{i}",
             d=(date(2006, 1, 1) + timedelta(days=90 * i)).isoformat(),
             v="refuted" if i == 8 else "confirmed",
+            definition=GOLD_DEFINITION,
         )
 
     for ticker in (*STACK_TICKERS, *DEFENDER_ALLOCATION):
@@ -566,16 +573,31 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
     db = InvestmentDB(live)
     for i in range(40):
         await db.command(
-            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, date, "
-            "verdict, severity, source) VALUES (:id, 'inv-gold', '{}', :d, 'refuted', 1.0, "
-            "'backtest')",
+            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
+            "signal_date, available_at, verdict, severity, source, definition) "
+            "VALUES (:id, 'inv-gold', '{}', :d, :d, 'refuted', 1.0, 'backtest', :definition)",
             id=f"after-{i}",
             d=(date(2009, 1, 1) + timedelta(days=7 * i)).isoformat(),
+            definition=GOLD_DEFINITION,
         )
+    # A PIECE OF EVIDENCE HAS TWO DATES, and this is the row that tells them
+    # apart: its signal fired a month BEFORE the episode closed, its 12-week
+    # outcome window closes AFTER. Bounded on the signal date — as the snapshot
+    # was until 2026-10-04 — it reaches the replay, which then knows in October
+    # 2008 how a window ending in December turned out.
+    await db.command(
+        "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
+        "signal_date, available_at, verdict, severity, source, definition) "
+        "VALUES ('outcome-not-yet-known', 'inv-gold', '{}', :signal, :available, 'refuted', "
+        "1.0, 'backtest', :definition)",
+        signal=(CLOSES - timedelta(days=30)).isoformat(),
+        available=(CLOSES + timedelta(days=54)).isoformat(),
+        definition=GOLD_DEFINITION,
+    )
     live_view = await db.query(
         "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id = 'inv-gold'"
     )
-    assert live_view[0]["n"] == 49
+    assert live_view[0]["n"] == 50
     await db.close()
 
     episode, bound = await _run(live, tmp_path)
@@ -592,10 +614,11 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
         assert (rows[0]["confirmation_count"], rows[0]["infirmation_count"]) == (8, 1)
         assert rows[0]["market_score"] == pytest.approx(8 / 9)
         assert rows[0]["status"] == "integrated"
-        # and not one of the 40 later refutations reached the snapshot
+        # and not one of the 41 outcomes knowable only later reached the
+        # snapshot — the one whose SIGNAL predates t included
         later = await seen.query(
             "SELECT COUNT(*) AS n FROM invariant_confrontations "
-            "WHERE invariant_id = 'inv-gold' AND \"date\" > :t",
+            "WHERE invariant_id = 'inv-gold' AND available_at > :t",
             t=CLOSES.isoformat(),
         )
         assert later[0]["n"] == 0

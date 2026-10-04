@@ -24,6 +24,8 @@ real throwaway SQLite with synthetic market data (CLAUDE.md "Tests").
 import pytest
 
 from investment.corpus.embedding import InProcessEmbedder
+from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import stored_definition
 
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 
@@ -53,3 +55,29 @@ def embedder() -> InProcessEmbedder:
     except Exception as exc:  # any load failure is the same verdict here
         pytest.skip(f"{_SKIP_REASON} ({type(exc).__name__}: {exc})")
     return embedder
+
+
+async def give_invariant_a_record(
+    db: InvestmentDB, invariant_id: str, confirmed: int, refuted: int
+) -> None:
+    """Write the CONFRONTATIONS behind an invariant's counts.
+
+    A fixture used to state a record by setting `confirmation_count` on the
+    invariant row. That is no longer a record: `restate_invariant` re-derives
+    the counts from the confrontations of the definition in force, so a count
+    with no row behind it is overwritten by the first restatement. The rows are
+    stamped with the invariant's own definition and dated in the past, outcome
+    already knowable."""
+    row = (await db.query("SELECT condition, effect FROM invariant WHERE id = :i", i=invariant_id))[
+        0
+    ]
+    for n, verdict in enumerate(["confirmed"] * confirmed + ["refuted"] * refuted):
+        await db.command(
+            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
+            "signal_date, available_at, verdict, severity, source, definition) VALUES "
+            "(:id, :i, 'fixture', '2020-01-01', '2020-03-25', :v, 1.0, 'backtest', :d)",
+            id=f"{invariant_id}-record-{n}",
+            i=invariant_id,
+            v=verdict,
+            d=stored_definition(row),
+        )

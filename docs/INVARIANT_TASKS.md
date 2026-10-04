@@ -53,33 +53,52 @@ changes (plan, last paragraph).
 
 ## Lot 1 — Define and date a piece of evidence (P1)
 
-Blocks every later lot. Two owner decisions first: D1 and D6 below.
+Code done 2026-10-04, NOT YET DEPLOYED: the live database still has the old
+column and the running agent the old code. Deployment is one stop of the agent
+— backup, seed (which migrates and re-sweeps), restart.
 
-- [ ] **1.1 Two dates.** `invariant_confrontations.date` → `signal_date`, plus
-  `available_at`. Backfill: `backtest` = signal + horizon; `evaluation` and
-  `proposal` = the day written. `as_of_snapshot._WORLD_OBSERVATIONS` bounds on
-  `available_at`. Guarantee: a confrontation whose window completes after t
-  changes no verdict at t. Re-measure the 142 rows at 2008-10-01 and the 52 at
-  2022-12-31.
-- [ ] **1.2 Definition fingerprint on each confrontation.** A `definition`
-  column = fingerprint of (condition, effect) ALONE — the existing maturation
-  fingerprint also hashes the verdict thresholds, so a threshold change would
-  orphan the evidence. `restate_invariant` counts the rows of the current
-  definition itself instead of being handed counters (`writeback.py` and
-  `outcomes.py` do `counter + 1`; `_persist_maturation` overwrites the counter
-  with `backtest` rows only). Guarantee: revising a condition zeroes the
-  forward evidence the old one earned.
-- [ ] **1.3 Neutral is not missing.** `confront_moment` tells them apart and
-  both are stored (`verdict` = `neutral` / `no_data`, excluded from N), so
-  coverage can be reported. Needs a 35y re-sweep of the ~255 measurable
-  invariants: core sample of 10 first.
+- [x] **1.1 Two dates.** `invariant_confrontations.date` → `signal_date`, plus
+  `available_at` (`RENAMED_COLUMNS` / `ADDED_COLUMNS` with a backfill:
+  `backtest` = signal + horizon; `evaluation` and `proposal` = the day
+  written). `as_of_snapshot` bounds on `available_at`. Guarantee tested: a
+  confrontation whose signal predates t and whose window closes after it does
+  not reach the replay (`test_agentic_replay_semipit`).
+- [ ] **1.1 follow-up.** Re-run the as-of replay at 2008-10-01 and 2022-12-31
+  and count the verdicts that move (the audit reported 12 and 6).
+- [x] **1.2 Definition fingerprint on each confrontation.** `definition` =
+  `definition_fingerprint(condition, effect)`, apart from the maturation
+  fingerprint, which also hashes the verdict thresholds. `restate_invariant`
+  takes an id and counts the rows of the current definition itself; the three
+  callers no longer hand it counters. Guarantee tested: revising a condition
+  zeroes the standing and keeps the rows
+  (`test_a_revised_condition_does_not_inherit_the_old_ones_evidence`).
+- [x] **1.3 Neutral is not missing.** `confront_moment` returns one of four
+  outcomes and all four are stored; only `confirmed`/`refuted` count. The
+  maturation fingerprint includes what the sweep records, so every definition
+  is re-swept once.
+- [x] **Core sample on a copy of the live database (2026-10-04).** Migration
+  clean (0 NULL dates). Re-sweep of 254 measurable invariants in 77 s: 5,351
+  confirmed, 5,038 refuted, 5,491 neutral, 808 no data — a third of all
+  moments sit inside the margin. Old code and new code give IDENTICAL counts
+  and verdicts on the same data, so the change of code moves nothing.
+- [ ] **What the re-sweep itself moves — owner to see before deployment.** The
+  stored records date from each invariant's birth and the data has moved since
+  (composite repair 2026-09-21, debt leg, 12 more weeks). Re-measured today, 71
+  invariants change counts and 9 change verdict: integrated 12 → 9
+  (`inv-high-inflation-equities` 30/16 → 28/18, `inv-gold-ratio-trend-tilt`
+  28/16 → 27/18, `01KZG80DPFB0Z72RMVTAB32BM9` 5/0 → 4/0, all to `proposed`),
+  and 6 `rejected` return to `proposed`. This is plan lesson 8 measured: a
+  birth record goes stale.
+- [ ] **Deploy.** Stop the agent, back up, run the seed, restart. Check:
+  `floor_weight != 0.05` → 0 rows; no NULL `available_at` or `definition`.
+- [ ] **6.1 residue** — drop `system_thresholds.invariant_merge_threshold`.
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
 
 - [ ] **2.1 Weekly forward sweep.** A step `invariant-forward` before
   `invariant-weights`: resume `sample_moments` from the last stored moment
   (which is why 1.3 comes first), confront only windows that have completed,
-  against a baseline known at the moment's date. Own source `forward`; unique
+  against the baseline as it stands that day (D1). Own source `forward`; unique
   on (invariant, source, signal_date, definition). Guarantee: two runs write
   the same rows; mechanical confrontations no longer stop at 2026-07-03.
 - [ ] **5.1 One counter per source.** The mechanical score counts `backtest` +
@@ -90,9 +109,11 @@ Blocks every later lot. Two owner decisions first: D1 and D6 below.
 - [ ] **5.2 Proposal source.** Check whether `outcomes._confront_cited` is
   still reachable since ADR-012 (0 rows, nothing writes `proposal_cites` on
   the live path); delete it if not.
-- [ ] **2.2 Encoded effect versus the text.** Measure first why 13 `proposed`
-  invariants are matured with N = 0 (moments / neutral / no data — readable
-  after 1.3), then add a `real_return` metric or demote. Owner decision D3.
+- [ ] **2.2 Encoded effect versus the text.** The cause of N = 0 is now
+  measured (core sample, 12 invariants): 5 have a condition that was never
+  active in 35 years (0 moments), 7 are neutral at every moment (2 to 86
+  moments, all inside the margin). Then add a `real_return` metric or demote.
+  Owner decision D3.
 
 ## Lot 3 — What the weight says and shows (P4)
 
@@ -119,10 +140,12 @@ Blocks every later lot. Two owner decisions first: D1 and D6 below.
 - [x] **6.1** — delete the cosine pass (2026-10-04).
 - [x] **6.2** — wait for the next reading (2026-10-04).
 - [x] **Worker skill** — delete `skill-interpret-invariants.md` (2026-10-04).
-- [ ] **D1 Birth baseline.** The 35y sweep judges each moment against a median
-  taken over the whole sample, future included; the plan fixes it for the
-  forward sweep only. Making it "known at the date" everywhere fits ADR-003
-  and moves every verdict. Recommended: yes, core sample first.
+- [x] **D1 Birth baseline — NO (owner, 2026-10-04).** The birth sweep keeps
+  its whole-sample baseline: looking back with everything known today is an
+  advantage to use, and it makes an invariant's record more pertinent. What
+  must not leak is the outcome's DATE, which 1.1 settles. Consequence for 2.1:
+  a forward moment is judged against the baseline as it stands when its window
+  completes.
 - [ ] **D2** — LLM evaluations stop moving the score once 2.1 runs.
   Recommended: yes.
 - [ ] **D3** — the N = 0 invariants: a real-return metric, or demotion.
@@ -130,5 +153,4 @@ Blocks every later lot. Two owner decisions first: D1 and D6 below.
   claim measurement.
 - [ ] **D5** — P3: fixed checkpoints or confidence sequences; and what the
   Worker reads if none of the 12 integrated invariants survives.
-- [ ] **D6** — rename `date` → `signal_date` (an `ALTER TABLE` on the live
-  database, backup first). Recommended: yes — it is lesson 1.
+- [x] **D6** — rename `date` → `signal_date`: yes (2026-10-04).

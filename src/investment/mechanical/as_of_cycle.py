@@ -142,27 +142,8 @@ async def reweigh_invariants_asof(
     date: enough to be judged, and judged differently than in 2026.
     """
     rows = await db.query(
-        "SELECT id, weight_initial, floor_weight, status FROM invariant WHERE status != :reference",
-        reference=REFERENCE_STATUS,
+        "SELECT id FROM invariant WHERE status != :reference", reference=REFERENCE_STATUS
     )
-    if not rows:
-        return 0
-
-    counts = {
-        str(r["invariant_id"]): r
-        for r in await db.query(
-            "SELECT invariant_id, "
-            " SUM(CASE WHEN verdict = 'confirmed' THEN 1 ELSE 0 END) AS confirmations, "
-            " SUM(CASE WHEN verdict = 'refuted' THEN 1 ELSE 0 END) AS infirmations "
-            "FROM invariant_confrontations GROUP BY invariant_id"
-        )
-    }
-    updated = 0
     for row in rows:
-        invariant_id = str(row["id"])
-        tallies = counts.get(invariant_id)
-        confirmations = int(tallies["confirmations"] or 0) if tallies else 0
-        infirmations = int(tallies["infirmations"] or 0) if tallies else 0
-        await restate_invariant(db, row, confirmations, infirmations, thresholds, as_of)
-        updated += 1
-    return updated
+        await restate_invariant(db, str(row["id"]), thresholds, as_of)
+    return len(rows)

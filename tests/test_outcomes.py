@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from conftest import give_invariant_a_record
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import outcomes
@@ -229,6 +230,7 @@ async def test_won_reallocation_confirms_its_cited_invariants(db: InvestmentDB) 
         "market_score, trace, created_at, updated_at) VALUES ('inv-c', 't', 'd', 's', "
         "'integrated', '[]', 0.6, 0.2, 0.6, 4, 1, 0.8, 'tr', '2026-01-01', '2026-01-01')"
     )
+    await give_invariant_a_record(db, "inv-c", confirmed=4, refuted=1)
     await _add_proposal(db, "p-cite", "reallocation", START, proposed_allocation='{"SPY": 100}')
     await db.command(
         "INSERT INTO proposal_cites (proposal_id, invariant_id) VALUES ('p-cite', 'inv-c')"
@@ -246,10 +248,13 @@ async def test_won_reallocation_confirms_its_cited_invariants(db: InvestmentDB) 
     # it: 5 of 6 is something a coin does 11% of the time, so 'integrated' goes.
     assert inv["status"] == "proposed"
     conf = await db.query(
-        "SELECT source, verdict, source_id FROM invariant_confrontations WHERE invariant_id='inv-c'"
+        "SELECT verdict, source_id, signal_date, available_at FROM invariant_confrontations "
+        "WHERE invariant_id='inv-c' AND source = 'proposal'"
     )
-    assert conf[0]["source"] == "proposal" and conf[0]["verdict"] == "confirmed"
+    assert conf[0]["verdict"] == "confirmed"
     assert conf[0]["source_id"] == "p-cite"
+    # two dates: cited when the proposal was made, known when its window closed
+    assert conf[0]["signal_date"] < conf[0]["available_at"] == TODAY.isoformat()
 
 
 async def test_paper_tracking_prices_a_market_signal_test_against_what_was_held(

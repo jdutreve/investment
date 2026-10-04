@@ -640,3 +640,51 @@ async def test_a_dropped_column_leaves_and_takes_its_discount_with_it(tmp_path: 
             "SELECT 1 FROM system_thresholds WHERE key = 'recency_half_life_days'"
         )
         await db.close()
+
+
+async def test_a_confrontation_gets_its_two_dates_on_a_database_that_had_one(
+    tmp_path: Path,
+) -> None:
+    """`RENAMED_COLUMNS` + `ADDED_COLUMNS` on a database that predates
+    2026-10-04, when `invariant_confrontations.date` was the only date a piece
+    of evidence had. Opening it renames that column to what it always held —
+    the signal's date — and gives every row the day its outcome became
+    knowable: one horizon later for a backtest moment, the same day for an
+    evaluation. A second open is a no-op."""
+    path = tmp_path / "one_date.db"
+    await (await asyncio.to_thread(InvestmentDB, path)).close()
+    con = sqlite3.connect(path)
+    con.execute("DROP TABLE invariant_confrontations")
+    con.execute(
+        "CREATE TABLE invariant_confrontations (id TEXT PRIMARY KEY, invariant_id TEXT NOT NULL, "
+        "moment_context TEXT NOT NULL, date TEXT NOT NULL, verdict TEXT NOT NULL, severity REAL, "
+        "source TEXT NOT NULL, source_id TEXT)"
+    )
+    con.execute(
+        "INSERT INTO invariant (id, title, description, source, status, weight_initial, "
+        "floor_weight, weight_effective, trace, created_at, updated_at) "
+        "VALUES ('inv', 't', 'd', 's', 'proposed', 0.4, 0.05, 0.4, 't', 'n', 'n')"
+    )
+    con.execute(
+        "INSERT INTO system_thresholds (key, value, updated_at) "
+        "VALUES ('proposal_outcome_weeks', 12.0, 'n')"
+    )
+    con.executemany(
+        "INSERT INTO invariant_confrontations "
+        "VALUES (?, 'inv', 'ctx', ?, 'confirmed', 1.0, ?, NULL)",
+        [("moment", "2008-09-01", "backtest"), ("reading", "2026-09-27", "evaluation")],
+    )
+    con.commit()
+    con.close()
+
+    for _ in range(2):
+        db = await asyncio.to_thread(InvestmentDB, path)
+        rows = {
+            r["id"]: r for r in await db.query("SELECT * FROM invariant_confrontations ORDER BY id")
+        }
+        assert "date" not in rows["moment"]
+        assert rows["moment"]["signal_date"] == "2008-09-01"
+        assert rows["moment"]["available_at"] == "2008-11-24"  # + 12 weeks
+        assert rows["reading"]["available_at"] == rows["reading"]["signal_date"] == "2026-09-27"
+        assert rows["moment"]["definition"] is None  # stamped by the next maturation
+        await db.close()

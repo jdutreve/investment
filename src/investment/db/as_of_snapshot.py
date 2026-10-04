@@ -61,7 +61,10 @@ _WORLD_OBSERVATIONS: tuple[tuple[str, str], ...] = (
     # as-of-t; a confrontation dated after t changes no weight before t"). The
     # invariants themselves still survive whole: what is knowable at t is how
     # well an idea had PROVEN OUT by then, not whether anyone had had it.
-    ("invariant_confrontations", 'date("date")'),
+    # Bounded on `available_at`, the day the OUTCOME was knowable, not on the
+    # signal date: a 12-week window opened before t and closing after it was
+    # visible at t while this read `date` (142 such rows at 2008-10-01).
+    ("invariant_confrontations", "date(available_at)"),
     ("portfolio_nav", "date(ts)"),
     ("benchmark_valuation", 'date("date")'),
     # Regimes key on `created_at` — the CONFIRMING PRINT's date — and NOT on

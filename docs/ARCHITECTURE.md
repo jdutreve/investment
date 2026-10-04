@@ -434,9 +434,13 @@ FROM PROPOSALS (source='proposal') — closes the loop on emitted proposals:
     verdict='won'  → confirmation for each qualifying cited invariant (severity=1.0)
     verdict='lost' → infirmation, severity=1.0
 
-Each confrontation: append invariant_confrontations doc → update counts →
-update_invariant_weights() (weight_effective formula in ../CLAUDE.md) →
-Invariant.updated_at = today.
+Each confrontation: append an invariant_confrontations row carrying its TWO
+dates (signal_date, available_at) and the `definition` it tested →
+restate_invariant() re-derives the counts from the rows of the CURRENT
+definition and writes score, weight and verdict together (weight_effective
+formula in ../CLAUDE.md) → Invariant.updated_at = today. A moment that yields
+no verdict is stored too — 'neutral' (inside the margin) or 'no_data' (not
+measurable) — and counts in coverage, never in N.
 Severity is recorded but unused in market_score in V1 (IMPROVEMENTS I-24).
 ```
 

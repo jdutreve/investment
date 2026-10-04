@@ -116,6 +116,36 @@ async def test_m5_invariant_maturation_and_contradiction_check(tmp_path: Path) -
             assert r["status"] in ("proposed", "integrated", "rejected")
             assert 0.0 <= r["market_score"] <= 1.0
 
+        # EVERY moment the sweep looked at is on record, verdict or not, so
+        # coverage is reportable: per invariant, the stored rows are exactly
+        # confirmed + refuted + neutral + no_data, only the first two are
+        # counted on the invariant, and each row carries the definition it
+        # tested and an outcome date one horizon after its signal.
+        for r in results:
+            stored = {
+                row["verdict"]: row["n"]
+                for row in await db.query(
+                    "SELECT verdict, COUNT(*) AS n FROM invariant_confrontations "
+                    "WHERE invariant_id = :i GROUP BY verdict",
+                    i=r["invariant_id"],
+                )
+            }
+            assert stored == {
+                verdict: n
+                for verdict, n in (
+                    ("confirmed", r["confirmations"]),
+                    ("refuted", r["infirmations"]),
+                    ("neutral", r["neutral"]),
+                    ("no_data", r["no_data"]),
+                )
+                if n
+            }
+        assert sum(r["neutral"] + r["no_data"] for r in results) > 0
+        assert not await db.query(
+            "SELECT 1 FROM invariant_confrontations WHERE definition IS NULL "
+            "OR julianday(available_at) - julianday(signal_date) != 84"
+        )
+
         # A second run must be idempotent: no duplicated invariant_confrontations,
         # and every already-matured invariant is skipped (not re-confronted).
         confrontations_before = (

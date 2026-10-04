@@ -33,7 +33,7 @@ import hashlib
 import json
 import math
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -322,30 +322,35 @@ def sample_moments(active: pd.Series, horizon: pd.Timedelta) -> list[pd.Timestam
     return moments
 
 
+# What one moment can say. Only the first two are EVIDENCE and count in N; the
+# other two are stored so that coverage can be reported — they were one `None`
+# until 2026-10-04, and neither was persisted, so "the effect was too small to
+# call" and "there was nothing to measure" could not be told apart afterwards.
+CONFIRMED, REFUTED = "confirmed", "refuted"
+NEUTRAL = "neutral"  # measured, and inside the margin band
+NO_DATA = "no_data"  # not measurable: a missing series or an incomplete window
+COUNTED_VERDICTS = (CONFIRMED, REFUTED)
+
+
 def confront_moment(
     handle_value: float | None, benchmark_value: float | None, direction: str, margin: float
-) -> str | None:
-    """'confirmed' | 'refuted' | None (no-op: within the margin band, or
-    missing data — docs/ARCHITECTURE.md confrontation rule). A metric is
-    always "higher is better" as stored (return: higher wins; max_drawdown:
-    stored as a negative fraction, less negative = higher = better) — no
-    metric-specific sign flip needed."""
+) -> str:
+    """'confirmed' | 'refuted' | 'neutral' | 'no_data' (docs/ARCHITECTURE.md
+    confrontation rule). A metric is always "higher is better" as stored
+    (return: higher wins; max_drawdown: stored as a negative fraction, less
+    negative = higher = better) — no metric-specific sign flip needed."""
     if handle_value is None or benchmark_value is None:
-        return None
+        return NO_DATA
+    if direction not in _VALID_DIRECTIONS:
+        raise ValueError(f"unknown direction: {direction!r}")
     diff = handle_value - benchmark_value
-    if direction == "outperform":
-        if diff > margin:
-            return "confirmed"
-        if diff < -margin:
-            return "refuted"
-        return None
     if direction == "underperform":
-        if diff < -margin:
-            return "confirmed"
-        if diff > margin:
-            return "refuted"
-        return None
-    raise ValueError(f"unknown direction: {direction!r}")
+        diff = -diff
+    if diff > margin:
+        return CONFIRMED
+    if diff < -margin:
+        return REFUTED
+    return NEUTRAL
 
 
 def is_absolute_claim(condition: list[dict[str, Any]]) -> bool:
@@ -802,15 +807,47 @@ def verdict_rule(thresholds: dict[str, float], metric: str | None) -> dict[str, 
     }
 
 
+def definition_fingerprint(condition: list[dict[str, Any]], effect: dict[str, Any] | None) -> str:
+    """A stable digest of WHAT AN INVARIANT CLAIMS — the (condition, effect)
+    pair and nothing else. Stamped on every confrontation
+    (`invariant_confrontations.definition`), because evidence belongs to the
+    definition it tested: a revised condition must not inherit the forward
+    confrontations the old one earned.
+
+    NOT `maturation_fingerprint`, which also hashes the verdict's bars. Those
+    decide how evidence is JUDGED, not what it is evidence OF — stamped with
+    that one, tightening a threshold would orphan every confrontation ever
+    recorded."""
+    payload = json.dumps(
+        {"condition": condition, "effect": effect}, sort_keys=True, separators=(",", ":")
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()[:12]
+
+
+def stored_definition(row: Mapping[str, Any]) -> str:
+    """`definition_fingerprint` of an `invariant` ROW — `condition` and `effect`
+    as the JSON text the table holds. One reader of that encoding, because
+    every confrontation writer needs the fingerprint and a second parser of
+    "empty condition" or "no effect" is a second place to get it wrong."""
+    return definition_fingerprint(
+        json.loads(row["condition"]) if row["condition"] else [],
+        json.loads(row["effect"]) if row["effect"] else None,
+    )
+
+
 def maturation_fingerprint(
     condition: list[dict[str, Any]],
     effect: dict[str, Any] | None,
     rule: dict[str, float],
 ) -> str:
-    """A stable digest of everything a verdict is about: the (condition,
-    effect) pair AND the rule it was earned under. `sort_keys` makes it
-    insensitive to key order, so re-serialising unchanged inputs never looks
-    like an edit.
+    """A stable digest of everything a SWEEP is about: the (condition, effect)
+    pair, the rule its verdict was earned under, and which outcomes the sweep
+    records. `sort_keys` makes it insensitive to key order, so re-serialising
+    unchanged inputs never looks like an edit.
+
+    `records` is in here because a sweep that starts storing something it used
+    to drop has not been run yet on any invariant matured before: adding
+    'neutral' and 'no_data' (2026-10-04) re-sweeps every definition once.
 
     The rule belongs in here for the same reason the definition does. A
     verdict is a claim about evidence measured one way and judged against
@@ -819,7 +856,12 @@ def maturation_fingerprint(
     bar left every already-matured invariant sitting on the verdict the OLD
     bar gave it — including the ones the new bar exists to catch."""
     payload = json.dumps(
-        {"condition": condition, "effect": effect, "rule": rule},
+        {
+            "condition": condition,
+            "effect": effect,
+            "rule": rule,
+            "records": [CONFIRMED, REFUTED, NEUTRAL, NO_DATA],
+        },
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -916,15 +958,18 @@ async def _demote_to_reference(db: InvestmentDB, invariant_id: str, reason: str)
 
 
 async def restate_invariant(
-    db: InvestmentDB,
-    row: dict[str, Any],
-    confirmations: int,
-    infirmations: int,
-    thresholds: dict[str, float],
-    as_of: date,
+    db: InvestmentDB, invariant_id: str, thresholds: dict[str, float], as_of: date
 ) -> str:
-    """Counts in, STANDING out: score, weight and verdict written together, and
-    the verdict returned. `row` carries `id`, `weight_initial`, `floor_weight`.
+    """An invariant's STANDING, re-derived from its evidence: score, weight and
+    verdict written together, and the verdict returned.
+
+    IT COUNTS THE EVIDENCE ITSELF, from the confrontations of the definition in
+    force (`definition_fingerprint`). It used to be handed two counters, and
+    each caller made them its own way: the evaluation and proposal paths added
+    one to the stored count, the birth sweep overwrote it with its backtest
+    rows alone — dropping every forward confrontation until the next weekly
+    restatement — and none of them could tell a row earned under a revised
+    condition from one earned under the current one.
 
     ONE WRITER BECAUSE THERE WERE THREE, and they disagreed. The verdict is
     stateless — "recomputed from current counts at every confrontation"
@@ -932,7 +977,31 @@ async def restate_invariant(
     carried their own UPDATE and neither wrote `status`, so a confrontation
     moved the score and left the verdict of the previous Sunday's weekly
     restatement standing for up to a week. `validated_at` follows the same rule
-    as at birth: set on the first integration, cleared when it ends."""
+    as at birth: set on the first integration, cleared when it ends.
+
+    Whatever the table holds is what is counted, which is what makes the as-of
+    replay point-in-time: its snapshot keeps only the confrontations whose
+    outcome was knowable at t (`db/as_of_snapshot.py`, on `available_at`)."""
+    row = (
+        await db.query(
+            "SELECT weight_initial, floor_weight, condition, effect FROM invariant WHERE id = :id",
+            id=invariant_id,
+        )
+    )[0]
+    definition = stored_definition(row)
+    tally = (
+        await db.query(
+            "SELECT COALESCE(SUM(verdict = :confirmed), 0) AS confirmations, "
+            " COALESCE(SUM(verdict = :refuted), 0) AS infirmations "
+            "FROM invariant_confrontations "
+            "WHERE invariant_id = :id AND definition = :definition",
+            confirmed=CONFIRMED,
+            refuted=REFUTED,
+            id=invariant_id,
+            definition=definition,
+        )
+    )[0]
+    confirmations, infirmations = int(tally["confirmations"]), int(tally["infirmations"])
     score, weight = compute_weight_update(
         float(row["weight_initial"]), float(row["floor_weight"]), confirmations, infirmations
     )
@@ -950,6 +1019,10 @@ async def restate_invariant(
     await db.command(
         "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
         "market_score = :score, weight_effective = :weff, status = :status, "
+        # Set on the FIRST integration and held (COALESCE) while it lasts,
+        # cleared the moment it ends — the verdict is stateless, so
+        # 'integrated' is not a ratchet and `validated_at` must not be one
+        # either ("null while still a candidate", docs/DATA_MODELS.md).
         "validated_at = CASE WHEN :status2 = 'integrated' "
         "THEN COALESCE(validated_at, :as_of) ELSE NULL END, "
         "updated_at = :now WHERE id = :id",
@@ -961,7 +1034,7 @@ async def restate_invariant(
         status2=status,
         as_of=as_of.isoformat(),
         now=datetime.now(UTC).isoformat(),
-        id=str(row["id"]),
+        id=invariant_id,
     )
     return status
 
@@ -970,63 +1043,63 @@ async def _persist_maturation(
     db: InvestmentDB,
     invariant_id: str,
     confrontation_rows: list[dict[str, Any]],
-    confirmations: int,
-    infirmations: int,
-    score: float,
-    w_eff: float,
-    status: str,
+    definition: str,
     fingerprint: str,
-) -> None:
-    now = datetime.now(UTC).isoformat()
-    today = date.today().isoformat()
+    thresholds: dict[str, float],
+) -> str:
+    """The sweep's rows in, the invariant's standing restated, the verdict
+    returned — one transaction."""
+    today = date.today()
     async with db.transaction():
         # The birth sweep REPLACES its own prior output: re-maturing an edited
         # definition must not stack new confirmations on top of rows measured
         # against the old condition. Only source='backtest' (this sweep) is
-        # cleared — evaluation/proposal confrontations (M8) are forward
-        # evidence and are not ours to discard.
+        # cleared — a forward confrontation is not ours to discard, and it no
+        # longer needs discarding: it carries the definition it tested, and
+        # `restate_invariant` counts the current one only.
         await db.command(
             "DELETE FROM invariant_confrontations WHERE invariant_id = :id AND source = 'backtest'",
+            id=invariant_id,
+        )
+        # Forward rows written before `definition` existed (ADDED_COLUMNS,
+        # 2026-10-04) carry NULL. Nothing recorded which definition they
+        # tested, so they are attributed to the one this sweep finds in force:
+        # the first maturation after the column arrived is the last moment at
+        # which "the current one" is still the best available answer.
+        await db.command(
+            "UPDATE invariant_confrontations SET definition = :definition "
+            "WHERE invariant_id = :id AND definition IS NULL",
+            definition=definition,
             id=invariant_id,
         )
         for row in confrontation_rows:
             await db.command(
                 "INSERT INTO invariant_confrontations "
-                "(id, invariant_id, moment_context, date, verdict, severity, source, source_id) "
-                "VALUES (:id, :invariant_id, :moment_context, :date, :verdict, :severity, "
-                " :source, :source_id)",
+                "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
+                " severity, source, source_id, definition) "
+                "VALUES (:id, :invariant_id, :moment_context, :signal_date, :available_at, "
+                " :verdict, :severity, :source, :source_id, :definition)",
                 **row,
             )
+        status = await restate_invariant(db, invariant_id, thresholds, today)
+        standing = (
+            await db.query(
+                "SELECT market_score, confirmation_count + infirmation_count AS n "
+                "FROM invariant WHERE id = :id",
+                id=invariant_id,
+            )
+        )[0]
         await db.command(
-            "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
-            "market_score = :score, weight_effective = :weff, "
-            "status = :status, "
-            # Set on the FIRST integration and held (COALESCE) while it lasts,
-            # cleared the moment it ends — the verdict is stateless, so
-            # 'integrated' is not a ratchet and `validated_at` must not be one
-            # either ("null while still a candidate", docs/DATA_MODELS.md).
-            # Only `_force_uncertified` cleared it before, so a de-integrated
-            # invariant kept the date of a verdict it no longer holds.
-            "validated_at = CASE WHEN :status2 = 'integrated' "
-            "THEN COALESCE(validated_at, :today) ELSE NULL END, "
-            "trace = trace || :marker, "
-            "updated_at = :now WHERE id = :id",
-            cc=confirmations,
-            ic=infirmations,
-            score=score,
-            weff=w_eff,
-            status=status,
-            status2=status,
-            today=today,
+            "UPDATE invariant SET trace = trace || :marker WHERE id = :id",
             # The audit trail of the verdict, not just its date: a 'rejected'
             # status is not disputable without the evidence it was based on.
             marker=(
-                f"{_MATURED_MARKER} {today} def:{fingerprint}: {status}, "
-                f"score={score:.3f}, N={confirmations + infirmations}]"
+                f"{_MATURED_MARKER} {today.isoformat()} def:{fingerprint}: {status}, "
+                f"score={float(standing['market_score']):.3f}, N={int(standing['n'])}]"
             ),
-            now=now,
             id=invariant_id,
         )
+    return status
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1034,7 +1107,7 @@ class MaturationResult:
     invariant_id: str
     confirmations: int
     infirmations: int
-    no_ops: int
+    neutral: int  # moments measured and found inside the margin band
     market_score: float
     status: str
     skipped_reason: (
@@ -1045,6 +1118,10 @@ class MaturationResult:
     # inventory shows WHAT the score was relative to — a market_score is not
     # auditable without it.
     baseline: float = 0.0
+    # Moments that could not be measured at all (a missing series, a window not
+    # yet complete). Apart from `neutral` because the two say opposite things
+    # about the claim: one was tested and did not move, the other was not tested.
+    no_data: int = 0
 
 
 async def _mature_one(
@@ -1059,12 +1136,6 @@ async def _mature_one(
     registries: Registries,
     thresholds: dict[str, float],
     horizon: pd.Timedelta,
-    n_min: float,
-    theta: float,
-    refuted_min: float,
-    refuted_score: float,
-    verdict_confidence: float,
-    null_score: float,
 ) -> MaturationResult:
     invariant_id = str(inv["id"])
     condition = json.loads(inv["condition"]) if inv["condition"] else []
@@ -1145,14 +1216,21 @@ async def _mature_one(
 
     metric, direction = effect["metric"], effect["direction"]
     margin = margin_for_metric(metric, thresholds)
-    confirmations = infirmations = no_ops = 0
+    tally = dict.fromkeys((CONFIRMED, REFUTED, NEUTRAL, NO_DATA), 0)
     confrontation_rows: list[dict[str, Any]] = []
     descriptor = condition_descriptor(condition)
+    definition = definition_fingerprint(condition, effect)
 
     # The invariant's own no-condition null. Confirmation then means "the
     # effect beat what this handle does ANYWAY", so market_score reads as a
     # skill frequency with a 0.50 null (docs/ARCHITECTURE.md "Invariant
     # confrontation rule"; `baseline_excess`).
+    #
+    # Taken over the WHOLE sample, future included, and deliberately (owner,
+    # 2026-10-04): the birth sweep judges a past moment with everything known
+    # today, which is the advantage of looking back and makes the invariant's
+    # record more pertinent. What must not leak is the OUTCOME's date, and that
+    # is `available_at` below.
     baseline = baseline_excess(_all_excess(own_frame, others, metric, method, horizon), condition)
 
     # Moments sample condition-ACTIVE time at horizon spacing (see
@@ -1165,53 +1243,39 @@ async def _mature_one(
     for moment_date in moment_dates:
         excess = _excess_at(own_frame, others, metric, method, moment_date, horizon)
         verdict = confront_moment(excess, baseline, direction, margin)
-        if verdict is None:
-            no_ops += 1
-            continue
-        if verdict == "confirmed":
-            confirmations += 1
-        else:
-            infirmations += 1
+        tally[verdict] += 1
         confrontation_rows.append(
             {
                 "id": str(ULID()),
                 "invariant_id": invariant_id,
                 "moment_context": descriptor,
-                "date": moment_date.date().isoformat(),
+                "signal_date": moment_date.date().isoformat(),
+                # ADR-003 for evidence: the outcome is the horizon FOLLOWING
+                # the signal, so it is knowable one horizon later and not
+                # before. The as-of replay bounds on this, not on the signal.
+                "available_at": (moment_date + horizon).date().isoformat(),
                 "verdict": verdict,
-                "severity": 1.0,
+                "severity": 1.0 if verdict in COUNTED_VERDICTS else None,
                 "source": "backtest",
                 "source_id": None,
+                "definition": definition,
             }
         )
 
-    weight_initial, floor_weight = float(inv["weight_initial"]), float(inv["floor_weight"])
-    score, w_eff = compute_weight_update(weight_initial, floor_weight, confirmations, infirmations)
-    status = time_validation_verdict(
-        confirmations,
-        infirmations,
-        score,
-        n_min,
-        theta,
-        refuted_min,
-        refuted_score,
-        verdict_confidence,
-        null_score,
+    status = await _persist_maturation(
+        db, invariant_id, confrontation_rows, definition, fingerprint, thresholds
     )
-
-    await _persist_maturation(
-        db,
-        invariant_id,
-        confrontation_rows,
-        confirmations,
-        infirmations,
-        score,
-        w_eff,
-        status,
-        fingerprint,
-    )
+    confirmations, infirmations = tally[CONFIRMED], tally[REFUTED]
     return MaturationResult(
-        invariant_id, confirmations, infirmations, no_ops, score, status, None, baseline
+        invariant_id,
+        confirmations,
+        infirmations,
+        tally[NEUTRAL],
+        market_score(confirmations, infirmations),
+        status,
+        None,
+        baseline,
+        tally[NO_DATA],
     )
 
 
@@ -1228,12 +1292,6 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
     # (backtest here, proposal in outcomes.py at M8) on ONE horizon, so their
     # verdicts mean the same thing.
     horizon = pd.Timedelta(weeks=thresholds["proposal_outcome_weeks"])
-    n_min = thresholds["invariant_min_confrontations"]
-    theta = thresholds["invariant_time_validation_score"]
-    refuted_min = thresholds["invariant_refuted_min_confrontations"]
-    refuted_score = thresholds["invariant_refuted_score"]
-    verdict_confidence = thresholds["invariant_verdict_confidence"]
-    null_score = thresholds["invariant_null_score"]
 
     invariant_rows = await db.query("SELECT * FROM invariant ORDER BY id")
 
@@ -1275,12 +1333,6 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
             registries,
             thresholds,
             horizon,
-            n_min,
-            theta,
-            refuted_min,
-            refuted_score,
-            verdict_confidence,
-            null_score,
         )
         results.append(result)
     return results

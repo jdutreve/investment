@@ -6,12 +6,15 @@ SQLite."""
 
 import json
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 
 import pytest
+from conftest import give_invariant_a_record
 from pydantic import ValidationError
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import restate_invariant
 from investment.planner.post import Confrontation, PostPlannerResult
 from investment.worker.result import EvaluationDraft, ImprovementProposal, ScenarioAdjustment
 from investment.writeback.writeback import commit_knowledge
@@ -54,6 +57,7 @@ async def _seed(db: InvestmentDB) -> None:
             id=iid,
             c=cond,
         )
+        await give_invariant_a_record(db, iid, confirmed=4, refuted=1)
 
 
 @pytest.fixture
@@ -86,7 +90,8 @@ async def test_confrontation_moves_weight_and_logs_source_evaluation(db: Investm
     assert after["market_score"] == pytest.approx(5 / 6)  # 5 confirmed of 6
 
     conf = await db.query(
-        "SELECT source, verdict FROM invariant_confrontations WHERE invariant_id='inv-active'"
+        "SELECT source, verdict FROM invariant_confrontations "
+        "WHERE invariant_id='inv-active' AND source = 'evaluation'"
     )
     assert conf[0]["source"] == "evaluation" and conf[0]["verdict"] == "confirmed"
     ev = await db.query("SELECT type FROM event_log WHERE type='ConfrontationEvent'")
@@ -106,6 +111,7 @@ async def _add_invariant(db: InvestmentDB, iid: str, status: str, cc: int, ic: i
         cc=cc,
         ic=ic,
     )
+    await give_invariant_a_record(db, iid, confirmed=cc, refuted=ic)
 
 
 async def test_a_confrontation_restates_the_verdict_not_only_the_score(db: InvestmentDB) -> None:
@@ -139,6 +145,45 @@ async def test_a_confrontation_restates_the_verdict_not_only_the_score(db: Inves
     assert rows["inv-rising"]["weight_effective"] == pytest.approx(7.4 / 9)
     assert rows["inv-falling"]["status"] == "proposed"
     assert rows["inv-falling"]["validated_at"] is None
+
+
+async def test_a_revised_condition_does_not_inherit_the_old_ones_evidence(
+    db: InvestmentDB,
+) -> None:
+    """Evidence belongs to the definition it tested. An invariant with a 4/1
+    record earns a fifth confirmation from an evaluation, then has its condition
+    rewritten: every one of those six confrontations was earned by a claim that
+    no longer exists, so the standing restarts from nothing. Before
+    `invariant_confrontations.definition`, the forward rows stayed counted —
+    the new condition opened with the old one's record."""
+    await commit_knowledge(
+        db,
+        PostPlannerResult(
+            confrontations=[Confrontation(invariant_id="inv-active", verdict="confirmed")]
+        ),
+        "stag",
+        THRESHOLDS,
+    )
+    await db.command(
+        "UPDATE invariant SET condition = :c WHERE id = 'inv-active'",
+        c='[{"signal": "inflation", "feature": "level", "op": ">", "value": 3}]',
+    )
+    status = await restate_invariant(db, "inv-active", THRESHOLDS, date(2026, 10, 4))
+
+    row = (
+        await db.query(
+            "SELECT confirmation_count, infirmation_count, market_score, weight_effective "
+            "FROM invariant WHERE id = 'inv-active'"
+        )
+    )[0]
+    assert (row["confirmation_count"], row["infirmation_count"]) == (0, 0)
+    assert status == "proposed"
+    assert row["weight_effective"] == pytest.approx(0.6)  # back to what it was born with
+    # the rows are still there — attributed to the definition that earned them
+    kept = await db.query(
+        "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id = 'inv-active'"
+    )
+    assert kept[0]["n"] == 6
 
 
 async def test_reference_knowledge_is_never_confronted(db: InvestmentDB) -> None:

@@ -167,14 +167,18 @@ def test_verdict_evidence_eventually_settles_every_true_rate() -> None:
 def test_confront_moment_outperform_and_underperform() -> None:
     assert invariants.confront_moment(0.10, 0.02, "outperform", 0.05) == "confirmed"
     assert invariants.confront_moment(-0.05, 0.02, "outperform", 0.05) == "refuted"
-    assert invariants.confront_moment(0.015, 0.02, "outperform", 0.05) is None  # within margin
+    assert invariants.confront_moment(0.015, 0.02, "outperform", 0.05) == "neutral"  # in margin
     assert invariants.confront_moment(-0.20, -0.05, "underperform", 0.05) == "confirmed"
     assert invariants.confront_moment(0.10, -0.05, "underperform", 0.05) == "refuted"
 
 
-def test_confront_moment_none_on_missing_data() -> None:
-    assert invariants.confront_moment(None, 0.02, "outperform", 0.05) is None
-    assert invariants.confront_moment(0.02, None, "outperform", 0.05) is None
+def test_a_moment_that_could_not_be_measured_is_not_a_neutral_one() -> None:
+    """The two were one `None`. 'neutral' says the claim was tested and the
+    effect stayed inside the margin; 'no_data' says it was not tested. Only
+    telling them apart lets coverage be reported."""
+    assert invariants.confront_moment(None, 0.02, "outperform", 0.05) == "no_data"
+    assert invariants.confront_moment(0.02, None, "outperform", 0.05) == "no_data"
+    assert invariants.confront_moment(0.02, 0.02, "outperform", 0.05) == "neutral"
 
 
 # -- forward window (the M5 verification fix) --------------------------------
@@ -270,7 +274,7 @@ def test_a_condition_matching_the_base_rate_scores_near_the_null() -> None:
     ]
     assert relative.count("confirmed") == 0
     assert relative.count("refuted") == 0
-    assert all(v is None for v in relative)  # no skill shown => no verdict
+    assert all(v == "neutral" for v in relative)  # no skill shown => no verdict
 
 
 def test_a_condition_with_real_lift_still_confirms() -> None:

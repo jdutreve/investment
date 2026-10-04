@@ -195,8 +195,12 @@ async def execute_zoom(db: InvestmentDB, zoom: Zoom) -> dict[str, Any]:
         )
     elif zoom.kind is ZoomKind.invariant_confrontations:
         rows = await db.query(
-            "SELECT date, verdict, source, moment_context FROM invariant_confrontations "
-            "WHERE invariant_id = :id ORDER BY date DESC LIMIT :n",
+            "SELECT signal_date, verdict, source, moment_context "
+            "FROM invariant_confrontations "
+            # Evidence only: 'neutral' and 'no_data' moments are coverage, and
+            # would crowd the verdicts out of a capped zoom.
+            "WHERE invariant_id = :id AND verdict IN ('confirmed', 'refuted') "
+            "ORDER BY signal_date DESC LIMIT :n",
             id=zoom.arg,
             n=ZOOM_ROW_CAP,
         )

@@ -158,9 +158,10 @@ async def _seed_zoom_targets(db: InvestmentDB) -> None:
         "'s', 'integrated', '[]', 0.5, 0.2, 0.7, 'tr', '2026-01-01', '2026-01-01')"
     )
     await cmd(
-        "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, date, verdict, "
-        "severity, source, source_id) VALUES ('c1', 'inv1', 'ctx', '2026-05-01', 'confirmed', 1.0, "
-        "'backtest', NULL)"
+        "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, signal_date, "
+        "available_at, verdict, severity, source, source_id) VALUES "
+        "('c1', 'inv1', 'ctx', '2026-05-01', '2026-07-24', 'confirmed', 1.0, 'backtest', NULL), "
+        "('c2', 'inv1', 'ctx', '2026-06-01', '2026-08-24', 'neutral', NULL, 'backtest', NULL)"
     )
     await cmd(
         "INSERT INTO proposal (id, date, proposal_type, defender_id, recommendation, "
@@ -185,7 +186,8 @@ async def test_zoom_strategy_history(zoomdb: InvestmentDB) -> None:
 
 async def test_zoom_invariant_confrontations(zoomdb: InvestmentDB) -> None:
     out = await R.execute_zoom(zoomdb, R.Zoom(kind=R.ZoomKind.invariant_confrontations, arg="inv1"))
-    assert out["rows"][0]["verdict"] == "confirmed"
+    # the later 'neutral' moment is coverage, not evidence: it is not shown
+    assert [r["verdict"] for r in out["rows"]] == ["confirmed"]
 
 
 async def test_zoom_regime_history_is_bounded(zoomdb: InvestmentDB) -> None:

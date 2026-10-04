@@ -56,6 +56,7 @@ from investment.mechanical.invariants import (
     is_absolute_claim,
     mature_seed_invariants,
     restate_invariant,
+    stored_definition,
 )
 from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
@@ -490,12 +491,15 @@ async def _commit_confrontations(
     placeholders = ",".join(f":i{n}" for n in range(len(ids)))
     params = {f"i{n}": iid for n, iid in enumerate(ids)}
     rows = await db.query(
-        "SELECT id, weight_initial, floor_weight, confirmation_count, infirmation_count "
-        f"FROM invariant WHERE id IN ({placeholders}) AND status != :reference",
+        f"SELECT id, condition, effect FROM invariant WHERE id IN ({placeholders}) "
+        "AND status != :reference",
         reference=REFERENCE_STATUS,
         **params,
     )
-    inv = {str(r["id"]): r for r in rows}
+    # The definition each confrontation TESTED, stamped on its row: evidence
+    # does not follow an invariant through a revision of its condition
+    # (`invariants.stored_definition`).
+    definitions = {str(r["id"]): stored_definition(r) for r in rows}
     descriptor = f"evaluation:{context_regime_type}"
 
     committed = 0
@@ -508,22 +512,25 @@ async def _commit_confrontations(
             event_date=today,
         )
         for cf in confrontations:
-            row = inv.get(cf.invariant_id)
-            if row is None:
+            definition = definitions.get(cf.invariant_id)
+            if definition is None:
                 continue
-            cc = int(row["confirmation_count"]) + (1 if cf.verdict == "confirmed" else 0)
-            ic = int(row["infirmation_count"]) + (1 if cf.verdict == "refuted" else 0)
             await db.command(
                 "INSERT INTO invariant_confrontations "
-                "(id, invariant_id, moment_context, date, verdict, severity, source, source_id) "
-                "VALUES (:id, :iid, :ctx, :date, :verdict, 1.0, 'evaluation', NULL)",
+                "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
+                " severity, source, source_id, definition) "
+                # One day for both dates: an evaluation is a reading of today,
+                # written today — it has no outcome window to wait for.
+                "VALUES (:id, :iid, :ctx, :today, :today, :verdict, 1.0, 'evaluation', NULL, "
+                " :definition)",
                 id=str(ULID()),
                 iid=cf.invariant_id,
                 ctx=descriptor,
-                date=today.isoformat(),
+                today=today.isoformat(),
                 verdict=cf.verdict,
+                definition=definition,
             )
-            await restate_invariant(db, row, cc, ic, thresholds, today)
+            await restate_invariant(db, cf.invariant_id, thresholds, today)
             committed += 1
     return committed
 

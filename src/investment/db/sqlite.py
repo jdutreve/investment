@@ -47,6 +47,7 @@ from investment.db.schema import (
     DROPPED_COLUMNS,
     ENTITY_TABLES,
     RELATION_TABLES,
+    RENAMED_COLUMNS,
     SCHEMA_SQL,
     TRACE_EXEMPT,
     TS_TABLES,
@@ -108,10 +109,21 @@ class InvestmentDB:
         for pragma in ("journal_mode=WAL", "synchronous=NORMAL", "foreign_keys=ON"):
             self._con.execute(f"PRAGMA {pragma}")
         self._con.executescript(SCHEMA_SQL)
-        for table, column, decl in ADDED_COLUMNS:
+        for table, old_name, new_name in RENAMED_COLUMNS:
+            existing = {r["name"] for r in self._con.execute(f"PRAGMA table_info({table})")}
+            if old_name in existing:
+                self._con.execute(f'ALTER TABLE {table} RENAME COLUMN "{old_name}" TO {new_name}')
+        for table, column, decl, after_add in ADDED_COLUMNS:
             existing = {r["name"] for r in self._con.execute(f"PRAGMA table_info({table})")}
             if column not in existing:
+                # One transaction, for the reason the drop below has one: a
+                # crash between the add and its backfill would leave the guard
+                # column present and the old rows unfilled, for good.
+                self._con.execute("BEGIN")
                 self._con.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+                for statement in after_add:
+                    self._con.execute(statement)
+                self._con.execute("COMMIT")
         for table, column, before_drop in DROPPED_COLUMNS:
             existing = {r["name"] for r in self._con.execute(f"PRAGMA table_info({table})")}
             if column in existing:

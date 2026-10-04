@@ -239,12 +239,13 @@ invariant. **A ponctual fact is NOT a new entity**: a quantitative one is a
 TS-derived confrontation moment (already an `invariant_confrontations` row —
 that row IS its link to the invariant it confirms/refutes); a narrative one is
 an event Document/Passage that may `SUPPORTS` the invariant it illustrates.
-Invariants extracted from UC3 events or user notes carry `author=null` → floor
-0.20 ('other corpus' tier).
+Invariants extracted from UC3 events or user notes carry `author=null` → the
+'other corpus' tier.
 
-Floor by **author** tier, persisted at creation:
-`author='dalio'`=0.40, `author='marks'`=0.35, `author=null` (other corpus)=0.20,
-`author='system'` (agent-discovery)=0.05.
+The **author** tier sets the STARTING band of `weight_initial`, persisted at
+creation: `dalio` 0.80-0.90, `marks` 0.75-0.85, `author=null` (other corpus)
+0.40-0.70, `system` (agent-discovery) 0.15-0.25. The floor is 0.05 for every
+tier (2026-09-21) — a visibility floor, not a reputation.
 
 ---
 
@@ -1052,13 +1053,25 @@ per-period series.)
 
 ```sql
 CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
--- id STRING (PK, ULID), invariant_id STRING, moment_context STRING, date DATE,
+-- id STRING (PK, ULID), invariant_id STRING, moment_context STRING,
 --   -- moment_context: the regime type if the moment is regime-keyed, else a
 --   --   compact descriptor of the condition that held (e.g. 'inflation:rising')
 --   --   — a moment is any condition-occurrence, not only a regime
--- verdict STRING ('confirmed'|'refuted'), severity FLOAT,
+-- signal_date DATE, available_at DATE,
+--   -- A PIECE OF EVIDENCE HAS TWO DATES (2026-10-04): the day the condition
+--   --   held, and the day the outcome became KNOWABLE — signal + the
+--   --   confrontation horizon for a backtest moment, the same day for an
+--   --   evaluation, the verdict day for a proposal. ADR-003 applied to
+--   --   evidence: the as-of replay bounds on available_at.
+-- verdict STRING ('confirmed'|'refuted'|'neutral'|'no_data'), severity FLOAT,
+--   -- only confirmed/refuted count in N. 'neutral' = measured, inside the
+--   --   margin; 'no_data' = not measurable. Stored so coverage is reportable.
 -- source STRING ('backtest'|'evaluation'|'proposal'|'adaptation' (V2)),
--- source_id STRING
+-- source_id STRING,
+-- definition STRING
+--   -- fingerprint of the (condition, effect) the row TESTED. An invariant's
+--   --   counts are the confirmed/refuted rows of its CURRENT definition
+--   --   (invariants.restate_invariant): a revised condition inherits nothing.
 
 CREATE TABLE IF NOT EXISTS benchmark_valuation (...);
 -- The pre-materialised BENCHMARK that effect.method reads at confrontation:

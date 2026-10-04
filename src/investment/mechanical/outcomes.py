@@ -52,7 +52,11 @@ from investment.mechanical.gates import (
     concentration_ok,
     effective_caps,
 )
-from investment.mechanical.invariants import REFERENCE_STATUS, restate_invariant
+from investment.mechanical.invariants import (
+    REFERENCE_STATUS,
+    restate_invariant,
+    stored_definition,
+)
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID
 
 CASH = ratios.CASH_TICKER
@@ -323,26 +327,32 @@ async def _confront_cited(
     placeholders = ",".join(f":i{n}" for n in range(len(cited)))
     params = {f"i{n}": iid for n, iid in enumerate(cited)}
     rows = await db.query(
-        "SELECT id, weight_initial, floor_weight, confirmation_count, infirmation_count "
-        f"FROM invariant WHERE id IN ({placeholders}) AND status != :reference",
+        f"SELECT id, condition, effect FROM invariant WHERE id IN ({placeholders}) "
+        "AND status != :reference",
         reference=REFERENCE_STATUS,
         **params,
     )
     for row in rows:
-        cc = int(row["confirmation_count"]) + (1 if won else 0)
-        ic = int(row["infirmation_count"]) + (0 if won else 1)
+        invariant_id = str(row["id"])
         await db.command(
             "INSERT INTO invariant_confrontations "
-            "(id, invariant_id, moment_context, date, verdict, severity, source, source_id) "
-            "VALUES (:id, :iid, :ctx, :date, :verdict, 1.0, 'proposal', :src)",
+            "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
+            " severity, source, source_id, definition) "
+            "VALUES (:id, :iid, :ctx, :signal_date, :available_at, :verdict, 1.0, 'proposal', "
+            " :src, :definition)",
             id=str(ULID()),
-            iid=str(row["id"]),
+            iid=invariant_id,
             ctx=f"proposal:{pid}",
-            date=today.isoformat(),
+            # The two dates of this piece of evidence: the proposal cited the
+            # invariant the day it was made, and the verdict is known today,
+            # when its outcome window closes.
+            signal_date=str(proposal["created_at"])[:10],
+            available_at=today.isoformat(),
             verdict=verdict_tag,
             src=pid,
+            definition=stored_definition(row),
         )
-        await restate_invariant(db, row, cc, ic, thresholds, today)
+        await restate_invariant(db, invariant_id, thresholds, today)
 
 
 async def _evaluate_one(
