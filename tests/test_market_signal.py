@@ -27,6 +27,7 @@ from investment.mechanical.market_signal import apply_trend_overlay, build_targe
 _SEEDED_CAP = next(
     p["max_single_asset_pct"] for p in PORTFOLIOS if p["id"] == market_signal.STACK_PORTFOLIO_ID
 )
+_CAPS = Caps(max_single_asset_pct=_SEEDED_CAP, max_drawdown_pct=-25.0)
 
 # SPLIT ON 2026-08-13: `WIDE` named one book when the wide branch ignored the
 # slope, and there are two now. The alias is gone rather than repointed — a name
@@ -395,7 +396,7 @@ def test_describe_rule_states_every_knob_it_claims_to_generate() -> None:
     So every constant the overlay turns on has to APPEAR in the text. This test
     fails the moment a knob is added to the mechanism without reaching the
     description — which is the only way the Worker learns about it."""
-    text = market_signal.describe_rule()
+    text = market_signal.describe_rule(_CAPS)
     for sleeve in (*market_signal.TREND_SLEEVES, market_signal.TREND_HAVEN):
         assert sleeve in text, f"{sleeve} is trend-checked but undescribed"
     assert market_signal.TREND_FALLBACK_HAVEN in text
@@ -596,7 +597,7 @@ def test_describe_rule_states_every_active_knob() -> None:
     the same waste from the other side."""
     from investment.mechanical.rule_revision import TESTABLE_PARAMETERS
 
-    text = market_signal.describe_rule()
+    text = market_signal.describe_rule(_CAPS)
     for knob, attr in TESTABLE_PARAMETERS.items():
         value = getattr(market_signal, attr)
         if value is not None:
@@ -618,9 +619,13 @@ def test_describe_rule_states_the_caps_and_the_haven_exemption() -> None:
 
     The caps are part of what DECIDED the month, so a rule text that omits them
     describes a rule the stack does not follow."""
-    text = market_signal.describe_rule()
+    text = market_signal.describe_rule(Caps(max_single_asset_pct=60.0, max_drawdown_pct=-25.0))
 
-    assert "50%" in text
+    # The figure it was GIVEN, never one of its own: a built-in 50 outlived the
+    # owner's move to 60 by seven weeks (2026-08-14 -> 2026-10-04), printed two
+    # lines under a book holding SPY 60.
+    assert "60%" in text
+    assert "50%" not in text
     for sleeve in market_signal.HAVEN_EXEMPT:
         assert sleeve in text, f"{sleeve} is cap-exempt and the rule text never says so"
     assert "legal by design" in text  # the reading it must prevent

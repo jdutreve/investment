@@ -17,10 +17,12 @@ from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import (
+    PLANNER_CONTEXT_EVENT,
     WORKER_READING_EVENT,
     render_context_for_worker,
     run_decision_cycle,
 )
+from investment.mechanical.gates import Caps
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
@@ -190,6 +192,25 @@ async def test_every_cycle_is_knowledge_only(rig) -> None:  # type: ignore[no-un
     assert payload["regime_assessment"] == "stagflation deepening"
     assert payload["trigger"] == "weekly"
 
+    # ...and neither is the Worker's INPUT. Asked on 2026-10-04 which invariants
+    # that morning's cycle had been given, the system could not say: the reading
+    # was journalled, what it was a reading OF was not. The context is appended
+    # first, so a Worker that fails still leaves what it was handed.
+    events = await db.query(
+        "SELECT type, payload FROM event_log WHERE type IN (:c, :r) ORDER BY id",
+        c=PLANNER_CONTEXT_EVENT,
+        r=WORKER_READING_EVENT,
+    )
+    assert [e["type"] for e in events] == [PLANNER_CONTEXT_EVENT, WORKER_READING_EVENT]
+    journalled = json.loads(str(events[0]["payload"]))
+    assert journalled["worker_context"] == render_context_for_worker(result.context)
+    assert journalled["corpus_queries"] == result.context.corpus_queries
+    # Call 1b: the selection, beside everything it was chosen from.
+    selected = [inv["id"] for inv in journalled["selected_invariants"]]
+    assert selected == [inv["id"] for inv in result.context.top_invariants]
+    assert set(selected) <= set(journalled["candidate_invariant_ids"])
+    assert journalled["notes"] == result.context.notes
+
 
 def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
     from investment.planner.context import PlannerContext
@@ -282,7 +303,21 @@ def _two_clock_context(macro: list[dict[str, object]]) -> PlannerContext:
             },
             "trend_overlay": {"windows_days": [150, 300], "below_trend": []},
         },
+        stack_caps=Caps(max_single_asset_pct=60.0, max_drawdown_pct=-25.0),
     )
+
+
+def test_the_rule_text_states_the_caps_that_bind_and_refuses_to_guess() -> None:
+    """The Worker read "no sleeve above 50%" from 2026-08-14 to 2026-10-04 while
+    `user_profile` said 60 and its own prompt listed a book at SPY 60: the rule
+    text had a default cap and its only caller passed nothing. The figure now
+    comes from the context, and a decision with no caps read is an error rather
+    than a sentence built on a constant."""
+    ctx = _two_clock_context([])
+    assert "no sleeve above 60%" in render_context_for_worker(ctx)
+
+    with pytest.raises(ValueError, match="no binding caps"):
+        render_context_for_worker(dataclasses.replace(ctx, stack_caps=None))
 
 
 def test_a_signal_is_shown_on_both_clocks_with_the_drift_named() -> None:

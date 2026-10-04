@@ -718,7 +718,7 @@ def _windows_text() -> str:
     return "/".join(str(w) for w in MA_WINDOWS)
 
 
-def describe_rule(caps: Caps | None = None) -> str:
+def describe_rule(caps: Caps) -> str:
     """The stack's rule as prompt text, GENERATED FROM THE CONSTANTS ABOVE.
 
     The Worker is asked to challenge this rule, which means it has to know what
@@ -763,8 +763,13 @@ def describe_rule(caps: Caps | None = None) -> str:
     It does NOT breach the Worker's unawareness of Planner/Writeback/storage
     (worker/agent.py): the stack is an INVESTMENT instrument whose output the
     Worker already reads and is invited to challenge. Telling it how the
-    instrument works is telling it about the market, not about the plumbing."""
-    caps = caps or Caps(max_single_asset_pct=50.0, max_drawdown_pct=-25.0)
+    instrument works is telling it about the market, not about the plumbing.
+
+    `caps` IS REQUIRED, and it was optional until 2026-10-04. The default named
+    the cap of the day it was written (50); the owner raised it to 60 on
+    2026-08-14, the only caller passed nothing, and for seven weeks the Worker
+    read "no sleeve above 50%" two lines under a book printed as SPY 60. A
+    default is a second copy of `user_profile`, so there is none."""
     books = "\n".join(
         f"    {name}: " + ", ".join(f"{t} {w:.0f}" for t, w in holdings.items())
         for name, holdings in BOOKS.items()

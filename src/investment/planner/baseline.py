@@ -25,7 +25,8 @@ from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
 from investment.market.liquidity import liquidity_state
-from investment.mechanical.market_signal import STACK_TICKERS, signal_tickers
+from investment.mechanical.gates import Caps, effective_caps
+from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
@@ -74,6 +75,10 @@ class Baseline:
     # 'add VCIT to the overlay' arrived three times, each after a rejection
     # nothing could show it (rule_revision `measured_verdicts`).
     measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # The caps that BIND the stack today (CLAUDE.md "Binding caps"), so the rule
+    # text the Worker reads states the live figure. None only on a database with
+    # no user_profile row, where no market-signal decision can exist either.
+    stack_caps: Caps | None = None
 
 
 # -- pure core --------------------------------------------------------------
@@ -352,6 +357,23 @@ async def _market_signal(db: InvestmentDB) -> dict[str, Any]:
     return {}
 
 
+async def _stack_caps(db: InvestmentDB) -> Caps | None:
+    """The stricter of `user_profile` and the stack's own row — the same first
+    round `writeback.dispose_market_signal` applies. The per-BOOK round is left
+    out on purpose: the rule text describes the stack's ceiling, and each book's
+    weights are printed beside it."""
+    profile = await db.query(
+        "SELECT max_single_asset_pct, max_drawdown_pct FROM user_profile LIMIT 1"
+    )
+    if not profile:
+        return None
+    stack = await db.query(
+        "SELECT max_single_asset_pct, max_drawdown_rule FROM portfolio WHERE id = :pid",
+        pid=STACK_PORTFOLIO_ID,
+    )
+    return effective_caps(profile[0], stack[0] if stack else None)
+
+
 async def _bucket(db: InvestmentDB, where: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     rows = await db.query(
         f"SELECT {_INVARIANT_COLS} FROM invariant "
@@ -425,4 +447,5 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         favors=favors,
         macro=macro,
         measured_revisions=await measured_verdicts(db),
+        stack_caps=await _stack_caps(db),
     )

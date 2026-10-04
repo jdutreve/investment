@@ -243,4 +243,4 @@ class PlannerPre:
 
         regime_type = baseline.regime.get("regime_type_id")
         active = await active_invariant_ids(self._db, selection.invariant_ids, regime_type)
-        return assemble_context(baseline, pool, selection, active)
+        return assemble_context(baseline, pool, selection, active, queries)

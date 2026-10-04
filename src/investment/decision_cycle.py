@@ -40,6 +40,7 @@ from typing import Any
 from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.mechanical.rule_revision import describe_measured
 from investment.planner.context import PlannerContext
@@ -55,6 +56,13 @@ from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_kn
 # `outcomes.OUTCOME_EVENT` are — writeback.py owns the event names for what
 # WRITEBACK persists, and this is not a disposition.
 WORKER_READING_EVENT = "WorkerReadingEvent"
+
+# WHAT THE WORKER WAS HANDED, and how the Planner got there (see
+# `journal_planner_context`). The reading above recorded what the Worker SAID
+# and nothing recorded what it had READ: on 2026-10-04 the owner asked which
+# invariants the morning's cycle had been given, and the answer had to be
+# rebuilt from a backup, minus the Call 1b selection, which no backup holds.
+PLANNER_CONTEXT_EVENT = "PlannerContextEvent"
 
 # THE CYCLE FINISHED — appended last, after `commit_knowledge` returned. It
 # exists because the weekly resume guard (`weekly.weekly_cycle_already_ran`)
@@ -94,7 +102,9 @@ def _allocation(row: dict[str, Any]) -> dict[str, float]:
     return {str(k): float(v) for k, v in (alloc or {}).items()}
 
 
-def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> list[str]:
+def _market_signal_lines(
+    state: dict[str, Any], macro: list[dict[str, Any]], caps: Caps | None
+) -> list[str]:
     """The live allocation state as the Worker reads it (ADR-007). Two things it
     must convey, and the phrasing carries both:
 
@@ -139,9 +149,16 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
     between the two TICKERS instead of between two blocks, T10Y2Y being
     published a day ahead of BAA10Y and having crossed its median in that day.
     Read the cap's rationale there before assuming this block may show the
-    newest print of each."""
+    newest print of each.
+
+    `caps` are the stack's BINDING caps as the baseline read them, and a
+    decision without them is refused rather than described with a guess: the
+    rule text stated a stale 50% for seven weeks because a default stood in for
+    `user_profile` (`market_signal.describe_rule`)."""
     if not state:
         return []
+    if caps is None:
+        raise ValueError("a market-signal decision is in force but no binding caps were read")
     latest = {str(row.get("ticker")): row for row in macro}
     signals = state.get("signals") or {}
     overlay = state.get("trend_overlay") or {}
@@ -242,7 +259,7 @@ def _market_signal_lines(state: dict[str, Any], macro: list[dict[str, Any]]) -> 
     # includes GLD, on dates whose own logs printed below-trend=['SPY','GLD'].
     # Generated from the constants (`market_signal.describe_rule`), so it cannot
     # drift from the code the way a hand-copied description would.
-    lines += ["", *describe_rule().splitlines()]
+    lines += ["", *describe_rule(caps).splitlines()]
     return lines
 
 
@@ -263,7 +280,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
         f"confidence {regime.get('confidence', '?')}",
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
     ]
-    lines.extend(_market_signal_lines(context.market_signal, context.macro))
+    lines.extend(_market_signal_lines(context.market_signal, context.macro, context.stack_caps))
     # WHAT HAS ALREADY BEEN TRIED, and this is the fifth time this week that a
     # fact the system held was not reaching the only thing that could use it.
     # "Add VCIT to the trend overlay" arrived three times across independent
@@ -374,6 +391,55 @@ def _market_context(context: PlannerContext) -> dict[str, Any]:
     }
 
 
+async def journal_planner_context(
+    db: InvestmentDB,
+    context: PlannerContext,
+    worker_context: str,
+    *,
+    trigger: str,
+    run_id: str | None,
+    today: date | None = None,
+) -> None:
+    """Journal what the Worker is about to read, and the Planner's two choices
+    behind it.
+
+    Appended BEFORE the Worker runs, in its own transaction, for the reason
+    `journal_worker_reading` is appended before Planner Post: the cycle worth
+    auditing is the one that failed, and a Worker that timed out or answered
+    nonsense leaves its input as the only evidence.
+
+    Three things, because a reading is judged against all three:
+    - `worker_context` — the exact text handed over, not a re-rendering. The
+      renderer and the rule text change, and a context rebuilt later with
+      today's code describes a prompt nobody was sent.
+    - Call 1a — the corpus queries and zooms the Planner chose to run.
+    - Call 1b — what it SELECTED out of what it was OFFERED. Both sides, since
+      an invariant missing from the context was either never fetched or fetched
+      and dropped, and only the candidate list tells the two apart."""
+    async with db.transaction():
+        await db.append_event(
+            type=PLANNER_CONTEXT_EVENT,
+            source_uc=SOURCE_UC,
+            source_id=run_id,
+            payload={
+                "trigger": trigger,
+                "run_id": run_id,
+                "corpus_queries": context.corpus_queries,
+                "zooms": context.zooms,
+                "candidate_invariant_ids": context.candidate_invariant_ids,
+                "candidate_passage_ids": context.candidate_passage_ids,
+                "selected_invariants": [
+                    {"id": inv.get("id"), "active": bool(inv.get("active"))}
+                    for inv in context.top_invariants
+                ],
+                "selected_passage_ids": [p.get("id") for p in context.passages],
+                "notes": context.notes,
+                "worker_context": worker_context,
+            },
+            event_date=today,
+        )
+
+
 async def journal_worker_reading(
     db: InvestmentDB,
     worker_result: WorkerResult,
@@ -434,8 +500,8 @@ async def run_decision_cycle(
     run_id: str | None = None,
     context: PlannerContext | None = None,
 ) -> UC8Result:
-    """Run one UC8 cycle end to end: the three roles, the journalled reading and
-    the guardrailed knowledge commit. Returns everything the digest renders.
+    """Run one UC8 cycle end to end: the three roles, the journalled context and
+    reading, and the guardrailed knowledge commit. Returns everything the digest renders.
 
     The cycle is KNOWLEDGE-ONLY since ADR-012 (`gate_outcome` / `proposal_id`
     stay None on every path — see the paragraph below). `thresholds` therefore
@@ -462,7 +528,11 @@ async def run_decision_cycle(
     journals the reading and commits the guardrailed knowledge; there is no
     reallocation to gate, so no Proposal is minted and no book moves."""
     context = context or await planner_pre.run(trigger)
-    worker_result = await run_worker(worker_agent, render_context_for_worker(context))
+    worker_context = render_context_for_worker(context)
+    await journal_planner_context(
+        db, context, worker_context, trigger=trigger, run_id=run_id, today=today
+    )
+    worker_result = await run_worker(worker_agent, worker_context)
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today
     )

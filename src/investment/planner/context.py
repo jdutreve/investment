@@ -32,8 +32,9 @@ from pydantic import BaseModel, Field
 
 from investment.db.seed_data import SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.gates import Caps
 from investment.planner.baseline import Baseline
-from investment.planner.retrieval import RetrievalPool
+from investment.planner.retrieval import QueryStrategies, RetrievalPool
 from investment.worker.tools import round_for_model
 
 _OPS: dict[str, Callable[[Any, Any], bool]] = {
@@ -81,6 +82,17 @@ class PlannerContext:
     favors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    stack_caps: Caps | None = None
+    # THE MARGIN'S OWN TRAIL — what Call 1a asked for and what Call 1b was
+    # offered. Never rendered to the Worker; carried so the cycle can journal
+    # them (`decision_cycle.journal_planner_context`). Without the candidates a
+    # selection cannot be audited: "why was this invariant absent" has two
+    # answers, never fetched or fetched and dropped, and only the pool tells
+    # them apart.
+    corpus_queries: list[str] = dataclasses.field(default_factory=list)
+    zooms: list[dict[str, str]] = dataclasses.field(default_factory=list)
+    candidate_invariant_ids: list[str] = dataclasses.field(default_factory=list)
+    candidate_passage_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 # -- pure core: the pool the selection is validated against -----------------
@@ -203,6 +215,7 @@ def assemble_context(
     pool: RetrievalPool,
     selection: ContextSelection,
     active_ids: set[str],
+    queries: QueryStrategies | None = None,
 ) -> PlannerContext:
     """Build the PlannerContext from the mechanical baseline + the validated
     Call 1b selection. Only pool-known ids are included (unknown ones were
@@ -228,6 +241,11 @@ def assemble_context(
         favors=baseline.favors,
         macro=baseline.macro,
         measured_revisions=baseline.measured_revisions,
+        stack_caps=baseline.stack_caps,
+        corpus_queries=list(queries.corpus_queries) if queries else [],
+        zooms=[{"kind": str(z.kind), "arg": z.arg} for z in queries.zooms] if queries else [],
+        candidate_invariant_ids=list(inv_pool),
+        candidate_passage_ids=list(pas_pool),
     )
 
 

@@ -618,6 +618,11 @@ EventLog {
                         --  ScenarioEvent (the knowledge commit's three) |
                         --  MarketSignalDecisionEvent (ADR-007 — one per
                         --    monthly decision, moved or not) |
+                        --  PlannerContextEvent (the Worker's INPUT, one per
+                        --    UC8 cycle, appended BEFORE the Worker runs: the
+                        --    exact context text, Call 1a's queries and zooms,
+                        --    and Call 1b's selection beside the candidates
+                        --    it was offered) |
                         --  WorkerReadingEvent (ADR-011 — the Worker's prose,
                         --    one per UC8 cycle, proposal or not; appended
                         --    BEFORE Planner Post, so it is an AUDIT of what
