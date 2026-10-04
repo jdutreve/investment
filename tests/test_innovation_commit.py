@@ -416,10 +416,8 @@ async def test_a_prose_condition_is_dropped_to_empty_not_followed_downstream(
     malformed = _innovation("Condition written as prose")
     malformed.spec["condition"] = "T10Y2Y speed > 0 while DGS10 speed > 0"
     good = _innovation("A well-formed neighbour")
-    # A distinct effect, not just a distinct condition: `conditions_can_overlap`
-    # is vacuously true against the malformed row's dropped-to-`[]` condition,
-    # so a shared effect would dedup the two — an artefact of the stub
-    # embedder's constant cosine, not of the fix under test.
+    # A distinct effect as well as a distinct condition, so nothing about the
+    # dedup gate can stand between this row and the fix under test.
     good.spec = {
         **good.spec,
         "id": "inv-good",

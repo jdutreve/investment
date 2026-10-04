@@ -34,49 +34,36 @@ from typing import Any
 
 import numpy as np
 
-from investment.corpus.embedding import (
-    InProcessEmbedder,
-    cosine_matrix,
-    from_blob,
-    invariant_embedding_input,
-    to_blob,
-)
+from investment.corpus.embedding import InProcessEmbedder, invariant_embedding_input, to_blob
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.invariants import REFERENCE_STATUS, conditions_can_overlap
+from investment.mechanical.invariants import REFERENCE_STATUS
 from investment.worker.curator import ReferenceNote, ScoredCandidate
 
 logger = logging.getLogger(__name__)
 
-# Prose similarity is the FIRST of two conditions for a merge, never the only
-# one. 0.80 on L2-normalised MiniLM embeddings, measured 2026-07-21:
+# A MERGE IS DECIDED BY STRUCTURE ALONE (owner, 2026-10-04) — the same
+# predicates and the same effect, see `find_duplicate`. Prose similarity used to
+# propose one (cosine >= 0.75) and a structural test dispose, but that test asked
+# whether the two conditions COULD CO-OCCUR, which is the contradiction
+# detector's question and not this one's: "inflation > 3" and "inflation > 5"
+# overlap, read alike, and are two definitions with two 35y records. What the
+# embedding measured is kept on record because it is why prose was never allowed
+# to decide alone (MiniLM, L2-normalised, 2026-07-21):
 #   0.857  "negative real rates cause gold to outperform"
 #       vs "when real rates turn negative, gold outperforms"     -> same claim
-#   0.547  ... vs "negative real rates favour equities over bonds"
-#   0.124  ... vs "a flat yield curve precedes equity drawdowns"
-# But also, and this is why the threshold alone is NOT a dedup rule:
 #   0.907  "WIDE credit spreads precede equity UNDERperformance"
 #       vs "TIGHT credit spreads precede equity OUTperformance"  -> OPPOSITE
-# Sentence embeddings encode vocabulary, not negation: two inverse invariants
-# share nearly every word and land higher than a genuine paraphrase pair. A
-# false merge is strictly worse than a duplicate — a duplicate is visible and
-# cleanable, a merge destroys a claim silently — so the structural agreement
-# below is what actually authorises it.
-#
-# Lowered 0.80 -> 0.75 after the ice core (2026-07-21) measured a real missed
-# duplicate at 0.782: the same claim ("growth falling, inflation rising -> gold
-# outperforms"), same effect, written twice with different wording, persisted
-# twice. 0.80 was a prior fitted to four hand-built pairs; 0.782 is the first
-# number from actual curator output. Lowering was unsafe while cosine decided
-# alone — it is much less so now that a merge ALSO requires structural
-# agreement, which is what holds the 0.907 wide-vs-tight pair apart whatever
-# the threshold says.
-DEDUP_COSINE_THRESHOLD = 0.75
+#   0.668  two phrasings that compiled to the SAME predicate     -> same claim
+# Sentence embeddings encode vocabulary, not negation. A false merge is strictly
+# worse than a duplicate — a duplicate is visible and cleanable, a merge
+# destroys a definition silently.
 
-# document.author -> invariant author tier (floors: dalio 0.40, marks 0.35,
-# null 0.20, system 0.05 — CLAUDE.md "Invariant weight model"). Substring
+# document.author -> invariant author tier (the STARTING band: dalio 0.80-0.90,
+# marks 0.75-0.85, null 0.40-0.70, system 0.15-0.25 — CLAUDE.md "Invariant
+# weight model"; the floor is 0.05 for all four). Substring
 # match, lowercased, because `document.author` is a human name ("Ray Dalio")
 # while the tier is a corpus identity. Anything unmatched is the 'other' tier
-# (author=NULL, floor 0.20) — the conservative default, per DATA_MODELS.md:
+# (author=NULL, band 0.40-0.70) — the conservative default, per DATA_MODELS.md:
 # "Invariants extracted from UC3 events or user notes carry author=null".
 AUTHOR_TIERS: dict[str, str] = {"dalio": "dalio", "marks": "marks"}
 
@@ -97,7 +84,9 @@ def author_tier(document_author: str | None) -> str | None:
 @dataclass(frozen=True)
 class AuthorBand:
     """What an author TIER is allowed to be born with (CLAUDE.md "Invariant
-    weight model": dalio 0.40 / marks 0.35 / other 0.20 / system 0.05).
+    weight model": `low`-`high` is the notoriety band — dalio 0.80-0.90 / marks
+    0.75-0.85 / other 0.40-0.70 / system 0.15-0.25 — and `floor` is the one
+    visibility floor every tier shares, 0.05).
 
     Carries `bind` rather than exposing three floats for the callers to compare,
     because the clamp is the rule, not an implementation detail: an invariant's
@@ -180,12 +169,9 @@ class KnowledgeWriteback:
         self,
         db: InvestmentDB,
         embedder: InProcessEmbedder,
-        *,
-        dedup_threshold: float = DEDUP_COSINE_THRESHOLD,
     ) -> None:
         self._db = db
         self._embedder = embedder
-        self._dedup_threshold = dedup_threshold
         # Serialises persistence across the CONCURRENT batches of
         # `curate_document`. Two reasons, one lock:
         #
@@ -280,7 +266,7 @@ class KnowledgeWriteback:
         batch may have written lives here, inside the lock."""
         author = author_tier(await self._document_author(document_id))
         band = await self._author_band(author)
-        corpus = await self._existing_embeddings()
+        corpus = await load_invariant_corpus(self._db)
         superseded = await self._superseded_notes(passage_ids)
 
         report = WritebackReport()
@@ -315,7 +301,7 @@ class KnowledgeWriteback:
                 # of a paraphrase family is written first, so its weaker twins
                 # find it in the corpus and merge INTO it. No tie-break needed.
                 vector = self._encode(item.candidate.claim, item.candidate.description)
-                match = self._nearest(vector, item, corpus)
+                match = self._duplicate_of(item, corpus)
                 if match is not None:
                     # Never overwrite the incumbent, whatever it scores: a
                     # persisted invariant may already carry confrontation
@@ -331,7 +317,6 @@ class KnowledgeWriteback:
                     invariant_id,
                     [p.model_dump() for p in item.candidate.condition],
                     item.candidate.effect.model_dump(),
-                    vector,
                 )
                 report += WritebackReport(created=1)
 
@@ -359,26 +344,15 @@ class KnowledgeWriteback:
         vector: np.ndarray = self._embedder.encode([text])[0]
         return vector
 
-    def _nearest(
-        self,
-        vector: np.ndarray,
-        item: ScoredCandidate,
-        corpus: "InvariantCorpus",
-    ) -> str | None:
+    def _duplicate_of(self, item: ScoredCandidate, corpus: "InvariantCorpus") -> str | None:
         """Delegates to the shared `find_duplicate` (below) — the same gate
         UC8's innovation commit uses, so a Worker-proposed invariant and a
         curator-extracted one dedup against the corpus identically."""
         return find_duplicate(
-            vector,
             [p.model_dump() for p in item.candidate.condition],
             item.candidate.effect.model_dump(),
             corpus,
-            self._dedup_threshold,
-            label=(item.candidate.claim or "")[:60],
         )
-
-    async def _existing_embeddings(self) -> "InvariantCorpus":
-        return await load_invariant_corpus(self._db)
 
     async def _document_author(self, document_id: str) -> str | None:
         rows = await self._db.query("SELECT author FROM document WHERE id = :d", d=document_id)
@@ -540,174 +514,92 @@ def _predicate_key(predicate: dict[str, Any]) -> tuple[str, str, str, float]:
     )
 
 
-def _comparable_effects(
-    effect: dict[str, Any], existing: _Existing
-) -> tuple[dict[str, Any], dict[str, Any]] | None:
-    """The two effects narrowed to objects, or None if they cannot be compared.
-
-    Returns the PAIR rather than a bool so the narrowing survives the call: a
-    predicate helper leaves both callers holding `dict | Any` and needing a
-    `type: ignore` each, which is the same guard duplicated in a worse form.
-
-    ONE HELPER FOR BOTH COMPARATORS, because they had the same guard and only
-    one of them was enough. `_identical_structure` and `_same_invariant` each
-    tested `existing.effect is None` and then called `.get` on both sides — a
-    check for ABSENCE standing in for a check of SHAPE.
-
-    These run BEFORE `validate_invariant` (writeback `_commit_invariant_
-    innovation`), so they are the first code to touch an effect a model just
-    wrote, and on 2008-09-02 of the on-stack M8b run one arrived as prose.
-    Fixing the first comparator only moved the AttributeError eight lines down
-    to the second, which is why the guard now lives in one place.
-
-    The EXISTING side needs it as much as the incoming one: `validate_invariant`
-    demotes a malformed effect rather than discarding it, so the row persists
-    with the shape it was born with, and one such row in the corpus would break
-    the dedup of every invariant proposed after it."""
-    if isinstance(effect, dict) and isinstance(existing.effect, dict):
-        return effect, existing.effect
-    return None
-
-
 def _identical_structure(
     condition: list[dict[str, Any]], effect: dict[str, Any], existing: _Existing
 ) -> bool:
     """Same predicates and same effect — order-insensitive, since a condition
-    is an AND and `[A, B]` is `[B, A]`."""
-    pair = _comparable_effects(effect, existing)
-    if pair is None:
+    is an AND and `[A, B]` is `[B, A]`.
+
+    Both effects are checked for SHAPE, not for absence. This runs BEFORE
+    `validate_invariant` (writeback `_commit_invariant_innovation`), so it is
+    the first code to touch an effect a model just wrote, and on 2008-09-02 of
+    the on-stack M8b run one arrived as prose. The EXISTING side needs the
+    check as much as the incoming one: `validate_invariant` demotes a malformed
+    effect rather than discarding it, so the row persists with the shape it was
+    born with, and one such row would break the dedup of every invariant
+    proposed after it."""
+    known = existing.effect
+    if not isinstance(effect, dict) or not isinstance(known, dict):
         return False
-    incoming, known = pair
-    if {k: incoming.get(k) for k in _EFFECT_FIELDS} != {k: known.get(k) for k in _EFFECT_FIELDS}:
+    if {k: effect.get(k) for k in _EFFECT_FIELDS} != {k: known.get(k) for k in _EFFECT_FIELDS}:
         return False
     return sorted(map(_predicate_key, condition)) == sorted(map(_predicate_key, existing.condition))
 
 
-def _same_invariant(
-    condition: list[dict[str, Any]], effect: dict[str, Any], existing: _Existing
-) -> bool:
-    """Do these two claims assert the SAME thing?
-
-    Structure, not prose — the only part of a candidate that cannot be
-    paraphrased. Reference knowledge (no effect) is never a merge target: it
-    carries no condition to compare, so "similar wording" is all that would
-    be left, which is exactly what this guard exists to distrust."""
-    pair = _comparable_effects(effect, existing)
-    if pair is None:
-        return False
-    incoming, known = pair
-    same_effect = all(incoming.get(field) == known.get(field) for field in _EFFECT_FIELDS)
-    # `conditions_can_overlap` is the same helper the contradiction detector
-    # uses: provably-disjoint predicates on the same (signal, feature) — wide
-    # vs tight spreads — mean the two can never be active together, so they
-    # cannot be one invariant.
-    return same_effect and conditions_can_overlap(condition, existing.condition)
-
-
 @dataclass
 class InvariantCorpus:
-    """What the dedup gate compares against: every embedded invariant reduced to
-    its identity + machine-readable structure, alongside the stacked embedding
-    matrix. ONE object because the two are one concept — carried as a pair they
-    forced every producer and consumer to thread two variables, and `add` below
-    to mutate one while returning the other.
-
-    Empty corpus -> a `(0, 0)` matrix (`find_duplicate` short-circuits on
-    `matrix.size == 0`, so the exact width is immaterial)."""
+    """What the dedup gate compares against: every measurable invariant reduced
+    to its identity + machine-readable structure."""
 
     entries: list["_Existing"]
-    matrix: np.ndarray
 
     def add(
-        self,
-        invariant_id: str,
-        condition: list[dict[str, Any]],
-        effect: dict[str, Any] | None,
-        vector: np.ndarray,
+        self, invariant_id: str, condition: list[dict[str, Any]], effect: dict[str, Any] | None
     ) -> None:
         """Add a JUST-CREATED invariant, so the rest of the batch can dedup
         against it. Both batch writers need this and for the same reason: the
         corpus is read once, before the loop, so without it every member of a
         batch compares against a snapshot that predates its siblings and
-        near-identical claims in ONE batch all pass."""
+        identical claims in ONE batch all pass."""
         self.entries.append(_Existing(id=invariant_id, condition=condition, effect=effect))
-        self.matrix = (
-            vector.reshape(1, -1) if self.matrix.size == 0 else np.vstack([self.matrix, vector])
-        )
 
 
 async def load_invariant_corpus(db: InvestmentDB) -> InvariantCorpus:
     """The corpus as of now. Shared by the curator's writeback and UC8's
-    innovation commit, so both dedup against the same claims."""
-    rows = await db.query(
-        "SELECT id, embedding, condition, effect FROM invariant WHERE embedding IS NOT NULL"
-    )
-    if not rows:
-        return InvariantCorpus(entries=[], matrix=np.empty((0, 0)))
+    innovation commit, so both dedup against the same claims. Reference
+    knowledge (no effect) is left out: it has no structure to be identical to."""
+    rows = await db.query("SELECT id, condition, effect FROM invariant WHERE effect IS NOT NULL")
     return InvariantCorpus(
         entries=[
             _Existing(
                 id=str(row["id"]),
                 condition=json.loads(row["condition"] or "[]"),
-                effect=json.loads(row["effect"]) if row["effect"] else None,
+                effect=json.loads(row["effect"]),
             )
             for row in rows
-        ],
-        matrix=np.vstack([from_blob(row["embedding"]) for row in rows]),
+        ]
     )
 
 
 def find_duplicate(
-    vector: np.ndarray,
     condition: list[dict[str, Any]],
     effect: dict[str, Any] | None,
     corpus: InvariantCorpus,
-    threshold: float,
-    *,
-    label: str = "",
 ) -> str | None:
     """The id of an existing invariant this one RESTATES, or None — the shared
-    dedup gate (docs/TASKS.md Phase 6 "DEDUP GATE"). TWO conditions, both
-    required: prose similarity proposes, structure disposes. Ranked by
-    similarity so the closest structurally-compatible match wins.
+    dedup gate (docs/TASKS.md Phase 6 "DEDUP GATE").
+
+    EQUIVALENT DEFINITIONS, NOTHING LOOSER (owner, 2026-10-04). Same predicates
+    + same effect produce byte-identical 35y confrontations — they ARE one
+    invariant whatever the prose says (measured 2026-07-21: two phrasings of
+    `equity_trend.level < 0` sat at cosine 0.668 and were persisted twice).
+
+    A second pass used to merge on prose similarity plus conditions that merely
+    CAN CO-OCCUR. That deleted definitions: "inflation > 3" and "inflation > 5"
+    with one effect overlap and read alike, and each has its own 35y record.
+    Grouping related ideas is a different job from deleting one of them, and it
+    belongs to whoever defines hypothesis families
+    (docs/INVARIANT_IMPROVEMENT_PLAN.md 3.3), not to this gate.
 
     `effect is None` (a reference note) is never a duplicate — it carries no
     structure to compare, and merging on wording alone is exactly what this
     gate distrusts."""
-    if not corpus.entries or corpus.matrix.size == 0 or effect is None:
+    if effect is None:
         return None
-    similarities = cosine_matrix(vector.reshape(1, -1), corpus.matrix)[0]
-
-    # FIRST: exact structural identity, with NO cosine gate. Same predicates +
-    # same effect produce byte-identical 35y confrontations — they ARE one
-    # invariant whatever the prose says (measured 2026-07-21: two phrasings of
-    # `equity_trend.level < 0` sat at cosine 0.668 and were persisted twice).
-    for index, existing in enumerate(corpus.entries):
+    for existing in corpus.entries:
         if _identical_structure(condition, effect, existing):
-            logger.info(
-                "dedup: merged into %s (identical structure, cosine %.3f)",
-                existing.id,
-                float(similarities[index]),
-            )
+            logger.info("dedup: merged into %s (identical structure)", existing.id)
             return existing.id
-    for index in np.argsort(similarities)[::-1]:
-        score = float(similarities[index])
-        if score < threshold:
-            return None
-        existing = corpus.entries[int(index)]
-        if not _same_invariant(condition, effect, existing):
-            # The measured trap: "wide spreads -> equities underperform" and
-            # "tight spreads -> equities outperform" sit at cosine 0.907.
-            # Disjoint conditions (or inverted direction) => two claims.
-            logger.info(
-                "dedup: kept %r apart from %s despite cosine %.3f (structure differs)",
-                label,
-                existing.id,
-                score,
-            )
-            continue
-        logger.info("dedup: merged into %s (cosine %.3f)", existing.id, score)
-        return existing.id
     return None
 
 
@@ -742,4 +634,14 @@ def _cited(claimed: list[str], batch: list[str]) -> list[str]:
     a dangling SUPPORTS edge. Falls back to the whole batch when it cited
     nothing usable, which is honest: the claim came from these passages."""
     valid = [p for p in claimed if p in set(batch)]
+    if not valid:
+        # What the model wrote instead, because nothing recorded it: the
+        # fallback fired for 100% / 39% / 15% of claims under three successive
+        # models (measured 2026-10-04) and no log says what an unusable
+        # citation looks like, so the fix cannot yet be chosen.
+        logger.warning(
+            "curator: no usable citation, whole batch of %d marked cited (claimed: %r)",
+            len(batch),
+            claimed[:5],
+        )
     return valid or batch

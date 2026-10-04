@@ -246,8 +246,8 @@ async def test_opposite_claims_are_never_merged_however_alike_they_read(
     Measured 2026-07-21: these two sit at cosine 0.907 — HIGHER than a genuine
     paraphrase pair (0.857) — because sentence embeddings encode vocabulary,
     not negation. A pure-cosine gate merges them and silently destroys one of
-    two opposite invariants. Their conditions are provably disjoint, so the
-    structure says no whatever the prose says."""
+    two opposite invariants. Neither their conditions nor their effects are
+    the same, so the structure says no whatever the prose says."""
     passage_ids = await _document(db)
     writeback = KnowledgeWriteback(db, embedder)
     wide = _candidate("wide credit spreads precede equity underperformance")
@@ -287,6 +287,37 @@ async def test_opposite_claims_are_never_merged_however_alike_they_read(
         fingerprint=FINGERPRINT,
         passage_ids=passage_ids,
         scored=[wide, tight],
+        notes=[],
+    )
+    assert await _count(db, "invariant") == 2
+
+
+async def test_a_different_threshold_is_a_different_definition(
+    db: InvestmentDB, embedder: InProcessEmbedder
+) -> None:
+    """The guarantee the gate restores (2026-10-04): a merge deletes a
+    definition, so only an EQUIVALENT one may be merged.
+
+    "inflation > 3" and "inflation > 5" with one effect can both be active, and
+    their prose is the same sentence with one digit changed — which is all the
+    old second pass asked (cosine + `conditions_can_overlap`). They are two
+    definitions, each with its own moments over 35 years."""
+    passage_ids = await _document(db)
+    writeback = KnowledgeWriteback(db, embedder)
+    above_three = _candidate("when inflation is above 3, gold outperforms")
+    above_five = _candidate("when inflation is above 5, gold outperforms")
+    for item, value in ((above_three, 3.0), (above_five, 5.0)):
+        object.__setattr__(
+            item.candidate,
+            "condition",
+            [Predicate(signal="inflation", feature="level", op=">", value=value)],
+        )
+
+    await writeback.persist_batch(
+        document_id="doc-1",
+        fingerprint=FINGERPRINT,
+        passage_ids=passage_ids,
+        scored=[above_three, above_five],
         notes=[],
     )
     assert await _count(db, "invariant") == 2

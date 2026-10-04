@@ -33,11 +33,14 @@ from investment.mechanical.rule_revision import measured_verdicts
 # and keeps a better one. It was "a proposal may cite only integrated
 # invariants (UC8 gate 6), so show the Worker the eligible set"; ADR-012 deleted
 # that gate, and the Worker cites nothing structurally any more. What remains is
-# the M8 measurement the gate was calibrated on: widening to high-weight
-# 'proposed' takes the set from 2 to 218 of 253, because `weight_effective` is
-# dominated by the author-tier FLOOR rather than by evidence. That would hand
-# the reading 209 curator notes of unmeasured belief, which is a worse context,
-# not a richer one — so the Worker still reads the corpus's SETTLED knowledge.
+# what a weight can and cannot say. A 'proposed' invariant's `weight_effective`
+# is its starting BELIEF pulled toward a record that settled nothing, and a
+# reference note's is the belief alone: re-measured 2026-10-04, 65 of 169
+# 'proposed' and 410 of 820 notes weigh 0.60 or more, against 12 integrated.
+# Widening on weight would hand the reading mostly unmeasured belief, which is a
+# worse context, not a richer one — so the Worker still reads the corpus's
+# SETTLED knowledge. (The M8 figure this comment used to quote, 2 -> 218 of 253,
+# blamed an author-tier floor that was flattened to 0.05 on 2026-09-21.)
 BUCKET_K = 8
 INVARIANTS_CAP = 20
 RECENT_PROPOSALS = 3

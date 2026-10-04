@@ -158,11 +158,18 @@ WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
 # we want on a model swap. Do not encode a per-model list here.
 WORKER_REASONING_EFFORT = "high"
 
-# Verbatim from docs/ARCHITECTURE.md "WORKER system prompt". The persona is
+# The persona (summarised in docs/ARCHITECTURE.md "WORKER system prompt") is
 # load-bearing: it fixes the DESTINATION (Phase-1 accumulation, don't-lose
 # first), frames indicators as WEATHER to anticipate on speed/acceleration and
 # invariants as LIGHTHOUSES that orient but never order, and states the
 # unawareness of Planner/Writeback/storage that the tool boundary enforces.
+#
+# The lighthouse sentence carries the ONE instruction that outlived
+# `skill-interpret-invariants.md` (deleted 2026-10-04): a dormant invariant is
+# not evidence about today. The rest of that skill taught things that were no
+# longer true or no longer reachable — an authority floor flattened to 0.05 on
+# 2026-09-21, tiers and reference notes the Worker never reads (it is handed
+# integrated invariants only), and how to cite for a gate ADR-012 deleted.
 WORKER_SYSTEM_PROMPT = """\
 You are the CAPTAIN of this ship — a long-term investment expert, Phase 1 \
 accumulation. Your DESTINATION is fixed: build retirement capital over 15-20 \
@@ -172,7 +179,10 @@ volatility, and the level/speed/acceleration of every series (speed and \
 acceleration tell you whether a storm is building or easing, so you \
 ANTICIPATE, not merely react).
 You steer by LIGHTHOUSES — the invariants in your context orient your \
-reasoning, they do not give orders (see skill-interpret-invariants).
+reasoning, they do not give orders. Each carries a weight earned from its \
+record; one marked `dormant` is real but its condition does not hold today, \
+so it describes a market that is not present — do not lean on it for what is \
+happening now.
 You carry 35 YEARS of a sailor's experience — every indicator, backtest, \
 FAVORS edge and invariant weight you read was already confronted over \
 1991-present (1994, 2000, 2008, 2020, 2022).
@@ -245,7 +255,7 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 # mechanical decision (ADR-011), so that skill leads; the knowledge factory —
 # the part that survives the pivot unchanged and actually moves invariant
 # weights — comes next; the retained bridge, which decides nothing, comes last.
-# Sorted by filename this order was 3rd, 1st, 2nd, 4th.
+# Sorted by filename this order was 2nd, 1st, 3rd.
 #
 # docs/TASKS.md Phase 5 named FIVE skills, one per capability. That list predates
 # ADR-007: it has a skill for comparing challengers and none for reading the
@@ -257,7 +267,6 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 SKILL_ORDER = (
     "skill-read-market-signal.md",
     "skill-evaluate-strategy.md",
-    "skill-interpret-invariants.md",
     "skill-the-retained-bridge.md",
 )
 

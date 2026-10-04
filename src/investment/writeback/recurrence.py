@@ -19,9 +19,10 @@ sentence twice — one observation, repeated. Six different wordings of "read th
 spread's TRAJECTORY, not its level" are six independent arrivals at one idea.
 Only the second is evidence, so `theme_recurrence` counts distinct titles.
 
-THE SAME EMBEDDER AND THE SAME GEOMETRY as the invariant dedup, deliberately:
-one notion of "these two claims are the same claim" in the codebase, not two
-that can drift apart.
+PROSE SIMILARITY, because prose is all an innovation has. The invariant dedup
+stopped reading it on 2026-10-04 — an invariant has a condition and an effect,
+and identical structure decides there — so this ledger is now the one place in
+the codebase where two claims are "the same" by wording.
 """
 
 import json
@@ -42,8 +43,9 @@ logger = logging.getLogger(__name__)
 # CALIBRATED ON THE REAL CORPUS, and the first attempt was wrong.
 #
 # 0.82 was picked by reasoning — innovations are prose, with no structure to
-# corroborate a match the way `knowledge._same_invariant` has, so surely the bar
-# should be higher than the corpus dedup's 0.75. Measured against the 25 actual
+# decide a match the way an invariant's condition and effect do
+# (`knowledge.find_duplicate`), so surely the bar should be higher than the 0.75
+# the invariant dedup used while it still read prose. Measured against the 25 actual
 # M8b innovations, that reasoning failed: at 0.82 only two themes group at all,
 # and the six-wording velocity critique — the case the whole ledger exists for —
 # splits into singletons.

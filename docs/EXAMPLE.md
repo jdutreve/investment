@@ -285,12 +285,12 @@ Invariant {
            (document#dalio-big-debt-crises-2018, passage#pass-dalio-tips-142)"
   author: "dalio"
   status: "integrated"
-  floor_weight: 0.40              ← dalio floor — never falls below this
+  floor_weight: 0.05              ← the visibility floor, the same for every author tier
   weight_initial: 0.85
   confirmation_count: 8
   infirmation_count: 1
   market_score: 0.889             ← 8/(8+1)
-  weight_effective: 0.877         ← max((0.85 × 4 + 8) / (4 + 9), 0.40)
+  weight_effective: 0.877         ← max((0.85 × 4 + 8) / (4 + 9), 0.05)
   embedding: [384 floats]
   trace: "Dalio All Weather principle. Only refutation: 2020 deflation
           (extreme case out of scope)."

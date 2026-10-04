@@ -173,3 +173,9 @@ The weight enters no allocation decision: the Worker does not allocate
 8. **Point anomalies in the database.** One dalio invariant at `weight_initial`
    0.70, outside its band; one non-reference invariant without a maturation
    marker; 13 rows with no cited passage (`supports.cited = 1`).
+   *Corrected 2026-10-04:* no cited passage is not no provenance. Re-measured,
+   14 rows: the 10 seed invariants, each carrying an explicit `source` (a book
+   chapter, a data series, an owner note) and never read from a passage, and 4
+   `agent-discovery` reference notes, whose origin is the decision cycle that
+   proposed them. `cited` records one KIND of provenance — the curator read
+   this claim from this passage — and these rows have the other kinds.

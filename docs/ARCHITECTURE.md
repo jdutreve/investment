@@ -162,7 +162,7 @@ GRAPH VERTICES (13 in V1 — V2 adds Adaptation)
   Framework       lens for market interpretation; seeded '4seasons'
   RegimeType      static regime definition per framework
   Regime          detected macro regime instance; id <alias>-<start_date>
-  Invariant       universal principle with dynamic weight, author-tier floor,
+  Invariant       universal principle with dynamic weight, author-tier starting band,
                   tags, real-source provenance
   Strategy        thesis; seeded ids four-seasons-rp / permanent-browne /
                   barbell-taleb / momentum-macro (never collide with
@@ -648,7 +648,7 @@ history it is then scored on): the resulting market_score is a **weight prior**,
 not out-of-sample proof. Uniform 35y maturation for all births — agent-discovery
 included — is a deliberate choice; V2 accrues real forward track record.
 
-### Invariant contradiction check (mechanical — seed + every birth)
+### Invariant contradiction check (mechanical — seed + every alert collection)
 
 After maturation, Writeback flags pairs of INTEGRATED invariants that
 **contradict**: their conditions can be simultaneously ACTIVE (the predicate
@@ -658,7 +658,10 @@ direction). A flagged pair is surfaced for owner review (digest) — it does not
 auto-resolve; two high-weight invariants pulling opposite ways on the same
 lever is a knowledge defect the market-score alone will not catch (each may be
 individually well-confirmed). Cheap (pairwise over the integrated set, ~50
-invariants). Runs at seed (after 11b/11c) and on each new integrated birth.
+invariants). Runs at seed (after 11b/11c) and every time the alerts are
+collected (`alerts.invariant_contradiction_alert`) — on the CURRENT integrated
+set, since a verdict is restated at every confrontation and an invariant can
+become integrated without being born that day.
 
 ---
 

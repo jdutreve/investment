@@ -76,7 +76,6 @@ from investment.planner.context import active_invariant_ids
 from investment.planner.post import PostPlannerResult
 from investment.worker.result import ImprovementProposal
 from investment.writeback.knowledge import (
-    DEDUP_COSINE_THRESHOLD,
     InvariantCorpus,
     author_band,
     find_duplicate,
@@ -1224,9 +1223,7 @@ async def _commit_invariant_innovation(
     title, description = proposal.title, proposal.rationale
     vector = embedder.encode([invariant_embedding_input(title, description)])[0]
 
-    match = find_duplicate(
-        vector, condition, effect, corpus, DEDUP_COSINE_THRESHOLD, label=title[:60]
-    )
+    match = find_duplicate(condition, effect, corpus)
     if match is not None:
         async with db.transaction():
             await db.append_event(
@@ -1285,7 +1282,7 @@ async def _commit_invariant_innovation(
                 ),
             },
         )
-    corpus.add(invariant_id, condition, effect, vector)
+    corpus.add(invariant_id, condition, effect)
     return invariant_id
 
 

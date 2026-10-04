@@ -8,7 +8,8 @@ M5 scope is the FROM-BACKTESTS branch of the confrontation rule
 just the first batch, docs/USE_CASES.md UC0 step 11b) plus the shared
 `compute_weight_update()` primitive every future confrontation source
 (evaluation/proposal, M8) funnels into, and the contradiction check (run at
-seed after 11b/11c and on every new integrated birth).
+seed after 11b/11c, and read on the current integrated set by
+`alerts.invariant_contradiction_alert` whenever the alerts are collected).
 
 A confrontation is BASELINE-RELATIVE: a confirmation means the effect beat
 what the handle delivers with the condition IGNORED, not merely that the
@@ -1287,8 +1288,9 @@ async def mature_seed_invariants(db: InvestmentDB) -> list[MaturationResult]:
 
 async def check_contradictions(db: InvestmentDB) -> list[ContradictionPair]:
     """docs/ARCHITECTURE.md 'Invariant contradiction check' — pairwise over
-    `status='integrated'` invariants. Surfaced for the seed inventory / owner
-    review (digest, M9+); does not auto-resolve anything."""
+    `status='integrated'` invariants. Surfaced in the seed inventory and, for
+    owner review, as a digest alert (`alerts.invariant_contradiction_alert`);
+    does not auto-resolve anything."""
     rows = await db.query(
         "SELECT id, condition, effect FROM invariant WHERE status = 'integrated' ORDER BY id"
     )

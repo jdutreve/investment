@@ -1,7 +1,8 @@
 """Health alerts on the live allocation path — what the owner must be TOLD,
 never what the system refuses to do (docs/DECISIONS.md ADR-009).
 
-Six checks, all read-only, all rendered into the weekly digest:
+Read-only checks, all rendered into the weekly digest (`collect_alerts` is the
+list; the ones below are those whose reason needs stating):
 
 - **drawdown** — the stack's 36M rolling drawdown against
   `user_profile.max_drawdown_pct`. This is the -25% rule of ADR-007, and it is
@@ -31,6 +32,10 @@ Six checks, all read-only, all rendered into the weekly digest:
   appends every run. Added 2026-08-12, and the gap it closes is the oldest one
   here: the pair lived in a docstring, nothing read it, and the paragraph
   stating the rule had itself drifted two supersessions behind unnoticed.
+- **invariant contradiction** — two INTEGRATED invariants pulling opposite ways
+  on one handle while both can be active. The one check here that is about the
+  corpus rather than the stack; it lives here because this is where the digest
+  reads what the owner must be told.
 
 WHAT THE STACK'S NAV IS, since two of these read it: a PAPER series. ADR-009
 gave `ms-stack` a `portfolio_nav` built by `shadow_book_nav` from the decision
@@ -57,6 +62,7 @@ from datetime import date
 from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import DRIFT_EVENT
 from investment.mechanical.attribution import ATTRIBUTION_EVENT, VERDICT_WINDOWS
+from investment.mechanical.invariants import check_contradictions
 from investment.mechanical.market_signal import (
     MA_WINDOWS,
     STACK_PORTFOLIO_ID,
@@ -555,6 +561,40 @@ async def signal_attribution_alert(db: InvestmentDB) -> Alert | None:
     )
 
 
+async def invariant_contradiction_alert(db: InvestmentDB) -> Alert | None:
+    """Pairs of INTEGRATED invariants that contradict — same handle, same
+    metric, opposite direction, conditions that can be active together
+    (docs/ARCHITECTURE.md "Invariant contradiction check").
+
+    A READ OF THE CURRENT STANDING, not a step run at a moment, because the
+    spec's "seed + every birth" named the only time a verdict was given when it
+    was written. A verdict is restated at every confrontation now
+    (`invariants.restate_invariant`), so an invariant can become integrated on
+    any Sunday without being born that day — and `seed.py` was the check's only
+    caller, so nothing looked after the seed. Reading the integrated set
+    whenever the alerts are collected covers a birth, a restatement and a
+    re-maturation alike, with no caller to forget.
+
+    `warn`: nothing is blocked and neither invariant is touched. Each may be
+    individually well confirmed, which is exactly why the score cannot catch
+    this and the owner has to."""
+    pairs = await check_contradictions(db)
+    if not pairs:
+        return None
+    named = "; ".join(
+        f"{p.invariant_a} vs {p.invariant_b} on {p.handle} ({p.metric})" for p in pairs
+    )
+    return Alert(
+        level="warn",
+        code="invariant_contradiction",
+        message=(
+            f"{len(pairs)} pair(s) of integrated invariants contradict — opposite effects on "
+            f"the same handle under conditions that can hold together: {named}. Neither has "
+            "been demoted; which one the corpus should keep is an owner review."
+        ),
+    )
+
+
 async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Alert]:
     """Every live-path alert, critical first — the order the digest renders."""
     found = [
@@ -566,6 +606,7 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
         await decision_freshness_alert(db, today),
         await rule_tradeoff_alert(db),
         await signal_attribution_alert(db),
+        await invariant_contradiction_alert(db),
     ]
     alerts = [a for a in found if a is not None]
     return sorted(alerts, key=lambda a: a.level != "critical")

@@ -265,13 +265,20 @@ def test_an_unlisted_skill_is_appended_not_dropped(tmp_path: Path) -> None:
 
 def test_the_skills_carry_the_contracts_the_gates_enforce() -> None:
     """A skill that taught something the gates refuse would spend cycles on
-    retries. These four are each ALSO enforced mechanically, so the prompt and
+    retries. These three are each ALSO enforced mechanically, so the prompt and
     the gate must agree."""
     skills = load_skills()
     assert "[-10, +10]" in skills  # EvaluationDraft's Field bounds
     assert "neutral" in skills  # the fourth Literal verdict
     assert "0.4 x scenario + 0.6 x structural" in skills  # the blend, now mechanical
-    assert "bright" in skills and "active" in skills  # gate 6's exact pair
+
+
+def test_the_persona_says_what_a_dormant_invariant_is() -> None:
+    """The one instruction that outlived `skill-interpret-invariants.md`. The
+    context renders `dormant` beside an invariant whose condition does not hold
+    today (`decision_cycle.render_context`), and a label nobody explained is a
+    label a model is free to ignore."""
+    assert "`dormant`" in WORKER_SYSTEM_PROMPT
 
 
 def test_the_bridge_skill_says_it_is_the_bridge() -> None:
@@ -297,7 +304,7 @@ def test_the_prompt_carries_the_skills() -> None:
     prompt = build_system_prompt()
     assert prompt.startswith(WORKER_SYSTEM_PROMPT)
     assert "# SKILLS" in prompt
-    assert "lighthouses, not orders" in prompt
+    assert "Do not re-pick the book" in prompt
 
 
 def test_a_missing_skills_directory_degrades_rather_than_breaks(tmp_path: Path) -> None:

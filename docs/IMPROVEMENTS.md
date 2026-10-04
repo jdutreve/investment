@@ -1330,6 +1330,15 @@ and `conditions_can_overlap`), which is what actually authorises a merge.
 That guard is mechanical and safe; the 0.80 number is still a prior fitted to
 four hand-built pairs.
 
+**CLOSED, 2026-10-04 — the threshold is gone, not re-derived.** The structural
+test beside it asked whether two conditions can co-occur, which merged distinct
+definitions ("inflation > 3" and "inflation > 5", same effect). The gate now
+merges on identical structure alone (`knowledge.find_duplicate`); of 143 merges
+in the agent log, 132 already were that and 11 went through the cosine pass.
+Similarity may come back to GROUP ideas into hypothesis families
+(docs/INVARIANT_IMPROVEMENT_PLAN.md 3.3), never to delete one. The paragraph
+below is the original scope, kept for the record.
+
 **Scope if built:** re-derive the threshold from the real corpus once a full
 persisted run exists — label a sample of pairs by hand, and pick the value
 that maximises separation rather than the one that looked reasonable. Cheap:

@@ -50,7 +50,7 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "curator_weight_actionability": 0.20,  # (UNWIRED)
     "curator_weight_evidence_quality": 0.15,  # (UNWIRED)
     "curator_weight_novelty": 0.10,  # (UNWIRED)
-    "invariant_merge_threshold": 0.80,  # curation dedup: cosine similarity above which -> merge (UNWIRED)
+    "invariant_merge_threshold": 0.80,  # UNREAD: the dedup gate merges on structure alone since 2026-10-04 (knowledge.find_duplicate)
     "curation_sanity_ceiling": 40.0,  # candidate invariants per document above which -> flagged (UNWIRED)
     "proposal_outcome_weeks": 12.0,  # THE confrontation horizon (backtests, proposal verdicts)
     "proposal_cooldown_weeks": 4.0,  # anti-repetition: weeks before a near-identical realloc may repeat
@@ -1032,7 +1032,7 @@ INVARIANTS: list[dict[str, object]] = [
             "regime:rising-growth-rising-inflation",
         ],
         "weight_initial": 0.85,
-        "floor_weight": 0.40,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Dalio Principles; chapter on inflation hedges.",
     },
     {
@@ -1059,7 +1059,7 @@ INVARIANTS: list[dict[str, object]] = [
             "regime:falling-growth-falling-inflation",
         ],
         "weight_initial": 0.80,
-        "floor_weight": 0.40,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Dalio Principles; recession playbook.",
     },
     {
@@ -1087,7 +1087,7 @@ INVARIANTS: list[dict[str, object]] = [
             "regime:rising-growth-rising-inflation",
         ],
         "weight_initial": 0.80,
-        "floor_weight": 0.40,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Standard cycle finance.",
     },
     {
@@ -1111,7 +1111,7 @@ INVARIANTS: list[dict[str, object]] = [
         },
         "tags": ["liquidity", "risk", "indicator:global-liquidity"],
         "weight_initial": 0.75,
-        "floor_weight": 0.35,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Howard Marks memos on cycles and liquidity.",
     },
     # Owner-supplied revision (2026-07-15) after independent 1991-2025
@@ -1133,8 +1133,8 @@ INVARIANTS: list[dict[str, object]] = [
     #   metric 'relative_return'-> 'return' (the computed indicator;
     #     cross_class is ALREADY what makes it relative — third submission
     #     carrying this; the gate now demotes it rather than crashing)
-    #   weight_initial 0.70     -> 0.75 ('marks' tier floor_min; CLAUDE.md
-    #   floor_weight   0.40     -> 0.35  pins marks = 0.35, 0.40 is dalio)
+    #   weight_initial 0.70     -> 0.75 (the 'marks' band opens at 0.75)
+    #   floor_weight   0.40     -> VISIBILITY_FLOOR (one floor for every tier)
     # STRIPPED (ADR-006 — belief does not grant integration):
     #   status 'integrated' -> 'proposed'; validated_at -> null;
     #   market_score 0.90 / counts 9-1 / weight_effective 0.63 -> birth
@@ -1184,7 +1184,7 @@ INVARIANTS: list[dict[str, object]] = [
             "validation:1991-2025",
         ],
         "weight_initial": 0.75,
-        "floor_weight": 0.35,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Owner validation on 416 monthly observations 1991-2025 using OECD M3 YoY "
         "(October reading, 2-month publication lag) and SPY/SMA10m: 10/10 vs bills, "
         "9/10 vs bills AND 10y (market_score 0.90), mean next-year return 19.4%, "
@@ -1216,7 +1216,7 @@ INVARIANTS: list[dict[str, object]] = [
         },
         "tags": ["diversification", "drawdown", "indicator:max_drawdown", "phase:accumulation"],
         "weight_initial": 0.70,
-        "floor_weight": 0.40,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Dalio Principles; All Weather chapter (always-clock; lower "
         "drawdown than the other strategies).",
     },
@@ -1235,7 +1235,8 @@ INVARIANTS: list[dict[str, object]] = [
     #   author 'world-gold-council'-> null         ('other corpus' tier —
     #                                 CLAUDE.md pins 4 tiers; WGC is not one)
     #   weight_initial 0.80        -> 0.70         ('other' tier ceiling;
-    #   floor_weight   0.40        -> 0.20          0.80/0.40 is the DALIO tier)
+    #                                 0.80 is the DALIO band)
+    #   floor_weight   0.40        -> VISIBILITY_FLOOR (one floor for every tier)
     # STRIPPED (ADR-006: belief does not grant integration, history does — a
     # supplied verdict is precisely what the engine exists to withhold):
     #   status 'integrated'  -> 'proposed'  (birth status; the engine rules)
@@ -1288,7 +1289,7 @@ INVARIANTS: list[dict[str, object]] = [
             "validation:1991-2026",
         ],
         "weight_initial": 0.70,
-        "floor_weight": 0.20,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Owner-supplied backtest on 416 monthly observations 1991-08..2026-04. "
         "Real-yield proxy = US 10-year nominal Treasury yield minus prior-month "
         "CPI YoY. A real yield below 2.5% increased average forward 12-month "
@@ -1361,7 +1362,7 @@ INVARIANTS: list[dict[str, object]] = [
             "source:faber-gaa",
         ],
         "weight_initial": 0.60,
-        "floor_weight": 0.20,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Faber, Global Asset Allocation (2015), Figure 48 (Credit Suisse "
         "1900-2014) + ch. 11 decade table. Threshold set to the book's 3% "
         "cut-off rather than its 5% cliff because `inflation > 5` is true on "
@@ -1402,7 +1403,7 @@ INVARIANTS: list[dict[str, object]] = [
             "source:faber-gaa",
         ],
         "weight_initial": 0.60,
-        "floor_weight": 0.20,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Faber, Global Asset Allocation (2015), Figure 48 (Credit Suisse "
         "1900-2014). Threshold is 0, not the book's 3%: `real_rate > 3` holds "
         "on 2.7% of our 1991-2026 window (measured, median -0.03), so the "
@@ -1427,7 +1428,7 @@ INVARIANTS: list[dict[str, object]] = [
         "source": "owner note (2026-07) — 'Gold/US10Y vs 7y moving average', reduced from "
         "a proposed 12-24m regime-TRANSITION feature to its measurable "
         "short-horizon gold-tilt kernel",
-        "author": None,  # 'other'/null tier, floor 0.20 (no book/marks/dalio provenance)
+        "author": None,  # 'other'/null tier (no book/marks/dalio provenance)
         "status": "proposed",
         "condition": [
             {"signal": "gold_10y_dev", "feature": "level", "op": ">", "value": 0.0},
@@ -1448,7 +1449,7 @@ INVARIANTS: list[dict[str, object]] = [
             "source:owner-note",
         ],
         "weight_initial": 0.50,
-        "floor_weight": 0.20,
+        "floor_weight": VISIBILITY_FLOOR,
         "trace": "Owner note (2026-07), 'Gold / US10Y vs 7y moving average'. The note "
         "framed it as a regime-TRANSITION feature at a 12-24m horizon; that "
         "claim is UNMATURABLE here (the engine confronts a handle over one "

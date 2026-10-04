@@ -257,7 +257,6 @@ not root scripts — no path ambiguity.
 │       │       ├── skill-rank-portfolios.md
 │       │       ├── skill-compare-vs-defender.md
 │       │       ├── skill-propose-reallocation.md
-│       │       ├── skill-interpret-invariants.md
 │       │       ├── skill-curate-knowledge.md    ← curator
 │       │       └── skill-triage-events.md       ← UC3 event triage
 │       ├── writeback/
@@ -556,11 +555,11 @@ SYSTEM_THRESHOLDS = {
 }
 
 INVARIANT_AUTHOR_CONFIG = [
-    {"author": "dalio",  "floor_weight": 0.40,
+    {"author": "dalio",  "floor_weight": 0.05,                 # one visibility floor
      "initial_weight_min": 0.80, "initial_weight_max": 0.90},
-    {"author": "marks",  "floor_weight": 0.35,
+    {"author": "marks",  "floor_weight": 0.05,                 # for every tier
      "initial_weight_min": 0.75, "initial_weight_max": 0.85},
-    {"author": "other",  "floor_weight": 0.20,                 # sentinel for
+    {"author": "other",  "floor_weight": 0.05,                 # sentinel for
      "initial_weight_min": 0.40, "initial_weight_max": 0.70},  # Invariant.author=null
     {"author": "system", "floor_weight": 0.05,
      "initial_weight_min": 0.15, "initial_weight_max": 0.25},  # agent-discovery
@@ -835,7 +834,7 @@ INVARIANTS = [
               "asset:TIP", "asset:GLD", "indicator:real-yield",
               "regime:falling-growth-rising-inflation",
               "regime:rising-growth-rising-inflation"],
-     "weight_initial": 0.85, "floor_weight": 0.40,
+     "weight_initial": 0.85, "floor_weight": 0.05,
      "trace": "Dalio Principles; chapter on inflation hedges."},
     {"id": "inv-falling-growth-duration",
      "title": "Falling growth favors duration and cash-like defense",
@@ -850,7 +849,7 @@ INVARIANTS = [
      "tags": ["duration", "recession",
               "asset:TLT", "asset:cash",
               "regime:falling-growth-falling-inflation"],
-     "weight_initial": 0.80, "floor_weight": 0.40,
+     "weight_initial": 0.80, "floor_weight": 0.05,
      "trace": "Dalio Principles; recession playbook."},
     {"id": "inv-rising-growth-equities",
      "title": "Rising growth favors equity exposure",
@@ -866,7 +865,7 @@ INVARIANTS = [
               "asset:SPY", "asset:VTI",
               "regime:rising-growth-falling-inflation",
               "regime:rising-growth-rising-inflation"],
-     "weight_initial": 0.80, "floor_weight": 0.40,
+     "weight_initial": 0.80, "floor_weight": 0.05,
      "trace": "Standard cycle finance."},
     {"id": "inv-liquidity-tightening-risk",
      "title": "Tightening global liquidity pressures risk assets",
@@ -881,7 +880,7 @@ INVARIANTS = [
                 "method": "cross_class", "direction": "underperform"},
      "tags": ["liquidity", "risk",
               "indicator:global-liquidity"],
-     "weight_initial": 0.75, "floor_weight": 0.35,
+     "weight_initial": 0.75, "floor_weight": 0.05,
      "trace": "Howard Marks memos on cycles and liquidity."},
     {"id": "inv-liquidity-easing-risk",
      "title": "Easing global liquidity supports risk assets",
@@ -895,7 +894,7 @@ INVARIANTS = [
                 "method": "cross_class", "direction": "outperform"},
      "tags": ["liquidity", "risk",
               "indicator:global-liquidity"],
-     "weight_initial": 0.75, "floor_weight": 0.35,
+     "weight_initial": 0.75, "floor_weight": 0.05,
      "trace": "Howard Marks memos on cycles and liquidity."},
     {"id": "inv-diversification-drawdown",
      "title": "Diversification lowers drawdown but dilutes upside",
@@ -909,7 +908,7 @@ INVARIANTS = [
                 "method": "cross_strategy", "direction": "outperform"},
      "tags": ["diversification", "drawdown",
               "indicator:max_drawdown", "phase:accumulation"],
-     "weight_initial": 0.70, "floor_weight": 0.40,
+     "weight_initial": 0.70, "floor_weight": 0.05,
      "trace": "Dalio Principles; All Weather chapter (always-clock; lower "
               "drawdown than the other strategies)."},
 ]
@@ -1427,7 +1426,7 @@ skills (markdown files) concatenated into the system context, output type
 
 Skill files (each: purpose, inputs, method, output contract).
 
-> **SUPERSEDED SHAPE (ADR-007) — the shipped set is FOUR, not five, and leads
+> **SUPERSEDED SHAPE (ADR-007) — the shipped set is THREE (four until 2026-10-04), not five, and leads
 > with a skill this list does not contain.** The five below are one-per-capability
 > of the PRE-PIVOT Worker, when the ranked defender/challenger duel WAS the
 > allocation decision. It therefore has a skill for comparing challengers and
@@ -1442,8 +1441,7 @@ Skill files (each: purpose, inputs, method, output contract).
 >    Never re-pick the book or its weights.
 > 2. `skill-evaluate-strategy.md` — unchanged below; the knowledge factory is
 >    framework-agnostic and survives the pivot intact.
-> 3. `skill-interpret-invariants.md` — unchanged below.
-> 4. `skill-the-retained-bridge.md` — the other THREE merged: they are one job
+> 3. `skill-the-retained-bridge.md` — the other THREE merged: they are one job
 >    (keeping the fallback honest) and decide nothing, so they get one file's
 >    worth of the Worker's attention rather than three.
 
@@ -1479,25 +1477,11 @@ Original list, kept for the contracts it pins:
   > retained bridge's replay (`gates.blend_allocation`). The Worker's whole
   > contribution is `market_signal_assessment` (a reading) plus
   > `innovations_proposed` (a rule challenge measured under ADR-006).
-- `skill-interpret-invariants.md` — LEADS with the mental model: invariants
-  are **lighthouses, not orders** — they ORIENT the Worker's reasoning, they
-  do not dictate the decision (the Worker steers, Writeback verifies). Then
-  the operating rules that make the image concrete:
-  • `weight_effective` = the beam's brightness. A refutation dims it; the
-    authority `floor_weight` keeps a Dalio/Marks beacon from ever going fully
-    dark — authority guards against forgetting, never against measured
-    refutation (a beacon ≥4 confrontations with market_score < 0.35 is
-    unusable, floor or not).
-  • `condition` ACTIVE = the beacon lights THIS stretch of water. Weight what
-    applies to today's market; do NOT over-rely on a bright-but-DORMANT
-    invariant — real and trustworthy, simply not on today's course (it waits
-    for its condition, it is not stale).
-  • authority tiers (dalio / marks / other / system) — a self-discovered
-    beacon (system, floor 0.05) is dimmer than a charted one until the sea
-    proves it.
-  • how to cite: when arguing a reallocation, cite invariants that are BOTH
-    bright (weight_effective) AND active (condition holds now) — the exact
-    pair Writeback's gate 6 enforces, so a citation that fails it is wasted.
+- `skill-interpret-invariants.md` — DELETED 2026-10-04. Its one live
+  instruction (a `dormant` invariant is not evidence about today) is a sentence
+  of the Worker's system prompt; the rest described an authority floor that no
+  longer exists, tiers and reference notes the Worker is never handed, and a
+  citation rule for the gate ADR-012 removed.
 
 ### Task 5.3 — UC4 knowledge curator (LLM)
 
@@ -1713,11 +1697,12 @@ def effective_caps(user_profile, portfolio) -> tuple[float, float]:
 # On block: ⛔ Telegram note with the failed gate + Worker reasoning; no vertex.
 # DEDUP GATE (mechanical, before any candidate/innovation becomes proposed —
 #   applies to ALL curation callers, incl. the UC0 seed CLI batch):
-#   cosine vs the invariant matrix (ALL statuses):
-#   >= invariant_merge_threshold vs an EXISTING invariant → converted into a
-#     curation (SUPPORTS + enrichment + confirmation on the existing one) —
-#     no duplicate is ever proposed;
-#   >= threshold vs a PENDING candidate → merged into it.
+#   STRUCTURE ALONE (owner, 2026-10-04 — `knowledge.find_duplicate`): the same
+#   predicates and the same effect as an EXISTING invariant (ALL statuses) or a
+#   candidate of the same batch → merged into it (SUPPORTS edges accrue on the
+#   incumbent) — no duplicate is ever proposed. Prose similarity no longer
+#   proposes a merge: with a co-occurrence test it deleted distinct definitions
+#   ("inflation > 3" vs "inflation > 5"). `invariant_merge_threshold` is unread.
 # Innovations (fully mechanical — no user gate, ADR-006):
 #   InnovationEvent → vertex(status=proposed).
 #   type=new_invariant → Invariant vertex → mature_invariant() (35y) →

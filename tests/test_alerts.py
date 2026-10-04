@@ -593,3 +593,45 @@ async def test_no_measurement_yet_is_silence(db: InvestmentDB) -> None:
     """Before the first run there is no event, and an alert must not invent a
     verdict from its absence."""
     assert await A.signal_attribution_alert(db) is None
+
+
+# -- invariant contradiction -------------------------------------------------
+
+
+async def _integrated(db: InvestmentDB, iid: str, condition: str, direction: str) -> None:
+    await db.command(
+        "INSERT INTO invariant (id, title, description, source, status, condition, effect, "
+        "weight_initial, floor_weight, weight_effective, confirmation_count, "
+        "infirmation_count, market_score, trace, created_at, updated_at) VALUES (:id, 't', "
+        "'d', 's', 'integrated', :c, :e, 0.6, 0.05, 0.6, 8, 2, 0.8, 'tr', '2026-01-01', "
+        "'2026-01-01')",
+        id=iid,
+        c=condition,
+        e=(
+            '{"handle": "asset-class:equities", "metric": "return", '
+            f'"method": "cross_class", "direction": "{direction}"}}'
+        ),
+    )
+
+
+async def test_contradicting_integrated_invariants_are_told_outside_the_seed(
+    db: InvestmentDB,
+) -> None:
+    """The guarantee: a contradiction is surfaced whenever the integrated set
+    holds one, not only when `seed.py` happens to run."""
+    rising = '[{"signal": "inflation", "feature": "level", "op": ">", "value": 3}]'
+    higher = '[{"signal": "inflation", "feature": "level", "op": ">", "value": 5}]'
+    await _integrated(db, "inv-a", rising, "outperform")
+    await _integrated(db, "inv-b", higher, "underperform")
+    alert = await A.invariant_contradiction_alert(db)
+    assert alert is not None and alert.level == "warn"
+    assert "inv-a vs inv-b" in alert.message
+    assert "invariant_contradiction" in [a.code for a in await A.collect_alerts(db, TODAY)]
+
+
+async def test_disjoint_conditions_are_not_a_contradiction(db: InvestmentDB) -> None:
+    low = '[{"signal": "inflation", "feature": "level", "op": "<", "value": 2}]'
+    high = '[{"signal": "inflation", "feature": "level", "op": ">", "value": 3}]'
+    await _integrated(db, "inv-a", low, "outperform")
+    await _integrated(db, "inv-b", high, "underperform")
+    assert await A.invariant_contradiction_alert(db) is None
