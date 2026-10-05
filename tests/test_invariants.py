@@ -677,3 +677,63 @@ def test_find_contradictions_no_flag_when_conditions_cannot_overlap() -> None:
     b_cond = [{"signal": "growth", "feature": "speed", "op": ">", "value": 0}]
     pairs = invariants.find_contradictions([("inv-a", a_cond, eff_up), ("inv-b", b_cond, eff_down)])
     assert pairs == []
+
+
+# -- what a record says beyond its weight -------------------------------------
+
+
+def test_lift_is_signed_in_favour_of_the_claim_whichever_way_it_points() -> None:
+    assert invariants.moment_lift(0.08, 0.03, "outperform") == pytest.approx(0.05)
+    assert invariants.moment_lift(0.08, 0.03, "underperform") == pytest.approx(-0.05)
+    assert invariants.moment_lift(None, 0.03, "outperform") is None
+
+
+def test_the_range_says_what_the_rate_alone_hides() -> None:
+    """4 of 5 and 40 of 50 are the same rate and not the same knowledge."""
+    few = invariants.wilson_interval(4, 5)
+    many = invariants.wilson_interval(40, 50)
+    assert few is not None and many is not None
+    assert few == pytest.approx((0.376, 0.964), abs=1e-3)
+    assert many == pytest.approx((0.670, 0.888), abs=1e-3)
+    assert invariants.wilson_interval(0, 0) is None
+
+
+def _moment(day: str, verdict: str, lift: float | None) -> dict[str, object]:
+    return {"signal_date": day, "verdict": verdict, "lift": lift}
+
+
+def test_a_summary_reports_size_tail_stability_and_coverage() -> None:
+    """Often right and badly wrong when wrong: the hit rate is 0.75 and the mean
+    lift is negative. The verdict reads the first; the summary shows both, and
+    that the record was earned in its early half."""
+    moments = [
+        _moment("2001-01-01", "confirmed", 0.03),
+        _moment("2002-01-01", "confirmed", 0.03),
+        _moment("2003-01-01", "confirmed", 0.03),
+        _moment("2004-01-01", "neutral", 0.00),
+        _moment("2005-01-01", "confirmed", 0.03),
+        _moment("2006-01-01", "refuted", -0.40),
+        _moment("2007-01-01", "confirmed", 0.03),
+        _moment("2008-01-01", "refuted", -0.40),
+        _moment("1991-01-01", "no_data", None),
+    ]
+    summary = invariants.summarize_evidence("return", moments)
+
+    assert (summary.confirmed, summary.refuted, summary.neutral, summary.no_data) == (5, 2, 1, 1)
+    assert summary.rate == pytest.approx(5 / 7)
+    assert summary.mean_lift == pytest.approx(-0.65 / 8)
+    assert summary.worst_lift == pytest.approx(-0.40)
+    assert summary.rate_early == pytest.approx(1.0)  # the first 3 decided
+    assert summary.rate_late == pytest.approx(0.5)  # the last 4
+
+    line = invariants.describe_evidence(summary)
+    assert line.startswith("5/7 confirmed (rate 0.71, 95% range ")
+    assert "1 neutral; 1 unmeasurable" in line
+    assert "mean lift -0.081 on return, worst -0.400" in line
+    assert "early half 1.00, late half 0.50" in line
+
+
+def test_a_record_with_nothing_decided_says_so() -> None:
+    summary = invariants.summarize_evidence("return", [_moment("2001-01-01", "neutral", 0.001)])
+    assert summary.rate is None and summary.rate_range is None
+    assert invariants.describe_evidence(summary).startswith("no decided moment yet; 1 neutral")

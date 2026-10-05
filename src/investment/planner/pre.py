@@ -34,6 +34,7 @@ from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import evidence_summaries
 from investment.openrouter_client import build_openrouter_client
 from investment.planner.baseline import gather_baseline
 from investment.planner.context import (
@@ -244,4 +245,5 @@ class PlannerPre:
 
         regime_type = baseline.regime.get("regime_type_id")
         active = await active_invariant_ids(self._db, selection.invariant_ids, regime_type)
-        return assemble_context(baseline, pool, selection, active, queries)
+        evidence = await evidence_summaries(self._db, selection.invariant_ids)
+        return assemble_context(baseline, pool, selection, active, queries, evidence)

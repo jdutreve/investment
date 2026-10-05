@@ -490,6 +490,12 @@ CREATE TABLE IF NOT EXISTS detector_state (
 -- measured) are stored because they are two different things, and without
 -- them coverage — how much of what the condition did was measurable at all —
 -- cannot be reported.
+--
+-- `lift` is HOW MUCH the effect showed at a measured moment: the handle's value
+-- beyond its baseline, positive when in favour of the claim
+-- (`invariants.moment_lift`). NULL when nothing was measured, and on a reading
+-- (source='evaluation'), which measures nothing. The verdict keeps the label
+-- only; the lift is what lets a record say more than a hit rate.
 CREATE TABLE IF NOT EXISTS invariant_confrontations (
   id             TEXT PRIMARY KEY,
   invariant_id   TEXT NOT NULL REFERENCES invariant(id),
@@ -497,7 +503,7 @@ CREATE TABLE IF NOT EXISTS invariant_confrontations (
   signal_date    TEXT NOT NULL,
   available_at   TEXT NOT NULL,
   verdict        TEXT NOT NULL,              -- 'confirmed'|'refuted'|'neutral'|'no_data'
-  severity       REAL,
+  lift           REAL,
   -- 'backtest'|'forward'|'evaluation'|'proposal'|'adaptation'
   source         TEXT NOT NULL,
   source_id      TEXT,
@@ -855,6 +861,10 @@ ADDED_COLUMNS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     # the column: the next maturation of its invariant attributes those rows to
     # the definition it finds in force (`invariants._persist_maturation`).
     ("invariant_confrontations", "definition", "TEXT", ()),
+    # The size of a measured moment's effect. NULL on every row that predates
+    # the column: the maturation fingerprint records that the sweep now stores
+    # it, so the next sweep re-measures every definition and fills it.
+    ("invariant_confrontations", "lift", "REAL", ()),
 )
 
 # Indexes on columns that RENAMED_COLUMNS / ADDED_COLUMNS bring to an existing
@@ -890,4 +900,9 @@ DROPPED_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "recency_factor",
         ("DELETE FROM system_thresholds WHERE key = 'recency_half_life_days'",),
     ),
+    # `severity` was written as the constant 1.0 on every row and read by
+    # nothing: the place a magnitude was meant to go, never filled. `lift`
+    # holds the real one. Dropped rather than renamed so that no row keeps a
+    # 1.0 that would now read as a measured effect.
+    ("invariant_confrontations", "severity", ()),
 )

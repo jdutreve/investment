@@ -26,6 +26,11 @@ from investment.market.liquidity import (
 )
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
+from investment.mechanical.invariants import (
+    EvidenceSummary,
+    describe_evidence,
+    evidence_summaries,
+)
 from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
@@ -183,6 +188,29 @@ def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def _with_evidence(invariant: dict[str, Any], evidence: EvidenceSummary | None) -> dict[str, Any]:
+    """An invariant row with the record BEHIND its weight (docs/INVARIANT_TASKS.md
+    4.1): the fields the dashboard and the Gmail table lay out in columns, and
+    the one-line rendering the text digest prints. A weight alone reads the same
+    at 4 of 5 and at 40 of 50."""
+    if evidence is None:
+        return invariant
+    low, high = evidence.rate_range or (None, None)
+    return {
+        **invariant,
+        "evidence": describe_evidence(evidence),
+        "neutral_count": evidence.neutral,
+        "unmeasurable_count": evidence.no_data,
+        "rate_low": low,
+        "rate_high": high,
+        "mean_lift": evidence.mean_lift,
+        "worst_lift": evidence.worst_lift,
+        "lift_metric": evidence.metric,
+        "rate_early": evidence.rate_early,
+        "rate_late": evidence.rate_late,
+    }
+
+
 def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
     if not invariants:
         return []
@@ -197,7 +225,14 @@ def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
             else ""
         )
         author = f" [{inv.get('author') or 'system'}]"
-        lines.append(f"   • {inv.get('title', '?')}: {weight_str}{counts}{author}")
+        evidence = inv.get("evidence")
+        if evidence:
+            # The record replaces the bare count: same numbers, with their range,
+            # their size and their stability.
+            lines.append(f"   • {inv.get('title', '?')}: {weight_str}{author}")
+            lines.append(f"       {evidence}")
+        else:
+            lines.append(f"   • {inv.get('title', '?')}: {weight_str}{counts}{author}")
     return lines
 
 
@@ -743,18 +778,20 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         "SELECT * FROM portfolio_weekly_snapshot "
         "WHERE date = (SELECT MAX(date) FROM portfolio_weekly_snapshot) ORDER BY rank ASC"
     )
-    invariants = await db.query(
-        "SELECT title, weight_effective, confirmation_count, infirmation_count, author "
+    invariant_rows = await db.query(
+        "SELECT id, title, weight_effective, confirmation_count, infirmation_count, author "
         "FROM invariant WHERE status = 'integrated' "
         "ORDER BY weight_effective DESC LIMIT :n",
         n=DIGEST_INVARIANTS,
     )
+    evidence = await evidence_summaries(db, [str(r["id"]) for r in invariant_rows])
+    invariants = [_with_evidence(dict(r), evidence.get(str(r["id"]))) for r in invariant_rows]
     defender = next((r for r in ranking if r.get("defender")), None)
     return DigestInputs(
         regime=dict(regime_rows[0]) if regime_rows else {},
         global_liquidity=liquidity_standing,
         ranking=[dict(r) for r in ranking],
-        invariants=[dict(r) for r in invariants],
+        invariants=invariants,
         proposal=await _latest_proposal(db, [dict(r) for r in ranking], today),
         scoreboard=await build_scoreboard(db),
         defender_metrics=dict(defender) if defender else None,

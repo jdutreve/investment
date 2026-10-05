@@ -522,10 +522,11 @@ async def _commit_confrontations(
             await db.command(
                 "INSERT INTO invariant_confrontations "
                 "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
-                " severity, source, source_id, definition) "
+                " source, source_id, definition) "
                 # One day for both dates: an evaluation is a reading of today,
-                # written today — it has no outcome window to wait for.
-                "VALUES (:id, :iid, :ctx, :today, :today, :verdict, 1.0, 'evaluation', NULL, "
+                # written today — it has no outcome window to wait for, and no
+                # `lift`: it measures nothing.
+                "VALUES (:id, :iid, :ctx, :today, :today, :verdict, 'evaluation', NULL, "
                 " :definition)",
                 id=str(ULID()),
                 iid=cf.invariant_id,

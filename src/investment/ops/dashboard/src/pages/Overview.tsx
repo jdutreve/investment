@@ -374,6 +374,11 @@ export function Overview() {
                   <th className="num">Weight</th>
                   <th className="num">Confirmed</th>
                   <th className="num">Infirmed</th>
+                  <th className="num">Rate, 95% range</th>
+                  <th className="num">Neutral</th>
+                  <th className="num">Mean lift</th>
+                  <th className="num">Worst</th>
+                  <th className="num">Early / late</th>
                 </tr>
               </thead>
               <tbody>
@@ -389,6 +394,21 @@ export function Overview() {
                       className={`num ${signClass(-(Number(inv.infirmation_count) || 0))}`}
                     >
                       {String(inv.infirmation_count ?? 0)}
+                    </td>
+                    <td className="num">
+                      {num(inv.rate_low)}–{num(inv.rate_high)}
+                    </td>
+                    <td className="num muted">
+                      {String(inv.neutral_count ?? "—")}
+                    </td>
+                    <td className={`num ${signClass(Number(inv.mean_lift) || 0)}`}>
+                      {num(inv.mean_lift, 3)}
+                    </td>
+                    <td className={`num ${signClass(Number(inv.worst_lift) || 0)}`}>
+                      {num(inv.worst_lift, 3)}
+                    </td>
+                    <td className="num muted">
+                      {num(inv.rate_early)} / {num(inv.rate_late)}
                     </td>
                   </tr>
                 ))}

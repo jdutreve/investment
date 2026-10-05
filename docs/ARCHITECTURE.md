@@ -462,7 +462,12 @@ definition and writes score, weight and verdict together (weight_effective
 formula in ../CLAUDE.md) → Invariant.updated_at = today. A moment that yields
 no verdict is stored too — 'neutral' (inside the margin) or 'no_data' (not
 measurable) — and counts in coverage, never in N.
-Severity is recorded but unused in market_score in V1 (IMPROVEMENTS I-24).
+Each measured moment also stores its `lift` — how far the effect went beyond
+the baseline, signed in favour of the claim. The verdict reads the label alone;
+the lift is REPORTED beside the weight (mean, worst, with the rate's range and
+its early/late halves — `invariants.evidence_summaries`), in the Worker
+context, the digest and the dashboard. A magnitude-weighted score stays
+deferred (IMPROVEMENTS I-24).
 ```
 
 ### Birth maturation — `mature_invariant()` (factored, source-blind)

@@ -218,12 +218,38 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 ## Lot 3 — What the weight says and shows (P4)
 
-- [ ] **4.2 Magnitude.** `severity` is written as 1.0 everywhere: store the
-  excess over the baseline, then report mean excess, worst outcomes and
-  stability by half-period.
-- [ ] **4.1 Display.** N, interval, effect size and coverage beside the weight
-  (dashboard, digest, Worker context). Sensitivity of `PRIOR_CONFRONTATIONS`
-  at 2 / 4 / 8.
+- [x] **4.2 Magnitude.** Each measured moment stores its `lift` — the
+  handle's value beyond its baseline, positive when in favour of the claim
+  (`invariants.moment_lift`). `severity`, written as the constant 1.0 and read
+  by nothing, is dropped rather than renamed so that no row keeps a 1.0 that
+  would read as a measured effect; a Worker reading carries no lift. The
+  maturation fingerprint records the change, so the next sweep re-measures
+  every definition once and fills it. The verdict still reads the label alone
+  (a magnitude-weighted score stays I-24).
+- [x] **4.1 Display.** `invariants.evidence_summaries` reads the rows
+  `restate_invariant` counts and reports: confirmed / decided, the rate's 95%
+  Wilson range, neutral and unmeasurable moments, mean and worst lift, and the
+  rate over the earlier and the later half of the decided moments. ONE
+  renderer (`describe_evidence`) for the Worker context (beside the weight),
+  the text digest and — as columns — the Gmail table and the dashboard's
+  invariant table. The range is the one the record would carry IF its moments
+  were independent, and says so: the truth is wider (3.2).
+- [x] **Core sample on a copy of the live database (2026-10-05).** Re-sweep of
+  248 definitions in 73 s; no verdict moves (9 integrated, 174 proposed, 66
+  rejected, 826 reference); every confirmed, refuted and neutral moment of a
+  measurable invariant carries a lift. Read on the 9 integrated: none has a
+  negative mean lift; five rest on 5 to 8 decided moments, with a range whose
+  lower bound sits between 0.53 and 0.68; the largest record is 54 of 83
+  (0.54-0.74). Three are weaker in their later half (1.00 → 0.75, 1.00 → 0.71,
+  0.77 → 0.62).
+- [x] **Sensitivity of `PRIOR_CONFRONTATIONS`, same copy, 242 measured
+  invariants.** At 2 instead of 4: mean weight change 0.018, largest 0.133, 23
+  move by more than 0.05, 18 of the top 20 unchanged. At 8: mean 0.023,
+  largest 0.107, 26 move by more than 0.05, 19 of the top 20 unchanged. The
+  choice of 4 is a convention the ordering barely depends on; it stays.
+- [ ] **Left over, noticed here:** a demotion leaves the demoted invariant's
+  old confrontation rows in place (208 neutral rows of the six cash claims).
+  They are counted nowhere; whether a demotion should delete them is open.
 - [x] **4.3 A reference note carries no weight (D4).** `weight_effective` is
   NULL for `status='reference'` (`_force_uncertified`); the retrieval pool
   orders measured invariants by weight and places the notes after them, in the

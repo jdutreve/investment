@@ -159,9 +159,9 @@ async def _seed_zoom_targets(db: InvestmentDB) -> None:
     )
     await cmd(
         "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, signal_date, "
-        "available_at, verdict, severity, source, source_id) VALUES "
-        "('c1', 'inv1', 'ctx', '2026-05-01', '2026-07-24', 'confirmed', 1.0, 'backtest', NULL), "
-        "('c2', 'inv1', 'ctx', '2026-06-01', '2026-08-24', 'neutral', NULL, 'backtest', NULL)"
+        "available_at, verdict, source, source_id) VALUES "
+        "('c1', 'inv1', 'ctx', '2026-05-01', '2026-07-24', 'confirmed', 'backtest', NULL), "
+        "('c2', 'inv1', 'ctx', '2026-06-01', '2026-08-24', 'neutral', 'backtest', NULL)"
     )
     await cmd(
         "INSERT INTO proposal (id, date, proposal_type, defender_id, recommendation, "

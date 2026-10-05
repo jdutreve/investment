@@ -353,23 +353,42 @@ CONFRONTATION_EVENT = "ConfrontationEvent"
 SOURCE_UC = "invariant-forward"
 
 
+def moment_lift(
+    handle_value: float | None, benchmark_value: float | None, direction: str
+) -> float | None:
+    """HOW MUCH the effect showed at one moment: the handle's value beyond its
+    benchmark, signed so that positive is IN FAVOUR of the claim whichever way
+    it points. `None` when either side could not be measured.
+
+    A metric is always "higher is better" as stored (return: higher wins;
+    max_drawdown: stored as a negative fraction, less negative = higher =
+    better) — no metric-specific sign flip needed.
+
+    KEPT, because the verdict throws it away. `confront_moment` compares this
+    number to a margin and stores a label, so a hit rate was all an invariant's
+    record could say: often right and badly wrong when wrong read the same as
+    often right and mildly wrong (docs/IMPROVEMENTS.md "market_score is a pure
+    hit rate"). The verdict still reads the label alone; the lift is REPORTED
+    beside it."""
+    if handle_value is None or benchmark_value is None:
+        return None
+    if direction not in _VALID_DIRECTIONS:
+        raise ValueError(f"unknown direction: {direction!r}")
+    diff = handle_value - benchmark_value
+    return -diff if direction == "underperform" else diff
+
+
 def confront_moment(
     handle_value: float | None, benchmark_value: float | None, direction: str, margin: float
 ) -> str:
     """'confirmed' | 'refuted' | 'neutral' | 'no_data' (docs/ARCHITECTURE.md
-    confrontation rule). A metric is always "higher is better" as stored
-    (return: higher wins; max_drawdown: stored as a negative fraction, less
-    negative = higher = better) — no metric-specific sign flip needed."""
-    if handle_value is None or benchmark_value is None:
+    confrontation rule): the moment's lift against the no-op margin."""
+    lift = moment_lift(handle_value, benchmark_value, direction)
+    if lift is None:
         return NO_DATA
-    if direction not in _VALID_DIRECTIONS:
-        raise ValueError(f"unknown direction: {direction!r}")
-    diff = handle_value - benchmark_value
-    if direction == "underperform":
-        diff = -diff
-    if diff > margin:
+    if lift > margin:
         return CONFIRMED
-    if diff < -margin:
+    if lift < -margin:
         return REFUTED
     return NEUTRAL
 
@@ -878,7 +897,8 @@ def maturation_fingerprint(
 
     `records` is in here because a sweep that starts storing something it used
     to drop has not been run yet on any invariant matured before: adding
-    'neutral' and 'no_data' (2026-10-04) re-sweeps every definition once.
+    'neutral' and 'no_data' (2026-10-04) re-sweeps every definition once, and
+    so does adding each moment's 'lift'.
 
     The rule belongs in here for the same reason the definition does. A
     verdict is a claim about evidence measured one way and judged against
@@ -891,7 +911,7 @@ def maturation_fingerprint(
             "condition": condition,
             "effect": effect,
             "rule": rule,
-            "records": [CONFIRMED, REFUTED, NEUTRAL, NO_DATA],
+            "records": [CONFIRMED, REFUTED, NEUTRAL, NO_DATA, "lift"],
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -1127,9 +1147,9 @@ async def _persist_maturation(
             await db.command(
                 "INSERT INTO invariant_confrontations "
                 "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
-                " severity, source, source_id, definition) "
+                " lift, source, source_id, definition) "
                 "VALUES (:id, :invariant_id, :moment_context, :signal_date, :available_at, "
-                " :verdict, :severity, :source, :source_id, :definition)",
+                " :verdict, :lift, :source, :source_id, :definition)",
                 **row,
             )
         status = await restate_invariant(db, invariant_id, thresholds, today)
@@ -1375,7 +1395,7 @@ async def _mature_one(
                 # before. The as-of replay bounds on this, not on the signal.
                 "available_at": (moment_date + horizon).date().isoformat(),
                 "verdict": verdict,
-                "severity": 1.0 if verdict in COUNTED_VERDICTS else None,
+                "lift": moment_lift(excess, baseline, direction),
                 "source": BIRTH_SOURCE,
                 "source_id": None,
                 "definition": definition,
@@ -1544,7 +1564,7 @@ async def _forward_rows(
                 "signal_date": moment_date.date().isoformat(),
                 "available_at": knowable.date().isoformat(),
                 "verdict": verdict,
-                "severity": 1.0 if verdict in COUNTED_VERDICTS else None,
+                "lift": moment_lift(excess, baseline, direction),
                 "source": FORWARD_SOURCE,
                 "source_id": None,
                 "definition": definition,
@@ -1617,14 +1637,166 @@ async def confront_completed_moments(db: InvestmentDB, today: date) -> ForwardSw
             await db.command(
                 "INSERT INTO invariant_confrontations "
                 "(id, invariant_id, moment_context, signal_date, available_at, verdict, "
-                " severity, source, source_id, definition) "
+                " lift, source, source_id, definition) "
                 "VALUES (:id, :invariant_id, :moment_context, :signal_date, :available_at, "
-                " :verdict, :severity, :source, :source_id, :definition)",
+                " :verdict, :lift, :source, :source_id, :definition)",
                 **row,
             )
         for invariant_id in confronted:
             await restate_invariant(db, invariant_id, inputs.thresholds, today)
     return result
+
+
+# -- what a record says beyond its weight ------------------------------------
+
+
+def wilson_interval(successes: int, total: int, z: float = 1.96) -> tuple[float, float] | None:
+    """The 95% Wilson interval on a confirmation rate, or `None` with nothing
+    decided.
+
+    FOR DISPLAY, NEVER FOR THE VERDICT — the verdict has its own exact tails
+    (`time_validation_verdict`). And it is the interval the record would carry
+    IF its moments were independent: moments of one episode are not
+    (docs/INVARIANT_IMPROVEMENT_PLAN.md action 3.2), so the true uncertainty is
+    wider than this, never narrower. It is shown because a rate with no range
+    reads as a fact, and 4 of 5 is not the same knowledge as 40 of 50."""
+    if total == 0:
+        return None
+    rate = successes / total
+    denominator = 1 + z * z / total
+    centre = (rate + z * z / (2 * total)) / denominator
+    half_width = z * math.sqrt(rate * (1 - rate) / total + z * z / (4 * total * total))
+    half_width /= denominator
+    return max(0.0, centre - half_width), min(1.0, centre + half_width)
+
+
+# Below this many decided moments per half, an early-versus-late comparison is
+# two anecdotes.
+_MIN_DECIDED_PER_HALF = 2
+
+
+@dataclasses.dataclass(frozen=True)
+class EvidenceSummary:
+    """What an invariant's MEASURED record says, beside the one number its
+    weight compresses it into: how much evidence, how sure, how large, how
+    stable, and how much of what the condition did could be measured at all."""
+
+    metric: str
+    confirmed: int
+    refuted: int
+    neutral: int  # measured, inside the margin
+    no_data: int  # sampled, not measurable
+    rate_range: tuple[float, float] | None  # `wilson_interval`
+    mean_lift: float | None  # over every measured moment, neutral ones included
+    worst_lift: float | None
+    # Confirmation rate over the earlier and the later half of the decided
+    # moments, in date order: a record earned in one era reads differently
+    # from one earned across both.
+    rate_early: float | None
+    rate_late: float | None
+
+    @property
+    def decided(self) -> int:
+        return self.confirmed + self.refuted
+
+    @property
+    def rate(self) -> float | None:
+        return self.confirmed / self.decided if self.decided else None
+
+
+def summarize_evidence(metric: str, moments: list[Mapping[str, Any]]) -> EvidenceSummary:
+    """`moments` are an invariant's mechanical confrontations of ONE definition
+    (`signal_date`, `verdict`, `lift`)."""
+    tally = dict.fromkeys((CONFIRMED, REFUTED, NEUTRAL, NO_DATA), 0)
+    for moment in moments:
+        tally[str(moment["verdict"])] += 1
+    lifts = [float(m["lift"]) for m in moments if m["lift"] is not None]
+    decided = sorted(
+        (m for m in moments if m["verdict"] in COUNTED_VERDICTS),
+        key=lambda m: str(m["signal_date"]),
+    )
+    half = len(decided) // 2
+
+    def rate_of(part: list[Mapping[str, Any]]) -> float | None:
+        if len(part) < _MIN_DECIDED_PER_HALF:
+            return None
+        return sum(1 for m in part if m["verdict"] == CONFIRMED) / len(part)
+
+    return EvidenceSummary(
+        metric=metric,
+        confirmed=tally[CONFIRMED],
+        refuted=tally[REFUTED],
+        neutral=tally[NEUTRAL],
+        no_data=tally[NO_DATA],
+        rate_range=wilson_interval(tally[CONFIRMED], tally[CONFIRMED] + tally[REFUTED]),
+        mean_lift=float(np.mean(lifts)) if lifts else None,
+        worst_lift=min(lifts) if lifts else None,
+        rate_early=rate_of(decided[:half]),
+        rate_late=rate_of(decided[half:]),
+    )
+
+
+def describe_evidence(evidence: EvidenceSummary) -> str:
+    """One line, for a prompt, a digest or a table cell. ONE renderer, so the
+    Worker, the owner and the dashboard read the same record in the same words.
+    A part with nothing to say is left out rather than printed empty."""
+    if not evidence.decided:
+        parts = ["no decided moment yet"]
+    else:
+        parts = [f"{evidence.confirmed}/{evidence.decided} confirmed"]
+        if evidence.rate_range is not None:
+            low, high = evidence.rate_range
+            parts[0] += f" (rate {evidence.rate:.2f}, 95% range {low:.2f}-{high:.2f})"
+    if evidence.neutral:
+        parts.append(f"{evidence.neutral} neutral")
+    if evidence.no_data:
+        parts.append(f"{evidence.no_data} unmeasurable")
+    if evidence.mean_lift is not None and evidence.worst_lift is not None:
+        parts.append(
+            f"mean lift {evidence.mean_lift:+.3f} on {evidence.metric}, "
+            f"worst {evidence.worst_lift:+.3f}"
+        )
+    if evidence.rate_early is not None and evidence.rate_late is not None:
+        parts.append(f"early half {evidence.rate_early:.2f}, late half {evidence.rate_late:.2f}")
+    return "; ".join(parts)
+
+
+async def evidence_summaries(
+    db: InvestmentDB, invariant_ids: list[str]
+) -> dict[str, EvidenceSummary]:
+    """The summary of each MEASURABLE invariant among `invariant_ids`, from the
+    mechanical confrontations of its definition in force — the rows
+    `restate_invariant` counts, so the summary and the weight it sits beside
+    cannot describe two different records. A reference note is absent: it has
+    no effect, and nothing was ever measured."""
+    if not invariant_ids:
+        return {}
+    placeholders = ",".join(f":i{n}" for n in range(len(invariant_ids)))
+    params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
+    invariant_rows = await db.query(
+        f"SELECT id, condition, effect FROM invariant WHERE id IN ({placeholders}) "
+        "AND effect IS NOT NULL",
+        **params,
+    )
+    moments = await db.query(
+        "SELECT invariant_id, definition, signal_date, verdict, lift "
+        f"FROM invariant_confrontations WHERE invariant_id IN ({placeholders}) "
+        "AND source IN (:birth, :forward)",
+        birth=BIRTH_SOURCE,
+        forward=FORWARD_SOURCE,
+        **params,
+    )
+    by_definition: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+    for moment in moments:
+        key = (str(moment["invariant_id"]), str(moment["definition"]))
+        by_definition.setdefault(key, []).append(moment)
+    return {
+        str(row["id"]): summarize_evidence(
+            str(json.loads(row["effect"]).get("metric", "?")),
+            by_definition.get((str(row["id"]), stored_definition(row)), []),
+        )
+        for row in invariant_rows
+    }
 
 
 async def check_contradictions(db: InvestmentDB) -> list[ContradictionPair]:

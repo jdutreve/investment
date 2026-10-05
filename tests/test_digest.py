@@ -621,3 +621,32 @@ def test_no_measurement_yet_renders_nothing() -> None:
     header — a heading with no numbers under it reads as a broken job."""
     assert D._attribution_block(None) == []
     assert D._attribution_block({"as_of": "2026-08-28", "attribution": {}}) == []
+
+
+def test_an_invariant_is_printed_with_the_record_behind_its_weight() -> None:
+    """A weight alone reads the same at 4 of 5 and at 40 of 50. When the record
+    was loaded, the digest prints it under the weight — range, size, stability
+    — instead of a bare count."""
+    row = D._with_evidence(
+        {"title": "Low real yields favour gold", "weight_effective": 0.653, "author": "dalio"},
+        D.EvidenceSummary(
+            metric="return",
+            confirmed=54,
+            refuted=29,
+            neutral=37,
+            no_data=3,
+            rate_range=(0.54, 0.75),
+            mean_lift=0.012,
+            worst_lift=-0.21,
+            rate_early=0.7,
+            rate_late=0.6,
+        ),
+    )
+    assert (row["rate_low"], row["rate_high"], row["neutral_count"]) == (0.54, 0.75, 37)
+
+    lines = D._invariant_block([row])
+    assert lines[2] == "   • Low real yields favour gold: 0.653 [dalio]"
+    assert lines[3].strip() == (
+        "54/83 confirmed (rate 0.65, 95% range 0.54-0.75); 37 neutral; 3 unmeasurable; "
+        "mean lift +0.012 on return, worst -0.210; early half 0.70, late half 0.60"
+    )

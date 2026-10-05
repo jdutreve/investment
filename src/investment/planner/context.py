@@ -25,7 +25,7 @@ today's market").
 import dataclasses
 import json
 import operator
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -33,7 +33,11 @@ from pydantic import BaseModel, Field
 from investment.db.seed_data import SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import Caps
-from investment.mechanical.invariants import REFERENCE_STATUS
+from investment.mechanical.invariants import (
+    REFERENCE_STATUS,
+    EvidenceSummary,
+    describe_evidence,
+)
 from investment.planner.baseline import Baseline
 from investment.planner.retrieval import QueryStrategies, RetrievalPool
 from investment.worker.tools import round_for_model
@@ -215,7 +219,11 @@ def standing_label(invariant: dict[str, Any]) -> str:
     other: it has no weight, and saying so is the information."""
     if invariant.get("status") == REFERENCE_STATUS:
         return "reference note, not measured"
-    return f"weight {invariant.get('weight_effective', '?')}"
+    weight = f"weight {invariant.get('weight_effective', '?')}"
+    # The record behind the weight, when it was loaded (`evidence_summaries`):
+    # a weight alone reads the same at 4 of 5 and at 40 of 50.
+    evidence = invariant.get("evidence")
+    return f"{weight}; {evidence}" if evidence else weight
 
 
 # -- assembly ---------------------------------------------------------------
@@ -227,6 +235,7 @@ def assemble_context(
     selection: ContextSelection,
     active_ids: set[str],
     queries: QueryStrategies | None = None,
+    evidence: Mapping[str, EvidenceSummary] | None = None,
 ) -> PlannerContext:
     """Build the PlannerContext from the mechanical baseline + the validated
     Call 1b selection. Only pool-known ids are included (unknown ones were
@@ -235,8 +244,15 @@ def assemble_context(
     1b's ordering is a judgment we keep)."""
     inv_pool = invariant_pool(baseline, pool)
     pas_pool = passage_pool(pool)
+    evidence = evidence or {}
     top_invariants = [
-        {**inv_pool[i], "active": i in active_ids} for i in selection.invariant_ids if i in inv_pool
+        {
+            **inv_pool[i],
+            "active": i in active_ids,
+            **({"evidence": describe_evidence(evidence[i])} if i in evidence else {}),
+        }
+        for i in selection.invariant_ids
+        if i in inv_pool
     ]
     passages = [pas_pool[p] for p in selection.passage_ids if p in pas_pool]
     return PlannerContext(

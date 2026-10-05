@@ -78,8 +78,8 @@ async def give_invariant_a_record(
     for n, verdict in enumerate(["confirmed"] * confirmed + ["refuted"] * refuted):
         await db.command(
             "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
-            "signal_date, available_at, verdict, severity, source, definition) VALUES "
-            "(:id, :i, 'fixture', :signal_date, :available_at, :v, 1.0, 'backtest', :d)",
+            "signal_date, available_at, verdict, source, definition) VALUES "
+            "(:id, :i, 'fixture', :signal_date, :available_at, :v, 'backtest', :d)",
             id=f"{invariant_id}-record-{n}",
             i=invariant_id,
             signal_date=(date(2020, 1, 1) + timedelta(weeks=12 * n)).isoformat(),

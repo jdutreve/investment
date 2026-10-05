@@ -211,3 +211,8 @@ def test_a_reference_note_is_shown_as_not_measured_never_with_a_number() -> None
     assert C.standing_label({"status": "integrated", "weight_effective": 0.62}) == "weight 0.62"
     stale_note = {"status": "reference", "weight_effective": 0.8}
     assert C.standing_label(stale_note) == "reference note, not measured"
+
+
+def test_the_record_is_shown_beside_the_weight_when_it_was_loaded() -> None:
+    measured = {"status": "integrated", "weight_effective": 0.62, "evidence": "26/44 confirmed"}
+    assert C.standing_label(measured) == "weight 0.62; 26/44 confirmed"

@@ -1070,7 +1070,10 @@ CREATE TABLE IF NOT EXISTS invariant_confrontations (...);
 --   --   confrontation horizon for a backtest moment, the same day for an
 --   --   evaluation, the verdict day for a proposal. ADR-003 applied to
 --   --   evidence: the as-of replay bounds on available_at.
--- verdict STRING ('confirmed'|'refuted'|'neutral'|'no_data'), severity FLOAT,
+-- verdict STRING ('confirmed'|'refuted'|'neutral'|'no_data'), lift FLOAT,
+--   -- lift: the handle's value beyond its baseline at a measured moment,
+--   --   positive when in favour of the claim; NULL when nothing was measured
+--   --   and on a reading. The verdict keeps the label; the lift is reported.
 --   -- only confirmed/refuted count in N. 'neutral' = measured, inside the
 --   --   margin; 'no_data' = not measurable. Stored so coverage is reportable.
 -- source STRING ('backtest'|'forward'|'evaluation'|'adaptation' (V2)),

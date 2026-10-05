@@ -229,3 +229,36 @@ def test_a_forward_moment_is_judged_on_the_baseline_known_when_it_completed() ->
         invariants._all_excess(own, others, "return", "cross_class", _HORIZON), condition
     )
     assert whole_sample > then
+
+
+async def test_the_summary_describes_the_record_the_weight_is_computed_from(
+    db: InvestmentDB,
+) -> None:
+    """Birth and forward moments of the definition in force, with their lift —
+    and nothing else: a Worker reading is not evidence, and a moment earned by
+    another definition is not this claim's."""
+    await mature_seed_invariants(db)
+    await _add_weeks(db, first_week=_WEEKS_AT_BIRTH, weeks=13)
+    await confront_completed_moments(db, _TODAY)
+    for row_id, source, definition in (
+        ("a-reading", "evaluation", None),
+        ("another-claim", BIRTH_SOURCE, "000000000000"),
+    ):
+        await db.command(
+            "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
+            "signal_date, available_at, verdict, source, definition) VALUES (:id, 'inv-eq', "
+            "'x', '2020-01-01', '2020-01-01', 'refuted', :source, "
+            "COALESCE(:definition, (SELECT definition FROM invariant_confrontations LIMIT 1)))",
+            id=row_id,
+            source=source,
+            definition=definition,
+        )
+
+    summary = (await invariants.evidence_summaries(db, ["inv-eq"]))["inv-eq"]
+
+    standing = (await db.query("SELECT confirmation_count, infirmation_count FROM invariant"))[0]
+    assert summary.confirmed == standing["confirmation_count"]
+    assert summary.refuted == standing["infirmation_count"] == 0
+    # equities return 0.05, bonds 0.0, and an unconditional claim's null is 0.0
+    assert summary.mean_lift == pytest.approx(0.05)
+    assert summary.worst_lift == pytest.approx(0.05)

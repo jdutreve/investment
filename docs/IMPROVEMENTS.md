@@ -475,14 +475,17 @@ Both feed the V2 boundary; neither replaces the other.
 
 ## I-24 — Severity-weighted confrontations
 
-**Why deferred:** `invariant_confrontations.severity` is recorded in V1 but
-unused in `market_score` (simple count ratio).
+**Why deferred:** the size of each measured moment is recorded
+(`invariant_confrontations.lift`, since 2026-10-04 — it replaced a `severity`
+column written as the constant 1.0) and REPORTED, but unused in `market_score`
+(simple count ratio).
 
 **Trigger to add:** when confirmations accumulate and a single severe
 refutation should outweigh many mild confirmations.
 
 **Spec:**
-- `market_score = Σ(severity × confirmed) / Σ(severity)` over confrontations.
+- a `market_score` weighted by `lift`, validated on a window DISJOINT from the
+  confrontation window (see "market_score is a pure hit rate" below).
 - Backfill computable from the existing `invariant_confrontations` table.
 
 ---

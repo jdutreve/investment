@@ -549,6 +549,21 @@ def _current_values_section(
 # -- Invariants / critiques / scoreboard / defender --------------------------
 
 
+def _rate_range(inv: dict[str, Any]) -> str:
+    low, high = inv.get("rate_low"), inv.get("rate_high")
+    if not isinstance(low, int | float) or not isinstance(high, int | float):
+        return "n/a"
+    return f"{low:.2f}-{high:.2f}"
+
+
+def _count_or_na(value: object) -> str:
+    return str(value) if isinstance(value, int) else "n/a"
+
+
+def _lift_or_na(value: object) -> str:
+    return f"{value:+.3f}" if isinstance(value, int | float) else "n/a"
+
+
 def _invariants_section(invariants: list[dict[str, Any]]) -> list[str]:
     if not invariants:
         return []
@@ -560,6 +575,10 @@ def _invariants_section(invariants: list[dict[str, Any]]) -> list[str]:
                 ("Invariant", "left"),
                 ("Weight", "right"),
                 ("Confirmed", "right"),
+                ("Rate, 95% range", "right"),
+                ("Neutral", "right"),
+                ("Mean lift", "right"),
+                ("Worst", "right"),
                 ("Author", "left"),
             ],
             bg=_GRAY,
@@ -587,6 +606,10 @@ def _invariants_section(invariants: list[dict[str, Any]]) -> list[str]:
                         False,
                     ),
                     (counts, "right", None, False),
+                    (_rate_range(inv), "right", None, False),
+                    (_count_or_na(inv.get("neutral_count")), "right", None, False),
+                    (_lift_or_na(inv.get("mean_lift")), "right", None, False),
+                    (_lift_or_na(inv.get("worst_lift")), "right", None, False),
                     (_esc(inv.get("author") or "system"), "left", None, False),
                 ],
                 bg,

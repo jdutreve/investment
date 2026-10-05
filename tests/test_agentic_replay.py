@@ -153,8 +153,8 @@ async def _seed(db: InvestmentDB) -> None:
     for i in range(9):
         await cmd(
             "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
-            "signal_date, available_at, verdict, severity, source, definition) "
-            "VALUES (:id, 'inv-gold', '{}', :d, :d, :v, 1.0, 'backtest', :definition)",
+            "signal_date, available_at, verdict, source, definition) "
+            "VALUES (:id, 'inv-gold', '{}', :d, :d, :v, 'backtest', :definition)",
             id=f"conf-{i}",
             d=(date(2006, 1, 1) + timedelta(days=90 * i)).isoformat(),
             v="refuted" if i == 8 else "confirmed",
@@ -574,8 +574,8 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
     for i in range(40):
         await db.command(
             "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
-            "signal_date, available_at, verdict, severity, source, definition) "
-            "VALUES (:id, 'inv-gold', '{}', :d, :d, 'refuted', 1.0, 'backtest', :definition)",
+            "signal_date, available_at, verdict, source, definition) "
+            "VALUES (:id, 'inv-gold', '{}', :d, :d, 'refuted', 'backtest', :definition)",
             id=f"after-{i}",
             d=(date(2009, 1, 1) + timedelta(days=7 * i)).isoformat(),
             definition=GOLD_DEFINITION,
@@ -587,9 +587,9 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
     # 2008 how a window ending in December turned out.
     await db.command(
         "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
-        "signal_date, available_at, verdict, severity, source, definition) "
+        "signal_date, available_at, verdict, source, definition) "
         "VALUES ('outcome-not-yet-known', 'inv-gold', '{}', :signal, :available, 'refuted', "
-        "1.0, 'backtest', :definition)",
+        "'backtest', :definition)",
         signal=(CLOSES - timedelta(days=30)).isoformat(),
         available=(CLOSES + timedelta(days=54)).isoformat(),
         definition=GOLD_DEFINITION,
