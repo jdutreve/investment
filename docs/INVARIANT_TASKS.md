@@ -7,6 +7,39 @@ stands). Action numbers are the plan's. Started 2026-10-04.
 Each task names the GUARANTEE its test must restore, not the function it
 changes (plan, last paragraph).
 
+## Where it stands (2026-10-05)
+
+- **Lot 0** — done, except 6.2 (waits on the next curator reading).
+- **Lot 1** — done and deployed.
+- **Lot 2** — done in code and tested; NOT deployed.
+- **Lot 3** — done in code and tested; NOT deployed.
+- **Lot 4** — not started. Every owner decision it waited on is taken (D5).
+
+**What the first sweep on the live database will do** once lots 2 and 3 are
+deployed (the next `commit_innovations` or seed): re-measure every definition
+once to fill `lift`; demote the six absolute cash claims to reference notes,
+erasing their condition and effect; empty the weight of every reference note;
+and stop counting the Worker's readings, which takes one to three counts from
+six invariants and changes no verdict. The weekly chain gains two steps,
+`benchmark-valuations` and `invariant-forward`.
+
+**Open, outside the lots:**
+
+- [ ] The `proposal_cites` table has no reader and no writer since 5.2.
+  Dropping it changes the relation count in CLAUDE.md and DATA_MODELS — an
+  owner decision.
+- [ ] One equities claim (`01M327ZEK75QTGAS5R4YVH16CX`) has two moments, both
+  neutral, and N = 0. Left `proposed` as too little evidence rather than an
+  inexpressible claim; D3 may be read as covering it.
+- [ ] A demotion leaves the demoted invariant's old confrontation rows in
+  place (208 neutral rows of the six cash claims). Counted nowhere; whether a
+  demotion should delete them is open.
+- [ ] `docs/EXAMPLE.md` (the +12w verdict confronting cited invariants) and the
+  test list of `docs/TASKS.md` Phase 6 still describe the proposal-sourced
+  confrontation removed by 5.2.
+- [ ] The dashboard's new invariant columns passed the TypeScript check only;
+  not rebuilt, not looked at in a browser.
+
 ## Lot 0 — Hygiene (P6)
 
 - [x] **6.1 Dedup merges equivalent definitions only.** `knowledge.find_duplicate`
@@ -151,6 +184,8 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
 
+DONE in code 2026-10-04, tested, NOT deployed.
+
 - [x] **2.1 Weekly forward sweep.** `invariants.confront_completed_moments`,
   step `invariant-forward` before `invariant-weights`. It takes up the moments
   the birth sweep left open (stored `no_data`, window incomplete) once their
@@ -218,6 +253,8 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 ## Lot 3 — What the weight says and shows (P4)
 
+DONE in code 2026-10-05 (4.3 on 2026-10-04), tested, NOT deployed.
+
 - [x] **4.2 Magnitude.** Each measured moment stores its `lift` — the
   handle's value beyond its baseline, positive when in favour of the claim
   (`invariants.moment_lift`). `severity`, written as the constant 1.0 and read
@@ -247,9 +284,6 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
   move by more than 0.05, 18 of the top 20 unchanged. At 8: mean 0.023,
   largest 0.107, 26 move by more than 0.05, 19 of the top 20 unchanged. The
   choice of 4 is a convention the ordering barely depends on; it stays.
-- [ ] **Left over, noticed here:** a demotion leaves the demoted invariant's
-  old confrontation rows in place (208 neutral rows of the six cash claims).
-  They are counted nowhere; whether a demotion should delete them is open.
 - [x] **4.3 A reference note carries no weight (D4).** `weight_effective` is
   NULL for `status='reference'` (`_force_uncertified`); the retrieval pool
   orders measured invariants by weight and places the notes after them, in the
@@ -262,13 +296,31 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 ## Lot 4 — Calibrate the verdict (P3) — last
 
-- [ ] **3.4 then 3.1: a simulation bench first.** Measured null rate per
-  protocol, and the false-integration rate over N looks. It is the guarantee
-  test of whatever rule is chosen.
-- [ ] **3.2 Dependence between moments of one episode.** After D5.
-- [ ] **3.3 Hypothesis families and multiplicity.** After D5; this is where
-  similarity may GROUP ideas (see 6.1).
-- [ ] **3.5 The "refuted" branch.** Calibrate it or name it a fast heuristic.
+NOT STARTED. Its prerequisites are in place: the evidence is dated and tied to
+its definition (lot 1), keeps arriving mechanically (lot 2), and its record is
+displayed (4.1), which is what will carry the label of a candidate the Worker
+reads without it being established.
+
+- [ ] **3.4 A simulation bench first.** Measured null confirmation rate per
+  protocol (is it 0.50 once the margin has removed its share on each side?),
+  and the false-integration rate of a rule over the looks an invariant's life
+  gives it. It is the guarantee test of whatever rule 3.1 adopts.
+- [ ] **3.1 Fixed checkpoints (D5).** The verdict is judged at checkpoints set
+  in advance, with a bar per checkpoint that keeps the false-integration rate
+  over a lifetime at the level stated — instead of the same 5% at every
+  confrontation. The checkpoints and bars are chosen ON the bench of 3.4, not
+  before it.
+- [ ] **3.1 — what the Worker reads (D5).** If few or none of the integrated
+  invariants survive, the Worker's baseline shows the best candidates with
+  their record (`describe_evidence`) and the plain label that they are not
+  established. `planner/baseline.py` filters on `integrated` today.
+- [ ] **3.2 Dependence between moments of one episode.** A dependence-aware
+  count of the evidence, not an arbitrary minimum of episodes. Also what the
+  displayed range needs to stop being optimistic.
+- [ ] **3.3 Hypothesis families and multiplicity.** This is where similarity
+  may GROUP ideas (see 6.1).
+- [ ] **3.5 The "refuted" branch.** Calibrate it on the same bench or name it
+  the fast heuristic it is.
 
 ## Owner decisions
 
@@ -291,6 +343,6 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 - [x] **D5 — fixed checkpoints (owner, 2026-10-04).** And if few or none of
   the integrated invariants survive the calibrated rule, the Worker reads the
   best candidates, labelled with their real standing: it decides nothing, its
-  role is to stir. This needs 4.1's display (N, interval, coverage) in the
-  Worker context, so 4.1 comes before 3.1 lands.
+  role is to stir. This needed 4.1's display (N, range, coverage) in the
+  Worker context, which is in place.
 - [x] **D6** — rename `date` → `signal_date`: yes (2026-10-04).
