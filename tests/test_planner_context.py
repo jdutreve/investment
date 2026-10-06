@@ -213,6 +213,17 @@ def test_a_reference_note_is_shown_as_not_measured_never_with_a_number() -> None
     assert C.standing_label(stale_note) == "reference note, not measured"
 
 
+def test_a_candidate_is_never_shown_as_established() -> None:
+    """Owner decision D5: the Worker reads candidates beside the established
+    invariants, each with its real standing. A weight and a record on a line
+    read as settled knowledge unless the line says otherwise."""
+    candidate = {"status": "proposed", "weight_effective": 0.61, "evidence": "12/20 confirmed"}
+    assert C.standing_label(candidate) == (
+        "candidate, not established; weight 0.61; 12/20 confirmed"
+    )
+    assert "not established" not in C.standing_label({**candidate, "status": "integrated"})
+
+
 def test_the_record_is_shown_beside_the_weight_when_it_was_loaded() -> None:
     measured = {"status": "integrated", "weight_effective": 0.62, "evidence": "26/44 confirmed"}
     assert C.standing_label(measured) == "weight 0.62; 26/44 confirmed"

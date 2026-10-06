@@ -203,15 +203,30 @@ Exempt: UC0 seed (closing SeedEvent) and pure TS writes.
 
 **No user gate (ADR-006)** — invariants, strategies, scenario probabilities
 and thresholds all mature MECHANICALLY: measure → propose → maturation window
-→ adopt/reject. Invariant verdict (three outcomes, ADR-006 amendments):
-`integrated` iff N_min AND score ≥ θ AND the 0.50 null produces evidence this
-good ≤ 5% of the time (exact binomial tail — θ alone is a point test that gets
-EASIER at small N: at N=3 a zero-edge invariant integrated on a coin flip);
-`rejected` iff refuted (score < 0.35, N ≥ 4) OR inadequate (N ≥ 4 AND a true
-rate of θ produces evidence this bad ≤ 5% of the time — demonstrably cannot
-reach the bar); else `proposed` = INSUFFICIENT EVIDENCE only. Effect size and
-evidence are BOTH required: θ asks "worth acting on?", the tail asks "do we
-know it at all?". Belief does not grant integration, history does. Nothing
+→ adopt/reject. Invariant verdict (three outcomes, ADR-006 amendments), JUDGED
+AT FIXED CHECKPOINTS — every 10 decided moments, on the record's first moments
+in date order, and nowhere between (owner decision D5, 2026-10-05):
+`integrated` iff the count reaches the checkpoint's bar, the bars being computed
+so that a claim which knows nothing is integrated AT LEAST ONCE over its whole
+life ≤ 5% of the time, and never below θ of the count; `rejected` iff the count
+falls to the checkpoint's rejection bar, computed the same way on the other
+side — a claim exactly at θ, the weakest worth integrating, is rejected at
+least once over its life ≤ 5% of the time (owner, 2026-10-06; the per-look
+"refuted" and "inadequate" branches it replaces rejected such a claim in 21.6%
+of lives); else `proposed` = INSUFFICIENT EVIDENCE only. **A THRESHOLD PER LOOK IS NOT A THRESHOLD PER
+LIFE**: 5% at every confrontation integrated a fair coin in 20% of lives, and
+the corpus's own conditions moved to dates where they mean nothing in 9%.
+**THE NULL IS MEASURED, NOT ASSERTED**: each invariant is judged against the
+every-date confirmation rate of its own protocol
+(`invariant.null_confirmation_rate`) — near 0.50 for an asset class against the
+others, 0.41 to 0.68 for one strategy against the others. **5% IS PER INVARIANT,
+NOT PER CORPUS**, and that is a choice (owner, 2026-10-06): measured on a joint
+placebo of 247 conditions, 0.2 invariant is integrated by chance at any one
+time and at least one is 16% of the time. Effect size and
+evidence are BOTH required: θ asks "worth acting on?", the bar asks "do we
+know it at all?". Belief does not grant integration, history does. When little
+or nothing is integrated the Worker reads the judged CANDIDATES, each labelled
+"not established" with its record — it decides nothing. Nothing
 stays proposed forever; nothing is adopted without measurement. The unified
 improvement cycle (docs/ARCHITECTURE.md) covers Proposals (verdict at +12w),
 strategies (12w probation), scenarios (calibration scoring).

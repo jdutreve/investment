@@ -62,6 +62,10 @@ to actual availability; this is not an exact replication of their portfolios.
    reference quarters** as a matched revision diagnostic. This holds the calendar
    and information horizon constant while changing only revisions.
 
+For the vintage track, anchor the NAV window at the close immediately before
+the first eligible monthly decision, so that decision's first-day return and
+transaction costs are not discarded. Record the activation date separately.
+
 For the long diagnostic, repeat at **90 and 270 days** of assumed publication
 lag, primary threshold unchanged. For the primary 180-day lag and vintage-aware
 track, repeat at **5 and 15 pp** threshold, haircut unchanged. These are labelled

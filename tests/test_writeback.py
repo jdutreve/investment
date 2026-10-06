@@ -25,8 +25,6 @@ THRESHOLDS = {
     "blend_scenario_weight": 0.4,
     "blend_favors_weight": 0.6,
     "proposal_invariant_weight_min": 0.1,
-    "invariant_refuted_min_confrontations": 4.0,
-    "invariant_refuted_score": 0.35,
     "proposal_cooldown_weeks": 4.0,
 }
 

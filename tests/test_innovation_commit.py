@@ -27,10 +27,9 @@ from investment.writeback.writeback import commit_innovations
 # the invariant-maturation thresholds mature_seed_invariants reads
 _MATURATION_THRESHOLDS = {
     "proposal_outcome_weeks": 12.0,
-    "invariant_min_confrontations": 3.0,
     "invariant_time_validation_score": 0.6,
-    "invariant_refuted_min_confrontations": 4.0,
-    "invariant_refuted_score": 0.35,
+    "invariant_checkpoint_spacing": 10.0,
+    "invariant_checkpoint_last": 320.0,
     "invariant_verdict_confidence": 0.95,
     "invariant_null_score": 0.5,
     "confrontation_margin": 0.1,

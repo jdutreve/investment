@@ -21,10 +21,9 @@ from investment.writeback.writeback import commit_knowledge
 
 # What `restate_invariant` reads to give a verdict (seed_data.SYSTEM_THRESHOLDS).
 THRESHOLDS = {
-    "invariant_min_confrontations": 3.0,
     "invariant_time_validation_score": 0.6,
-    "invariant_refuted_min_confrontations": 4.0,
-    "invariant_refuted_score": 0.35,
+    "invariant_checkpoint_spacing": 10.0,
+    "invariant_checkpoint_last": 320.0,
     "invariant_verdict_confidence": 0.95,
     "invariant_null_score": 0.5,
 }
@@ -142,6 +141,45 @@ async def test_a_revised_condition_does_not_inherit_the_old_ones_evidence(
         "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id = 'inv-active'"
     )
     assert kept[0]["n"] == 5
+
+
+async def test_the_moments_since_the_last_checkpoint_wait_for_the_next(db: InvestmentDB) -> None:
+    """A record is judged at fixed checkpoints and nowhere between (owner
+    decision D5): a rule that may change its mind at every moment is a rule
+    that looks at every moment, and 5% per look is not 5% per life.
+
+    Ten confirmations then nine refutations is read on its first ten moments —
+    the earliest, in date order. The twentieth moment brings the next
+    checkpoint, and only then does the verdict see the rest."""
+    await _add_invariant(db, "inv-nineteen", "proposed", 10, 9)
+    await _add_invariant(db, "inv-twenty", "proposed", 10, 10)
+
+    waiting = await restate_invariant(db, "inv-nineteen", THRESHOLDS, date(2026, 10, 5))
+    judged = await restate_invariant(db, "inv-twenty", THRESHOLDS, date(2026, 10, 5))
+
+    assert waiting == "integrated"
+    assert judged == "proposed"
+    # The counts, the score and the weight are the whole record's all along.
+    row = (
+        await db.query(
+            "SELECT confirmation_count, infirmation_count, market_score FROM invariant "
+            "WHERE id = 'inv-nineteen'"
+        )
+    )[0]
+    assert (row["confirmation_count"], row["infirmation_count"]) == (10, 9)
+    assert row["market_score"] == pytest.approx(10 / 19)
+
+
+async def test_a_record_is_judged_against_the_null_of_its_own_protocol(db: InvestmentDB) -> None:
+    """17 of 20 is integrated where a condition that knows nothing confirms
+    half the time, and is not where it confirms 68% of the time — the rate
+    measured on one strategy against the others."""
+    await _add_invariant(db, "inv-fair", "proposed", 17, 3)
+    await _add_invariant(db, "inv-skewed", "proposed", 17, 3)
+    await db.command("UPDATE invariant SET null_confirmation_rate = 0.68 WHERE id = 'inv-skewed'")
+
+    assert await restate_invariant(db, "inv-fair", THRESHOLDS, date(2026, 10, 5)) == "integrated"
+    assert await restate_invariant(db, "inv-skewed", THRESHOLDS, date(2026, 10, 5)) == "proposed"
 
 
 async def test_reference_knowledge_is_never_confronted(db: InvestmentDB) -> None:

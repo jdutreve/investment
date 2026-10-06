@@ -59,8 +59,6 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     # database holding a row that no line of code or seed data explains. It
     # stays until a threshold prune exists, and this comment is why.
     "proposal_invariant_weight_min": 0.10,  # was: min weight_effective to be citable
-    "invariant_refuted_min_confrontations": 4.0,  # N floor for the REFUTED/INADEQUATE branches
-    "invariant_refuted_score": 0.35,  # score below which an amply-confronted invariant is REFUTED
     # Weeks a new/revised Strategy runs before auto-keep/close
     # (outcomes.strategy_probation_check). Also the unit of the unmeasurable
     # backstop: 2x this with no FAVORS at all closes the candidate. Read by the
@@ -92,27 +90,28 @@ SYSTEM_THRESHOLDS: dict[str, float] = {
     "confrontation_margin_sortino_rolling": 0.15,  # no-op band for the 'sortino_rolling' metric
     "confrontation_margin_volatility": 0.02,  # no-op band (fraction) for the 'volatility' metric
     "vector_similarity_min": 0.35,  # curation: min embedding cosine sim to create a SUPPORTS edge (UNWIRED)
-    # time-validation verdict gate (ARCHITECTURE.md "Birth maturation"):
-    # confrontations >= N_min AND market_score >= theta AND the Wilson lower
-    # bound clears the null AND not refuted.
-    # Documented in DATA_MODELS.md system_thresholds description but missing
-    # from this seed until M5 — filled in here.
-    "invariant_min_confrontations": 3.0,  # N_min: confrontations needed before INTEGRATED can fire
-    "invariant_time_validation_score": 0.60,  # theta: score an invariant must clear for INTEGRATED
-    # Verdict convergence (ADR-006 amendment, M5): one-sided confidence for
-    # BOTH bounds — 'inadequate' rejection when the Wilson upper bound of
-    # market_score is < theta (demonstrably cannot reach the bar), and
-    # integration only when the Wilson lower bound clears the null below.
-    # The upper bound is what empties the 0.35-0.60 dead middle ("Nothing
-    # stays proposed forever"); 'proposed' means insufficient evidence only.
+    # time-validation verdict (ARCHITECTURE.md "Birth maturation";
+    # `invariants.checkpoint_verdict`). A record is judged at FIXED CHECKPOINTS
+    # — every `spacing` decided moments up to `last` — and nowhere between
+    # (owner decision D5; the rule and the spacing were chosen on the bench of
+    # docs/research/2026-10-05-verdict-calibration). `last` is 320 because no
+    # record comes near it: 35 years of a condition that never rests is about
+    # 150 moments at a 12-week horizon.
+    "invariant_checkpoint_spacing": 10.0,
+    "invariant_checkpoint_last": 320.0,
+    "invariant_time_validation_score": 0.60,  # theta: no bar is below this share of its checkpoint
+    # ONE confidence, both bars, both over the WHOLE LIFE of a record.
+    # `1 - confidence` is the probability that a claim which knows nothing is
+    # integrated at least once, and the probability that a claim exactly at
+    # theta is rejected at least once (`invariants.rejection_bars`, which is
+    # what empties the dead middle below theta: "Nothing stays proposed
+    # forever").
     "invariant_verdict_confidence": 0.95,
-    # The no-condition null of a BASELINE-RELATIVE market_score (a
-    # confirmation means "beat what this handle does anyway", so a
-    # zero-skill invariant scores 0.50 — see invariants.py `baseline_excess`).
-    # Integration requires the Wilson LOWER bound to clear it (ADR-006
-    # amendment, M5-bis): theta alone is a point test that gets EASIER the
-    # less evidence there is — at N_min=3 a zero-edge invariant integrated
-    # on a coin flip, which is how TIPS held 'integrated' on 9/14.
+    # The null of an UNCONDITIONAL claim, and the fallback of a row not yet
+    # swept. A conditional claim is judged against the MEASURED every-date
+    # rate of its own protocol (`invariant.null_confirmation_rate`): 0.50 holds
+    # for an asset class against the others and not for one strategy against
+    # the others (invariants.py `null_confirmation_rate`).
     "invariant_null_score": 0.50,
     # regime detection (see docs/ARCHITECTURE.md formal algorithm)
     # Calibrated at M3 by a grid search over the REAL 35y history (the

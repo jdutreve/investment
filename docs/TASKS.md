@@ -1274,7 +1274,8 @@ class PlannerPre:
         #   ② Ranked snapshot rows (LATEST date — Monday's ranking when
         #      re-run ad-hoc mid-week)
         #   ③ Scenarios + week-over-week shift (LAG on scenario_probability)
-        #   ④ Invariants, 3 RELEVANCE buckets (integrated only, K=8 each,
+        #   ④ Invariants, 3 RELEVANCE buckets (integrated first, then the
+        #      'proposed' candidates a checkpoint has judged; K=8 each,
         #      ≤20 after dedup): tag regime:<current> | asset:/asset-class:
         #      matching defender+challenger allocations | global top by
         #      weight_effective — weight alone would surface the same Dalio

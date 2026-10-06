@@ -333,14 +333,14 @@ async def test_m5_validated_at_is_not_a_ratchet(tmp_path: Path) -> None:
         await seed._seed_portfolio_nav(db)
         await seed._materialize_benchmark_valuation(db)
         await seed._run_backtests_favors(db)
-        # The fixture's liquidity invariant lands on 31/50: score 0.62 clears
-        # theta, but the 0.50 null still produces evidence that good 5.95% of
-        # the time, so at alpha=0.05 the TAIL test alone holds it back. Relax
-        # the confidence to 0.90 and it integrates — which is both what makes
-        # this fixture an 'integrated' one and a live demonstration that the
-        # M5-bis clause is the deciding one here.
+        # Nothing in the fixture integrates at the seeded level, which is the
+        # rule doing its job: its best records clear theta (31 of the first 50,
+        # 55 of 94) and a 5% lifetime level asks for more than that. Relaxed to
+        # an even chance over the life, the bar falls to theta itself and both
+        # integrate — which is all this fixture needs, an 'integrated' row to
+        # watch leave.
         await db.command(
-            "UPDATE system_thresholds SET value = 0.90 WHERE key = :k",
+            "UPDATE system_thresholds SET value = 0.50 WHERE key = :k",
             k="invariant_verdict_confidence",
         )
         await seed._mature_seed_invariants(db)

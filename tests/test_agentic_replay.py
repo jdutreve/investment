@@ -48,8 +48,9 @@ THRESHOLDS: dict[str, float] = {
     "rolling_window_days": 756.0,
     "ranking_tiebreak_window": 0.02,
     "min_backtest_periods": 3.0,
-    "invariant_min_confrontations": 3.0,
     "invariant_time_validation_score": 0.6,
+    "invariant_checkpoint_spacing": 10.0,
+    "invariant_checkpoint_last": 320.0,
     "invariant_verdict_confidence": 0.95,
     "invariant_null_score": 0.5,
     "replay_cost_bps": 23.0,
@@ -61,8 +62,6 @@ THRESHOLDS: dict[str, float] = {
     "blend_scenario_weight": 0.4,
     "blend_favors_weight": 0.6,
     "proposal_invariant_weight_min": 0.1,
-    "invariant_refuted_min_confrontations": 4.0,
-    "invariant_refuted_score": 0.35,
     "proposal_cooldown_weeks": 4.0,
     "proposal_outcome_weeks": 12.0,
 }
@@ -150,14 +149,16 @@ async def _seed(db: InvestmentDB) -> None:
     # re-maturation rightly demotes it to 'proposed' (no evidence at t is not
     # evidence of an effect) and gate 6 refuses every citation — which is the
     # correct behaviour, and exactly what this fixture must not accidentally test.
-    for i in range(9):
+    # Ten of ten: the smallest record the first checkpoint integrates
+    # (`invariants.checkpoint_bars`).
+    for i in range(10):
         await cmd(
             "INSERT INTO invariant_confrontations (id, invariant_id, moment_context, "
             "signal_date, available_at, verdict, source, definition) "
             "VALUES (:id, 'inv-gold', '{}', :d, :d, :v, 'backtest', :definition)",
             id=f"conf-{i}",
             d=(date(2006, 1, 1) + timedelta(days=90 * i)).isoformat(),
-            v="refuted" if i == 8 else "confirmed",
+            v="confirmed",
             definition=GOLD_DEFINITION,
         )
 
@@ -566,10 +567,10 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
     """M8b's Definition of Verified, third box: invariant weights read AS-OF-T,
     and a confrontation dated after t changes no weight before t.
 
-    The fixture's invariant carries 9 confrontations before the episode and one
+    The fixture's invariant carries 10 confrontations before the episode and one
     crushing run of refutations after it. If the replay read the corpus as it
-    stands today, that later evidence would drag the score to 0.31 and the
-    verdict to 'rejected'; as-of t it must read 8/9 and stay integrated."""
+    stands today, that later evidence would drag the score to 0.20 and the
+    verdict to 'rejected'; as-of t it must read 10/10 and stay integrated."""
     db = InvestmentDB(live)
     for i in range(40):
         await db.command(
@@ -597,7 +598,7 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
     live_view = await db.query(
         "SELECT COUNT(*) AS n FROM invariant_confrontations WHERE invariant_id = 'inv-gold'"
     )
-    assert live_view[0]["n"] == 50
+    assert live_view[0]["n"] == 51
     await db.close()
 
     episode, bound = await _run(live, tmp_path)
@@ -610,9 +611,9 @@ async def test_agentic_replay_semipit(live: Path, tmp_path: Path) -> None:
             "SELECT confirmation_count, infirmation_count, market_score, status "
             "FROM invariant WHERE id = 'inv-gold'"
         )
-        # 8 confirmed / 1 refuted, all dated before the episode opened.
-        assert (rows[0]["confirmation_count"], rows[0]["infirmation_count"]) == (8, 1)
-        assert rows[0]["market_score"] == pytest.approx(8 / 9)
+        # 10 confirmed, all dated before the episode opened.
+        assert (rows[0]["confirmation_count"], rows[0]["infirmation_count"]) == (10, 0)
+        assert rows[0]["market_score"] == pytest.approx(1.0)
         assert rows[0]["status"] == "integrated"
         # and not one of the 41 outcomes knowable only later reached the
         # snapshot — the one whose SIGNAL predates t included

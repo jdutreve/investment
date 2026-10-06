@@ -216,14 +216,22 @@ def standing_label(invariant: dict[str, Any]) -> str:
     """How much an invariant has been MEASURED, as one phrase for a prompt line.
     One renderer for the Planner's pool and the Worker's context, so that a
     reference note is never shown with a number in one and without in the
-    other: it has no weight, and saying so is the information."""
+    other — it has no weight, and saying so is the information — and a
+    candidate is never shown as established in one and not in the other."""
     if invariant.get("status") == REFERENCE_STATUS:
         return "reference note, not measured"
     weight = f"weight {invariant.get('weight_effective', '?')}"
     # The record behind the weight, when it was loaded (`evidence_summaries`):
     # a weight alone reads the same at 4 of 5 and at 40 of 50.
     evidence = invariant.get("evidence")
-    return f"{weight}; {evidence}" if evidence else weight
+    standing = f"{weight}; {evidence}" if evidence else weight
+    # A CANDIDATE SAYS SO (owner decision D5). 'proposed' means insufficient
+    # evidence and nothing else; the Worker reads such an invariant beside the
+    # established ones, and a weight with a record next to it reads as settled
+    # unless the line says it is not.
+    if invariant.get("status") == "proposed":
+        return f"candidate, not established; {standing}"
+    return standing
 
 
 # -- assembly ---------------------------------------------------------------

@@ -210,15 +210,21 @@ Invariant {
                               --   A confirmation is BASELINE-RELATIVE (the effect
                               --   beat what the handle does with the condition
                               --   IGNORED — ARCHITECTURE "Invariant confrontation
-                              --   rule"), so this reads as a SKILL frequency whose
-                              --   null is 0.50 for EVERY handle, not an absolute
-                              --   hit rate (which would just restate the handle's
-                              --   base rate: ~0.70 for equities on the risk
-                              --   premium alone). That 0.50 null is what
-                              --   invariant_time_validation_score (θ=0.60) is
-                              --   measured against. Exception: an 'always'
-                              --   condition is scored absolutely (it makes no
-                              --   conditional claim).
+                              --   rule"), so this reads as a SKILL frequency, not
+                              --   an absolute hit rate (which would just restate
+                              --   the handle's base rate: ~0.70 for equities on the
+                              --   risk premium alone). Its null is NEAR 0.50 and
+                              --   measured per protocol (next field), not assumed.
+                              --   Exception: an 'always' condition is scored
+                              --   absolutely (it makes no conditional claim).
+  null_confirmation_rate : FLOAT?  -- what a condition that knows nothing scores
+                              --   on this invariant's protocol: confirmations
+                              --   among the decided outcomes when EVERY date is
+                              --   a moment. Written by the sweep; the verdict's
+                              --   bars are computed against it (ARCHITECTURE
+                              --   "TIME-VALIDATION VERDICT"). NULL until swept
+                              --   and on an unconditional claim, where
+                              --   invariant_null_score (0.50) applies.
 
   trace           : STRING  -- MANDATORY
   created_at      : DATETIME
@@ -1022,9 +1028,9 @@ CREATE TABLE IF NOT EXISTS system_thresholds (...);
 -- Seed includes regime thresholds, rolling window (756d),
 -- vector similarity floor, proposal gate thresholds (switch AND reallocation),
 -- proposal_expiry_days (seeded but UNWIRED — ADR-006, see mechanical/catchup.py),
--- invariant_min_confrontations (N_min, 3) and invariant_time_validation_score
---   (θ, 0.60) — the time-validation verdict gate (ARCHITECTURE "Birth
---   maturation"). NOT calibrated by the Phase 9 replay, despite the family
+-- invariant_checkpoint_spacing (10), invariant_checkpoint_last (320) and
+--   invariant_time_validation_score (θ, 0.60) — the time-validation verdict,
+--   judged at fixed checkpoints (ARCHITECTURE "Birth maturation"). NOT calibrated by the Phase 9 replay, despite the family
 --   resemblance to the thresholds that are: Task 9.2's grid covers the
 --   switch/ranking/blend/turnover knobs, and the mechanical replay is blind to
 --   invariant weights anyway (switches gate on sortino/calmar; the realloc

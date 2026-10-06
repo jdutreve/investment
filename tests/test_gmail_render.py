@@ -160,6 +160,33 @@ def test_a_corrected_decision_is_loud_in_the_email_too() -> None:
     assert "Recomputed under the graduated overlay" in html
 
 
+def test_a_candidate_has_its_own_heading_in_the_email_too() -> None:
+    """The third channel says what the other two say: a candidate is listed
+    under a heading that names it not established, and an email with no
+    established invariant says so instead of dropping the section."""
+    candidate = {
+        "title": "Still measured",
+        "status": "proposed",
+        "weight_effective": 0.9,
+        "confirmation_count": 12,
+        "infirmation_count": 8,
+        "author": "dalio",
+    }
+    html = render.render_digest_html(_inputs(invariants=[candidate]), {}, TODAY)
+    assert "Key Invariants" not in html
+    assert "NOT established" in html
+    assert "No invariant is established." in html
+    assert "Still measured" in html
+
+    both = render.render_digest_html(
+        _inputs(invariants=[{**candidate, "title": "Settled", "status": "integrated"}, candidate]),
+        {},
+        TODAY,
+    )
+    assert both.index("Key Invariants") < both.index("Settled") < both.index("NOT established")
+    assert "No invariant is established." not in both
+
+
 def test_no_style_attribute_anywhere() -> None:
     """The one property the whole module exists to guarantee — the Gmail
     draft-composition API silently strips `style=`."""

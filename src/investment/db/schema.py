@@ -80,6 +80,11 @@ CREATE TABLE IF NOT EXISTS invariant (
   confirmation_count INTEGER NOT NULL DEFAULT 0,
   infirmation_count  INTEGER NOT NULL DEFAULT 0,
   market_score       REAL NOT NULL DEFAULT 1.0,
+  -- What a condition that knows nothing scores on this invariant's protocol:
+  -- the every-date confirmation rate, measured by the sweep. The verdict's
+  -- bars are computed against it. NULL until swept, and on an unconditional
+  -- claim (mechanical/invariants.py `null_confirmation_rate`).
+  null_confirmation_rate REAL,
   trace              TEXT NOT NULL,
   created_at         TEXT NOT NULL,
   validated_at       TEXT,                   -- null while still a candidate
@@ -865,6 +870,11 @@ ADDED_COLUMNS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     # the column: the maturation fingerprint records that the sweep now stores
     # it, so the next sweep re-measures every definition and fills it.
     ("invariant_confrontations", "lift", "REAL", ()),
+    # The null an invariant's verdict is judged against. NULL on every row that
+    # predates the column, where the verdict falls back on
+    # `invariant_null_score`; the checkpoint rule changes the maturation
+    # fingerprint, so the next sweep re-measures every definition and fills it.
+    ("invariant", "null_confirmation_rate", "REAL", ()),
 )
 
 # Indexes on columns that RENAMED_COLUMNS / ADDED_COLUMNS bring to an existing

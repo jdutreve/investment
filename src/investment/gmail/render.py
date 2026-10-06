@@ -40,7 +40,7 @@ from investment.mechanical.market_signal import (
     YIELD_SLOPE,
 )
 from investment.mechanical.snapshots import is_demoted
-from investment.telegram.digest import DigestInputs, pct
+from investment.telegram.digest import CANDIDATES_HEADING, DigestInputs, pct, split_by_standing
 
 _DARK = "#1c1c1a"
 _PURPLE = "#753991"
@@ -565,10 +565,22 @@ def _lift_or_na(value: object) -> str:
 
 
 def _invariants_section(invariants: list[dict[str, Any]]) -> list[str]:
-    if not invariants:
-        return []
+    """The established invariants, then the candidates under the heading the
+    text digest gives them (`digest._invariant_block`)."""
+    established, candidates = split_by_standing(invariants)
+    lines: list[str] = []
+    if established:
+        lines += ["<h2>\U0001f511 Key Invariants</h2>", *_invariants_table(established)]
+    if candidates:
+        lines.append(f"<h2>\U0001f50e {_esc(CANDIDATES_HEADING)}</h2>")
+        if not established:
+            lines.append("<p>No invariant is established.</p>")
+        lines += _invariants_table(candidates)
+    return lines
+
+
+def _invariants_table(invariants: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "<h2>\U0001f511 Key Invariants</h2>",
         _table_open(),
         _hrow(
             [

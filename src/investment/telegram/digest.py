@@ -27,6 +27,8 @@ from investment.market.liquidity import (
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
 from investment.mechanical.invariants import (
+    ESTABLISHED_FIRST_SQL,
+    ESTABLISHED_OR_JUDGED_SQL,
     EvidenceSummary,
     describe_evidence,
     evidence_summaries,
@@ -211,10 +213,39 @@ def _with_evidence(invariant: dict[str, Any], evidence: EvidenceSummary | None) 
     }
 
 
+CANDIDATES_HEADING = "Candidates — measured, NOT established"
+
+
+def split_by_standing(
+    invariants: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """`(established, candidates)`. One splitter for the text digest and the
+    Gmail table, so that a candidate cannot sit under the established heading
+    in one channel and not in the other."""
+    established = [inv for inv in invariants if inv.get("status") != "proposed"]
+    return established, [inv for inv in invariants if inv.get("status") == "proposed"]
+
+
 def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
-    if not invariants:
-        return []
-    lines = ["", "🔑 Key Invariants (effective weight):"]
+    """The established invariants, then the candidates under a heading that
+    says what they are (owner, 2026-10-06). Under a verdict held over a
+    record's life there may be none established at all; the block used to
+    disappear then, which read as "nothing to report" when the fact was
+    "nothing is established yet"."""
+    established, candidates = split_by_standing(invariants)
+    lines: list[str] = []
+    if established:
+        lines += ["", "🔑 Key Invariants (effective weight):", *_invariant_lines(established)]
+    if candidates:
+        lines += ["", f"🔎 {CANDIDATES_HEADING} (effective weight):"]
+        if not established:
+            lines.append("   No invariant is established.")
+        lines += _invariant_lines(candidates)
+    return lines
+
+
+def _invariant_lines(invariants: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
     for inv in invariants:
         weight = inv.get("weight_effective")
         weight_str = f"{weight:.3f}" if isinstance(weight, int | float) else "?"
@@ -765,8 +796,10 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
     queries. Every number on both fronts therefore comes from the same read of
     the same row.
 
-    The invariants shown are the heaviest INTEGRATED ones (what the ranking is
-    allowed to lean on), which is also the set gate 6 admits."""
+    The invariants shown are the heaviest INTEGRATED ones, then — filling the
+    same handful — the heaviest candidates a checkpoint has judged
+    (`ESTABLISHED_OR_JUDGED_SQL`), which `_invariant_block` sets apart under
+    their own heading."""
     today = today or date.today()
     regime_rows = await db.query(
         "SELECT r.regime_type_id, r.confidence, rt.name AS regime_name "
@@ -779,9 +812,9 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         "WHERE date = (SELECT MAX(date) FROM portfolio_weekly_snapshot) ORDER BY rank ASC"
     )
     invariant_rows = await db.query(
-        "SELECT id, title, weight_effective, confirmation_count, infirmation_count, author "
-        "FROM invariant WHERE status = 'integrated' "
-        "ORDER BY weight_effective DESC LIMIT :n",
+        "SELECT id, title, status, weight_effective, confirmation_count, infirmation_count, "
+        f"author FROM invariant WHERE {ESTABLISHED_OR_JUDGED_SQL} "
+        f"ORDER BY {ESTABLISHED_FIRST_SQL} LIMIT :n",
         n=DIGEST_INVARIANTS,
     )
     evidence = await evidence_summaries(db, [str(r["id"]) for r in invariant_rows])

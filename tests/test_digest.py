@@ -645,8 +645,30 @@ def test_an_invariant_is_printed_with_the_record_behind_its_weight() -> None:
     assert (row["rate_low"], row["rate_high"], row["neutral_count"]) == (0.54, 0.75, 37)
 
     lines = D._invariant_block([row])
+    assert lines[1] == "🔑 Key Invariants (effective weight):"
     assert lines[2] == "   • Low real yields favour gold: 0.653 [dalio]"
     assert lines[3].strip() == (
         "54/83 confirmed (rate 0.65, 95% range 0.54-0.75); 37 neutral; 3 unmeasurable; "
         "mean lift +0.012 on return, worst -0.210; early half 0.70, late half 0.60"
     )
+
+
+def test_a_candidate_is_listed_apart_and_never_under_the_established_heading() -> None:
+    """Owner, 2026-10-06: under a verdict held over a record's life there may be
+    no established invariant at all. The block then disappeared without a word;
+    it now shows the candidates a checkpoint has judged, under a heading that
+    says they are not established, and says so when nothing is."""
+    established = {"title": "Settled", "status": "integrated", "weight_effective": 0.7}
+    candidate = {"title": "Still measured", "status": "proposed", "weight_effective": 0.9}
+
+    both = D._invariant_block([established, candidate])
+    assert both.index("   • Settled: 0.700 [system]") < both.index(
+        f"🔎 {D.CANDIDATES_HEADING} (effective weight):"
+    )
+    assert both[-1] == "   • Still measured: 0.900 [system]"
+    assert "   No invariant is established." not in both
+
+    alone = D._invariant_block([candidate])
+    assert not any("Key Invariants" in line for line in alone)
+    assert alone[2] == "   No invariant is established."
+    assert D._invariant_block([]) == []

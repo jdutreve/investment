@@ -33,11 +33,10 @@ THRESHOLDS = {
     "rolling_window_days": 756.0,
     "ranking_tiebreak_window": 0.02,
     "min_backtest_periods": 3.0,
-    "invariant_min_confrontations": 3.0,
     "invariant_time_validation_score": 0.6,
+    "invariant_checkpoint_spacing": 10.0,
+    "invariant_checkpoint_last": 320.0,
     "invariant_verdict_confidence": 0.95,
-    "invariant_refuted_min_confrontations": 4.0,
-    "invariant_refuted_score": 0.35,
     "invariant_null_score": 0.5,
 }
 

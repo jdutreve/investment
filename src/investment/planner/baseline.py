@@ -26,21 +26,28 @@ from typing import Any, cast
 from investment.db.sqlite import InvestmentDB
 from investment.market.liquidity import liquidity_state
 from investment.mechanical.gates import Caps, effective_caps
+from investment.mechanical.invariants import ESTABLISHED_FIRST_SQL, ESTABLISHED_OR_JUDGED_SQL
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
-# ≤20 after dedup"). Integrated-only — the filter OUTLIVED its original reason
-# and keeps a better one. It was "a proposal may cite only integrated
-# invariants (UC8 gate 6), so show the Worker the eligible set"; ADR-012 deleted
-# that gate, and the Worker cites nothing structurally any more. What remains is
-# what a weight can and cannot say. A 'proposed' invariant's `weight_effective`
-# is its starting BELIEF pulled toward a record that settled nothing, and a
-# reference note's is the belief alone — and the heavy ones among them far
-# outnumber the integrated set. Widening on weight would hand the reading
-# mostly unmeasured belief, which is a worse context, not a richer one — so the
-# Worker still reads the corpus's SETTLED knowledge. (The measured counts are
-# dated records and live in docs/INVARIANT_IMPROVEMENT_PLAN.md, action 4.3.)
+# ≤20 after dedup"). ESTABLISHED FIRST, THEN THE CANDIDATES A CHECKPOINT HAS
+# ALREADY JUDGED (owner decision D5, 2026-10-04). The buckets were
+# integrated-only, and under a verdict calibrated over a record's life almost
+# nothing is integrated: the Worker would read an empty corpus. It decides
+# nothing — its role is to stir — so it reads the best of what is still being
+# measured, each line carrying its record and the plain label that it is not
+# established (`context.standing_label`).
+#
+# A candidate is a 'proposed' invariant whose record has reached a checkpoint
+# (`invariants.ESTABLISHED_OR_JUDGED_SQL`, shared with the digest): it has been
+# looked at, and neither integrated nor rejected. That bound is
+# what keeps this from being the widening the filter used to refuse — a
+# 'proposed' invariant with no record weighs its starting BELIEF, and ordered
+# by weight those would fill every bucket with what was never measured. Past
+# the first checkpoint the prior counts for at most four moments in fourteen
+# (`invariants.PRIOR_CONFRONTATIONS`).
+# Rejected invariants and reference notes stay out, as before.
 BUCKET_K = 8
 INVARIANTS_CAP = 20
 RECENT_PROPOSALS = 3
@@ -61,7 +68,7 @@ class Baseline:
     global_liquidity: dict[str, Any]  # latest GLOBAL_LIQUIDITY level/speed; {} if none
     ranking: list[dict[str, Any]]  # latest snapshot rows, rank ASC
     scenarios: list[dict[str, Any]]  # per (strategy, scenario id + name): prob + wow shift
-    top_invariants: list[dict[str, Any]]  # 3 relevance buckets, integrated, ≤20 deduped
+    top_invariants: list[dict[str, Any]]  # 3 relevance buckets, ≤20 deduped (see BUCKET_K)
     recent_proposals: list[dict[str, Any]]  # last 3, any status
     market_signal: dict[str, Any]  # latest live market-signal decision (ADR-007); {} if none
     # Default-empty because absent IS empty and both callers can hit it: no
@@ -376,8 +383,8 @@ async def _stack_caps(db: InvestmentDB) -> Caps | None:
 async def _bucket(db: InvestmentDB, where: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     rows = await db.query(
         f"SELECT {_INVARIANT_COLS} FROM invariant "
-        f"WHERE status = 'integrated' AND {where} "
-        f"ORDER BY weight_effective DESC LIMIT {BUCKET_K}",
+        f"WHERE {ESTABLISHED_OR_JUDGED_SQL} AND {where} "
+        f"ORDER BY {ESTABLISHED_FIRST_SQL} LIMIT {BUCKET_K}",
         **params,
     )
     return [_parse_json_fields(r, ("tags",)) for r in rows]
@@ -386,9 +393,10 @@ async def _bucket(db: InvestmentDB, where: str, params: dict[str, Any]) -> list[
 async def _top_invariants(
     db: InvestmentDB, regime: dict[str, Any], ranking: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """The 3 relevance buckets, integrated-only, deduped and capped
-    (docs/TASKS.md ④). Regime-tag bucket first (most contextual), then held
-    assets, then global weight — "weight alone would surface the same Dalio
+    """The 3 relevance buckets — established invariants, then judged
+    candidates — deduped and capped (docs/TASKS.md ④; see `BUCKET_K`).
+    Regime-tag bucket first (most contextual), then held assets, then global
+    weight — "weight alone would surface the same Dalio
     heavyweights forever, regime-blind", so it is the LAST resort, not the
     first."""
     regime_type_id = regime.get("regime_type_id")

@@ -29,6 +29,7 @@ disjointness) and a thin async DB layer that reads `market_data` /
 """
 
 import dataclasses
+import functools
 import hashlib
 import json
 import logging
@@ -103,9 +104,10 @@ def market_score(confirmations: int, infirmations: int) -> float:
 # How many confrontations an author's reputation is worth (owner, 2026-10-03).
 # `weight_initial` enters the weight as this many observations at that rate, so
 # 4 real confrontations weigh as much as the prior and every one after that
-# outweighs it. 4 because it is the count at which the verdict first allows
-# itself to reject (`invariant_refuted_min_confrontations`): the prior stops
-# dominating exactly when the evidence is first trusted to overrule it.
+# outweighs it. 4 is a CONVENTION: it was the count at which the verdict of the
+# day first allowed itself to reject, and that rule is gone. It stays because
+# the ordering barely depends on it (measured at 2 and at 8,
+# docs/INVARIANT_TASKS.md lot 3).
 PRIOR_CONFRONTATIONS = 4.0
 
 
@@ -153,106 +155,173 @@ def compute_weight_update(
     )
 
 
-def _binomial_pmf(successes: int, total: int, rate: float) -> float:
-    return math.comb(total, successes) * rate**successes * (1.0 - rate) ** (total - successes)
+# -- pure core: the verdict, judged at fixed checkpoints ---------------------
 
 
-def binomial_tail_at_least(successes: int, total: int, rate: float) -> float:
-    """`P(X >= successes)` for `X ~ Binomial(total, rate)` — "could a process
-    with this rate have produced evidence THIS good, by luck?". Feeds the
-    INTEGRATED branch against `rate` = the null."""
-    if total == 0:
-        return 1.0
-    return sum(_binomial_pmf(k, total, rate) for k in range(successes, total + 1))
+def checkpoints(spacing: int, last: int) -> tuple[int, ...]:
+    """The counts of decided moments at which a record is judged."""
+    return tuple(range(spacing, last + 1, spacing))
 
 
-def binomial_tail_at_most(successes: int, total: int, rate: float) -> float:
-    """`P(X <= successes)` for `X ~ Binomial(total, rate)` — "could a process
-    with this rate have produced evidence THIS bad, by luck?". Feeds the
-    INADEQUATE branch against `rate` = theta."""
-    if total == 0:
-        return 1.0
-    return sum(_binomial_pmf(k, total, rate) for k in range(successes + 1))
+def checkpoint_reached(decided: int, spacing: int, last: int) -> int:
+    """The last checkpoint a record of `decided` moments has passed — 0 before
+    the first, and `last` for good once the record is longer than the list."""
+    return min(decided // spacing * spacing, last)
 
 
-def time_validation_verdict(
-    confirmations: int,
-    infirmations: int,
-    score: float,
-    n_min: float,
-    theta: float,
-    refuted_min_confrontations: float,
-    refuted_score: float,
-    verdict_confidence: float,
-    null_score: float,
+def checkpoint_bars(
+    checkpoint_counts: tuple[int, ...], level: float, null_rate: float, theta: float
+) -> dict[int, int | None]:
+    """The confirmations required at each checkpoint so that a claim which
+    knows nothing — one confirming at `null_rate` — is integrated AT LEAST ONCE
+    over the whole list with probability at most `level`.
+
+    A THRESHOLD PER LOOK IS NOT A THRESHOLD PER LIFE (owner decision D5,
+    2026-10-04). The rule this replaces tested each record against 5% at every
+    new confrontation, and a record is looked at for as long as it lives: a
+    fair coin was integrated at least once in 20% of 160-moment lives, and on
+    the corpus's own conditions moved to dates where they mean nothing, in 9%
+    (docs/research/2026-10-05-verdict-calibration). `level` here is spent over
+    the LIFE.
+
+    It is spent equally across the checkpoints, and what one checkpoint cannot
+    spend is carried to the next — a bar is a whole number, so the first ones
+    rarely use their share. Exact: the distribution of the records that have
+    not crossed yet is followed from one checkpoint to the next. A bar is never
+    below `theta` of its count (the effect must be worth acting on, whatever
+    the evidence), and is `None` where no count is rare enough."""
+    return dict(
+        zip(
+            checkpoint_counts,
+            _checkpoint_bars(checkpoint_counts, level, null_rate, theta),
+            strict=True,
+        )
+    )
+
+
+@functools.cache
+def _checkpoint_bars(
+    checkpoint_counts: tuple[int, ...], level: float, null_rate: float, theta: float
+) -> tuple[int | None, ...]:
+    # not_crossed[c] = P(c confirmations so far AND no bar crossed yet)
+    not_crossed = np.array([1.0])
+    decided = 0
+    crossed = 0.0
+    bars: list[int | None] = []
+    for position, checkpoint in enumerate(checkpoint_counts, start=1):
+        for _ in range(checkpoint - decided):
+            grown = np.zeros(len(not_crossed) + 1)
+            grown[:-1] += not_crossed * (1.0 - null_rate)
+            grown[1:] += not_crossed * null_rate
+            not_crossed = grown
+        decided = checkpoint
+        spendable = level * position / len(checkpoint_counts)
+        at_least = np.cumsum(not_crossed[::-1])[::-1]
+        # The epsilon keeps 0.60 x 10 from asking for a seventh confirmation.
+        lowest = math.ceil(theta * checkpoint - 1e-9)
+        bar = next(
+            (c for c in range(lowest, checkpoint + 1) if crossed + at_least[c] <= spendable),
+            None,
+        )
+        bars.append(bar)
+        if bar is not None:
+            crossed += float(at_least[bar])
+            not_crossed[bar:] = 0.0
+    return tuple(bars)
+
+
+def rejection_bars(
+    checkpoint_counts: tuple[int, ...], level: float, theta: float
+) -> dict[int, int | None]:
+    """The confirmations AT OR BELOW which a record is rejected, so that a claim
+    confirming at exactly `theta` — the weakest claim worth integrating — is
+    rejected AT LEAST ONCE over the whole list with probability at most
+    `level`. `None` where no count is rare enough.
+
+    THE MIRROR OF `checkpoint_bars`, and computed by it: too few confirmations
+    at rate theta is too many failures at rate 1 - theta.
+
+    HELD OVER THE LIFE, like the bar that integrates (owner, 2026-10-06). The
+    two branches this replaces — 'refuted' (score under 0.35) and 'inadequate'
+    (a 5% tail under theta) — were a test at each checkpoint: a claim truly at
+    theta was rejected at least once in 21.6% of 320-moment lives, and 'refuted'
+    alone rejected 5.6% of them at the first look. What it costs is stated
+    too: a claim that knows nothing leaves 'proposed' more slowly (65% of fair
+    coins within 160 decided moments, where it was 88%) — it still leaves,
+    which is all "nothing stays proposed forever" (ADR-006) promises."""
+    failures = checkpoint_bars(checkpoint_counts, level, 1.0 - theta, 1.0 - theta)
+    return {count: None if bar is None else count - bar for count, bar in failures.items()}
+
+
+def checkpoint_verdict(
+    confirmations: int, checkpoint: int, bar: int | None, rejection_bar: int | None
 ) -> str:
-    """'integrated' | 'rejected' | 'proposed' (docs/ARCHITECTURE.md "Birth
-    maturation" TIME-VALIDATION VERDICT; ADR-006 + its M5/M5-bis amendments —
-    mechanical, no user gate). Three outcomes, checked in order:
+    """'integrated' | 'rejected' | 'proposed' for a record read AT A CHECKPOINT:
+    `confirmations` among its first `checkpoint` decided moments, in date order
+    (docs/ARCHITECTURE.md "Birth maturation" TIME-VALIDATION VERDICT; ADR-006
+    and its amendments — mechanical, no user gate).
 
-    - REFUTED (rejected): the effect actively fails when the condition holds
-      (point test — arms fast at small N for clearly harmful invariants).
-    - INTEGRATED: the effect is BIG ENOUGH (point estimate clears theta) AND
-      DEMONSTRATED (the null — `null_score`, the no-condition rate of a
-      baseline-relative score — would produce evidence this good less than
-      `1 - verdict_confidence` of the time). Both, because they answer
-      different questions: theta is "is this worth acting on?", the tail
-      test is "do we know it at all, or did a coin land well?".
-    - INADEQUATE (rejected): a true rate of theta would produce evidence
-      this BAD less than `1 - verdict_confidence` of the time — given ample
-      evidence, the invariant demonstrably cannot reach the bar. This is the
-      branch that empties the 0.35..theta dead middle, where 4 of 6 seed
-      invariants would otherwise sit 'proposed' forever at any N (e.g. 0.545
-      on N=354) — violating "Nothing stays proposed forever" (ADR-006). It
-      cannot race INTEGRATED: score >= theta puts the observation at or above
-      theta's own median, so its lower tail is ~0.5, never <= alpha.
+    - INTEGRATED: the count reaches the checkpoint's bar (`checkpoint_bars`).
+      The bar holds both questions at once — it is at least theta of the count
+      ("is this worth acting on?") and rare enough under the null over a whole
+      life ("do we know it at all, or did a coin land well?").
+    - REJECTED: the count falls to the checkpoint's rejection bar
+      (`rejection_bars`) — evidence a claim worth integrating would rarely
+      produce over a whole life. This is what empties the dead middle below
+      theta ("nothing stays proposed forever", ADR-006).
+    - otherwise 'proposed', which means INSUFFICIENT EVIDENCE and nothing else.
+      Before the first checkpoint every record is there.
 
-    The tail test is what makes theta mean anything. Alone, a point test gets
-    EASIER the less evidence there is: at n_min=3 an invariant with no edge
-    whatsoever integrated 50% of the time (2 of 3 confirmations is a coin
-    flip), and 21% of the time at N=14 — which is how
-    `inv-inflation-persistence-tips` held an 'integrated' stamp on 9/14.
-    Worse, the incentive ran the wrong way: a narrower condition yields fewer
-    moments and so passed MORE easily, exactly rewarding the over-fitted
-    invariants the engine exists to catch — and under ADR-006 nothing
-    downstream would have caught it. The bar stays reachable: a true 0.65
-    invariant qualifies on ~30 moments (~7y of active condition at a 12w
-    horizon), and the real gold invariant clears it at 53/82 (tail 0.005).
+    BETWEEN TWO CHECKPOINTS THE VERDICT DOES NOT MOVE: the moments since the
+    last one wait for the next. That is the price of the guarantee — a rule
+    that may change its mind at every moment is a rule that looks at every
+    moment — and the reason the checkpoints are close together.
 
-    EXACT tails, not the normal-approximation interval this rule first used:
-    a Wilson bound is liberal at extreme rates with small N, precisely where
-    the defect lives. `wilson_lower(3, 3) = 0.526` would have integrated a
-    3-for-3 invariant that a coin reproduces 12.5% of the time. The exact
-    tail puts the minimum perfect record at 5/5 (0.031) and leaves every
-    rejection on the current board unchanged.
+    The two bars cannot meet: one is at or above theta of the count, the other
+    below it.
 
-    'proposed' means exactly one thing: INSUFFICIENT EVIDENCE — and it still
-    empties mechanically as confrontations accrue: at a true rate above theta
-    the null's tail collapses (integrating), below theta the theta-tail
-    collapses (rejecting). The verdict is STATELESS (recomputed from current
-    counts at every confrontation), so a rejection is as reversible as the
-    evidence that produced it.
-
-    Refutation is checked first: a refuted invariant is never 'integrated'
-    even if it also happens to clear the bars on a stale read (it cannot, by
-    construction — theta > refuted_score — but the order documents the
-    precedence)."""
-    total = confirmations + infirmations
-    alpha = 1.0 - verdict_confidence
-    if total >= refuted_min_confrontations and score < refuted_score:
-        return "rejected"
-    if (
-        total >= n_min
-        and score >= theta
-        and binomial_tail_at_least(confirmations, total, null_score) <= alpha
-    ):
+    STATELESS: recomputed from the record every time it is restated, so a
+    verdict is as reversible as the evidence that produced it."""
+    if checkpoint == 0:
+        return "proposed"
+    if bar is not None and confirmations >= bar:
         return "integrated"
-    if (
-        total >= refuted_min_confrontations
-        and binomial_tail_at_most(confirmations, total, theta) <= alpha
-    ):
+    if rejection_bar is not None and confirmations <= rejection_bar:
         return "rejected"
     return "proposed"
+
+
+# WHAT A READER IS SHOWN: the established invariants, then the CANDIDATES — the
+# 'proposed' ones whose record has passed a checkpoint, so that they have been
+# judged and neither integrated nor rejected (owner decision D5). One short of
+# its first checkpoint stays out: its weight is still mostly the belief it was
+# born with. Two SQL fragments, shared by the Worker's baseline and the digest
+# so that "candidate" cannot mean two things. Without the threshold row there
+# is no candidate, rather than a spacing invented here.
+ESTABLISHED_OR_JUDGED_SQL = (
+    "(status = 'integrated' OR (status = 'proposed' "
+    "AND confirmation_count + infirmation_count >= (SELECT value FROM system_thresholds "
+    "WHERE key = 'invariant_checkpoint_spacing')))"
+)
+ESTABLISHED_FIRST_SQL = "status = 'integrated' DESC, weight_effective DESC"
+
+
+def null_confirmation_rate(
+    excess_values: list[float], baseline: float, direction: str, margin: float
+) -> float | None:
+    """What a condition that knows NOTHING would score on this protocol: the
+    share of confirmations among the decided outcomes when EVERY date is taken
+    as a moment. `None` when no date leaves the margin.
+
+    MEASURED, because 0.50 was asserted. A median baseline puts half the dates
+    on each side, and the no-op margin then removes its share from each — an
+    equal share only if the distribution is symmetric around its median. It
+    nearly is for an asset class against the others (0.485 to 0.515); it is not
+    for one strategy against the others, where nine dates in ten fall inside
+    the margin and the rest left 0.41 to 0.68 (2026-10-05)."""
+    labels = [confront_moment(excess, baseline, direction, margin) for excess in excess_values]
+    confirmed, refuted = labels.count(CONFIRMED), labels.count(REFUTED)
+    return confirmed / (confirmed + refuted) if confirmed + refuted else None
 
 
 # -- pure core: condition / moment evaluation -------------------------------
@@ -848,12 +917,11 @@ def verdict_rule(thresholds: dict[str, float], metric: str | None) -> dict[str, 
     return {
         "horizon_weeks": thresholds["proposal_outcome_weeks"],
         "margin": margin_for_metric(metric, thresholds) if metric else 0.0,
-        "n_min": thresholds["invariant_min_confrontations"],
         "theta": thresholds["invariant_time_validation_score"],
-        "refuted_min": thresholds["invariant_refuted_min_confrontations"],
-        "refuted_score": thresholds["invariant_refuted_score"],
         "confidence": thresholds["invariant_verdict_confidence"],
-        "null": thresholds["invariant_null_score"],
+        "unconditional_null": thresholds["invariant_null_score"],
+        "checkpoint_spacing": thresholds["invariant_checkpoint_spacing"],
+        "checkpoint_last": thresholds["invariant_checkpoint_last"],
     }
 
 
@@ -1033,9 +1101,15 @@ async def restate_invariant(
     restatement — and none of them could tell a row earned under a revised
     condition from one earned under the current one.
 
+    THE VERDICT IS READ AT THE LAST CHECKPOINT THE RECORD HAS PASSED
+    (`checkpoint_verdict`): on its first decided moments in date order, against
+    the bar of that checkpoint for the null of ITS protocol
+    (`null_confirmation_rate`, stored by the sweep). The counts, the score and
+    the weight are the whole record's — only the verdict waits.
+
     ONE WRITER BECAUSE THERE WERE THREE, and they disagreed. The verdict is
-    stateless — "recomputed from current counts at every confrontation"
-    (`time_validation_verdict`) — but the evaluation and proposal paths each
+    stateless — recomputed from the record at every restatement — but the
+    evaluation and proposal paths each
     carried their own UPDATE and neither wrote `status`, so a confrontation
     moved the score and left the verdict of the previous Sunday's weekly
     restatement standing for up to a week. `validated_at` follows the same rule
@@ -1046,40 +1120,47 @@ async def restate_invariant(
     outcome was knowable at t (`db/as_of_snapshot.py`, on `available_at`)."""
     row = (
         await db.query(
-            "SELECT weight_initial, floor_weight, condition, effect FROM invariant WHERE id = :id",
+            "SELECT weight_initial, floor_weight, condition, effect, null_confirmation_rate "
+            "FROM invariant WHERE id = :id",
             id=invariant_id,
         )
     )[0]
     definition = stored_definition(row)
-    tally = (
-        await db.query(
-            "SELECT COALESCE(SUM(verdict = :confirmed), 0) AS confirmations, "
-            " COALESCE(SUM(verdict = :refuted), 0) AS infirmations "
-            "FROM invariant_confrontations "
-            "WHERE invariant_id = :id AND definition = :definition "
-            "AND source IN (:birth, :forward)",
-            confirmed=CONFIRMED,
-            refuted=REFUTED,
-            id=invariant_id,
-            definition=definition,
-            birth=BIRTH_SOURCE,
-            forward=FORWARD_SOURCE,
-        )
-    )[0]
-    confirmations, infirmations = int(tally["confirmations"]), int(tally["infirmations"])
+    decided = await db.query(
+        "SELECT verdict FROM invariant_confrontations "
+        "WHERE invariant_id = :id AND definition = :definition "
+        "AND source IN (:birth, :forward) AND verdict IN (:confirmed, :refuted) "
+        "ORDER BY signal_date, id",
+        confirmed=CONFIRMED,
+        refuted=REFUTED,
+        id=invariant_id,
+        definition=definition,
+        birth=BIRTH_SOURCE,
+        forward=FORWARD_SOURCE,
+    )
+    outcomes = [r["verdict"] == CONFIRMED for r in decided]
+    confirmations = sum(outcomes)
+    infirmations = len(outcomes) - confirmations
     score, weight = compute_weight_update(
         float(row["weight_initial"]), float(row["floor_weight"]), confirmations, infirmations
     )
-    status = time_validation_verdict(
-        confirmations,
-        infirmations,
-        score,
-        n_min=thresholds["invariant_min_confrontations"],
-        theta=thresholds["invariant_time_validation_score"],
-        refuted_min_confrontations=thresholds["invariant_refuted_min_confrontations"],
-        refuted_score=thresholds["invariant_refuted_score"],
-        verdict_confidence=thresholds["invariant_verdict_confidence"],
-        null_score=thresholds["invariant_null_score"],
+    spacing = int(thresholds["invariant_checkpoint_spacing"])
+    last = int(thresholds["invariant_checkpoint_last"])
+    level = 1.0 - thresholds["invariant_verdict_confidence"]
+    theta = thresholds["invariant_time_validation_score"]
+    # NULL on an unconditional claim and on a protocol where no date ever left
+    # the margin: the first has no conditional null to measure (see
+    # `baseline_excess`), the second has no decided moment to judge either.
+    null_rate = row["null_confirmation_rate"]
+    if null_rate is None:
+        null_rate = thresholds["invariant_null_score"]
+    checkpoint = checkpoint_reached(len(outcomes), spacing, last)
+    counts = checkpoints(spacing, last)
+    status = checkpoint_verdict(
+        sum(outcomes[:checkpoint]),
+        checkpoint,
+        checkpoint_bars(counts, level, float(null_rate), theta).get(checkpoint),
+        rejection_bars(counts, level, theta).get(checkpoint),
     )
     await db.command(
         "UPDATE invariant SET confirmation_count = :cc, infirmation_count = :ic, "
@@ -1111,9 +1192,10 @@ async def _persist_maturation(
     definition: str,
     fingerprint: str,
     thresholds: dict[str, float],
+    null_rate: float | None,
 ) -> str:
-    """The sweep's rows in, the invariant's standing restated, the verdict
-    returned — one transaction."""
+    """The sweep's rows and the null it measured them against in, the
+    invariant's standing restated, the verdict returned — one transaction."""
     today = date.today()
     async with db.transaction():
         # The sweep REPLACES every mechanical row, the forward ones included.
@@ -1152,6 +1234,12 @@ async def _persist_maturation(
                 " :verdict, :lift, :source, :source_id, :definition)",
                 **row,
             )
+        # Before the restatement, which reads it to choose the bars.
+        await db.command(
+            "UPDATE invariant SET null_confirmation_rate = :null_rate WHERE id = :id",
+            null_rate=null_rate,
+            id=invariant_id,
+        )
         status = await restate_invariant(db, invariant_id, thresholds, today)
         standing = (
             await db.query(
@@ -1371,7 +1459,15 @@ async def _mature_one(
     # today, which is the advantage of looking back and makes the invariant's
     # record more pertinent. What must not leak is the OUTCOME's date, and that
     # is `available_at` below.
-    baseline = baseline_excess(_all_excess(own_frame, others, metric, method, horizon), condition)
+    every_date_excess = _all_excess(own_frame, others, metric, method, horizon)
+    baseline = baseline_excess(every_date_excess, condition)
+    # An unconditional claim is sampled on every date already: the every-date
+    # rate is its own record, not a null to hold that record against.
+    null_rate = (
+        None
+        if is_absolute_claim(condition)
+        else null_confirmation_rate(every_date_excess, baseline, direction, margin)
+    )
 
     # Moments sample condition-ACTIVE time at horizon spacing (see
     # `sample_moments`); the effect is tested over the horizon FOLLOWING each
@@ -1403,7 +1499,7 @@ async def _mature_one(
         )
 
     status = await _persist_maturation(
-        db, invariant_id, confrontation_rows, definition, fingerprint, thresholds
+        db, invariant_id, confrontation_rows, definition, fingerprint, thresholds, null_rate
     )
     confirmations, infirmations = tally[CONFIRMED], tally[REFUTED]
     return MaturationResult(

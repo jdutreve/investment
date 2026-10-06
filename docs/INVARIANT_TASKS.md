@@ -7,21 +7,21 @@ stands). Action numbers are the plan's. Started 2026-10-04.
 Each task names the GUARANTEE its test must restore, not the function it
 changes (plan, last paragraph).
 
-## Where it stands (2026-10-05)
+## Where it stands (2026-10-06)
 
 - **Lot 0** — done, except 6.2 (waits on the next curator reading).
-- **Lot 1** — done and deployed.
-- **Lot 2** — done in code and tested; NOT deployed.
-- **Lot 3** — done in code and tested; NOT deployed.
-- **Lot 4** — not started. Every owner decision it waited on is taken (D5).
+- **Lots 1 to 4** — done and DEPLOYED. Lots 2, 3 and 4 went to the live
+  database on 2026-10-06, in two passes (the checkpoint verdict, then the
+  rejection bar), each by the invariant steps of the seed with the agent
+  stopped.
 
-**What the first sweep on the live database will do** once lots 2 and 3 are
-deployed (the next `commit_innovations` or seed): re-measure every definition
-once to fill `lift`; demote the six absolute cash claims to reference notes,
-erasing their condition and effect; empty the weight of every reference note;
-and stop counting the Worker's readings, which takes one to three counts from
-six invariants and changes no verdict. The weekly chain gains two steps,
-`benchmark-valuations` and `invariant-forward`.
+**Live database, 2026-10-06:** 0 integrated, 237 proposed, 12 rejected, 826
+reference; every measured moment carries its lift; no reference note carries a
+weight; 247 invariants carry the null of their protocol. Backups:
+`investment.db.bak-pre-checkpoint-verdict-20261006` (before lots 2 to 4) and
+`investment.db.bak-pre-rejection-bar-20261006`. The weekly chain gains two
+steps on 2026-10-11, `benchmark-valuations` and `invariant-forward`; neither
+has run on the live database yet.
 
 **Open, outside the lots:**
 
@@ -39,6 +39,15 @@ six invariants and changes no verdict. The weekly chain gains two steps,
   confrontation removed by 5.2.
 - [ ] The dashboard's new invariant columns passed the TypeScript check only;
   not rebuilt, not looked at in a browser.
+- [x] The digest listed the INTEGRATED invariants and printed nothing when
+  there were none — and there are none. Owner, 2026-10-06: it shows the judged
+  candidates under their own heading, "Candidates — measured, NOT established",
+  and says "No invariant is established" when that is the case, in the text
+  digest and the Gmail table alike (`digest.split_by_standing`). "Judged
+  candidate" has one definition, shared with the Worker's baseline
+  (`invariants.ESTABLISHED_OR_JUDGED_SQL`).
+- [ ] A dependence-aware range for the displayed record (see 3.2): the one
+  estimator tried failed its criterion.
 
 ## Lot 0 — Hygiene (P6)
 
@@ -184,7 +193,7 @@ steps of the seed re-run on it (see "Deployed" below for why not the full seed).
 
 ## Lot 2 — Keep measuring after birth (P2, 5.1, 5.2)
 
-DONE in code 2026-10-04, tested, NOT deployed.
+DONE in code 2026-10-04, tested; deployed 2026-10-06.
 
 - [x] **2.1 Weekly forward sweep.** `invariants.confront_completed_moments`,
   step `invariant-forward` before `invariant-weights`. It takes up the moments
@@ -253,7 +262,7 @@ DONE in code 2026-10-04, tested, NOT deployed.
 
 ## Lot 3 — What the weight says and shows (P4)
 
-DONE in code 2026-10-05 (4.3 on 2026-10-04), tested, NOT deployed.
+DONE in code 2026-10-05 (4.3 on 2026-10-04), tested; deployed 2026-10-06.
 
 - [x] **4.2 Magnitude.** Each measured moment stores its `lift` — the
   handle's value beyond its baseline, positive when in favour of the claim
@@ -296,31 +305,116 @@ DONE in code 2026-10-05 (4.3 on 2026-10-04), tested, NOT deployed.
 
 ## Lot 4 — Calibrate the verdict (P3) — last
 
-NOT STARTED. Its prerequisites are in place: the evidence is dated and tied to
-its definition (lot 1), keeps arriving mechanically (lot 2), and its record is
-displayed (4.1), which is what will carry the label of a candidate the Worker
-reads without it being established.
+DONE 2026-10-06 and deployed. The bench came first and every rule was chosen
+on it; its two protocols were written before their figures
+(`docs/research/2026-10-05-verdict-calibration/`).
 
-- [ ] **3.4 A simulation bench first.** Measured null confirmation rate per
-  protocol (is it 0.50 once the margin has removed its share on each side?),
-  and the false-integration rate of a rule over the looks an invariant's life
-  gives it. It is the guarantee test of whatever rule 3.1 adopts.
-- [ ] **3.1 Fixed checkpoints (D5).** The verdict is judged at checkpoints set
-  in advance, with a bar per checkpoint that keeps the false-integration rate
-  over a lifetime at the level stated — instead of the same 5% at every
-  confrontation. The checkpoints and bars are chosen ON the bench of 3.4, not
-  before it.
-- [ ] **3.1 — what the Worker reads (D5).** If few or none of the integrated
-  invariants survive, the Worker's baseline shows the best candidates with
-  their record (`describe_evidence`) and the plain label that they are not
-  established. `planner/baseline.py` filters on `integrated` today.
-- [ ] **3.2 Dependence between moments of one episode.** A dependence-aware
+- [x] **3.4 A simulation bench first.**
+  `docs/research/2026-10-05-verdict-calibration/` — protocol written before
+  the figures, `bench.py` read-only on the live database, results and reading
+  in its README. A rule is a status per record plus the counts at which it
+  looks; the bench reads it exactly on independent moments and on a PLACEBO
+  (each invariant's own condition shifted along its calendar, 400 times, so
+  the episodes keep their shape and lose their link to what followed). Its
+  moments, excess and labels are tested equal to production's, and shift zero
+  reproduces the measured confrontations of all 248 invariants.
+- [x] **3.4 — what it measured (2026-10-05).**
+  NULL: 0.485 to 0.515 on the 19 asset and asset-class protocols; 0.41 to 0.68
+  on four of the five strategy protocols, where 86% to 92% of dates are
+  neutral (five invariants judged against a null that is not theirs).
+  DEPENDENCE: about none for conditions holding under 10% of the time (median
+  dispersion 0.93); above 1.5 for 28% of the records of 20 moments or more,
+  2.92 for `inv-low-real-yields-favor-gold`. For dense conditions the placebo
+  gives a floor, not an estimate.
+  RULE IN FORCE: a claim that knows nothing is integrated at least once in
+  9.0% of placebo lives (20.0% for a fair coin within 160 looks, the plan's
+  figures reproduced), 2.5% at a single look at the end of the sample; the
+  gold invariant's shifted condition passes 26% of the time at a single look.
+- [x] **3.4 — the two candidates of 3.1 on the bench.** Lifetime level 5%
+  spent equally, bars exact, never below theta. DOUBLING (10, 20, 40, 80, 160,
+  320 — nothing can pass at 5): 3.7% for a fair coin, 1.0% on the placebo, 11
+  of 242 invariants above 5%; keeps 2 of the 9 integrated. EVERY 10: 2.4%,
+  0.3%, none above 5%; keeps 1. Same power past 50 decided moments (a true
+  0.65 claim: 75% within 100, 94% within 160), doubling ahead before it. A
+  record between two checkpoints is judged on the moments up to the last one:
+  up to half the record waits under doubling, at most 9 moments under every-10.
+- [x] **3.1 Fixed checkpoints (D5) — every 10, against the measured null
+  (owner, 2026-10-05).** `invariants.checkpoint_verdict` replaces
+  `time_validation_verdict`: a record is read every 10 decided moments up to
+  320, on its first moments in date order, and nowhere between;
+  `checkpoint_bars` computes the bars that hold 5% over the life, never below
+  theta. `restate_invariant` reads the record in date order; the counts, score
+  and weight stay the whole record's. The null is
+  `invariant.null_confirmation_rate` (new column), measured by the sweep from
+  the every-date excess it already computed; 0.50 remains for an unconditional
+  claim. `invariant_min_confrontations` and
+  `invariant_refuted_min_confrontations` are retired. Guarantees tested: a
+  claim confirming at its protocol's null is integrated at least once over a
+  life at most 5% of the time — simulated, not by the calculation that sets
+  the bars, at nulls 0.41 / 0.50 / 0.68
+  (`test_a_claim_that_knows_nothing_is_rarely_integrated_over_a_whole_life`);
+  a fair-coin bar on a skewed protocol does not hold it; the moments since the
+  last checkpoint wait for the next; a record is judged against its own null.
+  ADR-006 carries the amendment; CLAUDE.md, ARCHITECTURE and DATA_MODELS the
+  rule.
+- [x] **3.1 — the consequence, measured before deployment: no invariant is
+  integrated.** The table the choice was made on said every-10 kept one; that
+  was on a 0.50 null. `inv-low-real-yields-favor-gold` has 52 of its first 80
+  moments, the bar is 52 at 0.50 and 53 at GLD's measured 0.507. Seven of the
+  other eight rested on 5 to 13 moments. The adopted rule on the placebo:
+  0.21% over a life, one invariant of 242 at 5.25% (bench README, section 7).
+- [x] **3.1 — what the Worker reads (D5).** `planner/baseline.py` shows the
+  established invariants first, then the CANDIDATES: `proposed` invariants
+  whose record has passed a checkpoint (judged, neither integrated nor
+  rejected), by weight. One with no record stays out — its weight is belief
+  alone. `context.standing_label` writes "candidate, not established" before
+  the weight and the record, for the Planner's pool and the Worker's context
+  alike, and the Worker's system prompt says what the label means. On the
+  copy: 133 judged candidates, 16 shown. Guarantees tested: a judged candidate
+  follows every established invariant although it outweighs them; a candidate
+  short of a checkpoint or rejected is not shown; a candidate is never
+  rendered without its label.
+- [x] **3.2 Dependence between moments of one episode — measured, not
+  corrected (2026-10-06).** Bench, second part (`PREREGISTRATION_2.md`,
+  README section 8). The VERDICT needs no correction: dependence does raise
+  false integrations (rank correlation 0.44 with the placebo dispersion) and
+  the adopted rule still holds — 0.79% over a life on the 46 most dependent
+  records, one invariant of 242 at 5.75%, inside the noise. The DISPLAYED
+  range does not get one either, for want of an instrument: the design effect
+  of calendar blocks tracked the placebo at 0.29 at best where 0.5 was
+  required, and put the gold invariant at 1.5 where the placebo says 2.9. The
+  range goes on saying it assumes independent moments. What follows is the
+  note written before that measurement.
+- **3.2, as it stood.** A dependence-aware
   count of the evidence, not an arbitrary minimum of episodes. Also what the
-  displayed range needs to stop being optimistic.
-- [ ] **3.3 Hypothesis families and multiplicity.** This is where similarity
-  may GROUP ideas (see 6.1).
-- [ ] **3.5 The "refuted" branch.** Calibrate it on the same bench or name it
-  the fast heuristic it is.
+  displayed range needs to stop being optimistic. What the bench gives and
+  does not: the placebo's dispersion is usable for a condition that holds
+  rarely and is a FLOOR for a dense one, so an effective size taken from it
+  would be most generous exactly where dependence is strongest. Needs another
+  instrument (a block bootstrap over episodes is the candidate).
+- [x] **3.3 Hypothesis families and multiplicity — measured, and the level
+  stays per invariant (owner, 2026-10-06).** Joint placebo, one shift for all
+  247 conditions, families = one effect (24 of them): at the adopted 5% per
+  invariant, 0.2 invariant is integrated by chance at any one time, at least
+  one 16% of the time, at least one at some point 40% of the time. At 1% per
+  invariant: 2% and 8%, and a true-0.70 claim integrated within 100 moments
+  87% of the time instead of 96%. No level met both conditions fixed in
+  advance. The figure is written in ARCHITECTURE and CLAUDE.md, to be read
+  beside any count of integrated invariants. Grouping ideas by similarity was
+  not needed: the families that share an outcome series are given by the
+  effect.
+- [x] **3.5 The rejected branches — calibrated (owner, 2026-10-06).**
+  `invariants.rejection_bars`: the mirror of the integration bar, so that a
+  claim exactly at theta is rejected at least once over its life at most 5% of
+  the time. `refuted` and `inadequate` are gone, with
+  `invariant_refuted_score` and the binomial tails; `checkpoint_verdict` takes
+  a count, a checkpoint and two bars. Measured before the choice: the two
+  branches rejected a true-theta claim in 21.6% of lives, and `refuted` kept
+  beside the bar still gave 9.6%. Cost: a fair coin leaves `proposed` within
+  160 moments 65% of the time instead of 88%. Guarantees tested, by
+  simulation: a claim at theta is rarely rejected over a life; nothing stays
+  proposed forever; the two bars cannot meet. On the live database: rejected
+  48 → 12.
 
 ## Owner decisions
 
@@ -346,3 +440,8 @@ reads without it being established.
   role is to stir. This needed 4.1's display (N, range, coverage) in the
   Worker context, which is in place.
 - [x] **D6** — rename `date` → `signal_date`: yes (2026-10-04).
+- [x] **3.1** — checkpoints every 10, against the measured null of each
+  protocol (2026-10-05).
+- [x] **3.5** — the calibrated rejection bar, alone (2026-10-06).
+- [x] **3.3** — 5% per invariant, the corpus figure written down (2026-10-06).
+- [x] **Digest** — the judged candidates, labelled (2026-10-06).

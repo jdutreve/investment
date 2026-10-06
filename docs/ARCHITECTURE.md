@@ -598,67 +598,84 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   signals. Maturation persists only its OUTCOMES (invariant_confrontations +
   weights).
 
-  TIME-VALIDATION VERDICT — the number. Three outcomes, checked in order
-  (ADR-006 + its M5/M5-bis amendments; every threshold from
-  system_thresholds; α = 1 − invariant_verdict_confidence = 0.05):
-    REFUTED    → rejected:   confrontations ≥ 4 AND market_score < 0.35
-                             (the effect actively fails when cited — the
-                              point test arms fast for clearly harmful i)
-    INTEGRATED:              confrontations ≥ invariant_min_confrontations
-                             (N_min, 3) AND market_score ≥
-                             invariant_time_validation_score (θ, 0.60)
-                             AND P(X ≥ confirmations | N, invariant_null_
-                             score) ≤ α — i.e. the 0.50 null (the
-                             no-condition rate of a baseline-relative
-                             score) is an implausible source of evidence
-                             this good. EFFECT SIZE **and** EVIDENCE.
-    INADEQUATE → rejected:   confrontations ≥ 4 AND P(X ≤ confirmations |
-                             N, θ) ≤ α — given ample evidence, a true rate
-                             of θ is an implausible source of evidence this
-                             bad, so i demonstrably CANNOT reach the bar.
-                             Cannot race INTEGRATED: score ≥ θ puts the
-                             count at or above θ's own median, so its lower
-                             tail is ≈0.5, never ≤ α.
+  TIME-VALIDATION VERDICT — the number. JUDGED AT FIXED CHECKPOINTS (ADR-006
+  and its amendments, the last of 2026-10-05; every threshold from
+  system_thresholds; α = 1 − invariant_verdict_confidence = 0.05).
+  A record is read every invariant_checkpoint_spacing (10) decided moments,
+  up to invariant_checkpoint_last (320), on its first moments in date order —
+  and nowhere between. With c confirmations among the n of the last
+  checkpoint passed:
+    INTEGRATED:              c ≥ bar(n). The bars are computed so that a claim
+                             which knows nothing — one confirming at the NULL
+                             of its protocol — is integrated AT LEAST ONCE
+                             over the whole list with probability ≤ α
+                             (invariants.checkpoint_bars: α spent equally
+                             across the checkpoints, unspent level carried
+                             forward, exact). No bar is below θ·n
+                             (invariant_time_validation_score, 0.60):
+                             EFFECT SIZE **and** EVIDENCE.
+    REJECTED:                c ≤ rejection_bar(n). The mirror of the bar
+                             above (invariants.rejection_bars): a claim
+                             confirming at exactly θ — the weakest one worth
+                             integrating — is rejected AT LEAST ONCE over the
+                             whole list with probability ≤ α. Cannot race
+                             INTEGRATED: one bar is at or above θ·n, the
+                             other below it.
     otherwise  → proposed:   INSUFFICIENT EVIDENCE — the ONLY meaning of
-                             'proposed'. It empties mechanically as
-                             confrontations accrue (above θ the null tail
-                             collapses and i integrates; below θ the θ tail
-                             collapses and i is rejected), honoring
-                             "Nothing stays proposed forever" (ADR-006);
-                             only genuine data scarcity (a rare condition,
-                             a late data floor) keeps an invariant here,
-                             weight held near floor.
-  WHY the null tail on INTEGRATED (M5-bis): θ alone is a POINT test, and a
-  point test gets EASIER the less evidence there is. P(score ≥ 0.60 | the
-  invariant has NO edge) is 50% at N=3, 21% at N=14, 25% at N=20, 3% at
-  N=82 — so at the old rule `inv-inflation-persistence-tips` held an
-  'integrated' stamp on 9/14 (a 21% coin), and gate 6 would have cited it in
-  a live proposal. The incentive also ran backwards: a NARROWER condition
-  yields fewer moments and so passed MORE easily — the engine mechanically
-  rewarded the over-fitted invariants it exists to catch, with no user gate
-  downstream to notice (ADR-006). The bar stays reachable: a true-0.65
-  invariant qualifies on ~30 moments (~7y of active condition at a 12w
-  horizon) and the real gold invariant clears it at 53/82 (tail 0.005).
-  WHY EXACT tails, not the Wilson interval this rule first used: Wilson is
-  liberal at extreme rates with small N — exactly where the defect lives.
-  wilson_lower(3,3) = 0.526 ≥ 0.50 would still have integrated a 3-for-3
-  invariant that a coin reproduces 12.5% of the time. The exact tail puts
-  the smallest perfect record at 5/5 (0.031) and leaves every rejection on
-  the real board unchanged.
-  WHY the INADEQUATE branch: without it the 0.35..θ band is an absorbing
-  dead middle — on the real 35y maturation 4 of 6 seed invariants landed
-  there (e.g. 0.545 on N=354, upper bound 0.588) and would have stayed
-  'proposed' at ANY N, unqualifiable, while gate 6 cites integrated
-  invariants only. The engine's purpose is to VALIDATE knowledge: verdicts
-  must converge. Baseline-relative scoring (above) is what makes the test
-  sound — the null is 0.50 for every handle.
-  The verdict is STATELESS — recomputed from current counts at every
-  confrontation — so a rejection is as reversible as the evidence behind it.
-  weight_effective stays continuous via market_score; the verdict is the
-  discrete gate for integration eligibility and money-moving citation.
-  N_min/θ/confidence are owner-set (NOT in the Phase 9 calibration grid —
-  the mechanical replay is blind to invariant weights; see DATA_MODELS
-  system_thresholds note).
+                             'proposed'. Before the first checkpoint every
+                             record is there.
+  The counts, market_score and weight_effective are the WHOLE record's; only
+  the verdict waits for the next checkpoint.
+  WHY CHECKPOINTS (owner decision D5; docs/research/2026-10-05-verdict-
+  calibration). The rule until 2026-10-05 tested each record against α at
+  EVERY new confrontation. A threshold per look is not a threshold per life:
+  a fair coin was integrated at least once in 20% of 160-moment lives, and
+  the corpus's own conditions, moved to dates where they mean nothing, in 9%.
+  The checkpoint rule holds α over the life — 0.2% on that same placebo. Its
+  price is stated, not hidden: a claim truly at 0.65 needs about 100 decided
+  moments to be integrated three times in four, and nothing under ten moments
+  can be integrated at all.
+  WHY A MEASURED NULL. The null is invariant.null_confirmation_rate — the
+  share of confirmations among the decided outcomes when EVERY date of the
+  protocol is taken as a moment — and not the constant 0.50. A median baseline
+  puts half the dates on each side; the margin removes an equal share from
+  each only if the distribution is symmetric. It nearly is for an asset class
+  against the others (0.485 to 0.515) and is not for one strategy against the
+  others (0.41 to 0.68). invariant_null_score (0.50) remains the null of an
+  unconditional claim, whose every-date rate is its own record.
+  WHY A REJECTION BAR, and why held over the life too (owner, 2026-10-06).
+  Without a way out below θ the band under it is an absorbing dead middle —
+  on the real 35y maturation 4 of 6 seed invariants landed there and would
+  have stayed 'proposed' at ANY N. The engine's purpose is to VALIDATE
+  knowledge: verdicts must converge. Until 2026-10-06 two per-look branches
+  did it — REFUTED (c/n < 0.35) and INADEQUATE (a 5% tail under θ) — and a
+  claim truly at θ was rejected at least once in 21.6% of 320-moment lives,
+  5.6% of them at the first look by REFUTED alone. The bar holds 5%. Its
+  price: a claim that knows nothing leaves 'proposed' more slowly (65% of
+  fair coins within 160 decided moments, 95% within 320; it was 88% and 99%).
+  THE LEVEL IS PER INVARIANT, NOT PER CORPUS, and that is a choice (owner,
+  2026-10-06). Measured on a JOINT placebo — one shift applied to all 247
+  conditions at once, so that invariants on one signal move together — the
+  adopted rule integrates 0.2 invariant by chance at any one time, at least
+  one 16% of the time, and at least one at some point of the sample 40% of
+  the time. A per-invariant level of 1% would bring those to 2% and 8% and
+  cost a true-0.70 claim a tenth of its chances within 100 moments. A level
+  tied to the corpus's size would move at every birth; the figure is written
+  here instead, to be read beside any count of integrated invariants.
+  DEPENDENCE between the moments of one episode is NOT corrected, on
+  measurement: it does raise false integrations (rank correlation 0.44 with a
+  record's placebo dispersion) and the rule still holds its level where it is
+  highest (0.8% on average over the 46 most dependent records, one of 242 at
+  5.75%, inside the noise of 400 shifts). The record's displayed range still
+  assumes independence and says so: the estimator tried for it — the design
+  effect of calendar blocks — did not track the placebo and is not used
+  (docs/research/2026-10-05-verdict-calibration, second part).
+  The verdict is STATELESS — recomputed from the record at every restatement —
+  so a rejection is as reversible as the evidence behind it. weight_effective
+  stays continuous; the verdict is the discrete gate for integration.
+  The spacing, θ and the confidence are owner-set (NOT in the Phase 9
+  calibration grid — the mechanical replay is blind to invariant weights; see
+  DATA_MODELS system_thresholds note).
 
   AN INVARIANT IS TIMELESS (owner, 2026-10-03). No date enters the weight: a
   dormant-but-veridical invariant is not stale, it waits for its condition.

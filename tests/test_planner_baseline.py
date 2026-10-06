@@ -117,7 +117,7 @@ async def _seed(db: InvestmentDB) -> None:
             p=prob,
         )
     # invariants: statuses + tags spanning all three buckets, plus a proposed one
-    # that must NEVER surface (integrated-only)
+    # with no record, which must NEVER surface: its weight is belief alone
     invs = [
         ("i-regime", "integrated", '["regime:stagflation"]', 0.5),
         ("i-asset", "integrated", '["asset:GLD"]', 0.9),  # heaviest, but not regime-tagged
@@ -184,9 +184,46 @@ async def test_bucket_priority_dedup_and_integrated_only(seeded: InvestmentDB) -
     ids = [i["id"] for i in b.top_invariants]
     # regime bucket first (i-regime, i-both by weight), then held-asset bucket
     # (GLD/TLT/cash held → i-asset; i-both already seen), then global (i-global).
-    # i-proposed never appears (integrated-only).
+    # i-proposed never appears: the heaviest row of all, and nothing behind it.
     assert ids == ["i-both", "i-regime", "i-asset", "i-global"]
     assert "i-proposed" not in ids
+
+
+async def test_a_judged_candidate_is_read_after_the_established_ones(
+    seeded: InvestmentDB,
+) -> None:
+    """Owner decision D5: under a verdict calibrated over a record's life few
+    invariants are integrated, and the Worker — which decides nothing — reads
+    the best candidates rather than an empty corpus. A candidate is a
+    'proposed' invariant a checkpoint has already judged; one short of the
+    first checkpoint, or rejected, stays out however heavy it is."""
+    await seeded.command(
+        "INSERT INTO system_thresholds (key, value, updated_at) "
+        "VALUES ('invariant_checkpoint_spacing', 10.0, '2026-01-01')"
+    )
+    for iid, status, confirmed, refuted, weight in (
+        ("i-candidate", "proposed", 12, 8, 0.95),
+        ("i-too-short", "proposed", 9, 0, 0.97),
+        ("i-rejected", "rejected", 5, 15, 0.98),
+    ):
+        await seeded.command(
+            "INSERT INTO invariant (id, title, description, source, status, tags, "
+            "weight_initial, floor_weight, weight_effective, confirmation_count, "
+            "infirmation_count, trace, created_at, updated_at) VALUES (:id, 't', 'd', 's', "
+            ":st, '[\"regime:stagflation\"]', 0.5, 0.05, :w, :c, :r, 'tr', '2026-01-01', "
+            "'2026-01-01')",
+            id=iid,
+            st=status,
+            w=weight,
+            c=confirmed,
+            r=refuted,
+        )
+    b = await bl.gather_baseline(seeded)
+    ids = [i["id"] for i in b.top_invariants]
+    # In its bucket the candidate follows every established invariant, although
+    # it outweighs them all.
+    assert ids == ["i-both", "i-regime", "i-candidate", "i-asset", "i-global"]
+    assert next(i for i in b.top_invariants if i["id"] == "i-candidate")["status"] == "proposed"
 
 
 async def test_the_planner_reads_the_tape_as_of_today_not_beyond(seeded: InvestmentDB) -> None:

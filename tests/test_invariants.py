@@ -6,8 +6,8 @@ weight_effective as computed by hand"."""
 
 import dataclasses
 import itertools
-import math
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -66,99 +66,207 @@ def test_confrontation_fixture_moves_weight_by_hand() -> None:
     assert w_eff == pytest.approx(7.4 / 9)
 
 
-def _verdict(confirmations: int, infirmations: int) -> str:
-    total = confirmations + infirmations
-    score = confirmations / total if total else 1.0
-    return invariants.time_validation_verdict(
-        confirmations, infirmations, score, 3.0, 0.60, 4.0, 0.35, 0.95, 0.50
+# -- the verdict, judged at fixed checkpoints --------------------------------
+
+_CHECKPOINTS = invariants.checkpoints(10, 320)
+_THETA, _LEVEL = 0.60, 0.05
+
+
+def _verdict(confirmations: int, checkpoint: int, null_rate: float = 0.50) -> str:
+    """The verdict on `confirmations` among the first `checkpoint` decided
+    moments of a record, with the seeded thresholds."""
+    bars = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, null_rate, _THETA)
+    rejection = invariants.rejection_bars(_CHECKPOINTS, _LEVEL, _THETA)
+    return invariants.checkpoint_verdict(
+        confirmations, checkpoint, bars.get(checkpoint), rejection.get(checkpoint)
     )
 
 
-def test_time_validation_verdict_integrated_needs_effect_AND_evidence() -> None:
-    """Clearing theta is necessary, never sufficient (ADR-006 M5-bis
-    amendment). 5/5 is the smallest perfect record a coin does not
-    reproduce at 5% (0.5^5 = 0.031)."""
-    assert _verdict(5, 0) == "integrated"
-    assert _verdict(53, 29) == "integrated"  # the real gold invariant, tail 0.005
-    assert _verdict(4, 0) == "proposed"  # 1.000 but a coin does this 6.3% of the time
-    assert _verdict(2, 0) == "proposed"  # below N_min
-    assert _verdict(2, 1) == "proposed"  # 0.667 >= theta, and a literal coin flip
+def _share_ever_rejected(true_rate: float, lives: int = 100_000) -> float:
+    """Simulated, like `_share_ever_integrated`: independent records confirming
+    at `true_rate`, each read at every checkpoint against the rejection bars."""
+    rejection = invariants.rejection_bars(_CHECKPOINTS, _LEVEL, _THETA)
+    outcomes = np.random.default_rng(20261006).random((lives, _CHECKPOINTS[-1])) < true_rate
+    confirmed_at = np.cumsum(outcomes, axis=1)[:, np.array(_CHECKPOINTS) - 1]
+    allowed = np.array([-1 if rejection[c] is None else rejection[c] for c in _CHECKPOINTS])
+    return float((confirmed_at <= allowed).any(axis=1).mean())
 
 
-def test_verdict_point_test_alone_would_integrate_noise() -> None:
-    """The defect the tail test closes: at small N, `score >= theta` is
-    cleared by chance alone. Every case here passes theta and is refused —
-    with the probability a ZERO-edge invariant produces it (see
-    `binomial_tail_at_least` against the 0.50 null)."""
-    for c, i, p_noise in ((2, 1, 0.500), (3, 0, 0.125), (9, 5, 0.212), (12, 8, 0.252)):
-        total = c + i
-        assert c / total >= 0.60  # would have been 'integrated' under the old rule
-        assert invariants.binomial_tail_at_least(c, total, 0.50) == pytest.approx(p_noise, abs=1e-3)
-        assert _verdict(c, i) == "proposed"
+def _share_ever_integrated(true_rate: float, null_rate: float, lives: int = 100_000) -> float:
+    """Simulated, and deliberately NOT by the calculation that sets the bars:
+    `lives` independent records confirming at `true_rate`, each read at every
+    checkpoint against the bars for `null_rate`."""
+    bars = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, null_rate, _THETA)
+    outcomes = np.random.default_rng(20261005).random((lives, _CHECKPOINTS[-1])) < true_rate
+    confirmed_at = np.cumsum(outcomes, axis=1)[:, np.array(_CHECKPOINTS) - 1]
+    required = np.array([np.inf if bars[c] is None else bars[c] for c in _CHECKPOINTS])
+    return float((confirmed_at >= required).any(axis=1).mean())
 
 
-def test_time_validation_verdict_rejected_when_refuted() -> None:
-    # 5 confrontations, score 0.20 < refuted_score 0.35, total >= refuted_min 4.
-    assert _verdict(1, 4) == "rejected"
+@pytest.mark.parametrize("null_rate", [0.50, 0.41, 0.68])
+def test_a_claim_that_knows_nothing_is_rarely_integrated_over_a_whole_life(
+    null_rate: float,
+) -> None:
+    """THE GUARANTEE (owner decision D5): 5% is the probability over the LIFE
+    of a record, not at each look. The rule this replaces held 5% at every
+    confrontation, and a fair coin was integrated at least once in 20% of
+    160-moment lives. Held against the null of each protocol, because 0.50 is
+    not the null of all of them."""
+    share = _share_ever_integrated(true_rate=null_rate, null_rate=null_rate)
+    assert share <= _LEVEL + 0.002  # three standard errors of a 5% share over 100,000 lives
 
 
-def test_binomial_tail_golden_values() -> None:
-    """Hand-checkable: 5 fair coins all landing heads is 0.5^5; 3 of 3 is
-    0.5^3; the two tails of a symmetric null at c = n/2 overlap on the
-    median term, so they sum to 1 + P(X = n/2)."""
-    assert invariants.binomial_tail_at_least(5, 5, 0.50) == pytest.approx(0.03125)
-    assert invariants.binomial_tail_at_least(3, 3, 0.50) == pytest.approx(0.125)
-    assert invariants.binomial_tail_at_least(0, 10, 0.50) == pytest.approx(1.0)
-    assert invariants.binomial_tail_at_most(10, 10, 0.50) == pytest.approx(1.0)
-    assert invariants.binomial_tail_at_least(0, 0, 0.50) == 1.0
-    assert invariants.binomial_tail_at_most(0, 0, 0.50) == 1.0
-    both = invariants.binomial_tail_at_least(5, 10, 0.50) + invariants.binomial_tail_at_most(
-        5, 10, 0.50
-    )
-    assert both == pytest.approx(1.0 + math.comb(10, 5) * 0.5**10)
-    # Monotone in evidence at a fixed rate: a longer perfect run is rarer.
-    assert invariants.binomial_tail_at_least(20, 20, 0.50) < invariants.binomial_tail_at_least(
-        10, 10, 0.50
-    )
+def test_a_fair_coin_null_would_not_hold_the_level_on_a_skewed_protocol() -> None:
+    """Why the null is measured per protocol: on a protocol where nothing
+    confirms 68% of the time, bars computed for a fair coin integrate what
+    knows nothing far more often than the level allows."""
+    assert _share_ever_integrated(true_rate=0.68, null_rate=0.50, lives=20_000) > 0.50
 
 
-def test_verdict_dead_middle_rejects_on_confidence_at_large_n() -> None:
-    """ADR-006 amendment: 'Nothing stays proposed forever'. A score in the
-    0.35..theta dead middle used to stay 'proposed' at ANY N. Now, once a
-    true rate of theta becomes an implausible source of evidence this bad,
-    the invariant is REJECTED as demonstrably unable to reach the bar — the
-    real liquidity-easing case (0.545 on N=354) qualifies instead of
-    stalling."""
-    assert _verdict(193, 161) == "rejected"  # 0.545, N=354 — amply measured
-    assert _verdict(50, 50) == "rejected"  # 0.500, N=100 — no edge, amply measured
+def test_a_claim_with_a_real_effect_is_still_integrated() -> None:
+    """The bars are reachable: a claim confirming 70% of the time is integrated
+    within 100 decided moments nineteen times in twenty."""
+    bars = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, 0.50, _THETA)
+    outcomes = np.random.default_rng(7).random((20_000, 100)) < 0.70
+    reached = [c for c in _CHECKPOINTS if c <= 100]
+    confirmed_at = np.cumsum(outcomes, axis=1)[:, np.array(reached) - 1]
+    required = np.array([bars[c] for c in reached])
+    assert (confirmed_at >= required).any(axis=1).mean() > 0.93
+
+
+def test_the_bars_of_a_fair_coin_null() -> None:
+    """Pinned by hand at the first checkpoint: ten of ten is 0.5^10, about one
+    in a thousand, and nine of ten or better is eleven in 1,024 — more than the
+    whole level the first checkpoint may spend (5% / 32). Past 80 moments the
+    bar is theta itself."""
+    bars = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, 0.50, _THETA)
+    assert [bars[c] for c in (10, 20, 30, 40, 50, 80, 100, 160, 320)] == [
+        10,
+        17,
+        23,
+        29,
+        35,
+        52,
+        63,
+        96,
+        192,
+    ]
+
+
+def test_no_bar_is_below_theta_whatever_the_null() -> None:
+    """Effect size AND evidence: a null of 0.30 makes six of ten rare, and six
+    of ten is still not an effect worth acting on at a hundred moments."""
+    for null_rate in (0.30, 0.50, 0.68):
+        bars = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, null_rate, _THETA)
+        assert all(bar is None or bar >= _THETA * count - 1e-9 for count, bar in bars.items())
+    skewed = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, 0.68, _THETA)
+    fair = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, 0.50, _THETA)
+    assert skewed[100] > fair[100]
+
+
+def test_no_record_is_judged_before_its_first_checkpoint() -> None:
+    """Nine of nine and none of nine are both 'proposed': a record that has not
+    reached a checkpoint has not been looked at."""
+    assert invariants.checkpoint_reached(9, 10, 320) == 0
+    assert _verdict(9, 0) == "proposed"
+    assert _verdict(0, 0) == "proposed"
+
+
+def test_a_record_is_read_at_the_last_checkpoint_it_has_passed() -> None:
+    assert invariants.checkpoint_reached(10, 10, 320) == 10
+    assert invariants.checkpoint_reached(39, 10, 320) == 30
+    assert invariants.checkpoint_reached(500, 10, 320) == 320  # the last one stands
+
+
+def test_integration_needs_the_bar_of_the_checkpoint() -> None:
+    assert _verdict(10, 10) == "integrated"
+    assert _verdict(9, 10) == "proposed"  # 0.90, and a coin does it 1.1% of the time
+    assert _verdict(17, 20) == "integrated"
+    assert _verdict(16, 20) == "proposed"
+    assert _verdict(52, 80) == "integrated"  # the real gold invariant's first 80 moments
+    assert _verdict(51, 80) == "proposed"
+
+
+def test_a_claim_worth_integrating_is_rarely_rejected_over_a_whole_life() -> None:
+    """THE SAME GUARANTEE ON THE OTHER SIDE (owner, 2026-10-06): a claim
+    confirming at exactly theta — the weakest one worth integrating — is
+    rejected at least once over its life at most 5% of the time. The branches
+    this replaces tested at every checkpoint and rejected it in 21.6% of
+    lives; a better claim is rejected more rarely still."""
+    assert _share_ever_rejected(true_rate=_THETA) <= _LEVEL + 0.002
+    assert _share_ever_rejected(true_rate=0.65, lives=20_000) < 0.01
+
+
+def test_nothing_stays_proposed_forever() -> None:
+    """ADR-006, and what the rejection bar must not cost: a claim that knows
+    nothing still leaves 'proposed' — two fair coins in three within 160
+    decided moments, nearly all within 320 — and one worse than nothing leaves
+    fast."""
+    fair = np.random.default_rng(11).random((20_000, 320)) < 0.50
+    rejection = invariants.rejection_bars(_CHECKPOINTS, _LEVEL, _THETA)
+    confirmed_at = np.cumsum(fair, axis=1)[:, np.array(_CHECKPOINTS) - 1]
+    allowed = np.array([-1 if rejection[c] is None else rejection[c] for c in _CHECKPOINTS])
+    rejected_by = (confirmed_at <= allowed).cumsum(axis=1) > 0
+    assert rejected_by[:, _CHECKPOINTS.index(160)].mean() > 0.60
+    assert rejected_by[:, -1].mean() > 0.93
+    assert _verdict(96, 320) == "rejected"  # 0.30 at the last checkpoint
+    assert _verdict(160, 320) == "rejected"  # 0.50
+
+
+def test_the_rejection_bars() -> None:
+    """Pinned by hand at the first checkpoint: at theta, no confirmation in ten
+    is 0.4^10, one in ten thousand; one or none is seventeen in ten thousand —
+    more than the first checkpoint may spend (5% / 32)."""
+    rejection = invariants.rejection_bars(_CHECKPOINTS, _LEVEL, _THETA)
+    assert [rejection[c] for c in (10, 20, 30, 50, 100, 160, 320)] == [0, 5, 10, 20, 47, 81, 173]
+    assert _verdict(0, 10) == "rejected"
+    assert _verdict(3, 10) == "proposed"  # 0.30: 'refuted' under the old branch, 5.5% at theta
+    assert _verdict(47, 100) == "rejected"
+    assert _verdict(48, 100) == "proposed"
+
+
+def test_the_two_bars_cannot_meet() -> None:
+    """One is at or above theta of its count, the other below it: no record is
+    both integrated and rejected, whatever the null."""
+    rejection = invariants.rejection_bars(_CHECKPOINTS, _LEVEL, _THETA)
+    for null_rate in (0.30, 0.50, 0.68):
+        bars = invariants.checkpoint_bars(_CHECKPOINTS, _LEVEL, null_rate, _THETA)
+        for count in _CHECKPOINTS:
+            bar, lower = bars[count], rejection[count]
+            assert bar is None or lower is None or lower < bar
 
 
 def test_verdict_dead_middle_stays_proposed_while_genuinely_unresolved() -> None:
-    """The same mid-band score with small N keeps 'proposed' — theta is still
-    a plausible source of the evidence, so it is genuinely insufficient (the
-    ONLY remaining meaning of 'proposed')."""
-    assert _verdict(30, 30) == "proposed"  # 0.500, N=60 — theta-tail 0.075
-    assert _verdict(2, 2) == "proposed"  # 0.500, N=4
-
-
-def test_verdict_inadequate_rejection_cannot_race_integration() -> None:
-    """score >= theta puts the count at or above theta's own median, so its
-    lower tail is ~0.5 and can never fall under alpha: 'integrated' and
-    'inadequate' are mutually exclusive by construction, whatever the N."""
-    for c, i in ((3, 0), (60, 40), (7, 3), (240, 160), (5, 0), (53, 29)):
-        total = c + i
-        if c / total >= 0.60:
-            assert invariants.binomial_tail_at_most(c, total, 0.60) > 0.05
-            assert _verdict(c, i) in ("integrated", "proposed")
+    """A mid-band score on a short record keeps 'proposed' — theta is still a
+    plausible source of the evidence, so it is genuinely insufficient (the
+    ONLY meaning of 'proposed')."""
+    assert _verdict(30, 60) == "proposed"  # 0.500 on 60 moments
+    assert _verdict(5, 10) == "proposed"
 
 
 def test_verdict_evidence_eventually_settles_every_true_rate() -> None:
-    """'Nothing stays proposed forever' (ADR-006), now against BOTH bars: a
-    true rate either side of theta resolves once enough moments accrue, and
-    only the measure-zero rate exactly AT theta is allowed to stall."""
+    """'Nothing stays proposed forever' (ADR-006), against BOTH bars: a true
+    rate either side of theta resolves once enough moments accrue, and only
+    the rate exactly AT theta is allowed to stall."""
     for true_rate, expected in ((0.70, "integrated"), (0.50, "rejected"), (0.30, "rejected")):
-        c = round(true_rate * 400)
-        assert _verdict(c, 400 - c) == expected
+        assert _verdict(round(true_rate * 320), 320) == expected
+
+
+def test_the_null_of_a_protocol_is_measured_not_assumed() -> None:
+    """A median baseline puts half the dates on each side; the margin then
+    removes its share from each, and not an equal share when the distribution
+    leans. Here the median is 0.0, two dates fall well below it and one well
+    above: a condition that knows nothing confirms one time in three."""
+    excess = [-0.10, -0.10, 0.0, 0.01, 0.20]
+    assert invariants.null_confirmation_rate(excess, 0.0, "outperform", 0.02) == pytest.approx(
+        1 / 3
+    )
+    assert invariants.null_confirmation_rate(excess, 0.0, "underperform", 0.02) == pytest.approx(
+        2 / 3
+    )
+    # Nothing leaves the margin: there is no rate to report, and saying 0.50
+    # would be asserting one.
+    assert invariants.null_confirmation_rate([0.0, 0.01, -0.01], 0.0, "outperform", 0.02) is None
 
 
 # -- condition / moment evaluation ------------------------------------------

@@ -478,6 +478,75 @@ on (an ADR does not undo an owner's signature) but are labelled unproven where
 they are read; and the Worker is shown the label, so it stops treating a noise
 result as a settled question.
 
+**Amendment (2026-10-05, owner decision D5) — the invariant verdict is judged at
+fixed checkpoints, against a measured null.** The M5-bis amendment above made
+integration require evidence, and tested for it at every confrontation: a 5%
+tail each time a record gained a moment. A threshold per look is not a threshold
+per life. Measured on the bench of `docs/research/2026-10-05-verdict-calibration`
+(protocol written before the figures): a fair coin was integrated at least once
+in 20.0% of 160-moment lives, and the corpus's own conditions, shifted to dates
+where they can mean nothing, in 9.0% — 26% at a single look for the best-known
+of the nine invariants then integrated.
+
+So:
+
+- a record is read every `invariant_checkpoint_spacing` (10) decided moments, on
+  its first moments in date order, and nowhere between;
+- `integrated` iff the count reaches the checkpoint's bar. The bars keep the
+  probability that a claim which knows nothing is integrated AT LEAST ONCE over
+  its whole life at `1 − invariant_verdict_confidence` (0.05), and none is below
+  θ of its count: effect size and evidence, as before;
+- the null is the MEASURED every-date confirmation rate of the invariant's own
+  protocol (`invariant.null_confirmation_rate`), not 0.50. It is 0.485 to 0.515
+  for an asset class against the others and 0.41 to 0.68 for one strategy against
+  the others, where nine dates in ten fall inside the margin;
+- the two rejected branches are unchanged and read at the checkpoint.
+  `invariant_min_confrontations` and `invariant_refuted_min_confrontations` are
+  retired: no record is read before ten moments.
+
+Two candidates were compared, checkpoints doubling and every ten; every-ten was
+chosen because it alone held the level on the placebo for every invariant, and
+because a record between two checkpoints is judged on the moments up to the last
+one — at most nine wait, where doubling left up to half the record unread.
+
+Consequences, accepted with the decision. **No invariant is integrated** once
+the live database is re-swept (9 → 0; 201 proposed, 48 rejected, on a copy,
+2026-10-05): seven of the nine rested on 5 to 13 moments, and the gold invariant
+stands at 52 of its first 80 against a bar of 53 — a bar of 52 on a 0.50 null,
+53 on its measured 0.507. The Planner's baseline therefore shows, after whatever
+is established, the candidates a checkpoint has already judged, each with its
+record and the label "candidate, not established": the Worker decides nothing,
+and reads what is being measured rather than an empty corpus. A claim truly at
+0.65 needs about a hundred decided moments to be integrated three times in four.
+
+What this did NOT settle on the day: dependence between the moments of one
+episode, a level over the corpus rather than per invariant, and the calibration
+of the rejected branches. The second part of the bench took the three up
+(protocol `PREREGISTRATION_2.md`, written before its figures), and the owner
+ruled on 2026-10-06:
+
+- **Rejection is held over the life too.** `rejected` iff the count falls to a
+  rejection bar computed as the integration bar's mirror: a claim confirming at
+  exactly θ is rejected at least once over its life at most 5% of the time. The
+  per-look `refuted` (score < 0.35) and `inadequate` branches are gone, and
+  `invariant_refuted_score` with them: together they rejected a true-θ claim in
+  21.6% of lives, and keeping `refuted` beside the bar still gave 9.6%. Accepted
+  cost: a fair coin leaves `proposed` within 160 decided moments 65% of the
+  time instead of 88%; on the live records 48 rejected become 12.
+- **The level stays per invariant, and its corpus value is written down** rather
+  than bounded: 0.2 invariant integrated by chance at any one time over 247
+  conditions, at least one 16% of the time (joint placebo). No per-invariant
+  level met both conditions fixed in advance — 5% over the corpus AND a true-0.70
+  claim integrated within 100 moments nine times in ten.
+- **Dependence is not corrected**, on measurement: the adopted rule holds its
+  level on the most dependent records. The estimator tried for the displayed
+  range (design effect of calendar blocks) failed its own criterion — rank
+  correlation with the placebo at most 0.29 where 0.5 was required — and the
+  range goes on saying it assumes independence. A negative, written down.
+- **The digest shows the candidates** when few or no invariants are integrated,
+  under a heading that says they are not established, as the Worker's context
+  does.
+
 ## ADR-007 — Adopt the market-signal monthly stack as V1's operating strategy
 
 **Status:** accepted (owner sign-off, 2026-07-20). Authorizes the CLAUDE.md/
