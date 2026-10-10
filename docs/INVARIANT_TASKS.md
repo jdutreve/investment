@@ -7,47 +7,71 @@ stands). Action numbers are the plan's. Started 2026-10-04.
 Each task names the GUARANTEE its test must restore, not the function it
 changes (plan, last paragraph).
 
-## Where it stands (2026-10-06)
+## Where it stands — CLOSED (owner, 2026-10-10)
 
-- **Lot 0** — done, except 6.2 (waits on the next curator reading).
-- **Lots 1 to 4** — done and DEPLOYED. Lots 2, 3 and 4 went to the live
-  database on 2026-10-06, in two passes (the checkpoint verdict, then the
-  rejection bar), each by the invariant steps of the seed with the agent
-  stopped.
+The chapter is closed. Lots 0 to 4 are done, deployed and committed; the
+question that followed — is there information in the corpus at all — was put
+to five measurements and answered (section "After lot 4"). Nothing below is
+waiting to be worked on: what is left is PARKED, each item with what would
+reopen it.
 
-**Live database, 2026-10-06:** 0 integrated, 237 proposed, 12 rejected, 826
-reference; every measured moment carries its lift; no reference note carries a
-weight; 247 invariants carry the null of their protocol. Backups:
-`investment.db.bak-pre-checkpoint-verdict-20261006` (before lots 2 to 4) and
-`investment.db.bak-pre-rejection-bar-20261006`. The weekly chain gains two
-steps on 2026-10-11, `benchmark-valuations` and `invariant-forward`; neither
-has run on the live database yet.
+**What the chapter leaves in place.**
 
-**Open, outside the lots:**
+- A piece of evidence has two dates and belongs to the definition it tested;
+  only measurement moves a standing; measurement continues after birth.
+- The verdict is judged every 10 decided moments against the measured null of
+  each protocol, with an integration bar and a rejection bar that each hold 5%
+  over a record's whole life.
+- A reference note carries no weight; a measured moment carries its lift; a
+  record is shown with its range, its coverage and its stability.
+- The Worker and the digest read the established invariants, then the
+  candidates a checkpoint has judged, each labelled "not established".
+- The corpus is material for the Worker's proposals, not a set of signals
+  (owner, 2026-10-10). No further signal experiment is planned on it.
 
-- [ ] The `proposal_cites` table has no reader and no writer since 5.2.
-  Dropping it changes the relation count in CLAUDE.md and DATA_MODELS — an
-  owner decision.
-- [ ] One equities claim (`01M327ZEK75QTGAS5R4YVH16CX`) has two moments, both
-  neutral, and N = 0. Left `proposed` as too little evidence rather than an
-  inexpressible claim; D3 may be read as covering it.
-- [ ] A demotion leaves the demoted invariant's old confrontation rows in
-  place (208 neutral rows of the six cash claims). Counted nowhere; whether a
-  demotion should delete them is open.
-- [ ] `docs/EXAMPLE.md` (the +12w verdict confronting cited invariants) and the
-  test list of `docs/TASKS.md` Phase 6 still describe the proposal-sourced
-  confrontation removed by 5.2.
-- [ ] The dashboard's new invariant columns passed the TypeScript check only;
-  not rebuilt, not looked at in a browser.
-- [x] The digest listed the INTEGRATED invariants and printed nothing when
-  there were none — and there are none. Owner, 2026-10-06: it shows the judged
-  candidates under their own heading, "Candidates — measured, NOT established",
-  and says "No invariant is established" when that is the case, in the text
-  digest and the Gmail table alike (`digest.split_by_standing`). "Judged
-  candidate" has one definition, shared with the Worker's baseline
-  (`invariants.ESTABLISHED_OR_JUDGED_SQL`).
-- [ ] A dependence-aware range for the displayed record (see 3.2): the one
-  estimator tried failed its criterion.
+**Live database, 2026-10-10:** 0 integrated, 237 proposed, 12 rejected, 826
+reference. Backups: `investment.db.bak-pre-checkpoint-verdict-20261006` (before
+lots 2 to 4) and `investment.db.bak-pre-rejection-bar-20261006`.
+
+**The chain of 2026-10-11 is the first on this code.** Its thirteen mechanical
+steps were rehearsed on a copy of the live database on 2026-10-10 and all
+pass, the two that had never run live included (`benchmark-valuations`,
+`invariant-forward`: ten moments confronted, no status changed). Not
+rehearsed: the three steps that call a model (`event-watch`, `curation`,
+`uc8`) and the sending of the digest.
+
+**Parked — and what would reopen each:**
+
+- [ ] **6.2, the batch marked as cited** — the next curator reading, whose log
+  now shows what an unusable citation looks like.
+- [ ] **The `proposal_cites` table**, without reader or writer since 5.2 — an
+  owner decision, because dropping it changes the relation count in CLAUDE.md
+  and DATA_MODELS.
+- [ ] **`docs/EXAMPLE.md` and the test list of `docs/TASKS.md` Phase 6** still
+  describe the proposal-sourced confrontation removed by 5.2 — the next time
+  either file is edited.
+- [ ] **A demotion leaves the old confrontation rows** (208 neutral rows of the
+  six cash claims, counted nowhere) — if a demoted claim is ever re-promoted,
+  or the rows are found to mislead a reader.
+- [ ] **One equities claim** (`01M327ZEK75QTGAS5R4YVH16CX`), two moments, both
+  neutral — more moments, which the forward sweep now brings.
+- [ ] **One definition held twice** (`inv-low-real-rate-nominal-bonds` and
+  `01KY2N2MX6G7BZD10380KYBZAF`, both 26/48) — a decision to merge after the
+  fact; the gate merges at writing only.
+- [ ] **The dashboard's invariant columns** were rebuilt on 2026-10-06 and have
+  not been looked at in a browser — the next time the dashboard is opened.
+- [ ] **A dependence-aware range for the displayed record** — an instrument
+  other than calendar blocks, which failed its criterion (3.2).
+- [ ] **A record's rate inside its era, shown beside the whole-sample one** —
+  not built; D1 stands and the era effect is written down instead.
+
+**Decided against, so that it is not proposed again:**
+
+- Tracing which invariants each proposal drew on (owner, 2026-10-10): it adds
+  nothing to the efficiency of the system.
+- Lowering theta, or any change whose purpose is to have more invariants
+  integrated: the useful question was whether the corpus carries exploitable
+  information, and it was answered.
 
 ## Lot 0 — Hygiene (P6)
 
@@ -62,7 +86,7 @@ has run on the live database yet.
   and the seed now deletes any threshold it no longer names
   (`_seed_reference_tables`; INSERT OR REPLACE alone never removed a key). The
   live row leaves at the next seed run.
-- [ ] **6.2 Stop marking the whole batch as cited.** WAITING on the next
+- [ ] **6.2 Stop marking the whole batch as cited.** PARKED, WAITING on the next
   curator reading (owner, 2026-10-04). `_cited` now logs what the model wrote
   when it cited nothing usable; the fallback itself is unchanged. Known so far:
   the fallback fired for 100% / 39% / 15% of claims under the three successive
@@ -457,23 +481,16 @@ they found is recorded here.
   the periods that follow from ordinary ones. That is a statement about a
   curator's one-threshold encoding over 1991-2026, not about the books, and not
   about what a reader does with an idea.
-- [ ] One pair of invariants carries the same definition twice
-  (`inv-low-real-rate-nominal-bonds` and `01KY2N2MX6G7BZD10380KYBZAF`, both
-  26/48), written on 2026-07-21 within minutes of the commit that introduced
-  the structural merge. Today's gate would merge it; nothing merges after the
-  fact. Left in place.
-- [x] **What the corpus is for (owner, 2026-10-10).** Not allocation signals:
+- One pair of invariants carries the same definition twice
+  (`inv-low-real-rate-nominal-bonds` and `01KY2N2MX6G7BZD10380KYBZAF`), written
+  on 2026-07-21 within minutes of the commit that introduced the structural
+  merge. Today's gate would merge it; nothing merges after the fact. Parked
+  (top of this file).
+- **What the corpus is for (owner, 2026-10-10).** Not allocation signals:
   material for the Worker's PROPOSALS — strategy, tactics, remarks,
   predictions. The experiments above therefore answer a question the corpus
   was never asked to pass. What they are good for is the label on what the
-  Worker reads; where the corpus is to be judged is downstream, on what the
-  proposals it inspires do once measured (`innovation`,
-  `revision_measurement`, scenario calibration).
-- [ ] Open for the owner: whether a record should show its rate inside its era
-  beside the whole-sample one.
-- [ ] Not measured anywhere yet: whether a proposal that leans on the corpus
-  fares better, once measured, than one that does not. `innovation` does not
-  record which invariants a proposal drew on.
+  Worker reads.
 
 ## Owner decisions
 
@@ -504,3 +521,6 @@ they found is recorded here.
 - [x] **3.5** — the calibrated rejection bar, alone (2026-10-06).
 - [x] **3.3** — 5% per invariant, the corpus figure written down (2026-10-06).
 - [x] **Digest** — the judged candidates, labelled (2026-10-06).
+- [x] **The corpus's purpose** — material for the Worker's proposals, not
+  signals; no tracing of which invariants a proposal drew on (2026-10-10).
+- [x] **The chapter is closed** (2026-10-10).

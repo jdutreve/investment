@@ -46,7 +46,7 @@ auto-execution and learning from real performance.
 | `docs/EXAMPLE.md` | One full weekly cycle traced end to end (stagflation 2026). |
 | `docs/INVARIANT_AUDIT_BRIEF.md` | Invariants and reference notes for an external auditor: birth, valuation, verdict, lifecycle, and the open points to audit (figures as of 2026-10-03). |
 | `docs/INVARIANT_IMPROVEMENT_PLAN.md` | The lessons and the ordered actions drawn from the 2026-10-03 internal review and the external audit of the invariant mechanism — what is verified, what is only reported, what waits on an owner decision. |
-| `docs/INVARIANT_TASKS.md` | The execution checklist of that plan, lot by lot: what is done, what remains, which owner decisions are open. |
+| `docs/INVARIANT_TASKS.md` | The execution checklist of that plan, lot by lot — CLOSED 2026-10-10: what was done, what is parked and what would reopen it, what was decided against, and what five measurements said of the corpus as a source of signals. |
 
 Read TASKS + DATA_MODELS + ARCHITECTURE sections for an area before writing
 its code.
