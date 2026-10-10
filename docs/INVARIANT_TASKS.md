@@ -416,6 +416,65 @@ on it; its two protocols were written before their figures
   proposed forever; the two bars cannot meet. On the live database: rejected
   48 → 12.
 
+## After lot 4 — is there information in the corpus at all? (research, 2026-10-07 to 10)
+
+Asked by the owner once no invariant was integrated: is the mechanism too
+restrictive, when the proposals come from experts? Four experiments, each with
+a protocol written before its figures, all read-only, none changing production.
+Their folders are under `docs/research/`, which the repository ignores; what
+they found is recorded here.
+
+- [x] **The corpus against noise (2026-10-06).** The corpus confirms at 0.517
+  where its own conditions, shifted to dates where they mean nothing, confirm
+  at 0.501 — reached by 1% of joint shifts. But noise alone gives 20 records
+  at 0.60 or above, and there are 22: the best ones cannot be told from luck.
+- [x] **One family on the size of its effect — gold (2026-10-07,
+  `2026-10-07-gold-family`).** 26 members, 25 definitions, one vote each,
+  periods counted once, against gold held the same way all the time, net of
+  cost: −0.25 point per 12 weeks over 2002-2026, half the placebo shifts as
+  good, the two halves disagreeing. Not shown.
+- [x] **The era effect (2026-10-10, `2026-10-10-era-effect`).** A record is
+  confirmed against the WHOLE-SAMPLE median, and a handle's ordinary excess
+  differs by era (gold: −1.9% over 1991-2002, +1.1% since). Judged against the
+  ten years around each moment, the corpus's gap falls from +1.56 to +0.87
+  point and is no longer told from its placebo (8.3% of shifts); 44% of the gap
+  was eras (61% at 5 years, 25% at 20). Gold carries it: its family goes from
+  0.560 to 0.499, `inv-low-real-yields-favor-gold` from 54/83 to 43/85. The
+  short strong candidates keep their rate. A baseline known at the time does
+  not help (9% of the gap). D1 stands; this is what it lets through.
+- [x] **Every idea on the size of its effect (2026-10-10, `2026-10-10-ideas`).**
+  247 invariants are 178 ideas (same signals and operators, same handle, same
+  direction; 109 invariants are a neighbouring threshold of another). 126
+  judged: +0.05 point gross per 12 weeks over the era's ordinary excess, −0.14
+  net of cost, one joint shift in five as good. Six ideas look significant
+  alone and 126 draws of noise give 6.3.
+- [x] **Twelve months, and drawdown instead of return (2026-10-10,
+  `2026-10-10-horizon-and-drawdown`).** The same ideas: 12-month return −0.03
+  point net (19.7% of shifts as good), 12-week drawdown +0.01 point (50.7%),
+  12-month drawdown −0.08 point (84.7%). None claimed.
+- **What it comes to.** As mechanical conditions on US macro signals, at 12
+  weeks or 12 months, on return or on drawdown, the corpus does not separate
+  the periods that follow from ordinary ones. That is a statement about a
+  curator's one-threshold encoding over 1991-2026, not about the books, and not
+  about what a reader does with an idea.
+- [ ] One pair of invariants carries the same definition twice
+  (`inv-low-real-rate-nominal-bonds` and `01KY2N2MX6G7BZD10380KYBZAF`, both
+  26/48), written on 2026-07-21 within minutes of the commit that introduced
+  the structural merge. Today's gate would merge it; nothing merges after the
+  fact. Left in place.
+- [x] **What the corpus is for (owner, 2026-10-10).** Not allocation signals:
+  material for the Worker's PROPOSALS — strategy, tactics, remarks,
+  predictions. The experiments above therefore answer a question the corpus
+  was never asked to pass. What they are good for is the label on what the
+  Worker reads; where the corpus is to be judged is downstream, on what the
+  proposals it inspires do once measured (`innovation`,
+  `revision_measurement`, scenario calibration).
+- [ ] Open for the owner: whether a record should show its rate inside its era
+  beside the whole-sample one.
+- [ ] Not measured anywhere yet: whether a proposal that leans on the corpus
+  fares better, once measured, than one that does not. `innovation` does not
+  record which invariants a proposal drew on.
+
 ## Owner decisions
 
 - [x] **6.1** — delete the cosine pass (2026-10-04).
