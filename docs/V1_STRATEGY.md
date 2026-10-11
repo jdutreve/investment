@@ -1404,3 +1404,101 @@ is re-run" as their trigger. The replay WAS re-run here, read-only, to verify
 this change moved nothing — and neither item was taken, because closing them
 moves the bridge's numbers and this commit's job was to prove they were
 untouched. The trigger stands; the next re-run is theirs.
+
+
+---
+
+## The stay in the bond book, examined piece by piece (2026-10-10 and 11)
+
+Since July 2025 the stack has held `credit-spread-tight-yield-curve-steep`
+(VCIT 50 / IEF 40 / IWN 10) without interruption, and on 2026-10-01 the overlay
+took it to cash 95 / IWN 5 while SPY stood above both of its lines. Over those
+fifteen months the book earned +2.8%, the stack +4.1%, the tight-flat book
+across the slope threshold +25.0%. The weekly "Pareto-dominated by its control
+arm over 5y and 10y" alert is this stay.
+
+Three repairs suggest themselves. Each was put to a protocol written before its
+figures, on the reconstructed 1977-2026 history of `docs/research/pre1993`
+(592 monthly decisions), with the project's paired block bootstrap, and each
+variant was built from the stack's own journal with production's overlay — the
+same construction with the change switched off reproduces the stack's targets
+on every decision. **No rule was changed by any of them.** The folders are under
+`docs/research/`, which the repository ignores; this section is their record.
+
+### Where the signal's lead comes from (exploratory, 1993-11 to 2026-10)
+
+Stack minus its control arm, +23.1 log points in all, by the book held:
+
+    book held                                  share of time   log points
+    spread wide,  curve flat   (SPY 50 IWN 50)        26%        +25.6
+    spread wide,  curve steep  (SPY 50 IWN 40 GLD 10) 19%        +18.2
+    spread tight, curve flat   (SPY 60 GLD 40)        36%         -3.4
+    spread tight, curve steep  (VCIT 50 IEF 40 IWN 10) 19%       -17.2
+
+"Spreads are wide, load equities" earns the lead. The -17.2 is against the
+CONTROL, which never leaves SPY 60 / GLD 40 — it is not the measure of the
+branch, which the first test below is.
+
+### 1. Does the tight-steep branch cost? No. (`2026-10-10-tight-steep-branch`)
+
+The stack against the same rule holding tight-flat wherever it holds the bond
+book.
+
+    window                      Sortino, stack - variant [90%]   P(<=0)   return/yr
+    1977-07 .. 2026-10          +0.072  [-0.015, +0.180]          0.091    +0.17pp
+    1977-07 .. 1993-10          +0.179  [+0.059, +0.362]          0.004    +1.41pp
+    1993-11 .. 2026-10          +0.021  [-0.110, +0.149]          0.392    -0.43pp
+
+Not distinguishable over the whole span, and it does not cost. Where the rule
+was never fitted the branch is its best part. It was held in fourteen stays:
+the thirteen closed ones sum to +22.2 log points (eight for, five against); the
+fourteenth, open since 2025-07, is -14.6 — the worst of 49 years by a factor of
+three. This nuances the campaign of 2026-09-16, which found the slope inside
+the noise of 1993-2026: that is confirmed for that window, and it is not true
+of 1977-1993.
+
+### 2. Should the rule blend near the slope's threshold? No. (`2026-10-11-slope-threshold`)
+
+Half of each same-spread book when the slope is strictly within 0.10 point of
+its ten-year median (42 of 592 decisions).
+
+    1977-07 .. 2026-10          -0.005  [-0.027, +0.014]   blend - stack
+    stopped 2025-06-30          -0.009  [-0.026, +0.010]
+    bands of 0.05 and 0.20      -0.017 and +0.000
+
+It does nothing. The premise was wrong: the slope sat within 0.10 of its median
+on ten of the stay's sixteen decisions, but the 22-point gap was earned from
+September 2025 to March 2026, when it was 0.13 to 0.28 above it. The choice of
+the bond book was the rule's ordinary answer, not a coin flip at an edge.
+
+### 3. Should the flight go to the sleeves in trend rather than to cash? No — it costs. (`2026-10-11-haven-or-trend`)
+
+When IEF is itself fully out, the weight bound for cash is offered to the
+sleeves fully in trend, split equally, each asset class held to 60%.
+
+    window                      Sortino, variant - stack [90%]   P(>=0)   return/yr
+    1977-07 .. 2026-10          -0.051  [-0.099, -0.013]          0.007    -0.26pp
+    stopped 2026-07-31          -0.052  [-0.099, -0.015]          0.004    -0.27pp
+    1977-07 .. 1993-10          -0.065  [-0.161, -0.003]          0.035    -0.41pp
+    1993-11 .. 2026-10          -0.040  [-0.089, +0.001]          0.059    -0.18pp
+
+The stack ends in cash on 61 decisions; on 29 something else is fully in trend,
+in 18 runs — twelve against the variant, six for, -10.8 log points, the largest
+losses in 1978 and 1994. The three decisions of August to October 2026 are
+among them and the variant loses there too (-0.2). **When the haven is itself
+below its trend, cash is the right place.** "The overlay removes and never
+replaces" is now a measured property, not an omission. (This is not the haven
+family closed on 2026-08-11, which asked WHICH asset the haven should be.)
+
+### What it comes to
+
+The rule's behaviour over these fifteen months — the bond book, then cash — is
+what the rule does, tested piece by piece on 49 years, and none of the three
+obvious repairs improves it. The stay is a bad stay, not a defect. It is also
+the one counter-example the data holds to a bond book being paid for waiting:
+yields fell from 1981 to 2020, and before 1991-1993 both bond sleeves are
+synthetic. Fourteen stays and eighteen runs are what the evidence is made of.
+
+Not to be proposed again without new data: dropping the tight-steep book, a band
+around the slope's median, and redirecting cash to trending sleeves.
+
