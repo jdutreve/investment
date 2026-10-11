@@ -199,6 +199,58 @@ FINDINGS: tuple[Finding, ...] = (
         record="docs/V1_STRATEGY.md",
     ),
     Finding(
+        measured_on=date(2026, 10, 11),
+        about="rule",
+        question=(
+            "What does the trend overlay cost a year, and what does it pay — would the "
+            "stack do better holding only part of it?"
+        ),
+        answer="a price list, no verdict",
+        evidence=(
+            "Over a whole cycle it costs nothing: 1993-2026 returns 11.46% without it "
+            "and 11.49% with it, for a maximum drawdown of -40.9% against -16.5%. Since "
+            "2009, between two crashes, it costs 4.2 points a year (proven), about one "
+            "per quarter of intensity. Half the overlay stays inside the -25% rule "
+            "(-20.7%) and takes 2007-09 at -20.7% instead of -6.0%. It does nothing for "
+            "1987 or 1980-82 and little for 2020 and 2022. With one unit invested a month "
+            "for 20 years from every start month, the stack with NO overlay ends ahead of "
+            "the rule on 28% of starts (median wealth 0.85 of the rule's, worst 0.48); at "
+            "three quarters of the overlay, 33% and 0.97."
+        ),
+        consequence=(
+            "The stack trailing SPY since 2014 is 2.7 points from the books and 3.3 from "
+            "the overlay, an insurance premium paid in quiet years. Over an accumulation "
+            "horizon the overlay is worth MORE, not less: what it saves in a long bear "
+            "market compounds to the end. Do not argue that a long horizon makes the "
+            "overlay too cautious; the history says the opposite."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
+    Finding(
+        measured_on=date(2026, 10, 11),
+        about="rule",
+        question=(
+            "Should the overlay's two lines be far apart — a fast exit on six months and "
+            "a slow one on four years, instead of 150 and 300 days?"
+        ),
+        answer="no — the pair changes nothing",
+        evidence=(
+            "ma_windows [126, 1008] against the rule over 1977-2026: Sortino +0.010 "
+            "[90%: -0.08, +0.10], return +0.12 point a year. With one unit invested a "
+            "month it ends ahead of the rule on 55% of 15-year starts and 43% of 20-year "
+            "ones. The slow line alone takes the short falls in full (2020 -22.8%); the "
+            "fast line alone leaves too often."
+        ),
+        consequence=(
+            "The overlay's result comes from having a trend exit, not from where its "
+            "lines sit. Another pair of windows is not to be proposed without a reason "
+            "these did not cover. A single four-year line halves the number of orders "
+            "for the same return and a deeper drawdown, which matters only if turnover "
+            "does."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
+    Finding(
         measured_on=date(2026, 10, 10),
         about="corpus",
         question="Is an invariant's record evidence about its condition, or about the era?",

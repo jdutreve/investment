@@ -1571,6 +1571,77 @@ over 2009-2026 against about 15% for SPY held; the difference is the trend
 overlay leaving at each fall and re-entering after the recovery began, which is
 the price of the drawdown it buys.
 
+### What the overlay costs a year, and what it pays (2026-10-11, `2026-10-11-overlay-premium`)
+
+Since 2014 the stack trails SPY by 6.1 points a year: 2.7 from the books the
+signal chooses (spreads read tight, so 60% or 10% equity) and 3.3 from the
+overlay. A price list, not a verdict — intensity k holds k of the rule's
+portfolio and 1 - k of the signal's book unfiltered, 1977-2026:
+
+    k      return/yr vs the rule             max DD      deepest drawdown inside
+           1977-2026  1993-2026  2009-2026   1993-2026   2000-02  2007-09  2020   2022
+    0      +0.41      -0.03      +4.24 *      -40.9% !    -28.9    -40.9   -22.8  -18.8
+    0.25   +0.39      +0.07      +3.26 *      -31.2% !    -22.4    -31.2   -21.1  -16.3
+    0.5    +0.31      +0.10      +2.22 *      -20.7%      -17.3    -20.7   -19.5  -14.2
+    0.75   +0.18      +0.08      +1.13 *      -17.9%      -13.2    -10.5   -17.9  -12.1
+    1      rule       rule       rule         -16.5%       -9.1     -6.0   -16.5  -10.9
+    (* proven by the paired bootstrap; ! beyond the -25% rule on the real series)
+
+**Over a whole cycle the overlay costs nothing**: on 1993-2026 the stack
+without it returns 11.46% and with it 11.49%, for a drawdown of -40.9% against
+-16.5%. **The premium belongs to the years since 2009**, between two crashes,
+where it is real: about a point a year per notch. Half the insurance (k = 0.5)
+stays inside the -25% rule and keeps 2.2 points a year since 2009, at the price
+of taking a 2008 at -20.7% instead of -6.0%. The overlay does nothing for
+1980-82 or 1987 on the reconstructed series, and little for 2020 and 2022: what
+it pays, it pays in the long bear markets.
+
+**And over an accumulation horizon?** (`2026-10-11-accumulation-horizon`,
+the owner's test: "voir si ces drawdowns sont rattrapés sur cet horizon".) One
+unit invested every month for 10, 15 or 20 years, from every start month,
+1977-2026, each intensity against the rule on the same start:
+
+    horizon    k = 0: starts ahead / median wealth vs rule / worst    k = 0.75
+    10 years   49% / 1.00 / 0.59                                      53% / 1.00 / 0.88
+    15 years   36% / 0.96 / 0.52                                      43% / 1.00 / 0.86
+    20 years   28% / 0.85 / 0.48                                      33% / 0.97 / 0.84
+
+In absolute terms every drawdown is caught up, and fast: with no overlay the
+stack was back at its peak 0.8 year after March 2009, and no 15- or 20-year
+start ends below 1.5 times what was contributed. **Against the rule it is the
+other way: the longer the horizon, the more the overlay is worth.** What it
+saves in 2000-02 and 2007-09 compounds for the rest of the horizon and outweighs
+the premium paid afterwards; every worst start is one whose horizon ends in
+March 2009. Less overlay wins only on horizons that lie wholly in the calm
+after 2009 — and no twenty-year span without a long bear market is in the data.
+
+The rule stays at full intensity (owner's test, read 2026-10-11).
+
+### Two exits, a fast one and a slow one (2026-10-11, `2026-10-11-fast-and-slow-exit`)
+
+The owner's proposal: two stacks, one leaving on a six-month line, one on a
+four-year line. The overlay already is two stacks — 150 and 300 days, half the
+weight each — so this is `ma_windows = [126, 1008]`, a line no measurement had
+gone near (the ledger stops at 450 days).
+
+    1977-2026      rule 12.93% / 1.167     [126, 1008] 13.06% / 1.177     Sortino +0.010 [-0.08, +0.10]
+    1993-2026      rule 11.49% / 1.310     [126, 1008] 11.30% / 1.270     Sortino -0.040 [-0.16, +0.09]
+    contributions  starts ahead of the rule: 56% (10y), 55% (15y), 43% (20y); worst start 0.81-0.84
+    falls          2000-02 -5.0% (rule -9.1%)   2007-09 -8.3% (-6.0%)   2022 -16.6% (-10.9%)
+
+Not worth a signature by the protocol (two starts in three on 15 and 20 years,
+worst start at 90% of the rule's wealth): the pair is the rule a little
+rearranged. The slow line alone sits through the short falls and takes them in
+full (2020 -22.8%); the fast line alone leaves too often and is proven worse on
+1977-1993; together they cancel. What carries the overlay is having a trend
+exit, not where its lines sit.
+
+Worth keeping in view, and not a verdict: `[1008]` alone returns what the rule
+does on the whole span with HALF the changes of target (132 against 268), a
+maximum drawdown of -22.8% on the real series and a lower Sortino. If the Swiss
+tax question on holding periods (open owner decision 2) is ever decided against
+the rule's turnover, that is the arm to measure first.
+
 ### What it comes to
 
 The rule's behaviour over these fifteen months — the bond book, then cash — is
