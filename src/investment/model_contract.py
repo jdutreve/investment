@@ -180,7 +180,7 @@ async def check_worker(settings: Settings, db_path: Path) -> CheckResult:
             "asked for portfolio_check explicitly, so this model does not do "
             "structured output and function tools in the same run",
         )
-    assessment = result.output.market_signal_assessment or ""
+    assessment = result.output.market_signal_assessment.render()
     detail = f"tools called: {', '.join(tools)}; assessment {len(assessment)} chars"
     return CheckResult("worker", settings.worker_model, True, elapsed, detail)
 

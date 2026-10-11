@@ -25,6 +25,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import a_reading
 from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
@@ -241,7 +242,7 @@ def _worker_output(*, innovations: bool = False) -> dict[str, Any]:
     return {
         "regime_assessment": "stagflation deepening",
         "ranking_commentary": "defender leads",
-        "market_signal_assessment": (
+        "market_signal_assessment": a_reading(
             "the spread is wide; the book fits, the fiscal impulse is not in it"
         ),
         "scenario_adjustments": [],

@@ -1490,6 +1490,22 @@ below its trend, cash is the right place.** "The overlay removes and never
 replaces" is now a measured property, not an omission. (This is not the haven
 family closed on 2026-08-11, which asked WHICH asset the haven should be.)
 
+### Two add-ons measured the week before (2026-10-04 and 05)
+
+Recorded here because their folders are not in the repository either, and
+because they are refusals of the same family: something bolted onto the stack
+to protect it, measured, and not adopted.
+
+    add-on                                             1993-2026, against the stack
+    duration gate: DGS10 up > 20 bp in 30 days sends   CAGR -0.70pp/yr, Sortino -0.086
+      IEF and VCIT to cash (`2026-10-04-duration-budget`)  [-0.167, -0.023], max DD unchanged; reject
+    credit overlay: credit/GDP up > 10 pp in 3 years   CAGR -0.30pp/yr, Sortino +0.012
+      cuts SPY and IWN by a fifth (`2026-10-05-credit-cycle`) [-0.025, +0.053]; not validated
+
+The duration gate's neighbours (10 and 30 bp) do not rescue it. The credit
+overlay was on in one episode, 2000-2010; a constant reduction of the same size
+does as well, and the equities it cuts are the ones the trend overlay had kept.
+
 ### What it comes to
 
 The rule's behaviour over these fifteen months — the bond book, then cash — is
@@ -1501,4 +1517,12 @@ synthetic. Fourteen stays and eighteen runs are what the evidence is made of.
 
 Not to be proposed again without new data: dropping the tight-steep book, a band
 around the slope's median, and redirecting cash to trending sleeves.
+
+**The Worker is told.** These results, the two add-ons above and what was
+measured on the invariant corpus are entries of
+`mechanical/research_findings.FINDINGS`, rendered into its context beside the
+measured settings. On 2026-10-11 it called the selection of this book "the weak
+link" and its slope margin "boundary fragility" the morning the tests refused
+both: the results were in ignored folders and nothing carried them to it. A
+research result that is not in that list does not exist for the Worker.
 

@@ -423,6 +423,37 @@ def test_the_worker_challenge_renders_inside_the_market_signal_block() -> None:
     assert "Worker challenge" in block  # inside the decision's block, not after it
 
 
+def test_a_reading_in_parts_is_laid_out_with_its_bottom_line_first() -> None:
+    """The reading of 2026-10-11 was six hundred words in one paragraph, its
+    conclusion in the last sentence. In parts, the owner reads the bottom line
+    on the line that names the Worker, then each kind of statement under the
+    heading the journal gives it — a forecast never among the facts."""
+    text = _digest(
+        market_signal=_DECISION,
+        worker_reading={
+            "market_signal_decision_date": "2026-08-03",
+            "market_signal_assessment": "the text, kept for readers of the journal",
+            "market_signal_reading": {
+                "bottom_line": "Nothing is asked of you: cash 95 is the rule working as built.",
+                "sections": [
+                    {"heading": "What the decision saw", "points": ["BAA10Y 1.47 on 2026-10-01."]},
+                    {
+                        "heading": "What to watch (forecasts, not facts)",
+                        "points": ["If IWN breaks its second line, the book is all cash."],
+                    },
+                ],
+            },
+        },
+    )
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if "🗣 Worker challenge" in line)
+    assert lines[first].endswith("Nothing is asked of you: cash 95 is the rule working as built.")
+    assert lines[first + 1].strip() == "What the decision saw"
+    assert lines[first + 2].strip() == "· BAA10Y 1.47 on 2026-10-01."
+    assert lines[first + 3].strip() == "What to watch (forecasts, not facts)"
+    assert "the text, kept for readers of the journal" not in text
+
+
 def test_a_reading_of_a_previous_decision_is_shown_but_flagged() -> None:
     """The decision is monthly and the Worker runs weekly, so a failed or skipped
     cognitive cycle leaves the latest reading pointing at LAST month's book.
@@ -672,3 +703,61 @@ def test_a_candidate_is_listed_apart_and_never_under_the_established_heading() -
     assert not any("Key Invariants" in line for line in alone)
     assert alone[2] == "   No invariant is established."
     assert D._invariant_block([]) == []
+
+
+async def test_a_theme_the_history_has_answered_is_not_listed_as_worth_measuring(
+    db: InvestmentDB,
+) -> None:
+    """From 2026-08-11 to 2026-10-11 the digest opened this block every week
+    with "Extend the 200d trend overlay to VCIT", seven wordings strong — a
+    setting measured on 2026-08-11 and in force since the 14th. A theme one of
+    whose wordings names settings the ledger has measured is answered: it is
+    counted, not listed. One in prose alone names no setting and stays."""
+    await db.command(
+        "INSERT INTO revision_measurement (overrides_key, window_start, window_end, overrides, "
+        "title, verdict, measured_at) VALUES ('k', '1991-10-29', '2026-07-01', "
+        '\'{"trend_sleeves": ["SPY", "GLD", "IWN", "VCIT"]}\', \'t\', \'reject\', '
+        "'2026-08-11T15:00:00+00:00')"
+    )
+    wordings = [
+        ("thm-vcit", "Extend the trend overlay to VCIT", '{"parameters": {"trend_sleeves": []}}'),
+        ("thm-vcit", "Check VCIT against its own moving average", "{}"),
+        ("thm-vcit", "Close the veto-path haven hole", "{}"),
+        ("thm-regime", "Weight inflation acceleration at turning points", "{}"),
+        ("thm-regime", "The regime label survived a collapse in inflation", "{}"),
+        ("thm-regime", "Regime label and tape diverge", '{"parameters": {"unknown_knob": 1}}'),
+    ]
+    for n, (theme, title, spec) in enumerate(wordings):
+        await db.command(
+            "INSERT INTO innovation (id, type, title, rationale, spec, theme_id, date, trace, "
+            "created_at) VALUES (:id, 'strategy_revision', :t, 'r', :spec, :theme, '2008-07-01', "
+            "'tr', :now)",
+            id=f"inn-{n}",
+            t=title,
+            spec=spec,
+            theme=theme,
+            now=f"2026-08-11T09:0{n}:00+00:00",
+        )
+
+    block = "\n".join(D._recurring_block(await D._recurring_themes(db)))
+
+    assert "Extend the trend overlay to VCIT" not in block
+    assert "1 other recurring theme is not listed" in block
+    assert "3x — theme thm-regime — last raised 2026-08-11" in block
+    assert "Weight inflation acceleration at turning points" in block
+
+
+def test_a_title_that_is_a_paragraph_is_cut_at_a_word() -> None:
+    """The curator sometimes writes a paragraph where a title was asked for;
+    one of 600 characters led the digest of 2026-10-11. The record beneath the
+    title is what the line is for."""
+    long_title = "When the policy rate is hiked sharply under duress " * 12
+    shown = D.short_title(long_title)
+    assert len(shown) <= D.TITLE_CHARS and shown.endswith("…")
+    assert long_title.startswith(shown[:-1])
+    assert not shown[:-1].endswith(" ")
+    assert D.short_title("Low real yields favour gold") == "Low real yields favour gold"
+    line = D._invariant_block(
+        [{"title": long_title, "status": "proposed", "weight_effective": 0.7}]
+    )
+    assert all(len(text) < 200 for text in line)

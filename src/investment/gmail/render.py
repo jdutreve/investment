@@ -40,7 +40,16 @@ from investment.mechanical.market_signal import (
     YIELD_SLOPE,
 )
 from investment.mechanical.snapshots import is_demoted
-from investment.telegram.digest import CANDIDATES_HEADING, DigestInputs, pct, split_by_standing
+from investment.telegram.digest import (
+    CANDIDATES_HEADING,
+    DigestInputs,
+    measured_note,
+    pct,
+    short_title,
+    split_by_standing,
+    split_recurring,
+)
+from investment.worker.result import journalled_sections
 
 _DARK = "#1c1c1a"
 _PURPLE = "#753991"
@@ -381,8 +390,8 @@ def _market_signal_section(
         lines.append(f"<p><b>\U0001f6e0 Corrected:</b> {_esc(decision['correction_note'])}</p>")
     if decision.get("reasoning"):
         lines.append(f"<p><b>Why:</b> {_esc(decision['reasoning'])}</p>")
-    assessment = str((worker_reading or {}).get("market_signal_assessment") or "").strip()
-    if assessment:
+    body = _worker_reading_html(worker_reading or {})
+    if body:
         read_date = (worker_reading or {}).get("market_signal_decision_date")
         decision_date = decision.get("decision_date")
         stale = bool(decision_date) and bool(read_date) and read_date != decision_date
@@ -392,10 +401,25 @@ def _market_signal_section(
         lines.append(
             f'<table border="0" cellpadding="12" cellspacing="0" width="100%" '
             f'bgcolor="{_GRAY}"><tr><td>'
-            f"<b>\U0001f5e3 Worker challenge{suffix}:</b> {_esc(assessment)}"
+            f"<b>\U0001f5e3 Worker challenge{suffix}:</b> {body}"
             "</td></tr></table>"
         )
     return lines
+
+
+def _worker_reading_html(worker_reading: dict[str, Any]) -> str:
+    """The reading laid out as the text digest lays it out
+    (`digest._worker_challenge_lines`): the bottom line, then each part as a
+    list under its heading. A reading journalled before it had parts is its
+    text, escaped."""
+    parts = worker_reading.get("market_signal_reading")
+    if isinstance(parts, dict) and parts.get("bottom_line"):
+        html = [_esc(parts["bottom_line"])]
+        for heading, points in journalled_sections(parts):
+            items = "".join(f"<li>{_esc(point)}</li>" for point in points)
+            html.append(f"<p><b>{_esc(heading)}</b></p><ul>{items}</ul>")
+        return "".join(html)
+    return _esc(str(worker_reading.get("market_signal_assessment") or "").strip())
 
 
 # -- Current values (live, weekly) ------------------------------------------
@@ -610,7 +634,7 @@ def _invariants_table(invariants: list[dict[str, Any]]) -> list[str]:
         lines.append(
             _drow(
                 [
-                    (_esc(inv.get("title", "?")), "left", None, False),
+                    (_esc(short_title(inv.get("title", "?"))), "left", None, False),
                     (
                         f"{weight:.3f}" if isinstance(weight, int | float) else "n/a",
                         "right",
@@ -632,8 +656,16 @@ def _invariants_table(invariants: list[dict[str, Any]]) -> list[str]:
 
 
 def _recurring_section(recurring: list[dict[str, Any]]) -> list[str]:
+    """The themes still worth measuring, and a count of those the history has
+    answered — the same split as the text digest (`digest.split_recurring`)."""
+    recurring, measured = split_recurring(recurring)
+    note = (
+        [f'<p><font color="#888888" size="2">{_esc(measured_note(measured))}</font></p>']
+        if measured
+        else []
+    )
     if not recurring:
-        return []
+        return ["<h2>\U0001f501 Recurring Critiques</h2>", *note] if note else []
     lines = [
         "<h2>\U0001f501 Recurring Critiques</h2>",
         '<p><font color="#888888" size="2">Distinct wordings across weeks — worth measuring, '
@@ -654,7 +686,7 @@ def _recurring_section(recurring: list[dict[str, Any]]) -> list[str]:
                 )
             )
     lines.append("</table>")
-    return lines
+    return [*lines, *note]
 
 
 def _scoreboard_defender_section(

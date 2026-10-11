@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import a_reading
 from pydantic_ai.models.test import TestModel
 
 from investment.db.sqlite import InvestmentDB
@@ -54,8 +55,10 @@ def _worker_output() -> dict:
     return {
         "regime_assessment": "stagflation deepening",
         "ranking_commentary": "defender leads on Sortino",
-        "market_signal_assessment": "the wide-spread book reads the stress correctly, "
-        "but the signal cannot see the fiscal impulse building",
+        "market_signal_assessment": a_reading(
+            "the wide-spread book reads the stress correctly, "
+            "but the signal cannot see the fiscal impulse building"
+        ),
         "scenario_adjustments": [],
         "evaluations": [],
         "innovations_proposed": [],
@@ -187,6 +190,10 @@ async def test_every_cycle_is_knowledge_only(rig) -> None:  # type: ignore[no-un
     assert ev[0]["source_uc"] == "UC8"
     payload = json.loads(str(ev[0]["payload"]))
     assert payload["market_signal_assessment"].startswith("the wide-spread book")
+    # ...and in its parts, which is what the digest, the mail and the dashboard
+    # lay out — the bottom line apart from whatever sections were filled.
+    assert payload["market_signal_reading"]["bottom_line"].startswith("the wide-spread book")
+    assert payload["market_signal_reading"]["sections"] == []
     assert payload["regime_assessment"] == "stagflation deepening"
     assert payload["trigger"] == "weekly"
 

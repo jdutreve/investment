@@ -12,6 +12,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from conftest import a_reading
 from pydantic_ai.models.test import TestModel
 
 from investment.config import Settings
@@ -29,7 +30,7 @@ from investment.worker import agent as worker_agent
 WORKER_OUTPUT = {
     "regime_assessment": "stagflation deepening",
     "ranking_commentary": "defender leads",
-    "market_signal_assessment": "The defensive book fits the confirmed regime.",
+    "market_signal_assessment": a_reading("The defensive book fits the confirmed regime."),
     "scenario_adjustments": [],
     "evaluations": [],
     "innovations_proposed": [],

@@ -87,6 +87,17 @@ its code.
   therefore destroyed unnoticed on every re-ingestion (13,411 of them; now a
   `cited` column that declares itself). Grep for the singular name; ask what
   else is now of its kind.
+- **A RESEARCH RESULT THAT IS NOT IN `research_findings.FINDINGS` DOES NOT EXIST
+  FOR THE WORKER.** On 2026-10-11 it called the month's book selection "the weak
+  link" and its slope margin "boundary fragility" the morning two pre-registered
+  tests had refused both: the results were in `docs/research/`, which the
+  repository ignores, and nothing carried them to its context.
+  `revision_measurement` holds what is a VALUE OF A KNOB; a structural variant
+  of the rule, or a fact about the corpus, is not one. So the last step of an
+  experiment — protocol written before its figures, run once — is an entry in
+  `mechanical/research_findings.FINDINGS` (question, answer, figures,
+  consequence) pointing at the TRACKED document that records it. It is rendered
+  into the Worker's context beside the measured settings.
 - **A bound whose consumption is not logged cannot be re-derived.** The Worker's
   12-tool-call budget was undiagnosable for a day — refused calls raised before
   the log line, so the budget counted fifteen and the log showed seven, and
@@ -114,7 +125,11 @@ requires; a swap is a `.env` edit plus a smoke test, never a code change.
   `market_fetch` (ALLOWED_TICKERS, ≤30 rows), `portfolio_check`. Unaware of
   Planner/Writeback/storage — never mention them in Worker prompts.
   `WorkerResult` always includes `innovations_proposed: list`; it carries NO
-  allocation — the Worker does not allocate (ADR-012).
+  allocation — the Worker does not allocate (ADR-012). Its reading of the
+  mechanical decision is IN PARTS (`MarketSignalReading`, 2026-10-11): the
+  bottom line first, then what the decision saw, what the tape did since, its
+  judgement and its forecasts, each in a list of its own with the heading the
+  owner reads it under.
 - **MECHANICAL JOBS** (APScheduler, pure Python, no LLM) — everything else.
 
 Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):

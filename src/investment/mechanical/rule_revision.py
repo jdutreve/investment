@@ -81,7 +81,10 @@ TESTABLE_PARAMETERS: dict[str, str] = {
 # without a description fails, rather than existing in the registry and being
 # invisible to the only thing that can name it.
 PARAMETER_DESCRIPTIONS: dict[str, str] = {
-    "trend_sleeves": "which sleeves the trend overlay checks",
+    "trend_sleeves": (
+        "which sleeves the trend overlay moves line by line (the haven is not one of them: "
+        "it is read on the same lines, all-or-nothing)"
+    ),
     "trend_haven": "where a below-trend sleeve is redirected",
     "trend_fallback_haven": "where it goes when the haven is itself below trend",
     "confirm_decisions": "consecutive agreeing decisions before a book change",

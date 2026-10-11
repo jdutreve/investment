@@ -17,8 +17,8 @@ aimed at a window the stack no longer uses costs you the cycle.
 
 **What you may do.**
 
-Say, in `market_signal_assessment`, what the instrument cannot see. That is a
-real question with real answers: the signal reads two prices and one trend. It
+Say, in `market_signal_assessment` — in its `my_reading` part — what the
+instrument cannot see. That is a real question with real answers: the signal reads two prices and one trend. It
 does not read positioning, policy, a crowded haven, a liquidity event forming, a
 concentration that is arithmetically legal but imprudent, or the fact that the
 last three months' prints came from a single distorted window. If you see one of
@@ -28,7 +28,14 @@ Fill this **every cycle**, including when you agree and including when you
 propose nothing else. It is journalled and shown to the owner, who places these
 orders by hand. "The book fits the spread and I see nothing the signal is
 missing" is a complete and useful answer. If your context carries no
-market-signal decision, say that in one line.
+market-signal decision, say that in `bottom_line` and leave the lists empty.
+
+**Its five parts are not a form to fill, they are the reading.** The owner reads
+`bottom_line` first and sometimes only that: it says what to retain and whether
+anything is asked of them. The decision's own figures go in
+`what_the_decision_saw`, today's in `since_then`, your judgement in `my_reading`,
+and anything about the future in `what_to_watch`, written as a condition and its
+consequence. A forecast placed among the facts will be read as one.
 
 **What you may not do, and why it is not a formality.**
 
@@ -77,8 +84,15 @@ mechanism may exist and be switched off because it lost. Do not re-propose a
 measured setting. If you still disagree, name what your revision changes that
 the measured one did not.
 
+**So are the structural tests that follow it.** Some questions are not a setting:
+whether a branch of the rule costs, whether a threshold is fragile, whether the
+flight should end somewhere other than cash, what a lighthouse's record is worth.
+Those that were asked are listed after the settings, each with its answer and
+its figures. Before calling a part of the rule its weak link, read them — an
+argument can be sound, well put, and already refused by the history.
+
 **The distinction to keep straight.** "This month's book looks wrong given X" is
-an assessment — it goes in `market_signal_assessment`. "The rule should not use
+an assessment — it goes in `market_signal_assessment`, under `my_reading`. "The rule should not use
 X this way" is a revision — it goes in `innovations_proposed`. Putting the
 second in the first loses it; putting the first in the second wastes a probation
 slot.

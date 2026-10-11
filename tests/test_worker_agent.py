@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from conftest import a_reading
 from pydantic import ValidationError
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.test import TestModel
@@ -32,8 +33,10 @@ from investment.worker.agent import (
 from investment.worker.result import (
     ImprovementProposal,
     ImprovementType,
+    MarketSignalReading,
     ScenarioAdjustment,
     WorkerResult,
+    journalled_sections,
 )
 
 # -- the result contract: the empty state is EXPLICIT, not forgotten ---------
@@ -48,7 +51,7 @@ def test_worker_result_empty_state_is_a_value_not_an_omission() -> None:
     r = WorkerResult(
         regime_assessment="calm",
         ranking_commentary="as ranked",
-        market_signal_assessment="the book fits the spread",
+        market_signal_assessment=a_reading("the book fits the spread"),
         reasoning="—",
         scenario_adjustments=[],
         evaluations=[],
@@ -67,7 +70,7 @@ def test_an_omitted_field_fails_validation_rather_than_defaulting() -> None:
         WorkerResult(
             regime_assessment="calm",
             ranking_commentary="as ranked",
-            market_signal_assessment="the book fits the spread",
+            market_signal_assessment=a_reading("the book fits the spread"),
             reasoning="—",
         )
 
@@ -96,7 +99,9 @@ def test_innovation_round_trip() -> None:
     r = WorkerResult(
         regime_assessment="stagflation building",
         ranking_commentary="defender leads on Sortino",
-        market_signal_assessment="the steep-curve book is defensible; watch the haven crowding",
+        market_signal_assessment=a_reading(
+            "the steep-curve book is defensible; watch the haven crowding"
+        ),
         innovations_proposed=[
             ImprovementProposal(
                 type=ImprovementType.new_invariant,
@@ -163,7 +168,7 @@ def test_the_persona_names_the_field_its_contribution_must_land_in() -> None:
 _VALID_OUTPUT = WorkerResult(
     regime_assessment="calm",
     ranking_commentary="as ranked",
-    market_signal_assessment="the book fits the spread",
+    market_signal_assessment=a_reading("the book fits the spread"),
     reasoning="—",
     scenario_adjustments=[],
     evaluations=[],
@@ -375,3 +380,60 @@ async def test_exhausted_calls_do_not_masquerade_as_the_date_budget(
     assert not isinstance(caught.value, TimeoutError)
     assert isinstance(caught.value.__cause__, TimeoutError)
     assert "TimeoutError" in str(caught.value)
+
+
+# -- the reading of the market-signal decision, in parts ----------------------
+
+
+def _reading(**overrides: object) -> dict[str, object]:
+    return {**a_reading("Nothing is asked of you: the stack holds its book."), **overrides}
+
+
+def test_the_prompt_names_every_part_the_schema_requires() -> None:
+    """The prompt tells the Worker what goes where and the schema refuses what
+    does not fit; a part one of them has and the other lacks is a part filled
+    by guesswork, or never."""
+    for part in MarketSignalReading.model_fields:
+        assert part in WORKER_SYSTEM_PROMPT, part
+
+
+def test_the_bottom_line_is_required_and_comes_first() -> None:
+    reading = MarketSignalReading.model_validate(
+        _reading(my_reading=["The spread cannot see positioning."])
+    )
+    assert reading.render().splitlines()[0] == "Nothing is asked of you: the stack holds its book."
+    with pytest.raises(ValidationError):
+        MarketSignalReading.model_validate(_reading(bottom_line=""))
+
+
+def test_a_point_that_runs_on_is_refused() -> None:
+    """The 2026-10-11 reading was six hundred words in one paragraph. A point
+    is one idea: what does not fit in one is two points, and the schema says
+    so to the model, which gets to answer again."""
+    with pytest.raises(ValidationError):
+        MarketSignalReading.model_validate(_reading(my_reading=["x" * 401]))
+    with pytest.raises(ValidationError):
+        MarketSignalReading.model_validate(_reading(what_to_watch=["one"] * 7))
+
+
+def test_a_forecast_keeps_its_heading_in_every_channel() -> None:
+    """A fact, a judgement and a forecast each have their own part, and the
+    heading each is shown under is journalled WITH the reading — the digest,
+    the mail and the dashboard read it from there and hold no copy."""
+    reading = MarketSignalReading.model_validate(
+        _reading(
+            what_the_decision_saw=["BAA10Y 1.47 against a median of 1.95 on 2026-10-01."],
+            what_to_watch=["If IWN breaks its second line, the book goes to 100% cash."],
+        )
+    )
+    journalled = reading.journal()
+    assert journalled["bottom_line"].startswith("Nothing is asked")
+    assert journalled_sections(journalled) == [
+        ("What the decision saw", ["BAA10Y 1.47 against a median of 1.95 on 2026-10-01."]),
+        (
+            "What to watch (forecasts, not facts)",
+            ["If IWN breaks its second line, the book goes to 100% cash."],
+        ),
+    ]
+    assert "What to watch (forecasts, not facts):" in reading.render()
+    assert "Since then" not in reading.render()  # an empty part prints no heading

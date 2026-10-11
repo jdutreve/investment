@@ -36,12 +36,19 @@ from investment.mechanical.invariants import (
 from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
+from investment.worker.result import journalled_sections
 from investment.writeback.recurrence import NOTABLE_RECURRENCE
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
 # corpus (docs/EXAMPLE.md Step 8A shows a handful).
 DIGEST_INVARIANTS = 5
+# How many recurring themes the digest lists, the most repeated first.
+DIGEST_RECURRING_THEMES = 5
+# An invariant's title in a list. The curator sometimes writes a paragraph where
+# a title was asked for — one of 600 characters led the digest of 2026-10-11 —
+# and the record beneath it is what the line is for.
+TITLE_CHARS = 140
 # How far back the digest's BRIDGE proposal slot looks. One week, because the
 # digest is weekly and the slot means "what was decided for this digest" — a
 # UC9 ad-hoc re-run's mid-week proposal is inside it, a past Monday's is not.
@@ -260,10 +267,10 @@ def _invariant_lines(invariants: list[dict[str, Any]]) -> list[str]:
         if evidence:
             # The record replaces the bare count: same numbers, with their range,
             # their size and their stability.
-            lines.append(f"   • {inv.get('title', '?')}: {weight_str}{author}")
+            lines.append(f"   • {short_title(inv.get('title', '?'))}: {weight_str}{author}")
             lines.append(f"       {evidence}")
         else:
-            lines.append(f"   • {inv.get('title', '?')}: {weight_str}{counts}{author}")
+            lines.append(f"   • {short_title(inv.get('title', '?'))}: {weight_str}{counts}{author}")
     return lines
 
 
@@ -388,13 +395,21 @@ def _worker_challenge_lines(reading: dict[str, Any] | None, decision_date: Any) 
     carry is the Worker saying it had none to read."""
     if not reading:
         return []
-    assessment = str(reading.get("market_signal_assessment") or "").strip()
-    if not assessment:
-        return []
     read_date = reading.get("market_signal_decision_date")
     stale = bool(decision_date) and bool(read_date) and read_date != decision_date
     suffix = f" (reading of the {read_date} decision — NOT the one above)" if stale else ""
-    return [f"   🗣 Worker challenge{suffix}: {assessment}"]
+    parts = reading.get("market_signal_reading")
+    if isinstance(parts, dict) and parts.get("bottom_line"):
+        # LAID OUT, the bottom line first (2026-10-11): one point per line under
+        # the heading that says what kind of statement it is.
+        lines = [f"   🗣 Worker challenge{suffix}: {parts['bottom_line']}"]
+        for heading, points in journalled_sections(parts):
+            lines.append(f"      {heading}")
+            lines += [f"        · {point}" for point in points]
+        return lines
+    # A reading journalled before it had parts: its text, as it was written.
+    assessment = str(reading.get("market_signal_assessment") or "").strip()
+    return [f"   🗣 Worker challenge{suffix}: {assessment}"] if assessment else []
 
 
 def _stack_block(stack: dict[str, Any] | None) -> list[str]:
@@ -477,17 +492,43 @@ def _recurring_block(recurring: list[dict[str, Any]]) -> list[str]:
     Recurrence is not proof: two of the repeated M8b themes were measured and
     rejected. It is a RANKING of where to look, which is why the line asks for a
     measurement rather than announcing a finding."""
-    if not recurring:
+    open_themes, measured = split_recurring(recurring)
+    if not open_themes and not measured:
         return []
     lines = ["", "🔁 Recurring critiques (distinct wordings, worth measuring):"]
-    for row in sorted(recurring, key=lambda r: -int(r["n"])):
-        lines.append(f"   {row['n']}x — theme {row['theme_id']}")
+    for row in open_themes:
+        raised = f" — last raised {row['last_raised']}" if row.get("last_raised") else ""
+        lines.append(f"   {row['n']}x — theme {row['theme_id']}{raised}")
         # THE MEMBERS, not just the count. Cosine over prose over-merges at the
         # margin (writeback/recurrence.py measured it), and a grouping the owner
         # can SEE is a visible annoyance rather than one critique silently
         # buried inside another.
         lines += [f"      · {title}" for title in row.get("titles", [])]
+    if measured:
+        lines.append(f"   {measured_note(measured)}")
     return lines
+
+
+def split_recurring(recurring: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """`(themes still worth measuring, how many the history has answered)`.
+
+    A THEME THE LEDGER HAS ANSWERED IS NOT "WORTH MEASURING". From 2026-08-11 to
+    2026-10-11 this block opened every week with "Extend the 200d trend overlay
+    to VCIT", seven wordings strong — a setting measured on 2026-08-11, and in
+    force since the 14th. The block ranked where to look and never asked
+    whether someone had. One splitter for the text digest and the mail, and the
+    answered themes are COUNTED rather than dropped, so their absence says why."""
+    ranked = sorted(recurring, key=lambda r: -int(r["n"]))
+    open_themes = [row for row in ranked if not row.get("measured")]
+    return open_themes[:DIGEST_RECURRING_THEMES], len(ranked) - len(open_themes)
+
+
+def measured_note(measured: int) -> str:
+    themes = "theme is" if measured == 1 else "themes are"
+    return (
+        f"{measured} other recurring {themes} not listed: the setting asked for has "
+        "been measured — its answer is in the rule's measured settings."
+    )
 
 
 def _attribution_block(attribution: dict[str, Any] | None) -> list[str]:
@@ -873,24 +914,54 @@ async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:
     # hour the ledger was first filled; a fixture of comma-free titles would
     # have missed it.
     themes = await db.query(
-        "SELECT theme_id, COUNT(DISTINCT title) AS n FROM innovation "
-        "GROUP BY theme_id HAVING n >= :min ORDER BY n DESC LIMIT 5",
+        "SELECT theme_id, COUNT(DISTINCT title) AS n, "
+        " MAX(substr(created_at, 1, 10)) AS last_raised FROM innovation "
+        "GROUP BY theme_id HAVING n >= :min ORDER BY n DESC",
         min=NOTABLE_RECURRENCE,
     )
+    # The settings the history has measured, by NAME: a wording that asks for a
+    # value of one of them has its answer in `revision_measurement`, whatever
+    # value it asked for (`rule_revision.describe_measured` shows every one).
+    measured_settings: set[str] = set()
+    for row in await db.query("SELECT DISTINCT overrides FROM revision_measurement"):
+        measured_settings.update(json.loads(str(row["overrides"])))
     out: list[dict[str, Any]] = []
     for theme in themes:
-        titles = await db.query(
-            "SELECT DISTINCT title FROM innovation WHERE theme_id = :t ORDER BY created_at",
+        members = await db.query(
+            "SELECT title, spec FROM innovation WHERE theme_id = :t ORDER BY created_at",
             t=theme["theme_id"],
         )
         out.append(
             {
                 "theme_id": theme["theme_id"],
                 "n": theme["n"],
-                "titles": [str(row["title"]) for row in titles],
+                "last_raised": theme["last_raised"],
+                "titles": list(dict.fromkeys(str(row["title"]) for row in members)),
+                "measured": any(
+                    _asks_for_a_measured_setting(str(row["spec"]), measured_settings)
+                    for row in members
+                ),
             }
         )
     return out
+
+
+def _asks_for_a_measured_setting(spec: str, measured_settings: set[str]) -> bool:
+    """Does this wording name settings of the rule (`spec.parameters`), all of
+    which the ledger has measured? A critique in prose alone names none and is
+    never answered this way: nothing ties it to a measurement but a reader."""
+    parameters = json.loads(spec).get("parameters")
+    return (
+        isinstance(parameters, dict) and bool(parameters) and set(parameters) <= measured_settings
+    )
+
+
+def short_title(title: Any) -> str:
+    """A title cut to `TITLE_CHARS` at a word, with an ellipsis that says so."""
+    text = str(title)
+    if len(text) <= TITLE_CHARS:
+        return text
+    return text[:TITLE_CHARS].rsplit(" ", 1)[0].rstrip(",;:.") + "…"
 
 
 async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:

@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from conftest import a_reading
 from pydantic_ai.models.test import TestModel
 
 from investment.chain import run_chain
@@ -116,7 +117,7 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
             {
                 "regime_assessment": "stagflation deepening",
                 "ranking_commentary": "defender leads",
-                "market_signal_assessment": (
+                "market_signal_assessment": a_reading(
                     "right book for the spread, blind to the fiscal impulse"
                 ),
                 "scenario_adjustments": [],
@@ -165,7 +166,9 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
     # The cycle produced a READING and no allocation (ADR-012): no Proposal is
     # minted by the cognitive chain any more, and the reading is journalled.
     cycle: UC8Result = holder["cycle"]
-    assert cycle.worker_result.market_signal_assessment.startswith("right book for the spread")
+    assert cycle.worker_result.market_signal_assessment.bottom_line.startswith(
+        "right book for the spread"
+    )
     assert await db.query("SELECT type FROM event_log WHERE type = 'ProposalEvent'") == []
 
     # the digest is readable and complete

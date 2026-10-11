@@ -187,6 +187,39 @@ def test_a_candidate_has_its_own_heading_in_the_email_too() -> None:
     assert "No invariant is established." not in both
 
 
+def test_the_reading_in_parts_is_a_list_per_heading_in_the_email() -> None:
+    """The third channel lays the reading out as the other two do, with the
+    headings the journal carries, and escapes every point."""
+    reading = {
+        "market_signal_decision_date": "2026-08-03",
+        "market_signal_assessment": "the text",
+        "market_signal_reading": {
+            "bottom_line": "Nothing is asked of you.",
+            "sections": [
+                {
+                    "heading": "My reading (judgement, not measurement)",
+                    "points": ["A <b>bear steepener</b> & VCIT is rolling over."],
+                }
+            ],
+        },
+    }
+    html = render.render_digest_html(_inputs(worker_reading=reading), {}, TODAY)
+    assert "Worker challenge:</b> Nothing is asked of you." in html
+    assert "<p><b>My reading (judgement, not measurement)</b></p><ul><li>" in html
+    assert "A &lt;b&gt;bear steepener&lt;/b&gt; &amp; VCIT is rolling over." in html
+
+
+def test_answered_themes_are_counted_and_not_listed_in_the_email() -> None:
+    recurring = [
+        {"n": 7, "theme_id": "t1", "titles": ["Extend the overlay to VCIT"], "measured": True},
+        {"n": 3, "theme_id": "t2", "titles": ["Regime label and tape diverge"], "measured": False},
+    ]
+    html = render.render_digest_html(_inputs(recurring=recurring), {}, TODAY)
+    assert "Extend the overlay to VCIT" not in html
+    assert "Regime label and tape diverge" in html
+    assert "1 other recurring theme is not listed" in html
+
+
 def test_no_style_attribute_anywhere() -> None:
     """The one property the whole module exists to guarantee — the Gmail
     draft-composition API silently strips `style=`."""

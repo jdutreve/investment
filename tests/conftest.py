@@ -87,3 +87,16 @@ async def give_invariant_a_record(
             v=verdict,
             d=stored_definition(row),
         )
+
+
+def a_reading(bottom_line: str) -> dict[str, object]:
+    """A Worker reading of the market-signal decision with only its bottom line
+    said — the five parts `MarketSignalReading` requires, as a mapping, so that
+    it serves both a `WorkerResult(...)` keyword and a model's JSON output."""
+    return {
+        "bottom_line": bottom_line,
+        "what_the_decision_saw": [],
+        "since_then": [],
+        "my_reading": [],
+        "what_to_watch": [],
+    }

@@ -752,6 +752,17 @@ def describe_rule(caps: Caps) -> str:
     and rejected them, which is the loop doing its job on a question nobody
     should have had to ask.
 
+    AND ON 2026-10-11 THE WORKER FOUND THE NEXT ONE ITSELF, twice in one day:
+    item 3 listed the haven among the sleeves "checked against EACH of their own
+    lines, and every line breached moves 1/2", while the settings table beside
+    it gave `trend_sleeves` without IEF and showed "add IEF" measured and
+    refused. Both were generated and they disagreed, because the sentence
+    described ONE set where the overlay has two behaviours: a trend sleeve is
+    graduated, the haven is all-or-nothing (`apply_trend_overlay`: below one
+    line of two, IEF is redirected to IEF, which is nothing). The text now says
+    each apart, and `test_describe_rule_treats_the_haven_apart` holds it to the
+    overlay's own arithmetic.
+
     So the rule text now states EVERY knob that is on, including the ones added
     last, and `test_describe_rule_states_every_active_knob` pairs it with
     `rule_revision.TESTABLE_PARAMETERS` so the next knob cannot ship silent.
@@ -774,11 +785,11 @@ def describe_rule(caps: Caps) -> str:
         f"    {name}: " + ", ".join(f"{t} {w:.0f}" for t, w in holdings.items())
         for name, holdings in BOOKS.items()
     )
-    # The checked set is the sleeves PLUS the haven — `walk_decisions` computes
-    # `below_trend` over exactly this set, and the haven's own read is what
-    # selects TREND_FALLBACK_HAVEN. Deriving it here rather than naming the
-    # sleeves alone is what keeps this text true when the overlay changes.
-    checked = (*TREND_SLEEVES, TREND_HAVEN)
+    # TWO SETS, NOT ONE. `walk_decisions` reads a trend for TREND_SLEEVES and
+    # for TREND_HAVEN, and the overlay does different things with them: a trend
+    # sleeve moves line by line, the haven is all-or-nothing and only chooses
+    # the destination. Listing them as one "checked" set is what made this text
+    # contradict the settings table beside it (2026-10-11, see the docstring).
     # The trajectory knobs, stated ONLY when they are on — an "off" line would
     # invite the Worker to propose switching on what is already off, which is
     # the mirror of the defect this repairs. An off knob that was MEASURED is
@@ -811,16 +822,19 @@ def describe_rule(caps: Caps) -> str:
         f"  2. A book change is applied only after {CONFIRM_DECISIONS} consecutive\n"
         "     monthly decisions agree (hysteresis against boundary flip-flop).\n"
         f"  3. GRADUATED trend overlay on {_windows_text()}-day moving averages:\n"
-        f"     {', '.join(checked)} — and ONLY these — are checked against EACH of\n"
-        f"     their own lines, and every line breached moves 1/{len(MA_WINDOWS)} of that\n"
-        "     sleeve to the haven. So a sleeve is held in full, half out, or fully out —\n"
-        "     not all-or-nothing. Price and lines are read at the PREVIOUS close (the\n"
-        "     rule decides on what was knowable before the order goes in).\n"
-        f"     What is redirected goes to {TREND_HAVEN}; and when {TREND_HAVEN} is ITSELF\n"
-        f"     below EVERY one of its lines, the destination becomes\n"
-        f"     {TREND_FALLBACK_HAVEN} instead — including the {TREND_HAVEN} a book\n"
-        "     already holds. Sleeves outside the checked set are held at book\n"
-        "     weight whatever their own trend does.\n"
+        f"     {', '.join(TREND_SLEEVES)} — the trend sleeves, and ONLY these — are\n"
+        "     checked against EACH of their own lines, and every line breached moves\n"
+        f"     1/{len(MA_WINDOWS)} of that sleeve to the haven. So a trend sleeve is held in\n"
+        "     full, half out, or fully out — not all-or-nothing. Price and lines are\n"
+        "     read at the PREVIOUS close (the rule decides on what was knowable before\n"
+        "     the order goes in).\n"
+        f"     THE HAVEN, {TREND_HAVEN}, IS READ ON THE SAME LINES AND IS NOT A TREND\n"
+        f"     SLEEVE: it is all-or-nothing. While {TREND_HAVEN} is above at least one of\n"
+        f"     its lines, what is redirected goes to {TREND_HAVEN} and the {TREND_HAVEN} a\n"
+        f"     book holds stays in full. Only when {TREND_HAVEN} is below EVERY one of its\n"
+        f"     lines does the destination become {TREND_FALLBACK_HAVEN} instead —\n"
+        f"     including the {TREND_HAVEN} a book already holds. Any other sleeve is\n"
+        "     held at book weight whatever its own trend does.\n"
         + trajectory
         # THE CAPS ARE PART OF WHAT DECIDED THE MONTH, so a text that omits them
         # describes a rule the stack does not follow. Raised THREE times across

@@ -1139,7 +1139,13 @@ class EvaluationDraft(BaseModel):
 class WorkerResult(BaseModel):
     regime_assessment       : str
     ranking_commentary      : str                       # explains, never re-ranks
-    market_signal_assessment: str   # the reading of the mechanical decision
+    market_signal_assessment: MarketSignalReading   # the reading of the mechanical
+                              # decision, IN PARTS since 2026-10-11: bottom_line,
+                              # what_the_decision_saw, since_then, my_reading,
+                              # what_to_watch — a fact, a judgement and a forecast
+                              # each in a list of its own, a point <= 400 chars.
+                              # Journalled as text AND with its headed sections,
+                              # which the digest, the mail and the dashboard show.
     scenario_adjustments    : list[ScenarioAdjustment]  # qualitative triggers only
     evaluations             : list[EvaluationDraft]
     innovations_proposed    : list[ImprovementProposal] # [] means "nothing", said

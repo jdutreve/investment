@@ -610,6 +610,31 @@ def test_describe_rule_states_every_active_knob() -> None:
     assert "whatever the level says" not in text
 
 
+def test_describe_rule_treats_the_haven_apart() -> None:
+    """Found by the Worker on 2026-10-11: the rule text listed the haven among
+    the sleeves moved "1/2 per line breached", beside a settings table that gave
+    `trend_sleeves` without it. Two generated texts, one behaviour each, and
+    they disagreed. The overlay has TWO behaviours, and the text is held to the
+    arithmetic of both."""
+    text = market_signal.describe_rule(_CAPS)
+    haven = market_signal.TREND_HAVEN
+    graduated = next(line for line in text.splitlines() if "the trend sleeves, and ONLY" in line)
+    assert all(sleeve in graduated for sleeve in market_signal.TREND_SLEEVES)
+    assert haven not in graduated
+    assert f"THE HAVEN, {haven}, IS READ ON THE SAME LINES AND IS NOT A TREND" in text
+
+    book = market_signal.BOOKS["credit-spread-tight-yield-curve-steep"]
+    assert book[haven] == 40.0
+    # Below one line of two, the haven a book holds does not move...
+    assert market_signal.apply_trend_overlay(book, {haven: 0.5}) == book
+    # ...and is still where a trend sleeve is sent.
+    sent = market_signal.apply_trend_overlay(book, {haven: 0.5, "VCIT": 1.0})
+    assert sent == {haven: 90.0, "IWN": 10.0}
+    # Below every line, the book's own haven goes to cash with everything redirected.
+    out = market_signal.apply_trend_overlay(book, {haven: 1.0, "VCIT": 1.0})
+    assert out == {market_signal.TREND_FALLBACK_HAVEN: 90.0, "IWN": 10.0}
+
+
 def test_describe_rule_states_the_caps_and_the_haven_exemption() -> None:
     """Raised THREE times across independent runs: "ms-stack carries
     max_single_asset_pct = 50, yet this month's overlay produces a 90% IEF

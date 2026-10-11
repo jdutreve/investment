@@ -17,6 +17,36 @@ import { date, num, pct, pctPoints, signClass, weight } from "../format";
 
 const s = (row: Row | null | undefined, key: string): unknown => row?.[key];
 
+// The Worker's reading, laid out as the digest lays it out: the bottom line,
+// then each part under the heading the JOURNAL gives it. The headings are read
+// from the payload and never written here — a forecast labelled a fact in one
+// front and not in another is the defect the parts exist to prevent. A reading
+// journalled before it had parts is shown as the text it was.
+function WorkerReading({ reading }: { reading: Row | null }) {
+  const parts = s(reading, "market_signal_reading") as Row | undefined;
+  const sections = (parts?.["sections"] ?? []) as { heading: string; points: string[] }[];
+  if (!parts || !parts["bottom_line"]) {
+    return <div className="muted">{String(s(reading, "market_signal_assessment"))}</div>;
+  }
+  return (
+    <div>
+      <div>{String(parts["bottom_line"])}</div>
+      {sections.map((section) => (
+        <div key={section.heading} style={{ marginTop: 8 }}>
+          <div className="muted" style={{ fontWeight: 600 }}>
+            {section.heading}
+          </div>
+          <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
+            {section.points.map((point, index) => (
+              <li key={index}>{point}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // The four states of the liquidity composite, spelled the way the agent tags
 // them (market/liquidity.py STATES). Read from the payload and never derived
 // here: the level/speed rule lived in three places until 2026-08-30 and they
@@ -302,9 +332,7 @@ function DecisionCard({
               (reading of the {date(readDate)} decision — not this one)
             </span>
           ) : null}
-          <div className="muted">
-            {String(s(reading, "market_signal_assessment"))}
-          </div>
+          <WorkerReading reading={reading} />
         </div>
       ) : null}
       <div style={{ marginTop: 10 }}>

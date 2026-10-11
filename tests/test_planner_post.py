@@ -2,6 +2,7 @@
 src/investment/planner/post.py). The deterministic guardrail directly (the
 "hallucinations die" core); the LLM round-trip via PydanticAI TestModel."""
 
+from conftest import a_reading
 from pydantic_ai.models.test import TestModel
 
 from investment.planner.context import PlannerContext
@@ -163,7 +164,7 @@ async def test_run_extracts_then_guardrails() -> None:
     worker = WorkerResult(
         regime_assessment="a",
         ranking_commentary="b",
-        market_signal_assessment="d",
+        market_signal_assessment=a_reading("d"),
         reasoning="c",
         scenario_adjustments=[],
         evaluations=[],

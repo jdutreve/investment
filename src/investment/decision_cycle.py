@@ -42,6 +42,7 @@ from pydantic_ai import Agent
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
+from investment.mechanical.research_findings import describe_findings
 from investment.mechanical.rule_revision import describe_measured
 from investment.planner.context import PlannerContext, standing_label
 from investment.planner.post import PlannerPost, PostPlannerResult
@@ -289,6 +290,10 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # after the rule and as fully as the rule (`rule_revision.describe_measured`).
     if context.measured_revisions:
         lines += ["", *describe_measured(context.measured_revisions)]
+    # What research answered that is not a setting (`research_findings`): beside
+    # the measured settings because it is read the same way, and unconditional
+    # because it does not depend on the ledger having rows.
+    lines += ["", *describe_findings()]
 
     lines += [
         "",
@@ -478,7 +483,12 @@ async def journal_worker_reading(
                 "trigger": trigger,
                 "run_id": run_id,
                 "market_signal_decision_date": market_signal.get("decision_date"),
-                "market_signal_assessment": worker_result.market_signal_assessment,
+                # The reading twice, for two kinds of reader: as text, which is
+                # what this key has always held and what a reader of the journal
+                # expects, and in its parts, which is what the digest, the mail
+                # and the dashboard lay out (`worker.result.journalled_sections`).
+                "market_signal_assessment": worker_result.market_signal_assessment.render(),
+                "market_signal_reading": worker_result.market_signal_assessment.journal(),
                 "regime_assessment": worker_result.regime_assessment,
                 "ranking_commentary": worker_result.ranking_commentary,
                 "reasoning": worker_result.reasoning,

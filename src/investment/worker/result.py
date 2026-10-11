@@ -21,8 +21,9 @@ carries the meaning; a missing field would be a schema violation the Phase-1bis
 retry policy rejects, not a silent no-op.
 """
 
+from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -129,6 +130,98 @@ class ImprovementProposal(StrictModel):
     trace: str
 
 
+# One point of a reading: long enough for a number, its date and what it means,
+# short enough that a second idea has to go in a second point.
+_POINT_CHARS = 400
+_POINTS = 6
+
+Point = Annotated[str, Field(min_length=1, max_length=_POINT_CHARS)]
+Points = Annotated[list[Point], Field(max_length=_POINTS)]
+
+
+class MarketSignalReading(StrictModel):
+    """The Worker's reading of the month's mechanical decision, IN PARTS.
+
+    IT WAS ONE STRING, and on 2026-10-11 that string was six hundred words in a
+    single paragraph: the conclusion in its last sentence, readings on two
+    clocks, judgements and forecasts all in one voice, and nothing to tell a
+    measured fact from a bet. The content was good and the owner could not read
+    it. The parts below are the ones that paragraph already contained, each in
+    a field of its own, so that what kind of statement a sentence is does not
+    depend on how it is phrased.
+
+    `bottom_line` comes first because the owner places the order by hand and
+    reads this on a phone: what to retain, and whether anything is asked of
+    them. The four lists keep apart what must not be mixed — the DECISION's own
+    figures, the tape since, the Worker's judgement, and its forecasts. A list
+    may be empty; the bottom line may not.
+
+    The length limits are the instruction, enforced: a point that does not fit
+    is two points, or is not one."""
+
+    bottom_line: str = Field(min_length=1, max_length=_POINT_CHARS)
+    # Facts on the DECISION clock: what the monthly decision saw, each with its
+    # figure and date. The only place a decision-date number belongs.
+    what_the_decision_saw: Points
+    # Facts on TODAY's clock: where the tape has moved since, each dated.
+    since_then: Points
+    # Judgement: where the decision looks wrong and what the instrument cannot
+    # see. Said as judgement, because it is one.
+    my_reading: Points
+    # Forecasts and conditions: what would change the next decision. Kept apart
+    # because a forecast written in the voice of a reading is taken for one.
+    what_to_watch: Points
+
+    def render(self) -> str:
+        """The reading as text: the bottom line, then each part under its
+        heading, one point per line. What every reader that wants a string
+        gets — the chat reply, the replay's log, the journal."""
+        lines = [self.bottom_line]
+        for heading, points in self.sections():
+            lines.append(f"{heading}:")
+            lines += [f"  - {point}" for point in points]
+        return "\n".join(lines)
+
+    def journal(self) -> dict[str, Any]:
+        """The reading as it is journalled: its fields, and its sections with
+        their headings so that no reader of the journal needs to know them."""
+        return {
+            **self.model_dump(),
+            "sections": [
+                {"heading": heading, "points": points} for heading, points in self.sections()
+            ],
+        }
+
+    def sections(self) -> list[tuple[str, list[str]]]:
+        """The non-empty parts with the heading each is shown under. ONE list of
+        headings, written into the journal with the reading (`journal`), so that
+        a forecast cannot be labelled a fact in one channel."""
+        return [
+            (READING_HEADINGS[name], points)
+            for name in READING_HEADINGS
+            if (points := getattr(self, name))
+        ]
+
+
+READING_HEADINGS: dict[str, str] = {
+    "what_the_decision_saw": "What the decision saw",
+    "since_then": "Since then, on today's tape",
+    "my_reading": "My reading (judgement, not measurement)",
+    "what_to_watch": "What to watch (forecasts, not facts)",
+}
+
+
+def journalled_sections(reading: Mapping[str, Any]) -> list[tuple[str, list[str]]]:
+    """The sections of a reading read back from the journal, with the headings
+    it was JOURNALLED under (`MarketSignalReading.journal`). The renderers never
+    hold a copy of the headings: the text digest, the mail and the dashboard —
+    which is not Python — all show what the journal says."""
+    return [
+        (str(section["heading"]), [str(point) for point in section["points"]])
+        for section in reading.get("sections") or []
+    ]
+
+
 class WorkerResult(StrictModel):
     """The Worker's complete output for one UC8 cycle (docs/ARCHITECTURE.md
     "WORKER"). Always complete; empty fields mean "nothing to propose", not
@@ -151,7 +244,10 @@ class WorkerResult(StrictModel):
     # every cycle, and the empty state is a sentence ("no mechanical decision in
     # context"), not an absent key (Phase-1bis: a partial answer fails validation
     # rather than passing silently).
-    market_signal_assessment: str
+    #
+    # STRUCTURED since 2026-10-11 (`MarketSignalReading`): the reading was one
+    # string and came back as one unreadable paragraph.
+    market_signal_assessment: MarketSignalReading
     # REQUIRED KEYS carrying EMPTY VALUES, which is the distinction this
     # docstring's "always complete" claims and defaults quietly gave up:
     # `default_factory=list` means an omitted `innovations_proposed` validates

@@ -315,7 +315,7 @@ def _record(
     return DateOutcome(
         as_of=as_of,
         mechanical=mechanical,
-        reading=result.worker_result.market_signal_assessment,
+        reading=result.worker_result.market_signal_assessment.render(),
         innovations=len(result.worker_result.innovations_proposed),
         innovation_proposals=tuple(result.worker_result.innovations_proposed),
     )

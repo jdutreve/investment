@@ -433,7 +433,7 @@ async def run_cycle(runtime: AgentRuntime, *, today: date | None = None) -> Comm
     except AlreadyRunning as exc:
         return CommandResult.refused(str(exc))
 
-    reading = result.worker_result.market_signal_assessment.strip()
+    reading = result.worker_result.market_signal_assessment.render().strip()
     return CommandResult(
         ok=True,
         message=f"Cycle done.\n\n🗣 {reading}" if reading else "Cycle done (no reading given).",
