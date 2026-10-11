@@ -1506,6 +1506,71 @@ The duration gate's neighbours (10 and 30 bp) do not rescue it. The credit
 overlay was on in one episode, 2000-2010; a constant reduction of the same size
 does as well, and the equities it cuts are the ones the trend overlay had kept.
 
+### Why the stack stopped beating SPY, and the window of its medians (2026-10-11, `2026-10-11-median-window`)
+
+From January 2007 the stack returns 10.89% a year against 11.00% for SPY. The
+break is 2014, not 2007: the 2008 lead (+58 log points) is spent afterwards.
+
+    era                stack    SPY   equity held   wide books   spread > its 10y median
+    1993-11..2006-12   11.9%   10.6%     54%           65%            58%
+    2007-01..2008-12   16.5%  -18.5%     25%           21%            54%
+    2009-01..2013-12   17.3%   17.2%     65%           87%            87%
+    2014-01..2019-12    5.9%   12.1%     47%           19%            19%
+    2020-01..2026-10    9.4%   15.3%     39%            9%            11%
+
+Since 2014 the spread has sat under its ten-year median four decisions in five,
+so "spreads are wide: load equities" — the branch that earns the signal's lead
+— has almost never fired. The obvious lever is the window of that median, a
+setting of the rule (`median_window_years`) that had never been measured. Swept
+at 3, 5, 7 and 15 years with `measure_revision` on 1977-2026 and four
+sub-windows, protocol written first:
+
+    2009-2026, CAGR      3y: 10.35 -> 6.50   5y: -> 8.38   7y: -> 8.56   15y: -> 10.92
+    1977-2026, verdict   3y: reject          5y: trade-off 7y: insufficient 15y: insufficient
+
+No value is worth a signature, and the expected direction was wrong: a shorter
+median catches up with a crisis within a few years, reads the still-falling
+spread of 2010 as tight, and takes the stack out of its equity-heavy books in
+the middle of the recovery. Five years adopts on 1977-1993 and loses on every
+window after. Ten years stays.
+
+What the stack gave up to SPY since 2014 is the price of what it is: over ten
+years 9.3% against 15.4%, the same Sortino (1.08 against 1.06), a deepest
+drawdown of -16.5% against -33.7%, which is outside the -25% rule.
+
+### The 60% cap and the equity dial, put to the bootstrap (2026-10-11, `2026-10-11-equity-dial`)
+
+The owner's objection: the 60% cap rests on no test. It rests on one — the
+Sortino "peak" of the tight-flat book's SPY share on 2026-08-14 (1.321 at 50,
+1.342 at 60, 1.323 at 70) — never put to the evidence gate. Turned again on
+1977-2026 with the paired bootstrap, the rule against the same rule with that
+book at SPY x / GLD (100 - x):
+
+    x     Sortino, variant - rule [90%]    CAGR 2009-2026   max DD 1993-2026
+    50    +0.006  [-0.043, +0.052]            10.37%           -15.5%
+    60    (the rule)                          10.39%           -16.5%
+    70    -0.026  [-0.073, +0.021]            10.39%           -17.7%
+    80    -0.070  [-0.166, +0.023]            10.38%           -19.0%
+    90    -0.130  [-0.270, +0.007]            10.36%           -20.3%
+    100   -0.198  [-0.382, -0.023]            10.33%           -22.0%
+
+**The peak is not real**: on Sortino, 50, 60 and 70 cannot be told apart. They
+are not the same portfolio for all that — the drawdown moves with the dial, a
+point or so a notch, in the direction of whichever of SPY and gold is falling
+(deeper with more SPY since 2009, deeper with more gold over 1993-2008). **And
+the cap is not what holds the stack back**: more SPY buys no return since 2009
+— gold, the other side of the dial, earned as much inside this book — and costs
+1.2 point of drawdown a notch; over 1977-1993 it costs 0.8 point of return a
+notch, proven. SPY 100 is the one setting the history refuses. Where the cap
+sits is a choice of risk, the owner's; nothing measured argues for raising it,
+and it stays at 60.
+
+It also corrects the reading above: the stack trailing SPY since 2014 is not
+its share of equity. With this book at 100% SPY the stack still returns 10.33%
+over 2009-2026 against about 15% for SPY held; the difference is the trend
+overlay leaving at each fall and re-entering after the recovery began, which is
+the price of the drawdown it buys.
+
 ### What it comes to
 
 The rule's behaviour over these fifteen months — the bond book, then cash — is

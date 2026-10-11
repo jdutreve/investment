@@ -152,6 +152,53 @@ FINDINGS: tuple[Finding, ...] = (
         record="docs/V1_STRATEGY.md",
     ),
     Finding(
+        measured_on=date(2026, 10, 11),
+        about="rule",
+        question=(
+            "The spread has sat under its ten-year median four decisions in five since "
+            "2014, so the equity-heavy books almost never fire: should the medians be "
+            "read on a shorter or a longer window?"
+        ),
+        answer="no — ten years stays",
+        evidence=(
+            "median_window_years at 3, 5, 7 and 15 over 1977-2026 and four sub-windows. "
+            "Shorter is WORSE where it was expected to help: 2009-2026 CAGR 10.35% falls "
+            "to 6.50% (3 years), 8.38% (5), 8.56% (7), because a short median reads the "
+            "still-falling spread of 2010 as tight and leaves equities mid-recovery. Five "
+            "years adopts on 1977-1993 only; fifteen moves nothing."
+        ),
+        consequence=(
+            "The stack trailing SPY since 2014 (9.3% against 15.4% a year over ten years, "
+            "same Sortino, drawdown -16.5% against -33.7%) is the price of its drawdown "
+            "control in a bull market, not a mis-set window."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
+    Finding(
+        measured_on=date(2026, 10, 11),
+        about="rule",
+        question=(
+            "Does the 60% cap hold the stack back — would more SPY in the tight-flat "
+            "book (SPY 60 / GLD 40) earn more?"
+        ),
+        answer="no — and the peak at 60 is not real",
+        evidence=(
+            "The book at SPY 50 to 100 over 1977-2026. Sortino against the rule: 50 "
+            "+0.006, 70 -0.026, 80 -0.070, 90 -0.130, none proven; 100 -0.198, proven "
+            "worse. Since 2009 more SPY buys NO return (10.39% at 60, 10.36% at 90: gold "
+            "earned as much inside this book) and costs 1.2 point of drawdown a notch; "
+            "over 1977-1993 it costs 0.8 point of return a notch."
+        ),
+        consequence=(
+            "Where the cap sits is a choice of risk, not of return: from 50 to 70 the "
+            "Sortino does not choose but the drawdown differs, about a point a notch. The "
+            "stack trailing SPY since 2014 is not its share of equity: it is the trend "
+            "overlay leaving at each fall and re-entering after the recovery began, the "
+            "price of its drawdown control."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
+    Finding(
         measured_on=date(2026, 10, 10),
         about="corpus",
         question="Is an invariant's record evidence about its condition, or about the era?",
