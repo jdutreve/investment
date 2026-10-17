@@ -61,7 +61,7 @@ type Sleeve = {
   share: number;
 };
 
-// ONE vocabulary for a sleeve's trend, used by the brief and by the order card:
+// ONE vocabulary for a sleeve's trend — the asset dots' tooltips and the order card's changes:
 // a state named two ways on one page reads as two states.
 const trendState = (share: number): { word: string; tone: string } =>
   share === 0
@@ -69,12 +69,6 @@ const trendState = (share: number): { word: string; tone: string } =>
     : share >= 1
       ? { word: "out", tone: "bad" }
       : { word: "half out", tone: "warn" };
-
-function TrendChip({ share }: { share: number | undefined }) {
-  if (share === undefined) return <span className="muted">—</span>;
-  const state = trendState(share);
-  return <span className={`chip ${state.tone}`}>{state.word}</span>;
-}
 
 const windowsOf = (decision: Row | null): number[] =>
   ((s(decision, "trend_overlay") as Row | undefined)?.["windows_days"] ??
@@ -106,15 +100,6 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
   });
 }
 
-// THE BRIEF IS THE MACRO CONTEXT AND NOTHING ELSE (owner, 2026-10-17): what is
-// growing or not, where rates, credit and money stand, which assets are rising.
-// What the stack holds and what to place is the order card's one job; a "Rule:
-// holds …" line and a "% held" on every chip repeated it here, and two places
-// saying one thing is how they come to disagree. The trend overlay's words
-// ("in trend", "half out", "out") are the order's too: they say what the rule
-// does with an asset, so here an asset is only a move — which way, how fast
-// for it, gathering or losing pace — in the agent's sentence, shown as written.
-//
 // Green to red (owner, 2026-10-17): what is fine first, the trouble last, in
 // the legend's own order. A stable sort, so equal colours keep the board's order.
 const COLOUR_ORDER = ["good", "watch", "poor", "bad"];
@@ -123,46 +108,34 @@ const byColour = (themes: MacroTheme[]): MacroTheme[] =>
     (a, b) => COLOUR_ORDER.indexOf(a.news) - COLOUR_ORDER.indexOf(b.news),
   );
 
-// PROGRESSIVE DISCLOSURE (owner, 2026-10-17): this is what a reader with ten
-// seconds needs, in prose — the agent's summary (`overall`), then one sentence
-// per theme saying how it reads, the facts that make it read so and, where it
-// is in trouble, the probable cause. Every series with its level and move is on
-// the board below; listing them here was the board a second time. Nothing here
-// forecasts.
-function Brief({
-  summary,
-  themes,
-}: {
-  summary: string | undefined;
-  themes: MacroTheme[];
-}) {
+// THE THEMES IN WORDS, at the head of the Macro card (owner, 2026-10-17):
+// one sentence per theme — how it reads, the facts that make it read so, and
+// where it is in trouble the probable cause — then the ideas from the books it
+// wakes. The board below carries every series with its level and move; this is
+// what a reader with ten seconds needs. Green to red. Nothing here forecasts.
+function ThemeLines({ themes }: { themes: MacroTheme[] }) {
+  if (!themes.length) return null;
   return (
-    <div className="card brief">
-      <p className="brief-line">
-        <span className="brief-tag">Macro</span>
-        {summary ?? "The macro board is not available."}
-      </p>
-      {themes.length ? (
-        <ul className="brief-detail">
-          {byColour(themes).map((theme) => (
-            <li key={theme.group}>
-              <span className={`swatch heat-${theme.news}`} />
-              <span className="strong">{theme.group}</span>
-              <span className="muted"> — </span>
-              {theme.sentence}
-              {theme.invariants.length ? (
-                <ul className="lit">
-                  {theme.invariants.map((inv) => (
-                    <li key={inv.id} title={inv.title}>
-                      {inv.title}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+    <div className="theme-lines">
+      <ul className="brief-detail">
+        {byColour(themes).map((theme) => (
+          <li key={theme.group}>
+            <span className={`swatch heat-${theme.news}`} />
+            <span className="strong">{theme.group}</span>
+            <span className="muted"> — </span>
+            {theme.sentence}
+            {theme.invariants.length ? (
+              <ul className="lit">
+                {theme.invariants.map((inv) => (
+                  <li key={inv.id} title={inv.title}>
+                    {inv.title}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
       {themes.some((theme) => theme.invariants.length) ? (
         <div className="paper-note">
           Under a theme, the ideas from the books whose condition holds clearly
@@ -171,6 +144,22 @@ function Brief({
       ) : null}
     </div>
   );
+}
+
+// The pace of a move in one word: whether it is growing or fading.
+const PACE: Record<string, string> = {
+  "gathering pace": "accelerating",
+  "losing pace": "slowing",
+  "": "steady",
+};
+
+// An asset against its trend lines as a colour (owner, 2026-10-17: colours,
+// not the overlay's words): green above both, orange below one, red below both.
+function TrendDot({ share }: { share: number | undefined }) {
+  if (share === undefined) return <span className="muted">—</span>;
+  const state = trendState(share);
+  const colour = share === 0 ? "good" : share >= 1 ? "bad" : "poor";
+  return <span className={`swatch dot heat-${colour}`} title={state.word} />;
 }
 
 // Which way, and how hard: the board's arrows, green up and red down, a slight
@@ -223,14 +212,15 @@ function AssetsCard({
         <thead>
           <tr>
             <th>Asset</th>
-            <th>Move{latestAsOf ? ` · ${date(latestAsOf)}` : ""}</th>
+            <th className="num">30 days{latestAsOf ? ` · ${date(latestAsOf)}` : ""}</th>
+            <th>Pace</th>
             {windows.map((w) => (
               <th className="num" key={w}>
                 vs {w}-day avg
               </th>
             ))}
-            <th>Trend at decision</th>
-            <th>Trend today</th>
+            <th className="center">At decision</th>
+            <th className="center">Today</th>
           </tr>
         </thead>
         <tbody>
@@ -244,21 +234,23 @@ function AssetsCard({
                 <td>
                   {ASSETS[t] ?? t} <span className="muted mono">{t}</span>
                 </td>
-                <td className="asset-move">
-                  {move ? (
+                <td className="num">
+                  {move && move.change_pct !== null ? (
                     <>
                       <AssetArrow asset={move} />
-                      {move.reading}
+                      {move.change_pct > 0 ? "+" : ""}
+                      {move.change_pct.toFixed(1)}%
                       {/* A late series says so: one date in the header must
                           not stand for an asset whose prices stopped. */}
                       {move.as_of !== latestAsOf ? (
-                        <span className="heat-text-bad"> Prices stop at {date(move.as_of)}.</span>
+                        <span className="heat-text-bad"> to {date(move.as_of)}</span>
                       ) : null}
                     </>
                   ) : (
                     <span className="muted">—</span>
                   )}
                 </td>
+                <td className="muted">{move ? (PACE[move.pace] ?? "—") : "—"}</td>
                 {windows.map((w, index) => (
                   <td className="num muted" key={w}>
                     {reference
@@ -266,11 +258,11 @@ function AssetsCard({
                       : "—"}
                   </td>
                 ))}
-                <td>
-                  <TrendChip share={atDecision?.share} />
+                <td className="center">
+                  <TrendDot share={atDecision?.share} />
                 </td>
-                <td>
-                  <TrendChip share={today?.share} />
+                <td className="center">
+                  <TrendDot share={today?.share} />
                 </td>
               </tr>
             );
@@ -278,11 +270,11 @@ function AssetsCard({
         </tbody>
       </table>
       <div className="paper-note">
-        A move is the change over the last 30 days, sized against what is usual
-        for that asset over ten years; the pace is whether it is growing or
-        fading. Distances from each average are as of {date(distancesAsOf)}.
-        Above both averages an asset is in trend; below one, half out; below
-        both, out. It describes prices, not a forecast.
+        30 days is the price change; its arrow is sized against what is usual
+        for that asset over ten years, and the pace says whether the move is
+        growing or fading. Distances from each average are as of{" "}
+        {date(distancesAsOf)}. The dots: green above both averages, orange
+        below one, red below both. It describes prices, not a forecast.
       </div>
     </div>
   );
@@ -810,6 +802,7 @@ function MacroBoard({
           </div>
         ) : null}
       </div>
+      <ThemeLines themes={themes} />
       {highlights.length ? (
         <div className="standout">
           <div className="section-label">What changed</div>
@@ -1037,8 +1030,9 @@ export function Overview() {
         </div>
       </div>
 
-      {/* IN THE ORDER THE OWNER ACTS (2026-10-11): the brief, the order and
-          its reasons, then the macro tape behind them. The defender, the
+      {/* THE WEATHER FIRST, THEN THE ASSETS, THEN THE ORDER (owner,
+          2026-10-17: the Macro card moved to the top, its themes in words at
+          its head; it was the brief, the order, then the macro tape). The defender, the
           scoreboard and the stack's own tiles were here and said nothing the
           owner acts on from this page: the bridge decides nothing (ADR-014),
           a hit rate of 0/0 is not a score, and the stack's standing has a page
@@ -1046,10 +1040,17 @@ export function Overview() {
       <AlertList alerts={data.alerts} />
 
       <div style={{ marginTop: 14 }}>
-        <Brief
-          summary={macro.data?.overall}
-          themes={macro.data?.themes ?? []}
-        />
+        {macro.error ? (
+          <ErrorState error={macro.error} />
+        ) : (
+          <MacroBoard
+            board={board}
+            themes={macro.data?.themes ?? []}
+            highlights={macro.data?.highlights ?? []}
+            regime={data.regime}
+            liquidity={data.global_liquidity}
+          />
+        )}
       </div>
 
       <div style={{ marginTop: 14 }}>
@@ -1067,20 +1068,6 @@ export function Overview() {
           live={stack.data?.live_trend ?? null}
           rule={stack.data?.current_rule ?? null}
         />
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        {macro.error ? (
-          <ErrorState error={macro.error} />
-        ) : (
-          <MacroBoard
-            board={board}
-            themes={macro.data?.themes ?? []}
-            highlights={macro.data?.highlights ?? []}
-            regime={data.regime}
-            liquidity={data.global_liquidity}
-          />
-        )}
       </div>
 
       <Lighthouses invariants={data.invariants} />

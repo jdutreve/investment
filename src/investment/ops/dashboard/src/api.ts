@@ -173,8 +173,6 @@ export interface MacroPayload {
   board: MacroLine[];
   assets: AssetMove[];
   summary: string;
-  // The whole board in two or three plain sentences, then theme by theme.
-  overall: string;
   // What a reader should not miss, most unusual first.
   // `cause` names the series' usual drivers that point the same way today — a
   // stated convention, not a measurement.

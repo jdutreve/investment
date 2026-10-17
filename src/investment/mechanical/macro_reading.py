@@ -44,7 +44,6 @@ from investment.market.macro_board import (
     asset_moves,
     highlights,
     macro_board,
-    overall,
     read_themes,
 )
 from investment.mechanical.market_signal import STACK_TICKERS
@@ -173,7 +172,6 @@ async def macro_reading(db: InvestmentDB, today: date | None = None) -> dict[str
         lit[home].append({"id": row["id"], "title": row["title"], "status": row["status"]})
     return {
         **payload,
-        "overall": overall(themes),
         "highlights": highlights(payload["board"], earlier["board"]),
         "themes": [{**theme, "invariants": lit[theme["group"]]} for theme in themes],
         # The assets the rule can hold, as moves only: which way, how fast for

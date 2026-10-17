@@ -428,28 +428,6 @@ def _listed(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
-def overall(themes: list[dict[str, Any]]) -> str:
-    """The whole board in two or three short sentences: where the trouble is,
-    what is fine, what is merely off. Built from the themes, so it cannot say
-    something the board below it does not show."""
-    named = {
-        news: [t["group"].lower() for t in themes if t["news"] in levels]
-        for news, levels in (("trouble", ("poor", "bad")), ("off", ("watch",)), ("fine", ("good",)))
-    }
-    parts = []
-    if named["trouble"]:
-        parts.append(f"The trouble is in {_listed(named['trouble'])}.")
-    if named["fine"]:
-        verb = "is" if len(named["fine"]) == 1 else "are"
-        parts.append(f"{_listed(named['fine']).capitalize()} {verb} favourable.")
-    if named["off"]:
-        verb = "is" if len(named["off"]) == 1 else "are"
-        parts.append(
-            f"{_listed(named['off']).capitalize()} {verb} a little less favourable than usual."
-        )
-    return " ".join(parts) if parts else "No series can be read yet."
-
-
 # How far back "what changed" looks, and how many changes it names: a list
 # that names everything names nothing.
 CHANGE_LOOKBACK_DAYS = 30

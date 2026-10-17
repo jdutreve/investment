@@ -221,7 +221,6 @@ def test_a_theme_reads_as_its_worst_series_and_names_it() -> None:
         "Favourable: credit spreads (BAA10Y) at 1.44 pts, near a ten-year low."
     )
     assert themes[2]["sentence"] == "Favourable; nothing stands out."
-    assert mb.overall(themes) == "The trouble is in rates. Credit and money are favourable."
 
 
 def _series(ticker: str, **fields: object) -> dict[str, object]:

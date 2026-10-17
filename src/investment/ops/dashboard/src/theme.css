@@ -590,8 +590,15 @@ a {
 .brief-detail li {
   margin-bottom: 3px;
 }
-.assets-table td.asset-move {
-  white-space: normal;
+.data-table th.center,
+.data-table td.center {
+  text-align: center;
+}
+.swatch.dot {
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  vertical-align: middle;
 }
 .why-prose {
   margin: 0;
