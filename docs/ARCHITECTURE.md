@@ -735,7 +735,7 @@ and rejections.
 | Invariant           | Worker / curation | confrontation rule (backtest/evaluation/proposal) | continuous (every confrontation) | weight_effective vs floor; realloc gate 6 eligibility |
 | Strategy (new/revision) | Worker        | FAVORS refresh after activation               | strategy_probation_weeks (12) | probation verdict: keep / propose closure       |
 | Scenario probabilities | seed WARM-START (35y base rates, UC0 step 11c) + weekly job + Worker | calibration: dominant scenario vs realized | scenario_calibration_weeks (4) | score feeds Worker context + Strategy conviction |
-| Strategy (ADOPTED, `source='corpus'`) | ADR-007 / the owner | `mechanical/attribution.py`: the stack against its control arm AND the whole enabled board, 1y/3y/5y/10y/full | continuous (a reading a week) | REPORTS ONLY — digest line always, `signal_attribution` alert when Pareto-dominated |
+| Strategy (ADOPTED, `source='corpus'`) | ADR-007 / the owner | `mechanical/attribution.py`: the stack against its control arm AND the whole enabled board, 1y/3y/5y/10y/full | continuous (a reading a week) | REPORTS ONLY — a digest line every week (the `signal_attribution` alert was removed 2026-10-17) |
 | Thresholds          | Phase 9 replay    | walk-forward calibration                      | ~25y calibrate / ~10y validate | user-confirmed write to system_thresholds        |
 
 **`mechanical/outcomes.py` — weekly 08:52 (after ranking, before UC8):**

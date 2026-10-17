@@ -167,8 +167,9 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   exists because `outcomes.strategy_probation_check` judges
   `source='agent-discovery'` strategies only, so `market-signal-stack` — the one
   that allocates — is the one the improvement cycle cannot reach. It REPORTS and
-  never acts: a digest line every week, and a `warn` alert only when something
-  Pareto-dominates the stack over 3y or more) → 09:00
+  never acts: a digest line every week and nothing else — the `warn` alert it
+  raised when something Pareto-dominated the stack restated a standing fact
+  every week and was removed by the owner on 2026-10-17) → 09:00
   UC8 decision cycle (Planner Pre → Worker → Planner Post → Writeback gates;
   the Worker READS the market-signal decision as context and nuances it, it
   never re-picks the book) → 09:30 digest, sent on THREE channels

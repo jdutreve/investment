@@ -154,23 +154,67 @@ def test_a_move_carries_its_size() -> None:
 
 
 def _entry(group: str, news: str, short: str, headline: str = "") -> dict[str, object]:
-    return {"group": group, "news": news, "short": short, "headline": headline, "level_text": "1"}
+    return {
+        "ticker": short,
+        "group": group,
+        "news": news,
+        "short": short,
+        "headline": headline,
+        "level_text": "1",
+        "rank": None,
+        "direction": 0,
+    }
 
 
 def test_a_theme_reads_as_its_worst_series_and_names_it() -> None:
+    """A summary, not the list: the verdict, then at most two facts — the series
+    that set the colour first, then what stands out — with level, standing and
+    move; and nothing when nothing does."""
+    yield_10y = {
+        **_entry("Rates", "bad", "the 10-year yield"),
+        "level_text": "5.10 %",
+        "unusual": True,
+        "position": "near its ten-year high",
+        "direction": 1,
+        "move_size": "slight",
+    }
+    curve = {**_entry("Rates", "good", "the yield curve"), "level_text": "0.35 pts"}
+    real = {
+        **_entry("Rates", "good", "the real 10-year yield"),
+        "level_text": "1.10 %",
+        "direction": -1,
+        "move_size": "full",
+        "pace": "gathering pace",
+        "salience": 0.9,
+    }
+    spreads = {
+        **_entry("Credit", "good", "credit spreads"),
+        "level_text": "1.44 pts",
+        "unusual": True,
+        "position": "near its ten-year low",
+    }
     board = [
-        _entry("Rates", "good", "the yield curve"),
-        _entry("Rates", "bad", "the 10-year yield", "the 10-year yield near a ten-year high"),
-        _entry("Credit", "good", "credit spreads", "credit spreads low"),
+        curve,
+        yield_10y,
+        real,
+        spreads,
+        {**_entry("Credit", "good", "bank credit"), "level_text": "6.21 %"},
         _entry("Markets", "neutral", "gold's trend"),
+        _entry("Money", "good", "money growth"),
     ]
     themes = mb.read_themes(board)
-    assert [(t["group"], t["news"]) for t in themes] == [("Rates", "bad"), ("Credit", "good")]
+    assert [(t["group"], t["news"]) for t in themes] == [
+        ("Rates", "bad"),
+        ("Credit", "good"),
+        ("Money", "good"),
+    ]
     assert themes[0]["sentence"] == (
-        "Near its worst in ten years: the 10-year yield near a ten-year high."
+        "Near its worst in ten years: the 10-year yield at 5.10 %, near a ten-year high, "
+        "edging up; the real 10-year yield at 1.10 %, falling and accelerating."
     )
-    assert themes[1]["sentence"] == "Favourable."
-    assert mb.overall(themes) == "The trouble is in rates. Credit is favourable."
+    assert themes[1]["sentence"] == "Favourable: credit spreads at 1.44 pts, near a ten-year low."
+    assert themes[2]["sentence"] == "Favourable; nothing stands out."
+    assert mb.overall(themes) == "The trouble is in rates. Credit and money are favourable."
 
 
 def _series(ticker: str, **fields: object) -> dict[str, object]:
@@ -193,7 +237,9 @@ def _series(ticker: str, **fields: object) -> dict[str, object]:
     return {**base, **fields}
 
 
-def test_highlights_name_the_extreme_the_mover_and_what_changed() -> None:
+def test_highlights_say_what_changed_and_leave_the_rest_to_the_themes() -> None:
+    """The extremes and the full moves are in the theme sentences; the
+    highlights carry only what none of them says."""
     board = [
         _series("yield", rank=1.0, news="bad", position="near its ten-year high", direction=1),
         _series("spread", rank=0.02, position="near its ten-year low"),
@@ -204,16 +250,20 @@ def test_highlights_name_the_extreme_the_mover_and_what_changed() -> None:
     earlier = [_series("liquidity", news="good"), _series("quiet")]
     lines = mb.highlights(board, earlier)
     assert [(line["kind"], line["tone"]) for line in lines] == [
-        ("At an extreme", "bad"),
-        ("At an extreme", "good"),  # unusual and good news is still worth reading
-        ("Moving", "bad"),  # a rate rising moves away from its favourable side
         ("Changed in a month", "poor"),
         ("Direction of travel", "poor"),
     ]
-    assert lines[0]["text"] == "Yield near its ten-year high and still rising."
-    assert lines[2]["text"] == "Bills rising faster than usual."
-    assert lines[3]["text"] == ("Liquidity: favourable a month ago, unfavourable now.")
-    assert lines[4]["text"] == "2 series worsening, 0 improving, 3 steady."
+    assert lines[0]["text"] == ("Liquidity: favourable a month ago, unfavourable now.")
+    assert lines[1]["text"] == "2 series worsening, 0 improving, 3 steady."
+
+
+def test_a_theme_in_trouble_names_the_probable_cause() -> None:
+    board = [
+        {**_series("DGS10", short="the 10-year yield", news="bad", rank=0.97), "salience": 1},
+        _series("CPIAUCSL", short="inflation", direction=1, group="Inflation"),
+    ]
+    (rates, _) = mb.read_themes(board)
+    assert rates["sentence"].endswith("Probable cause: inflation rising.")
 
 
 def test_a_board_where_nothing_stands_out_has_no_highlight() -> None:

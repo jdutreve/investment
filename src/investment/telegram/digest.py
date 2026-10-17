@@ -535,11 +535,13 @@ def _attribution_block(attribution: dict[str, Any] | None) -> list[str]:
     """WHAT THE SIGNAL LAYER EARNED, rendered from the newest
     `SignalAttributionEvent` (`mechanical/attribution.py`).
 
-    UNCONDITIONAL, unlike the alert beside it. The alert speaks only when the
-    stack is Pareto-dominated, and a measurement the owner sees only when it is
-    bad is a measurement nobody can trend — the whole finding this job exists for
-    was invisible for two weeks precisely because no line said what the control
-    arm was doing. So the line prints every week, whatever it says.
+    UNCONDITIONAL: a measurement the owner sees only when it is bad is a
+    measurement nobody can trend — the whole finding this job exists for was
+    invisible for two weeks precisely because no line said what the control arm
+    was doing. So the line prints every week, whatever it says. It is the ONLY
+    place the attribution is said: a `signal_attribution` alert restated the
+    same standing fact at the top of every digest and dashboard, and the owner
+    removed it as noise (2026-10-17).
 
     CAGR AND MAX DRAWDOWN ONLY, out of the four measured. All four live in the
     journal for anyone reading it; two are what a phone screen can carry, and

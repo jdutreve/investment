@@ -348,23 +348,72 @@ THEME_WORDS = {
 }
 
 
+# How many series a theme's sentence names: what matters, not the list.
+THEME_FACTS = 2
+
+
+def _moving(entry: dict[str, Any]) -> str:
+    """A series' move in the fewest words: a slight move "edges", a full one
+    rises or falls, a sharp one does so sharply; the pace only on a real move."""
+    if not entry.get("direction"):
+        return ""
+    up = entry["direction"] > 0
+    size = entry.get("move_size") or "full"
+    if size == "slight":
+        return "edging up" if up else "edging down"
+    words = ("rising" if up else "falling") + (" sharply" if size == "sharp" else "")
+    pace = {"gathering pace": " and accelerating", "losing pace": ", but slowing"}
+    return words + pace.get(entry.get("pace") or "", "")
+
+
+def _fact(entry: dict[str, Any]) -> str:
+    """One series as a fact: its level, where that sits in ten years when it
+    is unusual, and its move."""
+    parts = [f"{entry['short']} at {entry['level_text']}"]
+    if entry.get("unusual"):
+        parts.append(str(entry["position"]).replace("its ", "a "))
+    if moving := _moving(entry):
+        parts.append(moving)
+    return ", ".join(parts)
+
+
 def read_themes(board: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """One plain sentence per group of the board, in the board's order: how the
-    group reads, and the series that make it read so. A group whose series all
-    declare no favourable side has no reading and is left out."""
+    """One plain sentence per group of the board, in the board's order. A group
+    whose series all declare no favourable side has no reading and is left out.
+
+    A SUMMARY, NOT THE LIST (owner, 2026-10-17: "un résumé pour rapidement
+    prendre les choses importantes à savoir"). The board below carries every
+    series with its level and move; the sentence says how the theme reads and
+    the facts that make it read so — at most `THEME_FACTS` of them: the series
+    that set its colour first, then any that stands out (an unusual level, a
+    full move) — and nothing when nothing does."""
     themes: list[dict[str, Any]] = []
     for group in dict.fromkeys(entry["group"] for entry in board):
-        judged = [e for e in board if e["group"] == group and e["news"] in NEWS_ORDER]
+        members = [e for e in board if e["group"] == group]
+        judged = [e for e in members if e["news"] in NEWS_ORDER]
         if not judged:
             continue
         worst = max((e["news"] for e in judged), key=NEWS_ORDER.index)
+        culprits = [e for e in judged if worst != "good" and e["news"] == worst]
+        standing_out = [
+            e
+            for e in members
+            if e not in culprits and (e.get("unusual") or e.get("move_size") in ("full", "sharp"))
+        ]
+        by_salience = sorted(standing_out, key=lambda e: -float(e.get("salience") or 0))
+        facts = [_fact(e) for e in (culprits + by_salience)[:THEME_FACTS]]
         sentence = THEME_WORDS[worst].capitalize()
-        if worst != "good":
-            culprits = [e for e in judged if e["news"] == worst]
-            # Its name and, when it stands out, how — never its level: the tile
-            # under the sentence carries the figure.
-            sentence += ": " + "; ".join(e["headline"] or e["short"] for e in culprits)
-        themes.append({"group": group, "news": worst, "sentence": sentence + "."})
+        sentence += (": " + "; ".join(facts) + ".") if facts else "; nothing stands out."
+        # WHERE THE TROUBLE IS, ITS PROBABLE CAUSE (owner, 2026-10-11: "pour
+        # chaque constat ajoute la cause probable"): on the series that makes
+        # the theme poor or bad, read toward its unfavourable side.
+        if worst in ("poor", "bad") and culprits:
+            culprit = culprits[0]
+            way = 1 if culprit.get("favourable") == "low" else -1
+            cause = probable_cause(culprit, way, board)
+            if cause.startswith("Probable cause"):
+                sentence += " " + cause
+        themes.append({"group": group, "news": worst, "sentence": sentence})
     return themes
 
 
@@ -394,10 +443,10 @@ def overall(themes: list[dict[str, Any]]) -> str:
     return " ".join(parts) if parts else "No series can be read yet."
 
 
-# How far back "what changed" looks, and how many lines each kind of highlight
-# may take: a list of what stands out that names everything names nothing.
+# How far back "what changed" looks, and how many changes it names: a list
+# that names everything names nothing.
 CHANGE_LOOKBACK_DAYS = 30
-MAX_EXTREMES, MAX_MOVERS, MAX_CHANGES = 3, 2, 2
+MAX_CHANGES = 2
 
 
 # WHAT USUALLY DRIVES EACH SERIES, among the other series of the board: the
@@ -466,71 +515,28 @@ def _improving(entry: dict[str, Any]) -> bool | None:
 
 
 def highlights(board: list[dict[str, Any]], earlier: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """What a reader should not miss, most unusual first — each line with its
-    `kind` and the `tone` it is coloured in:
+    """What changed, which no theme sentence says — each line with its `kind`
+    and the `tone` it is coloured in:
 
-    - a level at an END of its ten years, on either side: the unusual is worth
-      reading when it is good news too;
-    - a FULL move (sized against that series' own usual move) not already named;
     - a series whose colour CHANGED since `earlier`, the board a month before;
     - the direction of travel: how many series are worsening against improving.
 
-    Each line carries its PROBABLE CAUSE (`probable_cause`): the usual drivers
+    Each change carries its PROBABLE CAUSE (`probable_cause`): the usual drivers
     of that series which, on this board, point the same way.
 
+    THE LEVELS AT AN EXTREME AND THE FULL MOVES WERE HERE until 2026-10-17, and
+    the theme sentences now say them (`read_themes`) with the cause of what is
+    wrong: the same fact twice on one page (owner: "beaucoup de redite").
+
     WORDS ONLY (owner, 2026-10-11: "les chiffres sont inutiles et ajoutent du
-    bruit, car déjà spécifiés"): every figure is on the series' own tile, and a
-    summary that repeats them is the board a second time. Pure, and built from
-    the board alone, so it cannot say what the tiles do not show."""
+    bruit, car déjà spécifiés"). Pure, and built from the board alone, so it
+    cannot say what the tiles do not show."""
     lines: list[dict[str, str]] = []
-    told: set[str] = set()
-
-    extremes = sorted(
-        (
-            e
-            for e in board
-            if e["rank"] is not None and max(e["rank"], 1 - e["rank"]) >= EXTREME_RANK
-        ),
-        key=lambda e: -max(e["rank"], 1 - e["rank"]),
-    )[:MAX_EXTREMES]
-    for e in extremes:
-        moving = ""
-        if e["direction"]:
-            moving = " and still " + ("rising" if e["direction"] > 0 else "falling")
-        lines.append(
-            {
-                "kind": "At an extreme",
-                "tone": e["news"],
-                "text": f"{_named(e)} {e['position']}{moving}.",
-                "cause": probable_cause(e, 1 if e["rank"] >= 0.5 else -1, board),
-            }
-        )
-        told.add(e["ticker"])
-
-    movers = [e for e in board if e["move_size"] in ("full", "sharp") and e["ticker"] not in told]
-    movers.sort(key=lambda e: e["move_size"] != "sharp")
-    for e in movers[:MAX_MOVERS]:
-        verb = "rising" if e["direction"] > 0 else "falling"
-        improving = _improving(e)
-        lines.append(
-            {
-                "kind": "Moving",
-                "tone": "neutral" if improving is None else ("good" if improving else "bad"),
-                "text": (
-                    f"{_named(e)} {verb} "
-                    f"{'much faster' if e['move_size'] == 'sharp' else 'faster'} than usual."
-                ),
-                "cause": probable_cause(e, e["direction"], board),
-            }
-        )
-        told.add(e["ticker"])
-
     before = {e["ticker"]: e["news"] for e in earlier}
     changed = [
         e
         for e in board
-        if e["ticker"] not in told
-        and e["news"] in NEWS_ORDER
+        if e["news"] in NEWS_ORDER
         and before.get(e["ticker"]) in NEWS_ORDER
         and before[e["ticker"]] != e["news"]
     ]

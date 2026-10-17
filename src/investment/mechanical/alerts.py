@@ -61,13 +61,11 @@ from datetime import date
 
 from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import DRIFT_EVENT
-from investment.mechanical.attribution import ATTRIBUTION_EVENT, VERDICT_WINDOWS
 from investment.mechanical.invariants import check_contradictions
 from investment.mechanical.market_signal import (
     MA_WINDOWS,
     STACK_PORTFOLIO_ID,
     STACK_TICKERS,
-    TREND_BASELINE_PORTFOLIO_ID,
     signal_tickers,
 )
 from investment.writeback.writeback import RULE_MEASUREMENT_EVENT
@@ -502,75 +500,6 @@ async def rule_tradeoff_alert(db: InvestmentDB) -> Alert | None:
     )
 
 
-async def signal_attribution_alert(db: InvestmentDB) -> Alert | None:
-    """A portfolio that PARETO-DOMINATES the stack over a long window — nothing
-    worse on any of CAGR / Sortino / Calmar / max drawdown, and better on at
-    least one.
-
-    WHY IT EXISTS. `market-signal-stack` is seeded `source='corpus'`, so
-    `outcomes.strategy_probation_check` — which judges `source='agent-discovery'`
-    strategies — structurally cannot reach the one strategy that allocates the
-    money. Its control arm has been persisted and refreshed weekly since
-    2026-08-13 for exactly this comparison, and until 2026-08-30 nothing read
-    the two series together.
-
-    A PURE READ of the newest `SignalAttributionEvent`, like every alert here:
-    `build_digest` renders committed rows and must never run a backtest
-    (`mechanical/attribution.py` does the measuring, in the chain, before this).
-
-    THE CONTROL ARM IS CALLED OUT SEPARATELY when it is the dominator, because
-    the two cases are different findings wearing one shape: any other portfolio
-    dominating is opportunity cost — something on the board is simply better —
-    while the CONTROL ARM dominating says the signal layer is not earning its
-    own complexity, since it is the stack with that layer removed and nothing
-    else changed.
-
-    `warn`, never `critical`: nothing is broken, nothing is blocked and no
-    position moves. ADR-006 matures a strategy by measuring it over a window,
-    not by acting on one reading — and this alert IS the measurement becoming
-    visible, which is what was missing. Like `stack_drawdown_alert`, it will keep
-    firing while the condition holds; a standing fact restated weekly is the
-    intent here, not noise."""
-    rows = await db.query(
-        "SELECT payload FROM event_log WHERE type = :t ORDER BY id DESC LIMIT 1",
-        t=ATTRIBUTION_EVENT,
-    )
-    if not rows:
-        return None
-    payload = json.loads(str(rows[0]["payload"]))
-    dominators: dict[str, list[str]] = payload.get("dominators") or {}
-    hits = {w: dominators.get(w) or [] for w in VERDICT_WINDOWS if dominators.get(w)}
-    if not hits:
-        return None
-    by_portfolio: dict[str, list[str]] = {}
-    for window, portfolio_ids in hits.items():
-        for portfolio_id in portfolio_ids:
-            by_portfolio.setdefault(portfolio_id, []).append(window)
-    named = ", ".join(
-        f"{pid} (over {', '.join(windows)})" for pid, windows in sorted(by_portfolio.items())
-    )
-    control = TREND_BASELINE_PORTFOLIO_ID in by_portfolio
-    # SHORT, since 2026-10-11 (owner: "très indigeste"). It was five hundred
-    # characters of definition and doctrine at the top of every digest, and the
-    # same ones every week. What the owner needs is who is ahead, over what, and
-    # that nothing was done; the definition of Pareto dominance and the reason
-    # nothing acts live in `mechanical/attribution.py`.
-    reading = (
-        "That is the stack's own control arm (the same trend filter on a fixed book), "
-        "so it is the signal that is behind, not the filter. "
-        if control
-        else ""
-    )
-    return Alert(
-        level="warn",
-        code="signal_attribution",
-        message=(
-            f"The stack is matched or beaten on every measure by {named}, as of "
-            f"{payload.get('as_of')}. {reading}Nothing was changed."
-        ),
-    )
-
-
 async def invariant_contradiction_alert(db: InvestmentDB) -> Alert | None:
     """Pairs of INTEGRATED invariants that contradict — same handle, same
     metric, opposite direction, conditions that can be active together
@@ -615,7 +544,6 @@ async def collect_alerts(db: InvestmentDB, today: date | None = None) -> list[Al
         await macro_freshness_alert(db, today),
         await decision_freshness_alert(db, today),
         await rule_tradeoff_alert(db),
-        await signal_attribution_alert(db),
         await invariant_contradiction_alert(db),
     ]
     alerts = [a for a in found if a is not None]

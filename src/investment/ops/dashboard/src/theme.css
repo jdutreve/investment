@@ -542,7 +542,6 @@ a {
   margin-bottom: 4px;
 }
 .section-label,
-.stance-label,
 .macro-label,
 .reading-heading {
   font-size: 11px;
@@ -585,22 +584,14 @@ a {
 .brief-detail li {
   margin-bottom: 3px;
 }
+.why-prose {
+  margin: 0;
+  line-height: 1.55;
+}
 .asset-arrow {
   display: inline-block;
   width: 16px;
   font-weight: 600;
-}
-.stance {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, auto));
-  justify-content: start;
-  gap: 24px;
-  margin-top: 12px;
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 .chip {
   display: inline-block;
@@ -653,35 +644,10 @@ a {
 }
 @media (max-width: 980px) {
   .decision-grid,
-  .stance,
   .reading-grid {
     grid-template-columns: 1fr;
   }
 }
-.alloc-bar {
-  display: flex;
-  height: 26px;
-  border-radius: 6px;
-  overflow: hidden;
-  margin-bottom: 10px;
-  background: var(--surface-sunken);
-}
-.alloc-bar .seg {
-  display: flex;
-  align-items: center;
-  padding: 0 8px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #fff;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.seg-SPY { background: var(--series-2); }
-.seg-IWN { background: var(--series-5); }
-.seg-GLD { background: var(--series-1); }
-.seg-VCIT { background: var(--series-3); }
-.seg-IEF { background: var(--series-4); }
-.seg-cash { background: var(--ink-muted); }
 .order-table td,
 .why-table td {
   padding-top: 7px;
@@ -767,9 +733,6 @@ details.reading p {
   text-overflow: ellipsis;
 }
 
-.stance-label {
-  text-transform: uppercase;
-}
 .signal-read .pill {
   margin-left: 8px;
 }
@@ -1034,9 +997,6 @@ details.reading p {
 .theme-name {
   font-weight: 640;
   margin-right: 6px;
-}
-.theme-sentence {
-  color: var(--ink-secondary);
 }
 .theme .tile-row {
   flex-wrap: wrap;

@@ -80,10 +80,6 @@ const windowsOf = (decision: Row | null): number[] =>
     []) as number[];
 type Weights = Record<string, number>;
 
-const allocationText = (weights: Weights): string =>
-  ASSET_ORDER.filter((t) => (weights[t] ?? 0) > 0)
-    .map((t) => `${ASSETS[t] ?? t} ${weight(weights[t])}%`)
-    .join(" · ") || "nothing";
 
 function sleevesOf(decision: Row | null): [string, Sleeve][] {
   const sleeves = ((s(decision, "trend_overlay") as Row | undefined)?.[
@@ -95,32 +91,6 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
   });
 }
 
-// How a series is moving, in the agent's own size words (`move_size`), so the
-// sentence and the board's arrows say the same thing of the same print.
-const MOVE_WORDS: Record<string, [string, string]> = {
-  slight: ["rising slightly", "falling slightly"],
-  full: ["rising", "falling"],
-  sharp: ["rising sharply", "falling sharply"],
-};
-
-const movement = (line: MacroLine): string => {
-  if (line.direction === 0) return "steady";
-  const words = MOVE_WORDS[line.move_size || "full"]!;
-  const move = words[line.direction > 0 ? 0 : 1];
-  return line.pace ? `${move}, ${line.pace}` : move;
-};
-
-// One series in a few words: its level, where that sits in ten years when it
-// is unusual, and how it is moving.
-const seriesPhrase = (line: MacroLine): string =>
-  [
-    `${line.short.replace(/^the /, "")} ${line.level_text}`,
-    line.unusual ? line.position : "",
-    movement(line),
-  ]
-    .filter(Boolean)
-    .join(", ");
-
 // THE BRIEF IS THE MACRO CONTEXT AND NOTHING ELSE (owner, 2026-10-17): what is
 // growing or not, where rates, credit and money stand, which assets are rising.
 // What the stack holds and what to place is the order card's one job; a "Rule:
@@ -130,18 +100,19 @@ const seriesPhrase = (line: MacroLine): string =>
 // does with an asset, so here an asset is only a move — which way, how fast
 // for it, gathering or losing pace — in the agent's sentence, shown as written.
 //
-// The summary is the agent's (`overall`); under it, theme by theme, each series
-// in a few words — the full sentence the board below only shows on hover.
-// Nothing here forecasts.
+// PROGRESSIVE DISCLOSURE (owner, 2026-10-17): this is what a reader with ten
+// seconds needs, in prose — the agent's summary (`overall`), then one sentence
+// per theme saying how it reads, the facts that make it read so and, where it
+// is in trouble, the probable cause. Every series with its level and move is on
+// the board below; listing them here was the board a second time. Nothing here
+// forecasts.
 function Brief({
   summary,
   themes,
-  board,
   assets,
 }: {
   summary: string | undefined;
   themes: MacroTheme[];
-  board: MacroLine[];
   assets: AssetMove[];
 }) {
   const latestAsOf = assets.reduce(
@@ -161,11 +132,7 @@ function Brief({
               <span className={`swatch heat-${theme.news}`} />
               <span className="strong">{theme.group}</span>
               <span className="muted"> — </span>
-              {board
-                .filter((line) => line.group === theme.group)
-                .map(seriesPhrase)
-                .join("; ")}
-              .
+              {theme.sentence}
             </li>
           ))}
         </ul>
@@ -340,6 +307,32 @@ function changesSince(decision: Row, live: LiveTrend): string[] {
   return [...crossed, ...moved];
 }
 
+// The rule's answer in one or two sentences: which side each signal fell on,
+// and what the trend filter did. No figure — the fold under the card has them.
+function whyThisBook(
+  signals: Record<string, Row>,
+  sleeves: [string, Sleeve][],
+  target: Weights,
+): string {
+  const sides = Object.entries(signals)
+    .map(([ticker, read]) => {
+      const side = sideOf(read["value"], read["trailing_median"], ticker);
+      return side ? `${(SIGNALS[ticker]?.name ?? ticker).toLowerCase()} ${side}` : "";
+    })
+    .filter(Boolean);
+  const first = sides.length
+    ? `${capitalise(sides.join(" and "))} against their ten-year medians select this book.`
+    : "";
+  const out = sleeves.filter(([, v]) => v.share > 0).length;
+  const haven = (target["IEF"] ?? 0) > 0 ? "Treasuries" : "cash";
+  const second = !sleeves.length
+    ? ""
+    : out === 0
+      ? "Every asset is in trend, so the book is held as written."
+      : `${out} of ${sleeves.length} assets are below their trend lines; what they would have held went to ${haven}.`;
+  return [first, second].filter(Boolean).join(" ");
+}
+
 function DecisionCard({
   decision,
   reading,
@@ -373,7 +366,6 @@ function DecisionCard({
   const signals = (s(decision, "signals") ?? {}) as Record<string, Row>;
   const windows = windowsOf(decision);
   const changes = live ? changesSince(decision, live) : [];
-  const inTrend = sleevesOf(decision).filter(([, v]) => v.share === 0).length;
   const readDate = s(reading, "market_signal_decision_date");
   const stale = Boolean(readDate) && readDate !== s(decision, "decision_date");
 
@@ -409,21 +401,6 @@ function DecisionCard({
       <div className="decision-grid">
         <div>
           <div className="section-label">Order</div>
-          <div className="alloc-bar" title={allocationText(target)}>
-            {tickers
-              .filter((t) => (target[t] ?? 0) > 0)
-              .map((t) => (
-                <span
-                  key={t}
-                  className={`seg seg-${t}`}
-                  style={{ width: `${target[t]}%` }}
-                >
-                  {(target[t] ?? 0) >= 12
-                    ? `${ASSETS[t] ?? t} ${weight(target[t])}%`
-                    : ""}
-                </span>
-              ))}
-          </div>
           <table className="data-table order-table">
             <thead>
               <tr>
@@ -474,29 +451,10 @@ function DecisionCard({
 
         <div>
           <div className="section-label">Why this book</div>
-          <ul className="why-list">
-            {Object.entries(signals).map(([ticker, read]) => (
-              <li key={ticker}>
-                <span className="strong">
-                  {SIGNALS[ticker]?.name ?? ticker}{" "}
-                  {sideOf(read["value"], read["trailing_median"], ticker)}
-                </span>
-                <span className="muted">
-                  {" "}
-                  — {num(read["value"])} against a ten-year median of{" "}
-                  {num(read["trailing_median"])}
-                </span>
-              </li>
-            ))}
-            <li>
-              <span className="strong">Trend filter</span>
-              <span className="muted">
-                {" "}
-                — {inTrend} of {sleevesOf(decision).length} assets in trend; what
-                is out went to {(target["IEF"] ?? 0) > 0 ? "Treasuries" : "cash"}
-              </span>
-            </li>
-          </ul>
+          {/* THE REASON, IN WORDS; THE FIGURES ONCE, in the fold below (owner,
+              2026-10-17: "ne garde qu'une version"). This list carried each
+              signal's value and median, and the fold the same values again. */}
+          <p className="why-prose">{whyThisBook(signals, sleevesOf(decision), target)}</p>
           <div className="section-label" style={{ marginTop: 14 }}>
             Since the decision{live ? ` · ${date(live.as_of)}` : ""}
           </div>
@@ -762,7 +720,7 @@ function MacroBoard({
       </div>
       {highlights.length ? (
         <div className="standout">
-          <div className="section-label">What stands out</div>
+          <div className="section-label">What changed</div>
           {highlights.map((line) => (
             <div className="standout-line" key={line.text}>
               <span className={`swatch heat-${line.tone}`} />
@@ -789,7 +747,6 @@ function MacroBoard({
               <div className="theme-head">
                 <span className={`swatch heat-${theme.news}`} />
                 <span className="theme-name">{theme.group}</span>
-                <span className="theme-sentence">{theme.sentence}</span>
               </div>
               <div className="tile-row">
                 {board
@@ -1011,7 +968,6 @@ export function Overview() {
         <Brief
           summary={macro.data?.overall}
           themes={macro.data?.themes ?? []}
-          board={board}
           assets={macro.data?.assets ?? []}
         />
       </div>
