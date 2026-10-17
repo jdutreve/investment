@@ -574,19 +574,21 @@ async def test_the_control_arm_dominating_is_named_as_the_signal_failing(db: Inv
     )
     alert = await A.signal_attribution_alert(db)
     assert alert is not None and alert.level == "warn"
-    assert "CONTROL ARM" in alert.message
+    assert "control arm" in alert.message and "the signal that is behind" in alert.message
+    # Digestible: it opened every digest at five hundred characters (owner, 2026-10-11).
+    assert len(alert.message) < 260
     assert "5y, 10y" in alert.message
     # Nothing acts on it, and the message must say so: ADR-006 matures on a
     # window of measurements, never on one reading.
-    assert "Nothing has been blocked" in alert.message
+    assert "Nothing was changed" in alert.message
 
 
 async def test_another_portfolio_dominating_reads_as_opportunity_cost(db: InvestmentDB) -> None:
     await _attribution_event(db, {"10y": ["spy-USD"]})
     alert = await A.signal_attribution_alert(db)
     assert alert is not None
-    assert "opportunity cost" in alert.message
-    assert "CONTROL ARM" not in alert.message
+    assert "spy-USD" in alert.message
+    assert "control arm" not in alert.message
 
 
 async def test_no_measurement_yet_is_silence(db: InvestmentDB) -> None:

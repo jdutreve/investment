@@ -542,21 +542,23 @@ async def signal_attribution_alert(db: InvestmentDB) -> Alert | None:
         f"{pid} (over {', '.join(windows)})" for pid, windows in sorted(by_portfolio.items())
     )
     control = TREND_BASELINE_PORTFOLIO_ID in by_portfolio
+    # SHORT, since 2026-10-11 (owner: "très indigeste"). It was five hundred
+    # characters of definition and doctrine at the top of every digest, and the
+    # same ones every week. What the owner needs is who is ahead, over what, and
+    # that nothing was done; the definition of Pareto dominance and the reason
+    # nothing acts live in `mechanical/attribution.py`.
     reading = (
-        "That dominator is the stack's own CONTROL ARM — the same overlay on a frozen book — "
-        "so what is measured is the SIGNAL LAYER failing to earn its complexity, not merely a "
-        "better portfolio existing. "
+        "That is the stack's own control arm (the same trend filter on a fixed book), "
+        "so it is the signal that is behind, not the filter. "
         if control
-        else "This is opportunity cost: something on the board is better on every measure. "
+        else ""
     )
     return Alert(
         level="warn",
         code="signal_attribution",
         message=(
-            f"The stack is Pareto-dominated (nothing worse on CAGR/Sortino/Calmar/max drawdown, "
-            f"better on at least one) by {named}, measured as of {payload.get('as_of')}. "
-            f"{reading}Nothing has been blocked, disabled or reallocated — ADR-006 matures a "
-            "strategy on a window of measurements, and this is the window opening."
+            f"The stack is matched or beaten on every measure by {named}, as of "
+            f"{payload.get('as_of')}. {reading}Nothing was changed."
         ),
     )
 

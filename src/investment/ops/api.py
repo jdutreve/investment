@@ -53,6 +53,7 @@ from aiohttp import web
 
 from investment.db.seed_data import BENCHMARK_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.macro_reading import macro_reading
 from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
     STACK_PORTFOLIO_ID,
@@ -170,6 +171,14 @@ async def handle_overview(request: web.Request) -> web.Response:
     (`telegram/digest.DigestInputs`)."""
     runtime = request.app[RUNTIME]
     return json_response(await collect_digest_inputs(runtime.db))
+
+
+async def handle_macro(request: web.Request) -> web.Response:
+    """The macro panel of the Overview page (`mechanical/macro_reading.py`): the
+    board of series, its summary in plain words, and per theme the invariants
+    whose condition holds today. A read, like the page's other panels."""
+    runtime = request.app[RUNTIME]
+    return json_response(await macro_reading(runtime.db))
 
 
 async def _ranking_payload(db: InvestmentDB, snapshot_date: str | None) -> dict[str, Any]:
@@ -521,6 +530,7 @@ def build_app(runtime: AgentRuntime) -> web.Application:
 
     app.router.add_get("/api/status", handle_status)
     app.router.add_get("/api/overview", handle_overview)
+    app.router.add_get("/api/macro", handle_macro)
     app.router.add_get("/api/ranking", handle_ranking)
     app.router.add_get("/api/portfolio/{portfolio_id}", handle_portfolio)
     app.router.add_get("/api/stack", handle_stack)

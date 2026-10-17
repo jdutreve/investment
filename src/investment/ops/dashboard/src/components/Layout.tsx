@@ -31,7 +31,14 @@ function StatusStrip() {
     refetchInterval: 15_000,
   });
   const cells: Array<[string, string]> = [
-    ["last chain", data?.last_chain ?? NA],
+    // Local time to the minute: the raw value is a UTC timestamp with
+    // microseconds, which is a log line and not a reading.
+    [
+      "last chain",
+      data?.last_chain
+        ? new Date(data.last_chain).toLocaleString("sv-SE").slice(0, 16)
+        : NA,
+    ],
     ["market data", data?.market_data ?? NA],
     ["last ranking", data?.last_ranking ?? NA],
     ["last decision", data?.last_decision ?? NA],

@@ -843,7 +843,7 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
     their own heading."""
     today = today or date.today()
     regime_rows = await db.query(
-        "SELECT r.regime_type_id, r.confidence, rt.name AS regime_name "
+        "SELECT r.regime_type_id, r.confidence, r.start_date, rt.name AS regime_name "
         "FROM regime r JOIN regime_type rt ON rt.id = r.regime_type_id "
         "WHERE r.is_current = 1 LIMIT 1"
     )

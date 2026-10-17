@@ -1,10 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Compass, Layers, Scale, Target } from "lucide-react";
+import { Bell, Compass, Gauge } from "lucide-react";
 import { Link } from "react-router-dom";
-import { get, type Overview as OverviewData, type Row } from "../api";
-import { AlertList, Tile } from "../components/Bits";
+import {
+  get,
+  type LiveTrend,
+  type MacroLine,
+  type MacroPayload,
+  type MacroTheme,
+  type Overview as OverviewData,
+  type Row,
+  type StackPayload,
+} from "../api";
+import { AlertList } from "../components/Bits";
 import { ErrorState } from "../components/States";
-import { date, num, pct, pctPoints, signClass, weight } from "../format";
+import { date, num, pctPoints, weight } from "../format";
 
 /*
  * THE DIGEST, LAID OUT. Every figure here comes from `/api/overview`, which
@@ -17,36 +26,6 @@ import { date, num, pct, pctPoints, signClass, weight } from "../format";
 
 const s = (row: Row | null | undefined, key: string): unknown => row?.[key];
 
-// The Worker's reading, laid out as the digest lays it out: the bottom line,
-// then each part under the heading the JOURNAL gives it. The headings are read
-// from the payload and never written here — a forecast labelled a fact in one
-// front and not in another is the defect the parts exist to prevent. A reading
-// journalled before it had parts is shown as the text it was.
-function WorkerReading({ reading }: { reading: Row | null }) {
-  const parts = s(reading, "market_signal_reading") as Row | undefined;
-  const sections = (parts?.["sections"] ?? []) as { heading: string; points: string[] }[];
-  if (!parts || !parts["bottom_line"]) {
-    return <div className="muted">{String(s(reading, "market_signal_assessment"))}</div>;
-  }
-  return (
-    <div>
-      <div>{String(parts["bottom_line"])}</div>
-      {sections.map((section) => (
-        <div key={section.heading} style={{ marginTop: 8 }}>
-          <div className="muted" style={{ fontWeight: 600 }}>
-            {section.heading}
-          </div>
-          <ul style={{ margin: "4px 0 0 18px", padding: 0 }}>
-            {section.points.map((point, index) => (
-              <li key={index}>{point}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // The four states of the liquidity composite, spelled the way the agent tags
 // them (market/liquidity.py STATES). Read from the payload and never derived
 // here: the level/speed rule lived in three places until 2026-08-30 and they
@@ -58,185 +37,286 @@ const LIQUIDITY_READING: Record<string, string> = {
   "liquidity-restrictive": "scarce and deteriorating",
 };
 
-function LiquidityBlock({ liquidity }: { liquidity: Row }) {
-  const state = s(liquidity, "state");
-  const sigma = s(liquidity, "sigma");
-  const speed = s(liquidity, "speed");
-  const oldest = s(liquidity, "oldest_component");
-  if (!state && s(liquidity, "level") === undefined) return null;
-  const label =
-    typeof state === "string"
-      ? state.replace("liquidity-", "").toUpperCase()
-      : null;
-  const reading = typeof state === "string" ? LIQUIDITY_READING[state] : null;
-  return (
-    <div style={{ marginTop: 10, fontSize: 12.5 }}>
-      <strong>Global liquidity{label ? ` — ${label}` : ""}</strong>
-      {reading ? <span className="muted"> · {reading}</span> : null}
-      <div className="muted">
-        Level {num(s(liquidity, "level"))}
-        {typeof sigma === "number"
-          ? ` = ${Math.abs(sigma).toFixed(2)} sigma ${sigma < 0 ? "under" : "over"} its 5y norm`
-          : ""}
-        {typeof speed === "number"
-          ? ` · 7d change ${speed >= 0 ? "+" : ""}${speed.toFixed(2)} index points`
-          : ""}
-      </div>
-      <div className="muted">
-        Proxy: US M2 + Fed/ECB/BoJ balance sheets (no China) — data to{" "}
-        {String(s(liquidity, "ts") ?? "?")}
-        {oldest
-          ? `, oldest input ${String(oldest)} ${String(s(liquidity, "oldest_component_days"))}d old`
-          : ""}
-      </div>
-      {/* The only invariant measuring this composite was REJECTED at 2/8
-          (docs/MILESTONES.md M5-bis). Saying so on the card is what stops it
-          being read as a fifth allocation signal. */}
-      <div className="muted">
-        Role: context only — not validated as an allocation signal on its own
-      </div>
-    </div>
-  );
+// What each sleeve IS, for a reader who does not hold the tickers in mind.
+const ASSETS: Record<string, string> = {
+  SPY: "US large caps",
+  IWN: "US small-cap value",
+  GLD: "Gold",
+  VCIT: "Corporate bonds",
+  IEF: "Treasuries, 7-10 years",
+  cash: "Cash",
+};
+const ASSET_ORDER = ["SPY", "IWN", "GLD", "VCIT", "IEF", "cash"];
+const SIGNALS: Record<string, { name: string; above: string; below: string }> =
+  {
+    BAA10Y: { name: "Credit spread", above: "wide", below: "tight" },
+    T10Y2Y: { name: "Yield curve", above: "steep", below: "flat" },
+  };
+
+type Sleeve = {
+  price: number;
+  moving_averages: (number | null)[];
+  share: number;
+};
+
+// ONE vocabulary for a sleeve's trend, used by the brief and by the order card:
+// a state named two ways on one page reads as two states.
+const trendState = (share: number): { word: string; tone: string } =>
+  share === 0
+    ? { word: "in trend", tone: "good" }
+    : share >= 1
+      ? { word: "out", tone: "bad" }
+      : { word: "half out", tone: "warn" };
+
+function TrendChip({ share }: { share: number | undefined }) {
+  if (share === undefined) return <span className="muted">—</span>;
+  const state = trendState(share);
+  return <span className={`chip ${state.tone}`}>{state.word}</span>;
 }
 
-function RegimeCard({ regime, liquidity }: { regime: Row; liquidity: Row }) {
-  const name = s(regime, "regime_name") ?? s(regime, "regime_type_id");
-  return (
-    <div className="card">
-      <h2>
-        <Compass size={14} /> Regime
-      </h2>
-      {name ? (
-        <>
-          <div
-            style={{ fontSize: 18, fontWeight: 620, letterSpacing: "-0.015em" }}
-          >
-            {String(name)}
-          </div>
-          <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
-            {/* percent POINTS, not a fraction — see format.ts */}
-            confidence {pctPoints(s(regime, "confidence"))}
-          </div>
-        </>
-      ) : (
-        <div className="empty">
-          No current regime recorded — the detector has not run.
-        </div>
-      )}
-      <LiquidityBlock liquidity={liquidity} />
-    </div>
-  );
+const windowsOf = (decision: Row | null): number[] =>
+  ((s(decision, "trend_overlay") as Row | undefined)?.["windows_days"] ??
+    []) as number[];
+type Weights = Record<string, number>;
+
+const allocationText = (weights: Weights): string =>
+  ASSET_ORDER.filter((t) => (weights[t] ?? 0) > 0)
+    .map((t) => `${ASSETS[t] ?? t} ${weight(weights[t])}%`)
+    .join(" · ") || "nothing";
+
+function sleevesOf(decision: Row | null): [string, Sleeve][] {
+  const sleeves = ((s(decision, "trend_overlay") as Row | undefined)?.[
+    "sleeves"
+  ] ?? {}) as Record<string, Sleeve>;
+  return ASSET_ORDER.flatMap((t): [string, Sleeve][] => {
+    const sleeve = sleeves[t];
+    return sleeve ? [[t, sleeve]] : [];
+  });
 }
 
-function StackCard({ stack }: { stack: Row | null }) {
-  return (
-    <div className="card">
-      <h2>
-        <Layers size={14} /> Market-signal stack
-      </h2>
-      {stack ? (
-        <>
-          <div className="grid cols-4">
-            <Tile label="Sortino" value={num(s(stack, "sortino_rolling"))} />
-            <Tile label="Calmar" value={num(s(stack, "calmar_rolling"))} />
-            <Tile
-              label="Deepest drawdown 36M"
-              value={pct(s(stack, "drawdown"))}
-            />
-          </div>
-          {/* The label is not modesty: `ms-stack`'s NAV is built from the
-              decision walk and assumes every monthly decision filled at the
-              close of its anchor date. V1 executes nothing. */}
-          <div className="paper-note">
-            PAPER — what the strategy would have done, never a statement about
-            the account. Deepest drawdown inside the trailing 756 days, not
-            today&apos;s distance from a high.
-          </div>
-        </>
-      ) : (
-        <div className="empty">The stack has no standing yet.</div>
-      )}
-    </div>
-  );
-}
-
-function ScoreboardCard({
-  scoreboard,
+// THE BRIEF: two lines and the state of every asset, read before anything else
+// (owner, 2026-10-11). The first line is the macro board's own summary; the
+// second is what the rule holds.
+//
+// A TREND IS ONE FACT AND A HOLDING IS ANOTHER, and every chip says both. A
+// first version had two lists, "favoured" and "avoided", and contradicted
+// itself twice on its first day: the sleeve half out sat under "avoided" one
+// line below "the rule holds 5% of it", and the one sleeve in trend sat under
+// "favoured" while the rule held none — it is not in the month's book. Cash is
+// here too: it has no trend to read, and it was 95% of the portfolio and
+// missing from the list of assets. Nothing on this page forecasts.
+function Brief({
+  summary,
+  decision,
 }: {
-  scoreboard: OverviewData["scoreboard"];
+  summary: string | undefined;
+  decision: Row | null;
 }) {
-  const [won, decided] = scoreboard.hit_rate;
+  const sleeves = sleevesOf(decision);
+  const target = (s(decision, "target_allocation") ?? {}) as Weights;
+  const windows = windowsOf(decision);
+  const held = (t: string): string =>
+    (target[t] ?? 0) > 0 ? `${weight(target[t])}% held` : "not held";
+  const groups = [0, 0.5, 1].map((level) => ({
+    state: trendState(level),
+    members: sleeves.filter(
+      ([, v]) => trendState(v.share).word === trendState(level).word,
+    ),
+  }));
   return (
-    <div className="card">
-      <h2>
-        <Target size={14} /> Scoreboard
-      </h2>
-      <div className="grid cols-4">
-        <Tile
-          label="Hit rate at +12w"
-          /* Never a percentage of zero: with nothing decided there is no rate,
-             and "0%" would read as a losing agent rather than a young one. */
-          value={decided ? `${won}/${decided}` : "—"}
-          sub={decided ? pct(won / decided, false) : "nothing decided yet"}
-        />
-        <Tile
-          label="Paper-tests running"
-          value={String(scoreboard.paper_tests.length)}
-        />
-        <Tile
-          label="Strategies in probation"
-          value={String(scoreboard.probations.length)}
-        />
+    <div className="card brief">
+      <p className="brief-line">
+        <span className="brief-tag">Macro</span>
+        {summary ?? "The macro board is not available."}
+      </p>
+      {decision ? (
+        <p className="brief-line">
+          <span className="brief-tag">Rule</span>
+          Holds {allocationText(target)}, decided{" "}
+          {date(s(decision, "decision_date"))}.
+        </p>
+      ) : null}
+      {sleeves.length ? (
+        <div className="stance">
+          {groups.map((group) => (
+            <div key={group.state.word}>
+              <div className="stance-label">{group.state.word}</div>
+              <div className="chips">
+                {group.members.length ? (
+                  group.members.map(([t]) => (
+                    <span key={t} className={`chip ${group.state.tone}`}>
+                      {ASSETS[t] ?? t} · {held(t)}
+                    </span>
+                  ))
+                ) : (
+                  <span className="muted">none</span>
+                )}
+              </div>
+            </div>
+          ))}
+          <div>
+            <div className="stance-label">Cash</div>
+            <div className="chips">
+              <span className="chip">Cash · {held("cash")}</span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {sleeves.length ? (
+        <details className="fold">
+          <summary>How the trend filter works</summary>
+          Each price is compared with its own average over the last{" "}
+          {windows.length ? windows.join(" and ") : "150 and 300"} trading days.
+          Above both, the asset is in trend and kept. Below one, half is sold.
+          Below both, all is sold. What is sold goes to Treasuries, or to cash
+          when Treasuries are themselves below both. An asset is held only if
+          this month&apos;s book includes it — this is a description of prices,
+          not a forecast.
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+// The Worker's reading: the bottom line, then each part under the heading the
+// JOURNAL gives it. The headings are read from the payload and never written
+// here — a forecast labelled a fact in one front and not in another is the
+// defect the parts exist to prevent. A reading journalled before it had parts
+// is one long paragraph; it is kept, folded, so it does not bury the order.
+function WorkerReading({
+  reading,
+  stale,
+}: {
+  reading: Row | null;
+  stale: boolean;
+}) {
+  if (!s(reading, "market_signal_assessment")) return null;
+  const parts = s(reading, "market_signal_reading") as Row | undefined;
+  const sections = (parts?.["sections"] ?? []) as {
+    heading: string;
+    points: string[];
+  }[];
+  const note = stale
+    ? ` — of the ${date(s(reading, "market_signal_decision_date"))} decision, not this one`
+    : "";
+  if (!parts || !parts["bottom_line"]) {
+    return (
+      <details className="reading">
+        <summary>
+          Worker reading{note} (one paragraph, before the structured format)
+        </summary>
+        <p>{String(s(reading, "market_signal_assessment"))}</p>
+      </details>
+    );
+  }
+  return (
+    <div className="reading">
+      <div className="section-label">Worker reading{note}</div>
+      <p className="bottom-line">{String(parts["bottom_line"])}</p>
+      <div className="reading-grid">
+        {sections.map((section) => (
+          <div key={section.heading}>
+            <div className="reading-heading">{section.heading}</div>
+            <ul>
+              {section.points.map((point, index) => (
+                <li key={index}>{point}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function DefenderCard({ defender }: { defender: Row | null }) {
+function distance(price: number, line: number | null): string {
+  if (!line) return "—";
+  const gap = (price / line - 1) * 100;
+  return `${gap >= 0 ? "+" : ""}${gap.toFixed(1)}%`;
+}
+
+// THIS MONTH'S ORDER. The card answers three questions in the order the owner
+// asks them: what do I do, why did the rule decide it, and what does the
+// Worker make of it. The order is what is placed by hand, so it is a table of
+// its own with the move spelled out; the "why" is the rule's own two signals
+// and its trend reads, as figures rather than as the sentence that held them.
+// One signal on one date: its value, the median of ITS OWN last ten years on
+// that date, and which side it falls on. The decision and today each get one,
+// so a figure is never compared with a median taken on another day.
+function SignalRead({
+  value,
+  median,
+  ticker,
+}: {
+  value: unknown;
+  median: unknown;
+  ticker: string;
+}) {
+  if (typeof value !== "number" || typeof median !== "number") {
+    return <span className="muted">—</span>;
+  }
+  const words = SIGNALS[ticker];
   return (
-    <div className="card">
-      <h2>
-        <Scale size={14} /> Defender
-      </h2>
-      {defender ? (
-        <>
-          <div style={{ fontSize: 16, fontWeight: 620 }}>
-            <Link to={`/portfolio/${String(s(defender, "portfolio_id"))}`}>
-              {String(s(defender, "portfolio_id"))}
-            </Link>
-          </div>
-          <div className="grid cols-4" style={{ marginTop: 10 }}>
-            {/* 3y, matched to Sortino/Sharpe/Calmar's 756-day window; 1y rides
-                as recency context (owner, 2026-08-15). */}
-            <Tile
-              label="3y return"
-              value={pct(s(defender, "return_3y"))}
-              sub={`1y ${pct(s(defender, "return_1y"))}`}
-            />
-            <Tile label="Sortino" value={num(s(defender, "sortino_rolling"))} />
-            <Tile label="Sharpe" value={num(s(defender, "sharpe_rolling"))} />
-            <Tile label="Calmar" value={num(s(defender, "calmar_rolling"))} />
-          </div>
-        </>
-      ) : (
-        <div className="empty">No defender in the latest snapshot.</div>
-      )}
-    </div>
+    <span className="signal-read">
+      <span className="strong">{num(value)}</span>
+      <span className="muted"> vs median {num(median)}</span>
+      <span className="pill quiet">
+        {value > median ? (words?.above ?? "above") : (words?.below ?? "below")}
+      </span>
+    </span>
   );
+}
+
+const sideOf = (value: unknown, median: unknown, ticker: string): string =>
+  typeof value !== "number" || typeof median !== "number"
+    ? ""
+    : value > median
+      ? (SIGNALS[ticker]?.above ?? "above")
+      : (SIGNALS[ticker]?.below ?? "below");
+
+// What the same test gives today that it did not give at the decision: a
+// signal that crossed its median, an asset whose trend state moved. It decides
+// nothing — the next monthly decision does — and it is the one thing worth
+// reading between two decisions.
+function changesSince(decision: Row, live: LiveTrend): string[] {
+  const signals = (s(decision, "signals") ?? {}) as Record<string, Row>;
+  const crossed = Object.entries(signals).flatMap(([ticker, read]) => {
+    const then = sideOf(read["value"], read["trailing_median"], ticker);
+    const now = sideOf(
+      live.signals[ticker]?.value,
+      live.signals[ticker]?.trailing_median,
+      ticker,
+    );
+    return then && now && then !== now
+      ? [`${SIGNALS[ticker]?.name ?? ticker}: was ${then}, now ${now}`]
+      : [];
+  });
+  const moved = sleevesOf(decision).flatMap(([t, sleeve]) => {
+    const now = live.sleeves[t]?.share;
+    return now !== undefined &&
+      trendState(now).word !== trendState(sleeve.share).word
+      ? [
+          `${ASSETS[t] ?? t}: was ${trendState(sleeve.share).word}, now ${trendState(now).word}`,
+        ]
+      : [];
+  });
+  return [...crossed, ...moved];
 }
 
 function DecisionCard({
   decision,
   reading,
+  live,
 }: {
   decision: Row | null;
   reading: Row | null;
+  live: LiveTrend | null;
 }) {
   if (!decision) {
     return (
       <div className="card">
         <h2>
-          <Bell size={14} /> Latest allocation decision
+          <Bell size={14} /> This month&apos;s order
         </h2>
         <div className="empty">No market-signal decision recorded yet.</div>
       </div>
@@ -244,33 +324,37 @@ function DecisionCard({
   }
   const gate = s(decision, "gate");
   const blocked = Boolean(gate) && gate !== "passed";
-  const held = (s(decision, "held_allocation") ?? {}) as Record<string, number>;
-  const target = (s(decision, "target_allocation") ?? {}) as Record<
-    string,
-    number
-  >;
-  const moves = Array.from(
-    new Set([...Object.keys(held), ...Object.keys(target)]),
-  )
-    .filter((t) => (held[t] ?? 0) !== (target[t] ?? 0))
-    .sort();
+  const held = (s(decision, "held_allocation") ?? {}) as Weights;
+  const target = (s(decision, "target_allocation") ?? {}) as Weights;
+  const tickers = [
+    ...ASSET_ORDER.filter((t) => t in held || t in target),
+    ...Object.keys({ ...held, ...target }).filter(
+      (t) => !ASSET_ORDER.includes(t),
+    ),
+  ];
+  const moves = tickers.filter((t) => (held[t] ?? 0) !== (target[t] ?? 0));
+  const signals = (s(decision, "signals") ?? {}) as Record<string, Row>;
+  const windows = windowsOf(decision);
+  const changes = live ? changesSince(decision, live) : [];
+  const inTrend = sleevesOf(decision).filter(([, v]) => v.share === 0).length;
   const readDate = s(reading, "market_signal_decision_date");
   const stale = Boolean(readDate) && readDate !== s(decision, "decision_date");
 
   return (
     <div className="card">
-      <h2>
-        <Bell size={14} /> Latest allocation decision
-      </h2>
-      <div style={{ fontSize: 16, fontWeight: 620 }}>
-        {/* "target book" whenever a gate refused: naming a target as though it
-            were a position is the error ADR-011's pass removed elsewhere. */}
-        {blocked ? "Target book" : "Book"}{" "}
-        {String(s(decision, "held_book") ?? "?")}
-        <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
-          {" "}
-          · decided {date(s(decision, "decision_date"))}
+      <div className="card-head">
+        <h2>
+          <Bell size={14} /> This month&apos;s order
+        </h2>
+        <span
+          className={`pill ${blocked ? "critical" : moves.length ? "action" : "quiet"}`}
+        >
+          {blocked ? "blocked" : moves.length ? "to place" : "no change"}
         </span>
+      </div>
+      <div className="muted">
+        Decided {date(s(decision, "decision_date"))}, once a month. The agent
+        places no order: this is the one to place by hand.
       </div>
       {blocked ? (
         <div className="alert critical" style={{ marginTop: 10 }}>
@@ -279,67 +363,565 @@ function DecisionCard({
             <div>
               Gate <span className="mono">{String(gate)}</span> refused this
               decision — nothing was proposed. The stack is FROZEN in its
-              previous book, not in the one named above.
+              previous book, not in the target below.
             </div>
           </div>
         </div>
       ) : null}
-      <div style={{ marginTop: 10 }}>
-        {moves.length ? (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Ticker</th>
-                  <th className="num">Held</th>
-                  <th className="num">Target</th>
-                </tr>
-              </thead>
-              <tbody>
-                {moves.map((ticker) => (
-                  <tr key={ticker}>
-                    <td className="mono">{ticker}</td>
-                    <td className="num">{weight(held[ticker] ?? 0)}</td>
-                    <td className="num">{weight(target[ticker] ?? 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+      <div className="decision-grid">
+        <div>
+          <div className="section-label">Order</div>
+          <div className="alloc-bar" title={allocationText(target)}>
+            {tickers
+              .filter((t) => (target[t] ?? 0) > 0)
+              .map((t) => (
+                <span
+                  key={t}
+                  className={`seg seg-${t}`}
+                  style={{ width: `${target[t]}%` }}
+                >
+                  {(target[t] ?? 0) >= 12
+                    ? `${ASSETS[t] ?? t} ${weight(target[t])}%`
+                    : ""}
+                </span>
+              ))}
           </div>
-        ) : (
-          <div className="muted">No change — the stack holds its book.</div>
-        )}
-      </div>
-      {/* Same rule as the digest: a decision corrected after the fact says so,
-          on the block whose numbers the correction moved. */}
-      {s(decision, "correction_note") ? (
-        <div style={{ marginTop: 10, fontSize: 12.5 }}>
-          <strong>Corrected</strong>
-          <div className="muted">{String(s(decision, "correction_note"))}</div>
-        </div>
-      ) : null}
-      {s(decision, "reasoning") ? (
-        <div className="muted" style={{ marginTop: 10, fontSize: 12.5 }}>
-          {String(s(decision, "reasoning"))}
-        </div>
-      ) : null}
-      {s(reading, "market_signal_assessment") ? (
-        <div style={{ marginTop: 10, fontSize: 12.5 }}>
-          <strong>Worker challenge</strong>
-          {stale ? (
-            <span className="muted">
-              {" "}
-              (reading of the {date(readDate)} decision — not this one)
-            </span>
+          <table className="data-table order-table">
+            <thead>
+              <tr>
+                <th>Asset</th>
+                <th className="num">Held</th>
+                <th className="num">Target</th>
+                <th className="num">Order</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tickers.map((t) => {
+                const delta = (target[t] ?? 0) - (held[t] ?? 0);
+                const verb =
+                  delta === 0
+                    ? "hold"
+                    : delta > 0
+                      ? (held[t] ?? 0) === 0
+                        ? "buy"
+                        : "add"
+                      : (target[t] ?? 0) === 0
+                        ? "sell all"
+                        : "reduce";
+                return (
+                  <tr key={t}>
+                    <td>
+                      {ASSETS[t] ?? t} <span className="muted mono">{t}</span>
+                    </td>
+                    <td className="num">{weight(held[t] ?? 0)}</td>
+                    <td className="num strong">{weight(target[t] ?? 0)}</td>
+                    <td className={`num ${delta === 0 ? "muted" : "strong"}`}>
+                      {verb}
+                      {delta === 0 ? "" : ` ${weight(Math.abs(delta))}`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {s(decision, "correction_note") ? (
+            /* Same rule as the digest: a decision corrected after the fact
+               says so, on the block whose numbers the correction moved. */
+            <div className="paper-note">
+              <strong>Corrected.</strong>{" "}
+              {String(s(decision, "correction_note"))}
+            </div>
           ) : null}
-          <WorkerReading reading={reading} />
         </div>
-      ) : null}
-      <div style={{ marginTop: 10 }}>
+
+        <div>
+          <div className="section-label">Why this book</div>
+          <ul className="why-list">
+            {Object.entries(signals).map(([ticker, read]) => (
+              <li key={ticker}>
+                <span className="strong">
+                  {SIGNALS[ticker]?.name ?? ticker}{" "}
+                  {sideOf(read["value"], read["trailing_median"], ticker)}
+                </span>
+                <span className="muted">
+                  {" "}
+                  — {num(read["value"])} against a ten-year median of{" "}
+                  {num(read["trailing_median"])}
+                </span>
+              </li>
+            ))}
+            <li>
+              <span className="strong">Trend filter</span>
+              <span className="muted">
+                {" "}
+                — {inTrend} of {sleevesOf(decision).length} assets in trend; what
+                is out went to {(target["IEF"] ?? 0) > 0 ? "Treasuries" : "cash"}
+              </span>
+            </li>
+          </ul>
+          <div className="section-label" style={{ marginTop: 14 }}>
+            Since the decision{live ? ` · ${date(live.as_of)}` : ""}
+          </div>
+          {live ? (
+            changes.length ? (
+              <ul className="why-list">
+                {changes.map((change) => (
+                  <li key={change}>{change}</li>
+                ))}
+              </ul>
+            ) : (
+              <div className="muted">
+                Nothing has changed side: the same test today gives the same
+                answers.
+              </div>
+            )
+          ) : (
+            <div className="muted">Today&apos;s reading is not available.</div>
+          )}
+        </div>
+      </div>
+
+      <details className="fold">
+        <summary>The figures, at the decision and today</summary>
+        <div className="decision-grid" style={{ marginTop: 10 }}>
+          <div>
+          <div className="section-label">The two signals</div>
+          <table className="data-table why-table">
+            <thead>
+              <tr>
+                <th>Signal</th>
+                <th>At the decision · {date(s(decision, "decision_date"))}</th>
+                <th>Today{live ? ` · ${date(live.as_of)}` : ""}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(signals).map(([ticker, read]) => (
+                <tr key={ticker}>
+                  <td>{SIGNALS[ticker]?.name ?? ticker}</td>
+                  <td>
+                    <SignalRead
+                      value={read["value"]}
+                      median={read["trailing_median"]}
+                      ticker={ticker}
+                    />
+                  </td>
+                  <td>
+                    <SignalRead
+                      value={live?.signals[ticker]?.value}
+                      median={live?.signals[ticker]?.trailing_median}
+                      ticker={ticker}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="paper-note">
+            Each figure is compared with the median of its own last ten years on
+            that date. The two answers pick the book; a change of book needs
+            three monthly decisions in a row to agree.
+          </div>
+          </div>
+          <div>
+          <div className="section-label">
+            Trend of each asset
+          </div>
+          <table className="data-table why-table">
+            <thead>
+              <tr>
+                <th>Asset</th>
+                {windows.map((w) => (
+                  <th className="num" key={w}>
+                    vs {w}-day avg
+                  </th>
+                ))}
+                <th>Decision</th>
+                <th>Today</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sleevesOf(decision).map(([t, sleeve]) => (
+                <tr key={t}>
+                  <td>{ASSETS[t] ?? t}</td>
+                  {sleeve.moving_averages.map((line, index) => (
+                    <td className="num muted" key={index}>
+                      {distance(sleeve.price, line)}
+                    </td>
+                  ))}
+                  <td>
+                    <TrendChip share={sleeve.share} />
+                  </td>
+                  <td>
+                    <TrendChip share={live?.sleeves[t]?.share} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="paper-note">
+            Distances from each average are those of the decision.
+            &quot;Today&quot; is the same test on the latest prices: it decides
+            nothing, and shows what the next monthly decision is likely to find.
+          </div>
+          </div>
+        </div>
+      </details>
+
+      <WorkerReading reading={reading} stale={stale} />
+
+      <div style={{ marginTop: 12 }}>
         <Link className="freshness" to="/stack">
-          Full decision timeline →
+          Full decision timeline and the strategy&apos;s standing →
         </Link>
       </div>
+    </div>
+  );
+}
+
+// THE MACRO BOARD (`/api/macro`, market/macro_board.py). The regime label is
+// the detector's CONCLUSION; this is what it is drawn from, and more. Each
+// series gets ONE SENTENCE written by the agent — where the level sits in its
+// own ten years, and how it is moving for a series of its kind. The page shows
+// the sentence and derives nothing, so every front says the same thing of the
+// same print.
+// The four steps of the board's colour, in the order the legend reads: where
+// the level sits in its ten years, seen from the side that is good news for
+// that series (the agent declares the side, `macro_board.MACRO_BOARD`).
+const NEWS: [MacroLine["news"], string][] = [
+  ["good", "favourable"],
+  ["watch", "less favourable than usual"],
+  ["poor", "unfavourable"],
+  ["bad", "near its worst in ten years"],
+];
+
+const ARROWS: Record<string, [string, string]> = {
+  slight: ["↗", "↘"],
+  full: ["↑", "↓"],
+  sharp: ["⇈", "⇊"],
+};
+
+const capitalise = (text: string): string =>
+  text ? text[0]!.toUpperCase() + text.slice(1) : text;
+
+// Where the level sits between its ten-year low and high, with the median as
+// a tick: one glance replaces "within its usual range (ten-year median …)".
+function RangeBar({ line }: { line: MacroLine }) {
+  if (line.low === null || line.high === null || line.high <= line.low) {
+    return <span className="muted">—</span>;
+  }
+  const at = (value: number): string =>
+    `${Math.min(100, Math.max(0, ((value - line.low!) / (line.high! - line.low!)) * 100))}%`;
+  const figure = (value: number): string => value.toFixed(line.decimals);
+  return (
+    <div
+      className="range"
+      title={`Ten years: low ${figure(line.low)}, median ${
+        line.median === null ? "n/a" : figure(line.median)
+      }, high ${figure(line.high)}`}
+    >
+      <span className="range-end">{figure(line.low)}</span>
+      <div className="range-track">
+        {line.median !== null ? (
+          <span className="range-median" style={{ left: at(line.median) }} />
+        ) : null}
+        <span
+          className={`range-dot heat-${line.news}`}
+          style={{ left: at(line.level) }}
+        />
+      </div>
+      <span className="range-end">{figure(line.high)}</span>
+    </div>
+  );
+}
+
+function MoveCell({ line }: { line: MacroLine }) {
+  if (line.direction === 0 || line.speed === null) {
+    return <span className="muted">→ flat</span>;
+  }
+  const arrow = ARROWS[line.move_size || "full"]![line.direction > 0 ? 0 : 1];
+  const unit = line.unit ? " pt" : "";
+  // Improving or worsening, by the same favourable side as the level; a
+  // slight move stays grey, it is not news yet.
+  const improving = line.direction > 0 === (line.favourable === "high");
+  const tone =
+    line.move_size === "slight" || line.favourable === null
+      ? "muted"
+      : improving
+        ? "strong heat-text-good"
+        : "strong heat-text-bad";
+  return (
+    <span className={tone}>
+      {arrow} {line.speed > 0 ? "+" : ""}
+      {line.speed.toFixed(line.decimals)}
+      {unit}
+    </span>
+  );
+}
+
+function MacroBoard({
+  board,
+  themes,
+  highlights,
+  regime,
+  liquidity,
+}: {
+  board: MacroLine[];
+  themes: MacroTheme[];
+  highlights: MacroPayload["highlights"];
+  regime: Row;
+  liquidity: Row;
+}) {
+  const name = s(regime, "regime_name") ?? s(regime, "regime_type_id");
+  const state = s(liquidity, "state");
+  const groups = [...new Set(board.map((line) => line.group))];
+  const unfavourable = board.filter(
+    (line) => line.news === "poor" || line.news === "bad",
+  ).length;
+  return (
+    <div className="card">
+      <h2>
+        <Compass size={14} /> Macro
+      </h2>
+      <div className="macro-head">
+        <div>
+          <div className="macro-label">Regime</div>
+          <div className="macro-value">
+            {name ? String(name) : "not detected"}
+          </div>
+          {name ? (
+            <div className="muted">
+              {/* percent POINTS, not a fraction — see format.ts */}
+              confidence {pctPoints(s(regime, "confidence"))}
+              {s(regime, "start_date")
+                ? ` · since ${date(s(regime, "start_date"))}`
+                : ""}
+            </div>
+          ) : null}
+        </div>
+        {typeof state === "string" ? (
+          <div>
+            <div className="macro-label">Global liquidity</div>
+            <div className="macro-value">{state.replace("liquidity-", "")}</div>
+            <div className="muted">{LIQUIDITY_READING[state] ?? ""}</div>
+          </div>
+        ) : null}
+        {board.length ? (
+          <div>
+            <div className="macro-label">Unfavourable</div>
+            <div className="macro-value plain">
+              {unfavourable} of {board.length}
+            </div>
+            <div className="legend">
+              {NEWS.map(([news, words]) => (
+                <span key={news}>
+                  <span className={`swatch heat-${news}`} />
+                  {words}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
+      {highlights.length ? (
+        <div className="standout">
+          <div className="section-label">What stands out</div>
+          {highlights.map((line) => (
+            <div className="standout-line" key={line.text}>
+              <span className={`swatch heat-${line.tone}`} />
+              <span className="standout-kind">{line.kind}</span>
+              <span>
+                {line.text}
+                {line.cause ? (
+                  <span className="standout-cause"> {line.cause}</span>
+                ) : null}
+              </span>
+            </div>
+          ))}
+          <div className="paper-note">
+            A probable cause is read from the board itself: the usual drivers
+            of that series which point the same way today. It is a convention
+            of textbook macro, not a measurement.
+          </div>
+        </div>
+      ) : null}
+      {board.length ? (
+        <div className="themes">
+          {themes.map((theme) => (
+            <div className="theme" key={theme.group}>
+              <div className="theme-head">
+                <span className={`swatch heat-${theme.news}`} />
+                <span className="theme-name">{theme.group}</span>
+                <span className="theme-sentence">{theme.sentence}</span>
+              </div>
+              <div className="tile-row">
+                {board
+                  .filter((line) => line.group === theme.group)
+                  .map((line) => (
+                    <div
+                      className={`tile heat-${line.news}`}
+                      key={line.ticker}
+                      title={line.reading}
+                    >
+                      <div className="tile-name">
+                        {capitalise(line.short.replace(/^the /, ""))}
+                      </div>
+                      <div className="tile-ticker">{line.ticker}</div>
+                      <div className="tile-level">{line.level_text}</div>
+                      <div className="tile-move">
+                        <MoveCell line={line} />
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              {theme.invariants.length ? (
+                <ul className="lit">
+                  {theme.invariants.map((inv) => (
+                    <li key={inv.id} title={inv.title}>
+                      {inv.title}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {board.length ? (
+        <details className="fold">
+          <summary>Each series in its last ten years</summary>
+          <table className="data-table macro-table" style={{ marginTop: 8 }}>
+          <thead>
+            <tr>
+              <th>Series</th>
+              <th className="num">Level</th>
+              <th>In its last ten years</th>
+              <th>Move</th>
+              <th>Reading</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => [
+              <tr className="group-row" key={group}>
+                <td colSpan={5}>
+                  <Gauge size={11} /> {group}
+                </td>
+              </tr>,
+              ...board
+                .filter((line) => line.group === group)
+                .map((line) => (
+                  <tr key={line.ticker} title={line.reading}>
+                    <td className="macro-name">
+                      {line.label}{" "}
+                      <span className="muted mono">{line.ticker}</span>
+                    </td>
+                    <td className="num">
+                      <span className={`level heat-${line.news}`}>
+                        {line.level_text}
+                      </span>
+                    </td>
+                    <td>
+                      <RangeBar line={line} />
+                    </td>
+                    <td className="macro-move">
+                      <MoveCell line={line} />
+                      {line.direction !== 0 ? (
+                        <span className="muted"> {line.change_period}</span>
+                      ) : null}
+                    </td>
+                    <td className="macro-reading">
+                      {capitalise(
+                        [line.unusual ? line.position : "", line.pace]
+                          .filter(Boolean)
+                          .join(", "),
+                      )}
+                    </td>
+                  </tr>
+                )),
+            ])}
+          </tbody>
+        </table>
+        </details>
+      ) : (
+        <div className="empty">No macro series in the database yet.</div>
+      )}
+      <div className="paper-note">
+        The colour is good or bad news for an investor building capital:
+        growth, credit and liquidity are better high; rates, inflation,
+        unemployment, spreads and volatility are better low. A theme reads as
+        its worst series. Under each theme, the ideas from the books whose
+        condition is true today on those series — none is established, and
+        none changes the order. Hover a tile for the full sentence.
+      </div>
+    </div>
+  );
+}
+
+// THE LIGHTHOUSES, as a reader meets them (owner, 2026-10-11: "Standing,
+// Confirmed, Rate 95% range, Mean effect, Worst: c'est du bruit"). Five columns
+// of statistics asked the reader to do the judging. Each idea now says, in
+// order: what it claims, how often history agreed (one square per time it was
+// put to the test), and what that is worth — with the reason when it is not
+// yet worth anything. The effect sizes are on the row's tooltip: their unit
+// differs from one idea to the next, and a column of them compared nothing.
+function Lighthouses({ invariants }: { invariants: Row[] }) {
+  if (!invariants.length) return null;
+  const percent = (value: unknown): string =>
+    typeof value === "number" ? `${Math.round(value * 100)}%` : "?";
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h2>Lighthouses</h2>
+      <div className="muted" style={{ marginBottom: 4 }}>
+        Ideas taken from the books the agent has read, each one checked against
+        market history. The Worker reads them as background; none of them
+        changes the order above.
+      </div>
+      {invariants.map((inv, i) => {
+        const confirmed = Number(inv.confirmation_count) || 0;
+        const refuted = Number(inv.infirmation_count) || 0;
+        const tested = confirmed + refuted;
+        const established = inv.status === "integrated";
+        const detail =
+          typeof inv.mean_lift === "number" && typeof inv.worst_lift === "number"
+            ? `Average effect ${num(inv.mean_lift, 3)}, worst case ${num(inv.worst_lift, 3)}` +
+              (inv.lift_metric ? ` (${String(inv.lift_metric)})` : "")
+            : undefined;
+        return (
+          <div className="idea" key={String(inv.title ?? i)} title={detail}>
+            <div className="idea-title" title={String(inv.title ?? "")}>
+              {String(inv.title ?? "")}
+            </div>
+            <div className="idea-record">
+              <span className="squares">
+                {Array.from({ length: tested }, (_, n) => (
+                  <span key={n} className={n < confirmed ? "square yes" : "square no"} />
+                ))}
+              </span>
+              <span>
+                {tested ? (
+                  <>
+                    Held <span className="strong">{confirmed}</span> of the{" "}
+                    {tested} times it was tested
+                    {refuted ? `, failed ${refuted}` : ""}.
+                  </>
+                ) : (
+                  "Not tested yet."
+                )}
+              </span>
+              <span className={`chip ${established ? "good" : ""}`}>
+                {established ? "established" : "not established yet"}
+              </span>
+            </div>
+            {!established && tested ? (
+              <div className="idea-why">
+                Too few cases to trust: with this record its real success rate
+                could be anywhere from {percent(inv.rate_low)} to{" "}
+                {percent(inv.rate_high)}.
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -349,12 +931,24 @@ export function Overview() {
     queryKey: ["overview"],
     queryFn: () => get<OverviewData>("/api/overview"),
   });
+  // Its own query: the board is a read of the tape, not part of the digest's
+  // inputs, and the rest of the page must not wait on it or fail with it.
+  const macro = useQuery({
+    queryKey: ["macro"],
+    queryFn: () => get<MacroPayload>("/api/macro"),
+  });
+
+  // Today's reading of the two signals and of each trend, beside the
+  // decision's own (`/api/stack`, which the Stack page reads too). Best-effort
+  // like the board: without it the "Today" columns are empty, nothing else.
+  const stack = useQuery({
+    queryKey: ["stack"],
+    queryFn: () => get<StackPayload>("/api/stack"),
+  });
 
   if (error) return <ErrorState error={error} />;
   if (isPending) return <div className="empty">Loading…</div>;
-
-  const defender =
-    data.ranking.find((r) => r.defender) ?? data.defender_metrics;
+  const board = macro.data?.board ?? [];
 
   return (
     /* Held at reduced opacity on refetch rather than replaced by a skeleton —
@@ -364,87 +958,45 @@ export function Overview() {
       <div className="page-head">
         <div>
           <h1>Overview</h1>
-          <p>
-            The weekly digest, laid out. Same rows, same numbers, same alerts.
-          </p>
+          <p>What to do this month, and the weather it was decided in.</p>
         </div>
       </div>
 
-      <div style={{ marginBottom: 14 }}>
-        <AlertList alerts={data.alerts} />
+      {/* IN THE ORDER THE OWNER ACTS (2026-10-11): the brief, the order and
+          its reasons, then the macro tape behind them. The defender, the
+          scoreboard and the stack's own tiles were here and said nothing the
+          owner acts on from this page: the bridge decides nothing (ADR-014),
+          a hit rate of 0/0 is not a score, and the stack's standing has a page
+          of its own. Alerts come first and are one sentence each. */}
+      <AlertList alerts={data.alerts} />
+
+      <div style={{ marginTop: 14 }}>
+        <Brief summary={macro.data?.overall} decision={data.market_signal} />
       </div>
 
-      <div className="grid cols-2">
-        <RegimeCard regime={data.regime} liquidity={data.global_liquidity} />
-        <StackCard stack={data.stack} />
-      </div>
-
-      <div className="grid cols-2" style={{ marginTop: 14 }}>
+      <div style={{ marginTop: 14 }}>
         <DecisionCard
           decision={data.market_signal}
           reading={data.worker_reading}
+          live={stack.data?.live_trend ?? null}
         />
-        <div className="grid" style={{ gap: 14, alignContent: "start" }}>
-          <DefenderCard defender={defender ?? null} />
-          <ScoreboardCard scoreboard={data.scoreboard} />
-        </div>
       </div>
 
-      {data.invariants.length ? (
-        <div className="card" style={{ marginTop: 14 }}>
-          <h2>Heaviest integrated invariants</h2>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Invariant</th>
-                  <th>Author</th>
-                  <th className="num">Weight</th>
-                  <th className="num">Confirmed</th>
-                  <th className="num">Infirmed</th>
-                  <th className="num">Rate, 95% range</th>
-                  <th className="num">Neutral</th>
-                  <th className="num">Mean lift</th>
-                  <th className="num">Worst</th>
-                  <th className="num">Early / late</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.invariants.map((inv, i) => (
-                  <tr key={String(inv.title ?? i)}>
-                    <td>{String(inv.title ?? "")}</td>
-                    <td className="muted">{String(inv.author ?? "—")}</td>
-                    <td className="num">{num(inv.weight_effective)}</td>
-                    <td className="num">
-                      {String(inv.confirmation_count ?? 0)}
-                    </td>
-                    <td
-                      className={`num ${signClass(-(Number(inv.infirmation_count) || 0))}`}
-                    >
-                      {String(inv.infirmation_count ?? 0)}
-                    </td>
-                    <td className="num">
-                      {num(inv.rate_low)}–{num(inv.rate_high)}
-                    </td>
-                    <td className="num muted">
-                      {String(inv.neutral_count ?? "—")}
-                    </td>
-                    <td className={`num ${signClass(Number(inv.mean_lift) || 0)}`}>
-                      {num(inv.mean_lift, 3)}
-                    </td>
-                    <td className={`num ${signClass(Number(inv.worst_lift) || 0)}`}>
-                      {num(inv.worst_lift, 3)}
-                    </td>
-                    <td className="num muted">
-                      {num(inv.rate_early)} / {num(inv.rate_late)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
+      <div style={{ marginTop: 14 }}>
+        {macro.error ? (
+          <ErrorState error={macro.error} />
+        ) : (
+          <MacroBoard
+            board={board}
+            themes={macro.data?.themes ?? []}
+            highlights={macro.data?.highlights ?? []}
+            regime={data.regime}
+            liquidity={data.global_liquidity}
+          />
+        )}
+      </div>
+
+      <Lighthouses invariants={data.invariants} />
     </div>
   );
 }

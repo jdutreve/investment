@@ -107,6 +107,71 @@ export interface Overview {
   signal_attribution: Row | null;
 }
 
+// One series of the macro board (market/macro_board.py).
+export interface MacroLine {
+  ticker: string;
+  label: string;
+  short: string;
+  unit: string;
+  group: string;
+  decimals: number;
+  level: number;
+  level_text: string;
+  speed: number | null;
+  acceleration: number | null;
+  change_period: string;
+  as_of: string;
+  // The agent's sentence: where the level sits in its ten years and how it is
+  // moving. Shown as written.
+  reading: string;
+  headline: string;
+  // Good news or bad: the level in its ten years, read from the side this
+  // series declares favourable. `neutral` when it declares none.
+  news: "good" | "watch" | "poor" | "bad" | "neutral" | "unknown";
+  favourable: "high" | "low" | null;
+  unusual: boolean;
+  position: string;
+  rank: number | null;
+  median: number | null;
+  low: number | null;
+  high: number | null;
+  direction: -1 | 0 | 1;
+  move_size: "" | "slight" | "full" | "sharp";
+  pace: string;
+}
+
+// An invariant whose condition holds today on a series of the theme it is
+// listed under, as its claim.
+export interface LitInvariant {
+  id: string;
+  title: string;
+  status: string;
+}
+
+export interface MacroTheme {
+  group: string;
+  news: MacroLine["news"];
+  sentence: string;
+  invariants: LitInvariant[];
+}
+
+export interface MacroPayload {
+  board: MacroLine[];
+  summary: string;
+  // The whole board in two or three plain sentences, then theme by theme.
+  overall: string;
+  // What a reader should not miss, most unusual first.
+  // `cause` names the series' usual drivers that point the same way today — a
+  // stated convention, not a measurement.
+  highlights: {
+    kind: string;
+    tone: MacroLine["news"];
+    text: string;
+    cause: string;
+  }[];
+  themes: MacroTheme[];
+}
+
 export interface RankingPayload {
   date: string | null;
   available_dates: string[];
