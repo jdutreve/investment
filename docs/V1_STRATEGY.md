@@ -45,7 +45,8 @@ from `mechanical/market_signal.py BOOKS`, which is the authority:
 - `credit-spread-wide-yield-curve-flat`: IWN 50 / SPY 50
 - `credit-spread-wide-yield-curve-steep`: SPY 50 / IWN 40 / GLD 10
 - `credit-spread-tight-yield-curve-flat`: SPY 60 / GLD 40
-- `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 40 / IWN 10
+- `credit-spread-tight-yield-curve-steep`: VCIT 50 / IEF 50 (VCIT 50 / IEF 40 / IWN 10
+  until 2026-10-17 — see "The bond book's 10% equity sleeve")
 
 **Trend-following overlay:** every CHECKED sleeve — SPY, GLD, IWN, and VCIT
 since 2026-08-14 — is redirected to IEF by the FRACTION of its moving averages
@@ -1641,6 +1642,63 @@ does on the whole span with HALF the changes of target (132 against 268), a
 maximum drawdown of -22.8% on the real series and a lower Sortino. If the Swiss
 tax question on holding periods (open owner decision 2) is ever decided against
 the rule's turnover, that is the arm to measure first.
+
+### The bond book's 10% equity sleeve: small-cap value, gold or the S&P 500? (2026-10-17, `2026-10-17-tight-steep-equity-sleeve`)
+
+The tight-steep book's IWN 10 is the Verdad paper's ("Slowdown Portfolio: IG
+bonds 50%, 10Y Treasuries 40%, Small Value Stocks 10%"). The paper gives no
+reason specific to this book — small value is its house asset class, carried at
+10% into both tight-spread books — and 2026-08-13 left it untouched because the
+state had no stable ranking. Put to the bootstrap, the sleeve swapped and
+everything else equal:
+
+    Sortino, alternative - stack [90%]    1977-2026                  1977-1993          1993-2026
+    GLD 10 instead of IWN 10              -0.008 [-0.032, +0.013]     -0.025 (95% IWN)   +0.002
+    SPY 10 instead of IWN 10              -0.004 [-0.019, +0.007]     -0.014 (94% IWN)   +0.002
+    no sleeve (VCIT 50 / IEF 50)          -0.005 [-0.023, +0.009]     -0.003             -0.007
+    return per year                       -0.05, -0.03, -0.03 pp; drawdown identical (-29.0%, -16.5%)
+
+Not distinguishable, by the protocol. IWN leans ahead on the whole span (73-78%
+of resamples) and only through 1977-1993, where small value beat the S&P by 2.2
+points a quarter from the decisions this book is held on and gold lost 1.7;
+since 1993 the four sleeves tie and gold led the forward returns (+2.8% a
+quarter against +1.5% for IWN and +1.6% for SPY). The sleeve is 10% of a book
+held a fifth of the time — about 2% of the stack's life — and it is
+overlay-checked: its whole effect is a few hundredths of a point a year.
+Nor does it save fees worth naming: dropping it removes ~1 order a year
+(557 against 609 over 49 years, turnover 108.7 against 108.9, about 0.003% a
+year) and the NAVs above are already net of the 23 bps.
+
+Every other asset of the project in the same seat, each trend-checked exactly
+as IWN is and judged on its own window (second protocol, same folder;
+thirteen candidates, so the bar is 0.05 / 13):
+
+    X 10 instead of IWN 10   from     Sortino, X - stack [90%]     resamples <= 0
+    VTI                      1981     -0.008 [-0.025, +0.004]       88%
+    TLT                      1987     -0.002 [-0.029, +0.020]       61%
+    DJP                      1992     +0.011 [-0.026, +0.038]       38%
+    SHY / EFA                1993     -0.011 / -0.011               83% / 87%
+    QQQ / IWM / IYR          2000-01  -0.008 / -0.019 / +0.007      74% / 97% / 29%
+    EEM / TIP                2004-05  -0.003 / -0.003               64% / 68%
+    DBC                      2007     +0.061 [+0.005, +0.113]       3.5%
+    VCIT 60 / cash 10        1977     -0.006 / -0.014               77% / 95%
+
+Nothing passes the corrected bar. DBC alone passes an uncorrected 5%, and it
+does not hold: more than half its lead (+4.3 of ~8 log points) is one stay,
+2007-11 to 2008-07, the commodity spike up to its July 2008 peak; and DJP,
+the same asset class with three times the history, shows nothing (+0.011,
+38%). Small value against small blend (IWM, -0.019, 97%) and against cash
+(-0.014, 95%) are the only comparisons that lean clearly for IWN.
+
+**Decision (owner signature, 2026-10-17): the book becomes VCIT 50 / IEF 50.**
+The data does not choose, and a measured tie is decided by simplicity, not by
+incumbency: two sleeves instead of three, and the 10% follows IEF — to cash
+when IEF fails its trend. Cash 10, the owner's first idea, was not taken: it is
+the one tie-breaker candidate that leans against IWN (IEF earns the term
+premium in the months it is in trend). The bounded pinned CAGR moves 11.513% ->
+11.463%, Sortino 1.296 -> 1.288, drawdown unchanged at -16.50% (1993-11 to
+2026-07, live data); on 1977-2026, 12.93% -> 12.89%. Restoring IWN 10, or
+putting another asset in the seat, is not to be proposed without new data.
 
 ### What it comes to
 

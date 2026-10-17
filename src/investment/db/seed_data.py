@@ -1990,7 +1990,10 @@ PORTFOLIOS: list[dict[str, object]] = [
         "enabled": False,
         "currency": "USD",
         "benchmark": "all-weather-USD",
-        "allocation": {"VCIT": 50, "IEF": 40, "IWN": 10},
+        # VCIT 50 / IEF 50 since 2026-10-17, down from VCIT 50 / IEF 40 / IWN 10:
+        # the IWN sleeve measured as a tie against every alternative, and a tie
+        # is decided by simplicity (mechanical/market_signal.py BOOKS).
+        "allocation": {"VCIT": 50, "IEF": 50},
         "max_drawdown_rule": -25.0,
         "max_single_asset_pct": 50.0,
         "phase": "accumulation",

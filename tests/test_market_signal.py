@@ -315,13 +315,13 @@ def test_the_overlay_checks_the_haven_it_redirects_into() -> None:
 
 
 def test_a_book_holding_the_haven_moves_it_too_when_it_fails_the_test() -> None:
-    """The steep book holds IEF 40 as a sleeve. Redirecting INTO the haven while
+    """The steep book holds IEF 50 as a sleeve. Redirecting INTO the haven while
     leaving an existing haven sleeve untouched would judge one asset two ways in
     the same decision."""
-    # VCIT 50 / IEF 40 / IWN 10
+    # VCIT 50 / IEF 50
     steep = market_signal.BOOKS[TIGHT_STEEP]
-    out = market_signal.apply_trend_overlay(steep, {"IWN": 1.0, market_signal.TREND_HAVEN: 1.0})
-    assert out[market_signal.TREND_FALLBACK_HAVEN] == pytest.approx(50.0)  # IEF 40 + IWN 10
+    out = market_signal.apply_trend_overlay(steep, {market_signal.TREND_HAVEN: 1.0})
+    assert out[market_signal.TREND_FALLBACK_HAVEN] == pytest.approx(50.0)  # the IEF 50 sleeve
     assert out["VCIT"] == pytest.approx(50.0)
 
 
@@ -624,15 +624,15 @@ def test_describe_rule_treats_the_haven_apart() -> None:
     assert f"THE HAVEN, {haven}, IS READ ON THE SAME LINES AND IS NOT A TREND" in text
 
     book = market_signal.BOOKS["credit-spread-tight-yield-curve-steep"]
-    assert book[haven] == 40.0
+    assert book[haven] == 50.0
     # Below one line of two, the haven a book holds does not move...
     assert market_signal.apply_trend_overlay(book, {haven: 0.5}) == book
     # ...and is still where a trend sleeve is sent.
     sent = market_signal.apply_trend_overlay(book, {haven: 0.5, "VCIT": 1.0})
-    assert sent == {haven: 90.0, "IWN": 10.0}
+    assert sent == {haven: 100.0}
     # Below every line, the book's own haven goes to cash with everything redirected.
     out = market_signal.apply_trend_overlay(book, {haven: 1.0, "VCIT": 1.0})
-    assert out == {market_signal.TREND_FALLBACK_HAVEN: 90.0, "IWN": 10.0}
+    assert out == {market_signal.TREND_FALLBACK_HAVEN: 100.0}
 
 
 def test_describe_rule_states_the_caps_and_the_haven_exemption() -> None:
@@ -721,7 +721,7 @@ def test_the_stress_gate_reaches_sleeves_the_200d_does_not_check(
         spread_speed=pd.Series([1.43], index=idx),  # widening hard
     )[0]
 
-    # tight-steep is VCIT 50 / IEF 40 / IWN 10; the gate empties IWN and VCIT.
+    # tight-steep is VCIT 50 / IEF 50; the gate empties VCIT.
     assert decision.target == {"IEF": 100.0}
     assert decision.trend["VCIT"].credit_gated  # it explains itself
     assert decision.trend["VCIT"].breached == ()  # out by the gate, not by price

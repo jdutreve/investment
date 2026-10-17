@@ -165,9 +165,25 @@ owner-arbitrated:
   the part that says a backtest cannot price this and the Pareto test was right
   on its own terms.
 
-The pinned pair is therefore **11.53% / -16.50%**. The earlier figures are
-history, not targets. Any OTHER divergence from 11.53% is drift and must be
-explained, which is what this module exists to guarantee.
+- 2026-10-17, THE BOND BOOK LOSES ITS EQUITY SLEEVE (owner signature): the
+  tight-steep book goes VCIT 50 / IEF 40 / IWN 10 -> **VCIT 50 / IEF 50**.
+  Bounded pinned CAGR 11.513% -> **11.463%**, Sortino 1.296 -> 1.288, drawdown
+  unchanged at -16.50%.
+
+  A TIE BROKEN BY SIMPLICITY, NOT A FINDING. The IWN 10 came from the Verdad
+  paper and was never measured for this state. Put to two pre-registered
+  protocols on 1977-2026, no sleeve and every other asset of the project in its
+  seat are not distinguishable from it (no sleeve: Sortino -0.005, 75% of
+  resamples for IWN, -0.03pp a year; see BOOKS). The owner's rule for a measured
+  tie is the simpler option: one sleeve fewer and one fixed asset fewer in the
+  book, and under the overlay the 10% now follows IEF to cash when IEF fails its
+  trend instead of being trend-checked on its own.
+
+The pinned pair is therefore **11.46% / -16.50%**, the BOUNDED measurement that
+`PINNED_CAGR` holds (see that constant for why the bounded figure is the
+reference). The earlier figures are history, not targets. Any OTHER divergence
+from 11.46% is drift and must be explained, which is what this module exists to
+guarantee.
 
 That sentence named 10.71% for two supersessions after 10.71% stopped being the
 pinned figure — the anti-drift reference itself drifting, in the one paragraph
@@ -289,7 +305,23 @@ BOOKS: dict[str, dict[str, float]] = {
     # diversification is the 40% gold, i.e. across asset classes; a second
     # equity region diversifies inside the factor that is already the risk.
     "credit-spread-tight-yield-curve-flat": {"SPY": 60.0, "GLD": 40.0},
-    "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 40.0, "IWN": 10.0},
+    # VCIT 50 / IEF 50 SINCE 2026-10-17 (owner signature), down from the Verdad
+    # paper's VCIT 50 / IEF 40 / IWN 10. Two pre-registered protocols on
+    # 1977-2026 put every asset of the project, and no sleeve at all, in IWN's
+    # 10% seat; none is distinguishable from it (Sortino, alternative - IWN):
+    #
+    #     no sleeve, IEF 50       -0.005 [90%: -0.023, +0.009]   1977-2026
+    #     GLD / SPY / VTI         -0.008 / -0.004 / -0.008
+    #     cash 10                 -0.014 [-0.032, -0.000]        leans against
+    #     DBC                     +0.061, 2007-2026 only, not the 0.05/13 bar
+    #
+    # The sleeve is about 2% of the stack's life and trades about one order a
+    # year. A measured tie is decided by simplicity, so the book holds two
+    # sleeves. Cash 10 was the owner's first idea and was NOT taken: it is the
+    # one option that leans against IWN, because IEF earns the term premium in
+    # the months it is in trend and already goes to cash when it is not.
+    # Record: docs/V1_STRATEGY.md, 2026-10-17.
+    "credit-spread-tight-yield-curve-steep": {"VCIT": 50.0, "IEF": 50.0},
 }
 
 # The trend overlay: these sleeves are redirected to the haven when their own
@@ -599,11 +631,12 @@ COST_BPS = ratios.TRADING_COST_BPS
 # hovering at its own median flips the book on an arbitrarily small difference:
 # of the 36 book changes over 409 monthly decisions, 25% were decided by a
 # margin under 2% and 14 reversed within 3 months. Books barely overlap (wide is
-# SPY/IWN/GLD, steep is VCIT/IEF/IWN), so such a flip is close to a 90% round
-# trip. Waiting for confirmation lifts CAGR 9.85% -> 11.26% and Sortino
-# 0.94 -> 1.11 at an UNCHANGED -23.8% drawdown, in both halves of the history
-# split independently; the sweep degrades past ~4, so this is a real optimum,
-# not "trade less" (buy-and-hold scores 10.32% CAGR but -52% drawdown).
+# SPY/IWN/GLD, steep was VCIT/IEF/IWN and is VCIT/IEF since 2026-10-17), so such
+# a flip is close to a 90% round trip, and now a full one. Waiting for
+# confirmation lifts CAGR 9.85% -> 11.26% and Sortino 0.94 -> 1.11 at an
+# UNCHANGED -23.8% drawdown, in both halves of the history split independently;
+# the sweep degrades past ~4, so this is a real optimum, not "trade less"
+# (buy-and-hold scores 10.32% CAGR but -52% drawdown).
 #
 # 3 is `regime_confirm_prints`' value, deliberately: one hysteresis convention
 # across the project. A separate constant, NOT a read of that threshold —
@@ -692,7 +725,12 @@ PINNED_WINDOW: tuple[date, date] = (date(1993, 11, 1), date(2026, 7, 1))
 # 393 decisions over 1993-11-01 -> 2026-07-01, turnover 66.2, Sortino 1.296.
 # The record is 32 years rather than 35, and the three it loses are the three it
 # never really had.
-PINNED_CAGR = 0.11513
+#
+# RE-PINNED 2026-10-17 (owner signature) — 0.11513 -> 0.11463, drawdown
+# unchanged to five digits: the tight-steep book drops its IWN 10 for IEF 50
+# (see the supersession list at the top and BOOKS). Same window, same bounded
+# measurement, on a copy of the live database.
+PINNED_CAGR = 0.11463
 PINNED_MAX_DRAWDOWN = -0.16500
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
@@ -1119,7 +1157,7 @@ SPEED_LOOKBACK_DAYS = 30
 # curve already read flat and a veto that only demotes STEEP had nothing to
 # demote; in 2013 it fired and was neutral. Where it does fire (1996, 2001-2004,
 # 2009-2011, 2014, 2021, 2025) the demotion is not defensive — on both sides the
-# flat book is the EQUITY one (VCIT/IEF/IWN -> SPY/GLD, SPY/IWN/GLD -> IWN/SPY),
+# flat book is the EQUITY one (VCIT/IEF -> SPY/GLD, SPY/IWN/GLD -> IWN/SPY),
 # and hysteresis carries the divergence onto the spread axis too. Over 1993-2008
 # that bought +2.5pp of return on the days the books differ for +50% of downside
 # deviation (4.3% -> 6.5%); on 2009-2026 the gain is mostly ONE episode, the

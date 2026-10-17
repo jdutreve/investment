@@ -92,7 +92,7 @@ FINDINGS: tuple[Finding, ...] = (
         question=(
             "Does the tight-steep branch cost — would the stack do better holding its "
             "tight-flat book (SPY 60 / GLD 40) wherever it holds the bond book "
-            "(VCIT 50 / IEF 40 / IWN 10)?"
+            "(then VCIT 50 / IEF 40 / IWN 10)?"
         ),
         answer="no — it does not cost",
         evidence=(
@@ -106,6 +106,29 @@ FINDINGS: tuple[Finding, ...] = (
             "The stay that began in 2025-07 is a bad stay, not evidence that the branch "
             "is the weak link. Dropping the bond book is not to be proposed without new "
             "data."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
+    Finding(
+        measured_on=date(2026, 10, 17),
+        about="rule",
+        question=(
+            "Should the bond book's 10% equity sleeve (then VCIT 50 / IEF 40 / IWN 10) hold "
+            "another asset of the project, or nothing, rather than small-cap value?"
+        ),
+        answer="no — not distinguishable",
+        evidence=(
+            "Alternative minus stack, Sortino, 1977-2026: GLD -0.008 [90%: -0.032, +0.013], "
+            "SPY -0.004, no sleeve -0.005, cash -0.014, VTI -0.008; on shorter windows TLT, "
+            "DJP, SHY, EFA, QQQ, IWM, IYR, EEM, TIP within +/-0.02. Only DBC (2007-2026) "
+            "+0.061 passes an uncorrected 5%, not the 0.05/13 bar, and half of it is the "
+            "2008 commodity spike; DJP from 1992 shows +0.011. Dropping the sleeve saves "
+            "about one order a year."
+        ),
+        consequence=(
+            "No asset in that seat changes anything measurable, so the tie went to the "
+            "simpler book: VCIT 50 / IEF 50 since 2026-10-17. Do not propose restoring the "
+            "sleeve or filling it with another asset without new data."
         ),
         record="docs/V1_STRATEGY.md",
     ),
