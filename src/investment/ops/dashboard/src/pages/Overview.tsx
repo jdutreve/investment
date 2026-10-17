@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import {
   get,
   type AssetMove,
+  type BookRow,
   type CurrentRule,
   type LiveTrend,
   type MacroLine,
@@ -86,7 +87,8 @@ const bookName = (state: string): string =>
 const allocationText = (weights: Weights): string =>
   [...ASSET_ORDER, ...Object.keys(weights).filter((t) => !ASSET_ORDER.includes(t))]
     .filter((t) => (weights[t] ?? 0) > 0)
-    .map((t) => `${ASSETS[t] ?? t} ${weight(weights[t])}%`)
+    // The ticker beside the name, wherever an asset is shown (owner, 2026-10-17).
+    .map((t) => `${ASSETS[t] ?? t}${t === "cash" ? "" : ` ${t}`} ${weight(weights[t])}%`)
     .join(" · ") || "nothing";
 
 
@@ -447,16 +449,36 @@ function whyThisBook(
   return [first, second].filter(Boolean).join(" ");
 }
 
+// The state today's two answers name, in the rule's own key: which side of its
+// median the spread and the slope fall on.
+function stateOf(live: LiveTrend): string {
+  const side = (ticker: string): string =>
+    sideOf(live.signals[ticker]?.value, live.signals[ticker]?.trailing_median, ticker);
+  const spread = side("BAA10Y");
+  const slope = side("T10Y2Y");
+  return spread && slope ? `credit-spread-${spread}-yield-curve-${slope}` : "";
+}
+
+// A book by its allocation, as the seeded book rows hold it. Its state is not
+// repeated: the two rows above say it (owner, 2026-10-17).
+function BookCell({ state, books }: { state: string; books: BookRow[] }) {
+  const book = books.find((b) => b.signal_state === state);
+  if (!book) return <span className="muted">—</span>;
+  return <span className="strong">{allocationText((book.allocation ?? {}) as Weights)}</span>;
+}
+
 function DecisionCard({
   decision,
   reading,
   live,
   rule,
+  books,
 }: {
   decision: Row | null;
   reading: Row | null;
   live: LiveTrend | null;
   rule: CurrentRule | null;
+  books: BookRow[];
 }) {
   if (!decision) {
     return (
@@ -651,12 +673,27 @@ function DecisionCard({
                   </td>
                 </tr>
               ))}
+              {/* THE BOOK THE TWO ANSWERS NAME (owner, 2026-10-17), on each
+                  date: at the decision the state the rule signalled, today the
+                  state today's two answers give — before the three-decision
+                  confirmation, so it says where the signals point, not what
+                  is held. */}
+              <tr className="book-row">
+                <td className="strong">Book</td>
+                <td>
+                  <BookCell state={String(s(decision, "signal_state") ?? "")} books={books} />
+                </td>
+                <td>
+                  <BookCell state={live ? stateOf(live) : ""} books={books} />
+                </td>
+              </tr>
             </tbody>
           </table>
           <div className="paper-note">
             Each figure is compared with the median of its own last ten years on
             that date. The two answers pick the book; a change of book needs
-            three monthly decisions in a row to agree.
+            three monthly decisions in a row to agree, so &quot;today&quot; is
+            where the signals point, not yet what is held.
           </div>
         </div>
       </details>
@@ -1098,6 +1135,7 @@ export function Overview() {
           reading={data.worker_reading}
           live={stack.data?.live_trend ?? null}
           rule={stack.data?.current_rule ?? null}
+          books={stack.data?.books ?? []}
         />
       </div>
 
