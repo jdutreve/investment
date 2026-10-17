@@ -243,9 +243,7 @@ def _series(ticker: str, **fields: object) -> dict[str, object]:
     return {**base, **fields}
 
 
-def test_highlights_say_what_changed_and_leave_the_rest_to_the_themes() -> None:
-    """The extremes and the full moves are in the theme sentences; the
-    highlights carry only what none of them says."""
+def test_highlights_name_the_extreme_the_mover_and_what_changed() -> None:
     board = [
         _series("yield", rank=1.0, news="bad", position="near its ten-year high", direction=1),
         _series("spread", rank=0.02, position="near its ten-year low"),
@@ -256,11 +254,17 @@ def test_highlights_say_what_changed_and_leave_the_rest_to_the_themes() -> None:
     earlier = [_series("liquidity", news="good"), _series("quiet")]
     lines = mb.highlights(board, earlier)
     assert [(line["kind"], line["tone"]) for line in lines] == [
+        ("At an extreme", "bad"),
+        ("At an extreme", "good"),  # unusual and good news is still worth reading
+        ("Moving", "good"),  # the series' own colour, its level's — not the move's
         ("Changed in a month", "poor"),
         ("Direction of travel", "poor"),
     ]
-    assert lines[0]["text"] == ("Liquidity (liquidity): favourable a month ago, unfavourable now.")
-    assert lines[1]["text"] == "2 series worsening, 0 improving, 3 steady."
+    assert lines[0]["text"] == "Yield (yield) near its ten-year high and still rising."
+    # The direction is said in words: a rate rising moves away from its favourable side.
+    assert lines[2]["text"] == "Bills (bills) rising faster than usual, worsening."
+    assert lines[3]["text"] == ("Liquidity (liquidity): favourable a month ago, unfavourable now.")
+    assert lines[4]["text"] == "2 series worsening, 0 improving, 3 steady."
 
 
 def test_a_theme_in_trouble_names_the_probable_cause() -> None:
@@ -307,13 +311,22 @@ def test_an_asset_move_is_said_in_percent_with_its_size_and_pace() -> None:
     falling = mb.describe_asset_move(-0.045, -0.02, usual, usual_acceleration, "over 30 days")
     assert falling["reading"] == "Falling sharply: -4.5 % over 30 days, and gathering pace."
     assert (falling["direction"], falling["move_size"]) == (-1, "sharp")
+    # The magnitudes in the asset's usual units, for the page to draw.
+    assert falling["speed_z"] == pytest.approx(-2.25)
+    assert falling["acceleration_z"] == pytest.approx(-2.0)
     rising = mb.describe_asset_move(0.025, -0.005, usual, usual_acceleration, "over 30 days")
     assert rising["reading"] == "Rising: +2.5 % over 30 days, but losing pace."
+    assert rising["pace"] == "losing pace"
     quiet = mb.describe_asset_move(0.003, 0.0, usual, usual_acceleration, "over 30 days")
     assert quiet["reading"] == "Little changed over 30 days (+0.3 %)."
-    assert quiet["direction"] == 0
+    assert quiet["direction"] == 0 and quiet["pace"] == ""
+    # Still over the month, but its speed moved: a fall that stopped is turning up.
+    turning = mb.describe_asset_move(0.0, 0.008, usual, usual_acceleration, "over 30 days")
+    assert turning["pace"] == "turning up"
+    assert turning["reading"] == "Little changed over 30 days (+0.0 %), but turning up."
     unknown = mb.describe_asset_move(None, None, [], [], "over 30 days")
     assert unknown["reading"] == "Too little history to say how it is moving."
+    assert unknown["speed_z"] is None and unknown["acceleration_z"] is None
 
 
 async def test_an_asset_move_is_read_in_percent_not_in_dollars(tmp_path: Path) -> None:

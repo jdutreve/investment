@@ -166,6 +166,9 @@ export interface AssetMove {
   direction: -1 | 0 | 1;
   move_size: "" | "slight" | "full" | "sharp";
   pace: string;
+  // The change and its acceleration in units of this asset's usual ones.
+  speed_z: number | null;
+  acceleration_z: number | null;
   reading: string;
 }
 

@@ -566,6 +566,52 @@ a {
 .data-table td.center {
   text-align: center;
 }
+.move-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.move-track {
+  position: relative;
+  width: 100px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+}
+.move-track::after {
+  /* the zero line */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--border-strong);
+}
+.move-tick {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 1px;
+  background: var(--border);
+}
+.move-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+}
+.move-fill.tone-good { background: var(--heat-good); }
+.move-fill.tone-bad { background: #d92d20; }
+.move-fill.tone-quiet { background: var(--ink-muted); }
+.move-label {
+  font-variant-numeric: tabular-nums;
+  min-width: 48px;
+}
+/* A wide table scrolls inside its card instead of widening the page. */
+.table-scroll {
+  overflow-x: auto;
+}
 .swatch.dot {
   width: 11px;
   height: 11px;
@@ -575,11 +621,6 @@ a {
 .why-prose {
   margin: 0;
   line-height: 1.55;
-}
-.asset-arrow {
-  display: inline-block;
-  width: 16px;
-  font-weight: 600;
 }
 .chip {
   display: inline-block;
@@ -858,9 +899,6 @@ details.reading p {
 }
 .macro-value.plain {
   text-transform: none;
-}
-.heat-text-good {
-  color: var(--heat-good);
 }
 .heat-text-bad {
   color: var(--heat-bad);

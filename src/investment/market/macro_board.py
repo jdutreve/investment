@@ -428,10 +428,10 @@ def _listed(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
-# How far back "what changed" looks, and how many changes it names: a list
-# that names everything names nothing.
+# How far back "what changed" looks, and how many lines each kind of highlight
+# may take: a list of what stands out that names everything names nothing.
 CHANGE_LOOKBACK_DAYS = 30
-MAX_CHANGES = 2
+MAX_EXTREMES, MAX_MOVERS, MAX_CHANGES = 3, 2, 2
 
 
 # WHAT USUALLY DRIVES EACH SERIES, among the other series of the board: the
@@ -500,28 +500,79 @@ def _improving(entry: dict[str, Any]) -> bool | None:
 
 
 def highlights(board: list[dict[str, Any]], earlier: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """What changed, which no theme sentence says — each line with its `kind`
-    and the `tone` it is coloured in:
+    """What a reader should not miss, most unusual first — each line with its
+    `kind` and the `tone` it is coloured in:
 
+    - a level at an END of its ten years, on either side: the unusual is worth
+      reading when it is good news too;
+    - a FULL move (sized against that series' own usual move) not already named;
     - a series whose colour CHANGED since `earlier`, the board a month before;
     - the direction of travel: how many series are worsening against improving.
 
-    Each change carries its PROBABLE CAUSE (`probable_cause`): the usual drivers
+    Each line carries its PROBABLE CAUSE (`probable_cause`): the usual drivers
     of that series which, on this board, point the same way.
 
-    THE LEVELS AT AN EXTREME AND THE FULL MOVES WERE HERE until 2026-10-17, and
-    the theme sentences now say them (`read_themes`) with the cause of what is
-    wrong: the same fact twice on one page (owner: "beaucoup de redite").
+    RESTORED 2026-10-17 (owner): the extremes and full moves were removed when
+    the theme sentences said them; those sentences are now a hover on the theme
+    name, and this is again the one place the page states them.
 
     WORDS ONLY (owner, 2026-10-11: "les chiffres sont inutiles et ajoutent du
-    bruit, car déjà spécifiés"). Pure, and built from the board alone, so it
-    cannot say what the tiles do not show."""
+    bruit, car déjà spécifiés"): every figure is on the series' own tile, and a
+    summary that repeats them is the board a second time. Pure, and built from
+    the board alone, so it cannot say what the tiles do not show."""
     lines: list[dict[str, str]] = []
+    told: set[str] = set()
+
+    extremes = sorted(
+        (
+            e
+            for e in board
+            if e["rank"] is not None and max(e["rank"], 1 - e["rank"]) >= EXTREME_RANK
+        ),
+        key=lambda e: -max(e["rank"], 1 - e["rank"]),
+    )[:MAX_EXTREMES]
+    for e in extremes:
+        moving = ""
+        if e["direction"]:
+            moving = " and still " + ("rising" if e["direction"] > 0 else "falling")
+        lines.append(
+            {
+                "kind": "At an extreme",
+                "tone": e["news"],
+                "text": f"{_named(e)} {e['position']}{moving}.",
+                "cause": probable_cause(e, 1 if e["rank"] >= 0.5 else -1, board),
+            }
+        )
+        told.add(e["ticker"])
+
+    movers = [e for e in board if e["move_size"] in ("full", "sharp") and e["ticker"] not in told]
+    movers.sort(key=lambda e: e["move_size"] != "sharp")
+    for e in movers[:MAX_MOVERS]:
+        verb = "rising" if e["direction"] > 0 else "falling"
+        improving = _improving(e)
+        # ONE COLOUR PER SERIES, its level's (owner, 2026-10-17): this line was
+        # coloured by the direction of the move, so global liquidity read red
+        # here and orange on its own tile. The direction is said in words.
+        way = "" if improving is None else (", improving" if improving else ", worsening")
+        lines.append(
+            {
+                "kind": "Moving",
+                "tone": e["news"],
+                "text": (
+                    f"{_named(e)} {verb} "
+                    f"{'much faster' if e['move_size'] == 'sharp' else 'faster'} than usual{way}."
+                ),
+                "cause": probable_cause(e, e["direction"], board),
+            }
+        )
+        told.add(e["ticker"])
+
     before = {e["ticker"]: e["news"] for e in earlier}
     changed = [
         e
         for e in board
-        if e["news"] in NEWS_ORDER
+        if e["ticker"] not in told
+        and e["news"] in NEWS_ORDER
         and before.get(e["ticker"]) in NEWS_ORDER
         and before[e["ticker"]] != e["news"]
     ]
@@ -609,24 +660,49 @@ def describe_asset_move(
     usual_change = statistics.pstdev(changes) if len(changes) > 1 else None
     usual_acceleration = statistics.pstdev(accelerations) if len(accelerations) > 1 else None
     move = read_move(change, acceleration, usual_change, usual_acceleration)
+    # A STILL ASSET CAN BE TURNING (owner, 2026-10-17: "pourquoi Treasuries est
+    # steady alors que l'accélération est élevée ?"). `read_move` gives a pace
+    # only to a move that exists; an asset flat over the month whose speed moved
+    # by a real amount — a fall that stopped, a rise that stalled — read
+    # "steady" beside a bar that showed the turn. It is named by the side it is
+    # turning towards, on the same quarter-of-usual threshold.
+    pace = move.pace if move is not None else ""
+    if (
+        move is not None
+        and move.quiet
+        and acceleration is not None
+        and usual_acceleration
+        and abs(acceleration) / usual_acceleration >= QUIET_MOVE
+    ):
+        pace = "turning up" if acceleration > 0 else "turning down"
     if move is None or change is None:
         reading = "Too little history to say how it is moving."
     elif move.quiet:
-        reading = f"Little changed {period} ({change * 100:+.1f} %)."
+        turning = f", but {pace}" if pace else ""
+        reading = f"Little changed {period} ({change * 100:+.1f} %){turning}."
     else:
-        pace = {"gathering pace": ", and gathering pace", "losing pace": ", but losing pace"}
+        pace_words = {"gathering pace": ", and gathering pace", "losing pace": ", but losing pace"}
         reading = (
             f"{move.direction.capitalize()}: {change * 100:+.1f} % {period}"
-            f"{pace.get(move.pace, '')}."
+            f"{pace_words.get(move.pace, '')}."
         )
     return {
         "change_pct": None if change is None else change * 100,
         "period": period,
         "direction": 0 if move is None or move.quiet or not change else (1 if change > 0 else -1),
         "move_size": move.size if move is not None else "",
-        "pace": move.pace if move is not None else "",
+        "pace": pace,
+        # The two magnitudes a picture needs (owner, 2026-10-17: "visualiser
+        # vitesse et accélération"): the change and its acceleration in units
+        # of THIS asset's usual one — the same scale `read_move` sizes words on.
+        "speed_z": _in_usual_units(change, usual_change),
+        "acceleration_z": _in_usual_units(acceleration, usual_acceleration),
         "reading": reading,
     }
+
+
+def _in_usual_units(value: float | None, usual: float | None) -> float | None:
+    return None if value is None or not usual else value / usual
 
 
 async def asset_moves(

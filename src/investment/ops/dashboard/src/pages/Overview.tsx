@@ -104,6 +104,8 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
 const PACE: Record<string, string> = {
   "gathering pace": "accelerating",
   "losing pace": "slowing",
+  "turning up": "turning up",
+  "turning down": "turning down",
   "": "steady",
 };
 
@@ -116,18 +118,36 @@ function TrendDot({ share }: { share: number | undefined }) {
   return <span className={`swatch dot heat-${colour}`} title={state.word} />;
 }
 
-// Which way, and how hard: the board's arrows, green up and red down, a slight
-// move grey — it is not news yet.
-function AssetArrow({ asset }: { asset: AssetMove }) {
-  if (asset.direction === 0) return <span className="asset-arrow muted">→</span>;
-  const arrow = ARROWS[asset.move_size || "full"]![asset.direction > 0 ? 0 : 1];
-  const tone =
-    asset.move_size === "slight"
-      ? "muted"
-      : asset.direction > 0
-        ? "heat-text-good"
-        : "heat-text-bad";
-  return <span className={`asset-arrow ${tone}`}>{arrow}</span>;
+// A value on a bar centred on zero (owner, 2026-10-17: speed and acceleration
+// seen, not read): the bar grows right for a rise, left for a fall, its length
+// the value in the asset's usual units. Full width is TWICE the usual — where
+// `macro_board.read_move` starts calling a move sharp — and the ticks mark the
+// usual move itself, where a move stops being "slight". The figure or word beside it.
+const BAR_CAP = 2;
+function MoveBar({
+  z,
+  tone,
+  label,
+}: {
+  z: number | null;
+  tone: "good" | "bad" | "quiet";
+  label: string;
+}) {
+  const share = z === null ? 0 : Math.min(Math.abs(z), BAR_CAP) / BAR_CAP;
+  const width = `${share * 50}%`;
+  return (
+    <span className="move-bar">
+      <span className="move-track">
+        <span className="move-tick" style={{ left: "25%" }} />
+        <span className="move-tick" style={{ left: "75%" }} />
+        <span
+          className={`move-fill tone-${tone}`}
+          style={z !== null && z < 0 ? { right: "50%", width } : { left: "50%", width }}
+        />
+      </span>
+      <span className="move-label">{label}</span>
+    </span>
+  );
 }
 
 // THE ASSETS, ONE CARD (owner, 2026-10-17): how each is moving — which way,
@@ -149,7 +169,12 @@ function AssetsCard({
 }) {
   const sleeves = Object.fromEntries(sleevesOf(decision));
   const moves = Object.fromEntries(assets.map((asset) => [asset.ticker, asset]));
-  const tickers = ASSET_ORDER.filter((t) => t in sleeves || t in moves);
+  // Strongest move first (owner, 2026-10-17): by the 30-day change, highest to
+  // lowest; an asset with no change known goes last.
+  const change = (t: string): number => moves[t]?.change_pct ?? -Infinity;
+  const tickers = ASSET_ORDER.filter((t) => t in sleeves || t in moves).sort(
+    (a, b) => change(b) - change(a),
+  );
   if (!tickers.length) return null;
   const windows = windowsOf(decision);
   const latestAsOf = assets.reduce(
@@ -162,19 +187,26 @@ function AssetsCard({
       <h2>
         <TrendingUp size={14} /> Assets
       </h2>
+      <div className="table-scroll">
       <table className="data-table assets-table">
         <thead>
           <tr>
             <th>Asset</th>
-            <th className="num">30 days{latestAsOf ? ` · ${date(latestAsOf)}` : ""}</th>
-            <th>Pace</th>
+            <th title="The 30-day change, as a bar sized against this asset's usual move">
+              Speed · 30 days{latestAsOf ? ` · ${date(latestAsOf)}` : ""}
+            </th>
+            <th title="Whether the move is growing (coloured) or fading (grey)">Acceleration</th>
             {windows.map((w) => (
               <th className="num" key={w}>
                 vs {w}-day avg
               </th>
             ))}
-            <th className="center">At decision</th>
-            <th className="center">Today</th>
+            <th className="center" title="Against the 150- and 300-day averages, at the decision">
+              Trend at decision
+            </th>
+            <th className="center" title="Against the 150- and 300-day averages, today">
+              Trend today
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -188,23 +220,46 @@ function AssetsCard({
                 <td>
                   {ASSETS[t] ?? t} <span className="muted mono">{t}</span>
                 </td>
-                <td className="num">
+                <td>
                   {move && move.change_pct !== null ? (
-                    <>
-                      <AssetArrow asset={move} />
-                      {move.change_pct > 0 ? "+" : ""}
-                      {move.change_pct.toFixed(1)}%
-                      {/* A late series says so: one date in the header must
-                          not stand for an asset whose prices stopped. */}
-                      {move.as_of !== latestAsOf ? (
-                        <span className="heat-text-bad"> to {date(move.as_of)}</span>
-                      ) : null}
-                    </>
+                    <MoveBar
+                      z={move.speed_z}
+                      tone={move.direction > 0 ? "good" : move.direction < 0 ? "bad" : "quiet"}
+                      label={`${move.change_pct > 0 ? "+" : ""}${move.change_pct.toFixed(1)}%`}
+                    />
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                  {/* A late series says so: one date in the header must not
+                      stand for an asset whose prices stopped. */}
+                  {move && move.as_of !== latestAsOf ? (
+                    <span className="heat-text-bad"> to {date(move.as_of)}</span>
+                  ) : null}
+                </td>
+                <td>
+                  {move ? (
+                    <MoveBar
+                      z={move.acceleration_z}
+                      // Coloured when the acceleration is the news: a move
+                      // gathering pace (its own colour), or a still asset
+                      // turning (green up, red down). Grey otherwise.
+                      tone={
+                        move.pace === "gathering pace"
+                          ? move.direction > 0
+                            ? "good"
+                            : "bad"
+                          : move.pace === "turning up"
+                            ? "good"
+                            : move.pace === "turning down"
+                              ? "bad"
+                              : "quiet"
+                      }
+                      label={PACE[move.pace] ?? "steady"}
+                    />
                   ) : (
                     <span className="muted">—</span>
                   )}
                 </td>
-                <td className="muted">{move ? (PACE[move.pace] ?? "—") : "—"}</td>
                 {windows.map((w, index) => (
                   <td className="num muted" key={w}>
                     {reference
@@ -223,12 +278,17 @@ function AssetsCard({
           })}
         </tbody>
       </table>
+      </div>
       <div className="paper-note">
-        30 days is the price change; its arrow is sized against what is usual
-        for that asset over ten years, and the pace says whether the move is
-        growing or fading. Distances from each average are as of{" "}
-        {date(distancesAsOf)}. The dots: green above both averages, orange
-        below one, red below both. It describes prices, not a forecast.
+        Speed is the 30-day price change, its bar sized against that asset's
+        usual move over ten years (the ticks mark the usual move, full width
+        twice it); the acceleration bar is the change in that speed. Green
+        rises, red falls; an acceleration is coloured when it is the news — a
+        move gathering pace, or a still asset turning — and grey otherwise. The
+        dots are the longer trend, not the month: green above both the 150- and
+        300-day averages, orange below one, red below both — which is why an
+        asset can fall fastest this month and still sit orange. Distances are as
+        of {date(distancesAsOf)}. It describes prices, not a forecast.
       </div>
     </div>
   );
@@ -484,8 +544,8 @@ function DecisionCard({
                   className="num"
                   title="The book through the trend filter at the decision: the month's target"
                 >
-                  Target
-                  <span className="th-sub">filtered {date(s(decision, "decision_date"))}</span>
+                  Filtered
+                  <span className="th-sub">at decision {date(s(decision, "decision_date"))}</span>
                 </th>
                 {current ? (
                   <th
@@ -674,15 +734,11 @@ function MoveCell({ line }: { line: MacroLine }) {
   }
   const arrow = ARROWS[line.move_size || "full"]![line.direction > 0 ? 0 : 1];
   const unit = line.unit ? " pt" : "";
-  // Improving or worsening, by the same favourable side as the level; a
-  // slight move stays grey, it is not news yet.
-  const improving = line.direction > 0 === (line.favourable === "high");
-  const tone =
-    line.move_size === "slight" || line.favourable === null
-      ? "muted"
-      : improving
-        ? "strong heat-text-good"
-        : "strong heat-text-bad";
+  // NO COLOUR OF ITS OWN (owner, 2026-10-17: one colour per series, the
+  // level's). It was green or red by improving or worsening, which put a red
+  // arrow on an orange tile; the arrow's shape and size carry the move, and a
+  // slight move stays grey — it is not news yet.
+  const tone = line.move_size === "slight" ? "muted" : "strong";
   return (
     <span className={tone}>
       {arrow} {line.speed > 0 ? "+" : ""}
@@ -708,9 +764,11 @@ function MacroBoard({
   const name = s(regime, "regime_name") ?? s(regime, "regime_type_id");
   const state = s(liquidity, "state");
   const groups = [...new Set(board.map((line) => line.group))];
-  const unfavourable = board.filter(
-    (line) => line.news === "poor" || line.news === "bad",
-  ).length;
+  // Counted as the legend colours them (owner, 2026-10-17: "3 of 18" beside
+  // two orange tiles): orange and red together, each named.
+  const poor = board.filter((line) => line.news === "poor").length;
+  const worst = board.filter((line) => line.news === "bad").length;
+  const unfavourable = poor + worst;
   return (
     <div className="card">
       <h2>
@@ -741,9 +799,12 @@ function MacroBoard({
         ) : null}
         {board.length ? (
           <div>
-            <div className="macro-label">Unfavourable</div>
+            <div className="macro-label">Unfavourable or worse</div>
             <div className="macro-value plain">
               {unfavourable} of {board.length}
+            </div>
+            <div className="muted">
+              {poor} unfavourable · {worst} near its worst
             </div>
             <div className="legend">
               {NEWS.map(([news, words]) => (
@@ -758,7 +819,7 @@ function MacroBoard({
       </div>
       {highlights.length ? (
         <div className="standout">
-          <div className="section-label">What changed</div>
+          <div className="section-label">What stands out</div>
           {highlights.map((line) => (
             <div className="standout-line" key={line.text}>
               <span className={`swatch heat-${line.tone}`} />
@@ -884,7 +945,9 @@ function MacroBoard({
         The colour is good or bad news for an investor building capital:
         growth, credit and liquidity are better high; rates, inflation,
         unemployment, spreads and volatility are better low. A theme reads as
-        its worst series; hover its name for why. Under each theme, the ideas
+        its worst series; hover its name for why. One colour per series,
+        everywhere on this card: its level's. The arrows give the move, by shape
+        and size, and say nothing about good or bad. Under each theme, the ideas
         from the books whose condition holds clearly today on its series — none
         is established, and none changes the order. Hover a tile for the full
         sentence.
