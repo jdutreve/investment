@@ -717,12 +717,15 @@ function DecisionCard({
 // same print.
 // The four steps of the board's colour, in the order the legend reads: where
 // the level sits in its ten years, seen from the side that is good news for
-// that series (the agent declares the side, `macro_board.MACRO_BOARD`).
+// that series (the agent declares the side, `macro_board.MACRO_BOARD`). Then
+// the grey, which is not a step: a series that declares no side (`neutral`)
+// or has under three years to compare with (`unknown`) — the two share it.
 const NEWS: [MacroLine["news"], string][] = [
   ["good", "favourable"],
   ["watch", "less favourable than usual"],
   ["poor", "unfavourable"],
   ["bad", "near its worst in ten years"],
+  ["neutral", "neither side is good news, or too little history"],
 ];
 
 const ARROWS: Record<string, [string, string]> = {
@@ -835,7 +838,7 @@ function MacroBoard({
           </div>
         ) : null}
         {board.length ? (
-          <div>
+          <div className="macro-count">
             <div className="macro-label">Unfavourable or worse</div>
             <div className="macro-value plain">
               {unfavourable} of {board.length}
