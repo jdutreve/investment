@@ -923,6 +923,7 @@ function MacroBoard({
       {board.length ? (
         <details className="fold">
           <summary>Each series in its last ten years</summary>
+          <div className="table-scroll">
           <table className="data-table macro-table" style={{ marginTop: 8 }}>
           <thead>
             <tr>
@@ -974,6 +975,7 @@ function MacroBoard({
             ])}
           </tbody>
         </table>
+          </div>
         </details>
       ) : (
         <div className="empty">No macro series in the database yet.</div>

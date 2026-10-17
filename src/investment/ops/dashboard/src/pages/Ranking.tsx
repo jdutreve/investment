@@ -218,6 +218,7 @@ export function Ranking() {
       ) : (
         <div className="card">
           <div className="table-wrap">
+            <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -272,6 +273,7 @@ export function Ranking() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
           <div className="paper-note">
             Volatility is annualized std(daily return) over the same pinned 756-day

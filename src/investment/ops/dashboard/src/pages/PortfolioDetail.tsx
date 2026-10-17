@@ -60,6 +60,7 @@ function AllocationTable({ allocation }: { allocation: Record<string, number> })
   return (
     <>
       <div className="table-wrap">
+        <div className="table-scroll">
         <table className="data-table">
           <thead>
             <tr>
@@ -80,6 +81,7 @@ function AllocationTable({ allocation }: { allocation: Record<string, number> })
             ))}
           </tbody>
         </table>
+        </div>
       </div>
       {largest ? (
         <div className="paper-note">
@@ -165,6 +167,7 @@ export function PortfolioDetail() {
         <div className="card" style={{ marginTop: 14 }}>
           <h2>Recent weeks</h2>
           <div className="table-wrap">
+            <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -191,6 +194,7 @@ export function PortfolioDetail() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       ) : null}

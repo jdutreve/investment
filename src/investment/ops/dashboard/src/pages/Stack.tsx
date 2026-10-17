@@ -248,6 +248,7 @@ function LatestDecision({ decision, liveTrend }: { decision: StackDecision; live
           <h2 style={{ marginBottom: 8 }}>The order to place</h2>
           {tickers.length ? (
             <div className="table-wrap">
+              <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
@@ -275,6 +276,7 @@ function LatestDecision({ decision, liveTrend }: { decision: StackDecision; live
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             <div className="empty">No allocation recorded on this decision.</div>
@@ -284,6 +286,7 @@ function LatestDecision({ decision, liveTrend }: { decision: StackDecision; live
         <div>
           <h2 style={{ marginBottom: 8 }}>What moved the money</h2>
           <div className="table-wrap">
+            <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -332,6 +335,7 @@ function LatestDecision({ decision, liveTrend }: { decision: StackDecision; live
                 ) : null}
               </tbody>
             </table>
+            </div>
           </div>
           {p.reasoning ? (
             <div className="muted" style={{ marginTop: 10, fontSize: 12.5 }}>
@@ -349,6 +353,12 @@ export function Stack() {
     queryKey: ["stack"],
     queryFn: () => get<StackPayload>("/api/stack"),
   });
+  // EVERY HOOK BEFORE THE FIRST RETURN (Rules of Hooks). This one sat below
+  // the loading return: reached from the Overview the stack query was already
+  // cached and the first render never returned early, but a direct load of
+  // /stack rendered "Loading…" with one hook fewer and React threw #310 on the
+  // next render — the page was an error screen (found 2026-10-17).
+  const [chartStartYear, setChartStartYear] = useState<number | null>(null);
 
   if (error) return <ErrorState error={error} />;
   if (isPending) return <div className="empty">Loading…</div>;
@@ -370,7 +380,6 @@ export function Stack() {
   // daily series has ~9000 points; dragging by year is the useful grain for
   // "how does this look since the 2008 drawdown", and null (unmoved) means
   // the full history rather than forcing a choice on first load.
-  const [chartStartYear, setChartStartYear] = useState<number | null>(null);
   const chartStart =
     chartStartYear !== null ? `${chartStartYear}-01-01` : stackInception;
   // Computed once, not per benchmark in the map below — `chainOnto` needs
@@ -503,6 +512,7 @@ export function Stack() {
         <div className="card">
           <h2>Decision timeline</h2>
           <div className="table-wrap" style={{ maxHeight: 340, overflowY: "auto" }}>
+            <div className="table-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -526,6 +536,7 @@ export function Stack() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
           <div className="paper-note">
             One row per decision date — holding months included, so a month that did not move
@@ -545,6 +556,7 @@ export function Stack() {
       <div className="card" style={{ marginTop: 14 }}>
         <h2>The four books</h2>
         <div className="table-wrap">
+          <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
@@ -563,7 +575,7 @@ export function Stack() {
                 const allocation = (book.allocation ?? {}) as Record<string, number>;
                 return (
                   <tr key={book.id}>
-                    <td>
+                    <td className="wrap">
                       {String(book.name ?? book.id)}
                       {held ? <span className="badge defender">held</span> : null}
                     </td>
@@ -587,6 +599,7 @@ export function Stack() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
         <div className="paper-note">
           Disabled portfolios, shadow-tracked for comparison — the stack switches between

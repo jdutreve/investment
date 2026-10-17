@@ -83,7 +83,10 @@ a {
 
 .shell {
   display: grid;
-  grid-template-columns: 216px 1fr;
+  /* minmax(0, …), not 1fr: a bare 1fr never shrinks below its content's
+     minimum width, so one wide table widened the whole page past the window
+     (1349px in a 1280px window, 2026-10-17). Wide content scrolls in its card. */
+  grid-template-columns: 216px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -147,6 +150,7 @@ a {
 .main {
   padding: 22px 28px 56px;
   max-width: 1280px;
+  min-width: 0;
 }
 
 .page-head {
@@ -573,7 +577,7 @@ a {
 }
 .move-track {
   position: relative;
-  width: 100px;
+  width: 80px;
   height: 8px;
   border-radius: 4px;
   background: var(--surface-sunken);
@@ -606,7 +610,7 @@ a {
 .move-fill.tone-quiet { background: var(--ink-muted); }
 .move-label {
   font-variant-numeric: tabular-nums;
-  min-width: 48px;
+  min-width: 44px;
 }
 /* A wide table scrolls inside its card instead of widening the page. */
 .table-scroll {
@@ -766,6 +770,16 @@ details.reading p {
 .macro-table .macro-reading {
   color: var(--ink-secondary);
   line-height: 1.45;
+}
+/* TEXT COLUMNS WRAP, figures do not (2026-10-17, a 1280px window): a series'
+   name and its reading, a book's long name, and the Assets headers were held
+   on one line by `.data-table td { white-space: nowrap }` and pushed their
+   tables past their cards. */
+.macro-table .macro-name,
+.macro-table .macro-reading,
+.data-table td.wrap,
+.assets-table th {
+  white-space: normal;
 }
 .data-table td.clip {
   max-width: 460px;
