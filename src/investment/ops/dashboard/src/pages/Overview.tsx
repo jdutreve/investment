@@ -1,9 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Compass, Gauge } from "lucide-react";
+import { Bell, Compass, Gauge, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   get,
   type AssetMove,
+  type CurrentRule,
   type LiveTrend,
   type MacroLine,
   type MacroPayload,
@@ -80,6 +81,20 @@ const windowsOf = (decision: Row | null): number[] =>
     []) as number[];
 type Weights = Record<string, number>;
 
+// A weight, or a dash where the asset is not in that column at all.
+const cell = (value: number | undefined): string =>
+  value === undefined || value === 0 ? "—" : weight(value);
+
+// The book's signal state in words: which side each signal fell on.
+const bookName = (state: string): string =>
+  state.replace("credit-spread-", "spread ").replace("-yield-curve-", ", curve ");
+
+const allocationText = (weights: Weights): string =>
+  [...ASSET_ORDER, ...Object.keys(weights).filter((t) => !ASSET_ORDER.includes(t))]
+    .filter((t) => (weights[t] ?? 0) > 0)
+    .map((t) => `${ASSETS[t] ?? t} ${weight(weights[t])}%`)
+    .join(" · ") || "nothing";
+
 
 function sleevesOf(decision: Row | null): [string, Sleeve][] {
   const sleeves = ((s(decision, "trend_overlay") as Row | undefined)?.[
@@ -100,6 +115,14 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
 // does with an asset, so here an asset is only a move — which way, how fast
 // for it, gathering or losing pace — in the agent's sentence, shown as written.
 //
+// Green to red (owner, 2026-10-17): what is fine first, the trouble last, in
+// the legend's own order. A stable sort, so equal colours keep the board's order.
+const COLOUR_ORDER = ["good", "watch", "poor", "bad"];
+const byColour = (themes: MacroTheme[]): MacroTheme[] =>
+  [...themes].sort(
+    (a, b) => COLOUR_ORDER.indexOf(a.news) - COLOUR_ORDER.indexOf(b.news),
+  );
+
 // PROGRESSIVE DISCLOSURE (owner, 2026-10-17): this is what a reader with ten
 // seconds needs, in prose — the agent's summary (`overall`), then one sentence
 // per theme saying how it reads, the facts that make it read so and, where it
@@ -109,16 +132,10 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
 function Brief({
   summary,
   themes,
-  assets,
 }: {
   summary: string | undefined;
   themes: MacroTheme[];
-  assets: AssetMove[];
 }) {
-  const latestAsOf = assets.reduce(
-    (latest, asset) => (asset.as_of > latest ? asset.as_of : latest),
-    "",
-  );
   return (
     <div className="card brief">
       <p className="brief-line">
@@ -127,42 +144,30 @@ function Brief({
       </p>
       {themes.length ? (
         <ul className="brief-detail">
-          {themes.map((theme) => (
+          {byColour(themes).map((theme) => (
             <li key={theme.group}>
               <span className={`swatch heat-${theme.news}`} />
               <span className="strong">{theme.group}</span>
               <span className="muted"> — </span>
               {theme.sentence}
+              {theme.invariants.length ? (
+                <ul className="lit">
+                  {theme.invariants.map((inv) => (
+                    <li key={inv.id} title={inv.title}>
+                      {inv.title}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </li>
           ))}
         </ul>
       ) : null}
-      {assets.length ? (
-        <>
-          <div className="section-label" style={{ marginTop: 12 }}>
-            Assets · {date(latestAsOf)}
-          </div>
-          <ul className="brief-detail">
-            {assets.map((asset) => (
-              <li key={asset.ticker}>
-                <AssetArrow asset={asset} />
-                <span className="strong">{ASSETS[asset.ticker] ?? asset.ticker}</span>
-                <span className="muted"> — </span>
-                {asset.reading}
-                {/* An asset whose prices stopped earlier says so: one date in
-                    the heading must not stand for a series that is late. */}
-                {asset.as_of !== latestAsOf ? (
-                  <span className="heat-text-bad"> Prices stop at {date(asset.as_of)}.</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          <div className="paper-note">
-            A move is sized against what is usual for that asset over ten
-            years; the pace is whether the move is growing or fading. It
-            describes prices, not a forecast.
-          </div>
-        </>
+      {themes.some((theme) => theme.invariants.length) ? (
+        <div className="paper-note">
+          Under a theme, the ideas from the books whose condition holds clearly
+          today on its series. None is established, and none changes the order.
+        </div>
       ) : null}
     </div>
   );
@@ -180,6 +185,107 @@ function AssetArrow({ asset }: { asset: AssetMove }) {
         ? "heat-text-good"
         : "heat-text-bad";
   return <span className={`asset-arrow ${tone}`}>{arrow}</span>;
+}
+
+// THE ASSETS, ONE CARD (owner, 2026-10-17): how each is moving — which way,
+// how fast for it, gathering or losing pace — and where it stands against its
+// trend lines, at the decision and today. The trend table used to sit folded
+// in the order card and the moves in the macro brief; they describe the same
+// prices and now read as one row per asset.
+//
+// Distances are TODAY's when the live read is there, the decision's otherwise,
+// and the header says which. Nothing here forecasts.
+function AssetsCard({
+  assets,
+  decision,
+  live,
+}: {
+  assets: AssetMove[];
+  decision: Row | null;
+  live: LiveTrend | null;
+}) {
+  const sleeves = Object.fromEntries(sleevesOf(decision));
+  const moves = Object.fromEntries(assets.map((asset) => [asset.ticker, asset]));
+  const tickers = ASSET_ORDER.filter((t) => t in sleeves || t in moves);
+  if (!tickers.length) return null;
+  const windows = windowsOf(decision);
+  const latestAsOf = assets.reduce(
+    (latest, asset) => (asset.as_of > latest ? asset.as_of : latest),
+    "",
+  );
+  const distancesAsOf = live ? live.as_of : s(decision, "decision_date");
+  return (
+    <div className="card">
+      <h2>
+        <TrendingUp size={14} /> Assets
+      </h2>
+      <table className="data-table assets-table">
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Move{latestAsOf ? ` · ${date(latestAsOf)}` : ""}</th>
+            {windows.map((w) => (
+              <th className="num" key={w}>
+                vs {w}-day avg
+              </th>
+            ))}
+            <th>Trend at decision</th>
+            <th>Trend today</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tickers.map((t) => {
+            const move = moves[t];
+            const atDecision = sleeves[t];
+            const today = live?.sleeves[t];
+            const reference = today ?? atDecision;
+            return (
+              <tr key={t}>
+                <td>
+                  {ASSETS[t] ?? t} <span className="muted mono">{t}</span>
+                </td>
+                <td className="asset-move">
+                  {move ? (
+                    <>
+                      <AssetArrow asset={move} />
+                      {move.reading}
+                      {/* A late series says so: one date in the header must
+                          not stand for an asset whose prices stopped. */}
+                      {move.as_of !== latestAsOf ? (
+                        <span className="heat-text-bad"> Prices stop at {date(move.as_of)}.</span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
+                {windows.map((w, index) => (
+                  <td className="num muted" key={w}>
+                    {reference
+                      ? distance(reference.price, reference.moving_averages[index] ?? null)
+                      : "—"}
+                  </td>
+                ))}
+                <td>
+                  <TrendChip share={atDecision?.share} />
+                </td>
+                <td>
+                  <TrendChip share={today?.share} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="paper-note">
+        A move is the change over the last 30 days, sized against what is usual
+        for that asset over ten years; the pace is whether it is growing or
+        fading. Distances from each average are as of {date(distancesAsOf)}.
+        Above both averages an asset is in trend; below one, half out; below
+        both, out. It describes prices, not a forecast.
+      </div>
+    </div>
+  );
 }
 
 // The Worker's reading: the bottom line, then each part under the heading the
@@ -292,7 +398,7 @@ function changesSince(decision: Row, live: LiveTrend): string[] {
       ticker,
     );
     return then && now && then !== now
-      ? [`${SIGNALS[ticker]?.name ?? ticker}: was ${then}, now ${now}`]
+      ? [`${SIGNALS[ticker]?.name ?? ticker} (${ticker}): was ${then}, now ${now}`]
       : [];
   });
   const moved = sleevesOf(decision).flatMap(([t, sleeve]) => {
@@ -300,7 +406,7 @@ function changesSince(decision: Row, live: LiveTrend): string[] {
     return now !== undefined &&
       trendState(now).word !== trendState(sleeve.share).word
       ? [
-          `${ASSETS[t] ?? t}: was ${trendState(sleeve.share).word}, now ${trendState(now).word}`,
+          `${ASSETS[t] ?? t} (${t}): was ${trendState(sleeve.share).word}, now ${trendState(now).word}`,
         ]
       : [];
   });
@@ -317,7 +423,9 @@ function whyThisBook(
   const sides = Object.entries(signals)
     .map(([ticker, read]) => {
       const side = sideOf(read["value"], read["trailing_median"], ticker);
-      return side ? `${(SIGNALS[ticker]?.name ?? ticker).toLowerCase()} ${side}` : "";
+      return side
+        ? `${(SIGNALS[ticker]?.name ?? ticker).toLowerCase()} (${ticker}) ${side}`
+        : "";
     })
     .filter(Boolean);
   const first = sides.length
@@ -337,10 +445,12 @@ function DecisionCard({
   decision,
   reading,
   live,
+  rule,
 }: {
   decision: Row | null;
   reading: Row | null;
   live: LiveTrend | null;
+  rule: CurrentRule | null;
 }) {
   if (!decision) {
     return (
@@ -354,17 +464,30 @@ function DecisionCard({
   }
   const gate = s(decision, "gate");
   const blocked = Boolean(gate) && gate !== "passed";
-  const held = (s(decision, "held_allocation") ?? {}) as Weights;
-  const target = (s(decision, "target_allocation") ?? {}) as Weights;
+  // THE RULE, STEP BY STEP, UNDER TODAY'S RULE (owner, 2026-10-17: "plusieurs
+  // colonnes pour comprendre visuellement la logique"): the book the signal
+  // selects, that book through the trend filter at the decision — the month's
+  // target — and the same book through the filter on today's prices. The
+  // journal keeps the decision as it was taken, which after a book change is
+  // the previous rule's; that is said once, below the table.
+  const journalled = (s(decision, "target_allocation") ?? {}) as Weights;
+  const current = rule && rule.decision_date === s(decision, "decision_date") ? rule : null;
+  const book = (current?.book_allocation ?? {}) as Weights;
+  const target = (current?.target ?? journalled) as Weights;
+  const today = (current?.today ?? {}) as Weights;
+  const previous = (current?.previous_target ?? s(decision, "held_allocation") ?? {}) as Weights;
+  const rewritten =
+    current !== null && allocationText(journalled) !== allocationText(target);
+  const shown = [book, target, today];
   const tickers = [
-    ...ASSET_ORDER.filter((t) => t in held || t in target),
-    ...Object.keys({ ...held, ...target }).filter(
+    ...ASSET_ORDER.filter((t) => shown.some((w) => t in w)),
+    ...Object.keys(Object.assign({}, ...shown) as Weights).filter(
       (t) => !ASSET_ORDER.includes(t),
     ),
   ];
-  const moves = tickers.filter((t) => (held[t] ?? 0) !== (target[t] ?? 0));
+  // To place when the month's target differs from last month's.
+  const moves = allocationText(previous) !== allocationText(target);
   const signals = (s(decision, "signals") ?? {}) as Record<string, Row>;
-  const windows = windowsOf(decision);
   const changes = live ? changesSince(decision, live) : [];
   const readDate = s(reading, "market_signal_decision_date");
   const stale = Boolean(readDate) && readDate !== s(decision, "decision_date");
@@ -376,9 +499,9 @@ function DecisionCard({
           <Bell size={14} /> This month&apos;s order
         </h2>
         <span
-          className={`pill ${blocked ? "critical" : moves.length ? "action" : "quiet"}`}
+          className={`pill ${blocked ? "critical" : moves ? "action" : "quiet"}`}
         >
-          {blocked ? "blocked" : moves.length ? "to place" : "no change"}
+          {blocked ? "blocked" : moves ? "to place" : "no change"}
         </span>
       </div>
       <div className="muted">
@@ -405,40 +528,50 @@ function DecisionCard({
             <thead>
               <tr>
                 <th>Asset</th>
-                <th className="num">Held</th>
-                <th className="num">Target</th>
-                <th className="num">Order</th>
+                {current ? (
+                  <th className="num" title="The book the two signals select, before any filter">
+                    Book
+                    <span className="th-sub">{bookName(current.book)}</span>
+                  </th>
+                ) : null}
+                <th
+                  className="num"
+                  title="The book through the trend filter at the decision: the month's target"
+                >
+                  Target
+                  <span className="th-sub">filtered {date(s(decision, "decision_date"))}</span>
+                </th>
+                {current ? (
+                  <th
+                    className="num"
+                    title="The same book through the filter on today's prices — decides nothing"
+                  >
+                    Today
+                    <span className="th-sub">filtered {date(current.today_as_of)}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
-              {tickers.map((t) => {
-                const delta = (target[t] ?? 0) - (held[t] ?? 0);
-                const verb =
-                  delta === 0
-                    ? "hold"
-                    : delta > 0
-                      ? (held[t] ?? 0) === 0
-                        ? "buy"
-                        : "add"
-                      : (target[t] ?? 0) === 0
-                        ? "sell all"
-                        : "reduce";
-                return (
-                  <tr key={t}>
-                    <td>
-                      {ASSETS[t] ?? t} <span className="muted mono">{t}</span>
-                    </td>
-                    <td className="num">{weight(held[t] ?? 0)}</td>
-                    <td className="num strong">{weight(target[t] ?? 0)}</td>
-                    <td className={`num ${delta === 0 ? "muted" : "strong"}`}>
-                      {verb}
-                      {delta === 0 ? "" : ` ${weight(Math.abs(delta))}`}
-                    </td>
-                  </tr>
-                );
-              })}
+              {tickers.map((t) => (
+                <tr key={t}>
+                  <td>
+                    {ASSETS[t] ?? t} <span className="muted mono">{t}</span>
+                  </td>
+                  {current ? <td className="num muted">{cell(book[t])}</td> : null}
+                  <td className="num strong">{cell(target[t])}</td>
+                  {current ? <td className="num">{cell(today[t])}</td> : null}
+                </tr>
+              ))}
             </tbody>
           </table>
+          {rewritten ? (
+            <div className="paper-note">
+              Read with today&apos;s rule. The decision journalled on{" "}
+              {date(s(decision, "decision_date"))} was taken under the previous
+              book and said {allocationText(journalled)}.
+            </div>
+          ) : null}
           {s(decision, "correction_note") ? (
             /* Same rule as the digest: a decision corrected after the fact
                says so, on the block whose numbers the correction moved. */
@@ -478,9 +611,8 @@ function DecisionCard({
       </div>
 
       <details className="fold">
-        <summary>The figures, at the decision and today</summary>
-        <div className="decision-grid" style={{ marginTop: 10 }}>
-          <div>
+        <summary>The two signals, at the decision and today</summary>
+        <div style={{ marginTop: 10 }}>
           <div className="section-label">The two signals</div>
           <table className="data-table why-table">
             <thead>
@@ -493,7 +625,10 @@ function DecisionCard({
             <tbody>
               {Object.entries(signals).map(([ticker, read]) => (
                 <tr key={ticker}>
-                  <td>{SIGNALS[ticker]?.name ?? ticker}</td>
+                  <td>
+                    {SIGNALS[ticker]?.name ?? ticker}{" "}
+                    <span className="muted mono">{ticker}</span>
+                  </td>
                   <td>
                     <SignalRead
                       value={read["value"]}
@@ -516,49 +651,6 @@ function DecisionCard({
             Each figure is compared with the median of its own last ten years on
             that date. The two answers pick the book; a change of book needs
             three monthly decisions in a row to agree.
-          </div>
-          </div>
-          <div>
-          <div className="section-label">
-            Trend of each asset
-          </div>
-          <table className="data-table why-table">
-            <thead>
-              <tr>
-                <th>Asset</th>
-                {windows.map((w) => (
-                  <th className="num" key={w}>
-                    vs {w}-day avg
-                  </th>
-                ))}
-                <th>Decision</th>
-                <th>Today</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sleevesOf(decision).map(([t, sleeve]) => (
-                <tr key={t}>
-                  <td>{ASSETS[t] ?? t}</td>
-                  {sleeve.moving_averages.map((line, index) => (
-                    <td className="num muted" key={index}>
-                      {distance(sleeve.price, line)}
-                    </td>
-                  ))}
-                  <td>
-                    <TrendChip share={sleeve.share} />
-                  </td>
-                  <td>
-                    <TrendChip share={live?.sleeves[t]?.share} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="paper-note">
-            Distances from each average are those of the decision.
-            &quot;Today&quot; is the same test on the latest prices: it decides
-            nothing, and shows what the next monthly decision is likely to find.
-          </div>
           </div>
         </div>
       </details>
@@ -768,15 +860,6 @@ function MacroBoard({
                     </div>
                   ))}
               </div>
-              {theme.invariants.length ? (
-                <ul className="lit">
-                  {theme.invariants.map((inv) => (
-                    <li key={inv.id} title={inv.title}>
-                      {inv.title}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </div>
           ))}
         </div>
@@ -843,9 +926,7 @@ function MacroBoard({
         The colour is good or bad news for an investor building capital:
         growth, credit and liquidity are better high; rates, inflation,
         unemployment, spreads and volatility are better low. A theme reads as
-        its worst series. Under each theme, the ideas from the books whose
-        condition is true today on those series — none is established, and
-        none changes the order. Hover a tile for the full sentence.
+        its worst series. Hover a tile for the full sentence.
       </div>
     </div>
   );
@@ -968,7 +1049,14 @@ export function Overview() {
         <Brief
           summary={macro.data?.overall}
           themes={macro.data?.themes ?? []}
+        />
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <AssetsCard
           assets={macro.data?.assets ?? []}
+          decision={data.market_signal}
+          live={stack.data?.live_trend ?? null}
         />
       </div>
 
@@ -977,6 +1065,7 @@ export function Overview() {
           decision={data.market_signal}
           reading={data.worker_reading}
           live={stack.data?.live_trend ?? null}
+          rule={stack.data?.current_rule ?? null}
         />
       </div>
 

@@ -14,10 +14,11 @@ import { num, pct, signClass } from "../format";
  * be a second implementation of a subtle rule; sorting by a column is offered as
  * a VIEW, and the rank column always shows what the agent decided.
  *
- * FOUR BADGES, FOUR SEPARATE RULES, and the page must not merge them:
- *   defender  — the incumbent, ranked with everyone else and never privileged
- *   benchmark — a KIND (`seed_data.BENCHMARK_PORTFOLIOS`), ranked so it is seen
- *               and refused by kind so it can never be proposed
+ * THREE BADGES, THREE SEPARATE RULES, and the page must not merge them:
+ *   benchmark — a yardstick, ranked so it is seen: the KIND
+ *               (`seed_data.BENCHMARK_PORTFOLIOS`, refused by kind so it can
+ *               never be proposed) plus the stack's control arm, which the API
+ *               labels without widening that rule (`api._ranking_payload`)
  *   demoted   — calmar_rolling < 1.0, sent to the bottom
  *   excluded  — breaches the user drawdown rule: still ranked, barred from the
  *               defender role and from proposal candidacy
@@ -74,9 +75,11 @@ function Badges({ row, benchmarks }: { row: Row; benchmarks: string[] }) {
   const id = String(row.portfolio_id);
   const calmar = row.calmar_rolling;
   const demoted = typeof calmar === "number" && calmar < 1.0;
+  // NO DEFENDER BADGE (owner, 2026-10-17). The bridge's defender decides
+  // nothing since ADR-012/014 — the stack is what is held — and the badge read
+  // as a role it no longer has. The flag stays in the data: the replay reads it.
   return (
     <>
-      {row.defender ? <span className="badge defender">defender</span> : null}
       {benchmarks.includes(id) ? <span className="badge benchmark">benchmark</span> : null}
       {demoted ? <span className="badge demoted">demoted</span> : null}
       {row.excluded_from_candidacy ? (
@@ -184,7 +187,7 @@ export function Ranking() {
         <div>
           <h1>Ranking</h1>
           <p>
-            All enabled portfolios ranked together — defender included, never privileged.
+            All enabled portfolios ranked together.
             Benchmarks are ranked so they are seen, and can never be proposed.
           </p>
         </div>
@@ -243,7 +246,13 @@ export function Ranking() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={String(row.portfolio_id)}>
+                  <tr
+                    key={String(row.portfolio_id)}
+                    // The stack is what is held: its row is set apart, lightly.
+                    className={
+                      row.portfolio_id === data.stack_portfolio_id ? "held-row" : undefined
+                    }
+                  >
                     <td className="num muted">{String(row.rank)}</td>
                     {COLUMNS.map((c) => (
                       <td

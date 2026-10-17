@@ -50,15 +50,39 @@ OBSERVATION_LOOKBACK_TICKERS = frozenset(
 WEEKLY_LOOKBACK_DAYS_TICKERS: dict[str, int] = {"GLOBAL_LIQUIDITY": 7, "gold_10y_dev": 182}
 
 
+# The key under which an ALFRED series carries, per publication date, the value
+# of the same month a year earlier AS THAT PUBLICATION KNEW IT — set by
+# `fetcher.parse_alfred_first_release`, read by `_year_on_year`.
+YEAR_EARLIER = "year_earlier"
+
+
 def apply_transform(series: pd.Series, transform: str) -> pd.Series:
-    """'none' | 'yoy_pct' (12-observation percent change) | 'composite'
-    (passthrough — composites are computed directly at their pinned level,
-    docs/TASKS.md Task 2.2)."""
+    """'none' | 'yoy_pct' (percent change on the same month a year earlier) |
+    'composite' (passthrough — composites are computed directly at their pinned
+    level, docs/TASKS.md Task 2.2)."""
     if transform in ("none", "composite"):
         return series
     if transform == "yoy_pct":
-        return series.pct_change(periods=12) * 100.0
+        return _year_on_year(series)
     raise ValueError(f"unknown transform: {transform!r}")
+
+
+def _year_on_year(series: pd.Series) -> pd.Series:
+    """Each value against the same month a year earlier, as known on the day the
+    value was published (`fetcher.parse_alfred_first_release` explains why both
+    halves matter). A month whose year-earlier value was not yet known has no
+    year-on-year: NaN, never a thirteen-month change or a cross-base one.
+
+    A series without that reading — a test fixture, a current-vintage fetch —
+    keeps the twelve-observation count, which is exact when no month is missing
+    and the base never moved."""
+    year_earlier = series.attrs.get(YEAR_EARLIER)
+    if year_earlier is None:
+        return series.pct_change(periods=12) * 100.0
+    before = pd.Series(
+        [year_earlier.get(t, float("nan")) for t in series.index], index=series.index, dtype=float
+    )
+    return (series / before - 1.0) * 100.0
 
 
 def asof_lag(level: pd.Series, days: int) -> pd.Series:

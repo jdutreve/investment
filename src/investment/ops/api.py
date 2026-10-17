@@ -53,11 +53,15 @@ from aiohttp import web
 
 from investment.db.seed_data import BENCHMARK_PORTFOLIOS
 from investment.db.sqlite import InvestmentDB
+from investment.market_signal_cycle import HISTORY_START
 from investment.mechanical.macro_reading import macro_reading
 from investment.mechanical.market_signal import (
     BOOK_PORTFOLIO_IDS,
+    BOOKS,
     STACK_PORTFOLIO_ID,
     TREND_BASELINE_PORTFOLIO_ID,
+    apply_trend_overlay,
+    decide,
     latest_signal_reads,
     latest_trend_reads,
     load_series,
@@ -210,7 +214,16 @@ async def _ranking_payload(db: InvestmentDB, snapshot_date: str | None) -> dict[
         # from the other would merge them again on the only screen where the
         # difference is visible: a yardstick is ranked so it is seen, a breached
         # portfolio is ranked so it is judged, and neither may be proposed.
-        "benchmark_ids": sorted(BENCHMARK_PORTFOLIOS),
+        #
+        # PLUS THE STACK'S CONTROL ARM, labelled and nothing more (owner,
+        # 2026-10-17). It is a yardstick on this table — the stack must beat it —
+        # but it stays out of `BENCHMARK_PORTFOLIOS`, which also governs the
+        # challenger search: the same display-only choice as the stack page's
+        # chart list (owner, 2026-08-19).
+        "benchmark_ids": [*sorted(BENCHMARK_PORTFOLIOS), TREND_BASELINE_PORTFOLIO_ID],
+        # The portfolio the owner actually holds, so the page can set its row
+        # apart; sent for the same reason as the benchmarks — the id is Python's.
+        "stack_portfolio_id": STACK_PORTFOLIO_ID,
     }
 
 
@@ -352,11 +365,37 @@ async def handle_stack(request: web.Request) -> web.Response:
                 for ticker, read in live_reads.items()
             },
         }
+        # THE MONTH'S ORDER UNDER TODAY'S RULE, STEP BY STEP (owner,
+        # 2026-10-17). The journal holds each decision as it was taken; after a
+        # book changes, its order is the previous rule's. The page shows what
+        # the rule as committed now gives, in the order the rule works: the BOOK
+        # the signal selects, that book through the trend filter at the
+        # decision (the month's target), and the same book through the filter
+        # on today's prices — what the next decision would start from. It
+        # decides nothing. `previous_target` is last month's, for whether
+        # anything is to place.
+        walk = decide(market_series, start=HISTORY_START, end=date.today())
+        current_rule: dict[str, Any] | None = None
+        if len(walk) >= 2:
+            book = BOOKS[walk[-1].held]
+            current_rule = {
+                "decision_date": str(walk[-1].date.date()),
+                "book": walk[-1].held,
+                "book_allocation": book,
+                "target": walk[-1].target,
+                "today": apply_trend_overlay(
+                    book, {ticker: read.share for ticker, read in live_reads.items()}
+                ),
+                "today_as_of": str(live_date.date()),
+                "previous_target": walk[-2].target,
+            }
     except ValueError:
         live_trend = None
+        current_rule = None
     return json_response(
         {
             "decisions": decisions,
+            "current_rule": current_rule,
             "nav": await _nav_series(runtime.db, STACK_PORTFOLIO_ID),
             "profile": next(
                 iter(await _rows(runtime.db, "SELECT * FROM user_profile LIMIT 1")), None
@@ -537,6 +576,12 @@ def build_app(runtime: AgentRuntime) -> web.Application:
     app.router.add_post("/api/cmd", handle_cmd)
 
     app.router.add_get("/", _serve_index)
+    # THE PAGE'S OWN PATHS serve the same index, so a reload or a pasted link
+    # lands on the page instead of a 404: the router that reads them runs in the
+    # browser (`dashboard/src/main.tsx`). Named one by one, not a catch-all, so a
+    # mistyped /api path still answers 404 rather than an HTML page.
+    for path in ("/ranking", "/stack", "/portfolio/{portfolio_id}"):
+        app.router.add_get(path, _serve_index)
     if DIST_DIR.exists():
         # The hashed asset bundle. Registered last and only when it exists, so a
         # missing build leaves the API and the explanatory page working.

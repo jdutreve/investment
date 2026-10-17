@@ -195,6 +195,19 @@ async def test_ranking_keeps_the_stored_order_and_lists_its_dates(
     assert [r["rank"] for r in payload["rows"]] == [1]
     # JSON columns arrive as objects, not as double-encoded strings.
     assert payload["rows"][0]["allocation"] == {"SPY": 60}
+    # The held portfolio's id is sent, not guessed by the page.
+    assert payload["stack_portfolio_id"] == "ms-stack"
+    # The control arm is labelled a benchmark on this page, without joining the kind.
+    assert "ms-trend-baseline" in payload["benchmark_ids"]
+
+
+async def test_a_page_path_reloads_as_the_page_not_a_404(client: TestClient[Any, Any]) -> None:
+    """The routes live in the browser; a reload on one of them must still get
+    the page from the server."""
+    for path in ("/ranking", "/stack", "/portfolio/ms-stack"):
+        response = await client.get(path)
+        assert response.status in (200, 503), path  # 503: no build in this checkout
+        assert response.status != 404
 
 
 async def test_a_missing_portfolio_is_404_not_an_empty_page(client: TestClient[Any, Any]) -> None:
@@ -247,6 +260,8 @@ async def test_stack_carries_return_and_sharpe_for_itself_and_its_books(
     # a best-effort enrichment failing must not take the rest of the page
     # down with it).
     assert payload["live_trend"] is None
+    # Same for the month's order read under today's rule: absent, not a 500.
+    assert payload["current_rule"] is None
 
 
 # -- writes: one command layer, and nothing else ----------------------------

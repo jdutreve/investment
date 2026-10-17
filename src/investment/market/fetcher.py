@@ -23,6 +23,8 @@ import aiohttp
 import pandas as pd
 import yfinance as yf
 
+from investment.market.derivatives import YEAR_EARLIER
+
 logger = logging.getLogger(__name__)
 
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
@@ -239,27 +241,63 @@ def parse_alfred_first_release(observations: list[dict[str, str]]) -> pd.Series:
     INDPRO and UNRATE are identical either way.
     """
     triples: list[tuple[date, date, float]] = []
+    # Every vintage of every reference date, for the year-earlier reading below.
+    history: dict[date, list[tuple[date, float]]] = {}
     for row in observations:
-        vintages = [
-            (key.rsplit("_", 1)[-1], value)
+        vintages = sorted(
+            (_vintage_date(key.rsplit("_", 1)[-1]), float(value))
             for key, value in row.items()
             if key != "date" and value not in (".", None)
-        ]
+        )
         if not vintages:
             continue
-        earliest_vintage, value = min(vintages, key=lambda item: item[0])
-        pub_date = date.fromisoformat(
-            f"{earliest_vintage[:4]}-{earliest_vintage[4:6]}-{earliest_vintage[6:8]}"
-        )
-        triples.append((pub_date, date.fromisoformat(str(row["date"])), float(value)))
+        reference_date = date.fromisoformat(str(row["date"]))
+        history[reference_date] = vintages
+        pub_date, value = vintages[0]
+        triples.append((pub_date, reference_date, value))
 
     prices: dict[date, float] = {}
+    year_earlier: dict[pd.Timestamp, float] = {}
     latest_ref: date | None = None
     for pub_date, reference_date, observed in sorted(triples):
         if latest_ref is None or reference_date >= latest_ref:
             latest_ref = reference_date
             prices[pub_date] = observed
-    return _series_from_date_map(prices)
+            known = _as_known_on(history.get(_a_year_before(reference_date), []), pub_date)
+            if known is not None:
+                year_earlier[pd.Timestamp(pub_date)] = known
+    series = _series_from_date_map(prices)
+    # THE SAME MONTH A YEAR EARLIER, AS THIS PUBLICATION KNEW IT (2026-10-17) —
+    # what a reader computing the year-on-year change on the day would have
+    # used, and the only reading that is right on both counts it failed on:
+    #
+    # - by MONTH, not by counting twelve publications back: the BLS never
+    #   published October 2025's CPI, so from November 2025 every reading
+    #   spanned thirteen months (September 2026: 4.00% against a true 3.68%);
+    # - from the SAME VINTAGE, not from the earlier first release: the Fed's
+    #   December 2025 revision re-based industrial production from ~104 to ~101,
+    #   so first release against first release compared two bases and read
+    #   2026 at about -1% when it was about +1.5%.
+    #
+    # Read by `derivatives.apply_transform`'s `yoy_pct`.
+    series.attrs[YEAR_EARLIER] = year_earlier
+    return series
+
+
+def _vintage_date(stamp: str) -> date:
+    """`YYYYMMDD`, the suffix ALFRED gives each vintage column."""
+    return date(int(stamp[:4]), int(stamp[4:6]), int(stamp[6:8]))
+
+
+def _a_year_before(reference_date: date) -> date:
+    return reference_date.replace(year=reference_date.year - 1)
+
+
+def _as_known_on(vintages: list[tuple[date, float]], on: date) -> float | None:
+    """The value a reference date had in the latest vintage published on or
+    before `on`; None when it had not been published yet."""
+    known = [value for vintage, value in vintages if vintage <= on]
+    return known[-1] if known else None
 
 
 async def fetch_fred_series(series_id: str, api_key: str, start: date, lag_days: int) -> pd.Series:
@@ -313,8 +351,14 @@ async def fetch_lbma_gold_daily() -> pd.Series:
 def forward_fill_gaps(series: pd.Series, max_days: int = 5) -> pd.Series:
     """Missing-data convention (docs/DATA_MODELS.md 'Calculation
     conventions'): forward-fill up to `max_days` consecutive gaps; longer
-    gaps are left as NaN for the caller to abort + ErrorEvent on."""
-    return series.sort_index().ffill(limit=max_days)
+    gaps are left as NaN for the caller to abort + ErrorEvent on.
+
+    The year-earlier readings an ALFRED series carries are kept explicitly
+    rather than left to pandas' experimental `attrs` propagation: losing them
+    would silently bring back the wrong year-on-year."""
+    filled = series.sort_index().ffill(limit=max_days)
+    filled.attrs = dict(series.attrs)
+    return filled
 
 
 async def fetch_raw_series(

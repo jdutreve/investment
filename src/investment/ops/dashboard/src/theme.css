@@ -392,6 +392,12 @@ a {
 .data-table tbody tr:hover {
   background: var(--surface-sunken);
 }
+.data-table tbody tr.held-row {
+  background: var(--surface-sunken);
+}
+.data-table tbody tr.held-row:hover {
+  background: var(--border);
+}
 
 .data-table .num {
   text-align: right;
@@ -584,6 +590,9 @@ a {
 .brief-detail li {
   margin-bottom: 3px;
 }
+.assets-table td.asset-move {
+  white-space: normal;
+}
 .why-prose {
   margin: 0;
   line-height: 1.55;
@@ -638,7 +647,8 @@ a {
 
 .decision-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* The order table carries three weight columns; the reasons beside it are prose. */
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 28px;
   margin-top: 16px;
 }
@@ -647,6 +657,17 @@ a {
   .reading-grid {
     grid-template-columns: 1fr;
   }
+}
+/* A header's detail (the book's state, a date) on a second, quieter line, so
+   the order table fits its half of the card. */
+.data-table th .th-sub {
+  display: block;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+.order-table td:first-child {
+  white-space: normal;
 }
 .order-table td,
 .why-table td {

@@ -340,6 +340,53 @@ def test_parse_alfred_first_release_picks_earliest_vintage() -> None:
     assert out.loc[pd.Timestamp("2020-03-14")] == 101.0
 
 
+def _vintage_rows(rows: dict[str, dict[str, float]]) -> list[dict[str, str]]:
+    """`{reference month: {vintage YYYYMMDD: value}}` in ALFRED's wide shape."""
+    return [
+        {"date": month, **{f"X_{vintage}": str(value) for vintage, value in vintages.items()}}
+        for month, vintages in rows.items()
+    ]
+
+
+def test_year_on_year_skips_no_month_when_one_was_never_published() -> None:
+    """October 2025's CPI was never published. Counting twelve publications
+    back then spans thirteen months: September 2026 read 4.00% for a true 3.72%.
+    The year-on-year compares a month with the SAME month a year earlier, and a
+    month with no year-earlier value has none."""
+    months = [f"{y}-{m:02d}-01" for y in (2025, 2026) for m in range(1, 13)]
+    level = {month: 100.0 + i for i, month in enumerate(months)}
+    del level["2025-10-01"]  # never published
+    # Each value published the month after its reference month.
+    rows = {}
+    for month, value in level.items():
+        y, m = int(month[:4]), int(month[5:7])
+        vintage = f"{y + (m == 12)}{(m % 12) + 1:02d}15"
+        rows[month] = {vintage: value}
+    out = derivatives.apply_transform(
+        fetcher.forward_fill_gaps(fetcher.parse_alfred_first_release(_vintage_rows(rows))),
+        "yoy_pct",
+    )
+    september_2026 = out.loc[pd.Timestamp("2026-10-15")]
+    assert september_2026 == pytest.approx((level["2026-09-01"] / level["2025-09-01"] - 1) * 100)
+    # October 2026 has no October 2025 to compare with: no reading, not a guess.
+    assert pd.isna(out.loc[pd.Timestamp("2026-11-15")])
+
+
+def test_year_on_year_reads_both_months_in_the_same_vintage() -> None:
+    """The Fed's December 2025 revision re-based industrial production from ~104
+    to ~101. A first release of 2026 against the first release of 2025 compares
+    two bases; the year-earlier value must be the one the same publication
+    carried, as a reader computing the change that day would have used."""
+    rows = {
+        "2025-01-01": {"20250215": 104.0, "20251203": 101.0},  # re-based in December
+        "2026-01-01": {"20260216": 102.0},
+    }
+    out = derivatives.apply_transform(
+        fetcher.parse_alfred_first_release(_vintage_rows(rows)), "yoy_pct"
+    )
+    assert out.loc[pd.Timestamp("2026-02-16")] == pytest.approx((102.0 / 101.0 - 1) * 100)
+
+
 def test_parse_fred_current_dates_by_lag_not_realtime_start() -> None:
     """Regression guard for a real bug: `output_type=1`'s `realtime_start`
     is the SAME snapshot date (today) on every row regardless of the

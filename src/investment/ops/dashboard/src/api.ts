@@ -192,6 +192,7 @@ export interface RankingPayload {
   available_dates: string[];
   rows: Row[];
   benchmark_ids: string[];
+  stack_portfolio_id: string;
 }
 
 export interface NavPoint {
@@ -243,6 +244,16 @@ export interface LiveTrend {
   sleeves: Record<string, TrendSleeveRead>;
 }
 
+export interface CurrentRule {
+  decision_date: string;
+  book: string;
+  book_allocation: Record<string, number>;
+  target: Record<string, number>;
+  today: Record<string, number>;
+  today_as_of: string;
+  previous_target: Record<string, number>;
+}
+
 export interface StackPayload {
   decisions: StackDecision[];
   nav: NavPoint[];
@@ -255,4 +266,7 @@ export interface StackPayload {
   // api.py `handle_stack`). The last decision's own frozen reading still
   // renders either way.
   live_trend: LiveTrend | null;
+  // The month's order under TODAY's rule (api.py `handle_stack`): the journal
+  // keeps each decision as taken, this re-reads it after a book change.
+  current_rule: CurrentRule | null;
 }

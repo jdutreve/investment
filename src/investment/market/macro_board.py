@@ -366,10 +366,17 @@ def _moving(entry: dict[str, Any]) -> str:
     return words + pace.get(entry.get("pace") or "", "")
 
 
+def _with_ticker(entry: dict[str, Any]) -> str:
+    """A series as prose names it, with its ticker beside the name (owner,
+    2026-10-17: every series or value shown carries its ticker), so a sentence
+    can be traced to the tile and the row below it."""
+    return f"{entry['short']} ({entry['ticker']})"
+
+
 def _fact(entry: dict[str, Any]) -> str:
     """One series as a fact: its level, where that sits in ten years when it
     is unusual, and its move."""
-    parts = [f"{entry['short']} at {entry['level_text']}"]
+    parts = [f"{_with_ticker(entry)} at {entry['level_text']}"]
     if entry.get("unusual"):
         parts.append(str(entry["position"]).replace("its ", "a "))
     if moving := _moving(entry):
@@ -491,11 +498,11 @@ def probable_cause(entry: dict[str, Any], way: int, board: list[dict[str, Any]])
             continue
         needed = way * sign
         if driver["direction"] == needed:
-            found.append(f"{driver['short']} {'rising' if needed > 0 else 'falling'}")
+            found.append(f"{_with_ticker(driver)} {'rising' if needed > 0 else 'falling'}")
         elif driver["rank"] is not None and (
             driver["rank"] >= HIGH_RANK if needed > 0 else driver["rank"] <= 1 - HIGH_RANK
         ):
-            found.append(f"{driver['short']} {'high' if needed > 0 else 'low'}")
+            found.append(f"{_with_ticker(driver)} {'high' if needed > 0 else 'low'}")
     if not found:
         return "No cause visible on this board."
     return f"Probable cause: {_listed(found)}."
@@ -503,7 +510,7 @@ def probable_cause(entry: dict[str, Any], way: int, board: list[dict[str, Any]])
 
 def _named(entry: dict[str, Any]) -> str:
     short = str(entry["short"]).removeprefix("the ")
-    return short[0].upper() + short[1:]
+    return f"{short[0].upper() + short[1:]} ({entry['ticker']})"
 
 
 def _improving(entry: dict[str, Any]) -> bool | None:

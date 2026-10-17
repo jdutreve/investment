@@ -1987,6 +1987,29 @@ def latest_signal_reads(series: StackSeries) -> dict[str, dict[str, float | None
     }
 
 
+def decide(s: StackSeries, *, start: date, end: date, cadence: str = "monthly") -> list[Decision]:
+    """The walk over loaded series, without pricing it: every decision the rule
+    as committed makes between `start` and `end`.
+
+    A SECOND CALLER ARRIVED (2026-10-17): the dashboard reads the month's order
+    under TODAY's rule, which the journal cannot give once a book has changed —
+    and pricing 35 years of NAV to read two allocations would be the slow way to
+    the same walk. `run_market_signal` calls this, so both read one walk."""
+    dates = replay.decision_dates(s.calendar, start, end, cadence)
+    return walk_decisions(
+        dates,
+        s.spread,
+        s.slope,
+        s.spread_median,
+        s.slope_median,
+        s.moving_averages,
+        s.decision_prices,
+        s.spread_speed,
+        s.long_yield_speed,
+        s.slope_speed,
+    )
+
+
 async def run_market_signal(
     db: InvestmentDB,
     *,
@@ -2009,19 +2032,7 @@ async def run_market_signal(
         # rather than raise (the incremental-seed contract); the LIVE cycle has
         # no such pre-check, and this is what stops it deciding blind.
         raise ValueError(f"market-signal stack missing signal series for {s.missing_signals}")
-    dates = replay.decision_dates(s.calendar, start, end, cadence)
-    decisions = walk_decisions(
-        dates,
-        s.spread,
-        s.slope,
-        s.spread_median,
-        s.slope_median,
-        s.moving_averages,
-        s.decision_prices,
-        s.spread_speed,
-        s.long_yield_speed,
-        s.slope_speed,
-    )
+    decisions = decide(s, start=start, end=end, cadence=cadence)
     targets = {d.date: d.target for d in decisions if d.changed}
     nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
     return MarketSignalRun(

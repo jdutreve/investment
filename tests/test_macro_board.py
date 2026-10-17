@@ -172,6 +172,8 @@ def test_a_theme_reads_as_its_worst_series_and_names_it() -> None:
     move; and nothing when nothing does."""
     yield_10y = {
         **_entry("Rates", "bad", "the 10-year yield"),
+        "ticker": "DGS10",
+        "favourable": "low",
         "level_text": "5.10 %",
         "unusual": True,
         "position": "near its ten-year high",
@@ -181,6 +183,7 @@ def test_a_theme_reads_as_its_worst_series_and_names_it() -> None:
     curve = {**_entry("Rates", "good", "the yield curve"), "level_text": "0.35 pts"}
     real = {
         **_entry("Rates", "good", "the real 10-year yield"),
+        "ticker": "real_yield_10y",
         "level_text": "1.10 %",
         "direction": -1,
         "move_size": "full",
@@ -189,6 +192,7 @@ def test_a_theme_reads_as_its_worst_series_and_names_it() -> None:
     }
     spreads = {
         **_entry("Credit", "good", "credit spreads"),
+        "ticker": "BAA10Y",
         "level_text": "1.44 pts",
         "unusual": True,
         "position": "near its ten-year low",
@@ -209,10 +213,13 @@ def test_a_theme_reads_as_its_worst_series_and_names_it() -> None:
         ("Money", "good"),
     ]
     assert themes[0]["sentence"] == (
-        "Near its worst in ten years: the 10-year yield at 5.10 %, near a ten-year high, "
-        "edging up; the real 10-year yield at 1.10 %, falling and accelerating."
+        "Near its worst in ten years: the 10-year yield (DGS10) at 5.10 %, near a ten-year "
+        "high, edging up; the real 10-year yield (real_yield_10y) at 1.10 %, falling and "
+        "accelerating."
     )
-    assert themes[1]["sentence"] == "Favourable: credit spreads at 1.44 pts, near a ten-year low."
+    assert themes[1]["sentence"] == (
+        "Favourable: credit spreads (BAA10Y) at 1.44 pts, near a ten-year low."
+    )
     assert themes[2]["sentence"] == "Favourable; nothing stands out."
     assert mb.overall(themes) == "The trouble is in rates. Credit and money are favourable."
 
@@ -253,7 +260,7 @@ def test_highlights_say_what_changed_and_leave_the_rest_to_the_themes() -> None:
         ("Changed in a month", "poor"),
         ("Direction of travel", "poor"),
     ]
-    assert lines[0]["text"] == ("Liquidity: favourable a month ago, unfavourable now.")
+    assert lines[0]["text"] == ("Liquidity (liquidity): favourable a month ago, unfavourable now.")
     assert lines[1]["text"] == "2 series worsening, 0 improving, 3 steady."
 
 
@@ -263,7 +270,7 @@ def test_a_theme_in_trouble_names_the_probable_cause() -> None:
         _series("CPIAUCSL", short="inflation", direction=1, group="Inflation"),
     ]
     (rates, _) = mb.read_themes(board)
-    assert rates["sentence"].endswith("Probable cause: inflation rising.")
+    assert rates["sentence"].endswith("Probable cause: inflation (CPIAUCSL) rising.")
 
 
 def test_a_board_where_nothing_stands_out_has_no_highlight() -> None:
@@ -278,10 +285,11 @@ def test_a_cause_names_only_the_drivers_that_point_the_same_way() -> None:
         _series("^IRX", short="short rates", direction=-1),  # moves the wrong way
     ]
     assert mb.probable_cause(board[0], 1, board) == (
-        "Probable cause: the real 10-year yield high and inflation rising."
+        "Probable cause: the real 10-year yield (real_yield_10y) high and inflation (CPIAUCSL) "
+        "rising."
     )
     # Nothing on the board would produce a FALL in the 10-year yield but the bill.
-    assert mb.probable_cause(board[0], -1, board) == "Probable cause: short rates falling."
+    assert mb.probable_cause(board[0], -1, board) == "Probable cause: short rates (^IRX) falling."
     alone = [_series("UNRATE")]
     assert mb.probable_cause(alone[0], 1, alone) == "No cause visible on this board."
 
