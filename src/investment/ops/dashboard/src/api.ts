@@ -155,8 +155,23 @@ export interface MacroTheme {
   invariants: LitInvariant[];
 }
 
+// How an asset is moving, and nothing else (market/macro_board.asset_moves):
+// its return over the lookback, which way, how large for that asset, and
+// whether the move is gathering or losing pace.
+export interface AssetMove {
+  ticker: string;
+  as_of: string;
+  change_pct: number | null;
+  period: string;
+  direction: -1 | 0 | 1;
+  move_size: "" | "slight" | "full" | "sharp";
+  pace: string;
+  reading: string;
+}
+
 export interface MacroPayload {
   board: MacroLine[];
+  assets: AssetMove[];
   summary: string;
   // The whole board in two or three plain sentences, then theme by theme.
   overall: string;

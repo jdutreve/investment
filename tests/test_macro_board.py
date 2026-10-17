@@ -4,6 +4,8 @@ that can be checked against the figures beside them."""
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from investment.db.sqlite import InvestmentDB
 from investment.market import macro_board as mb
 
@@ -238,3 +240,47 @@ def test_every_driver_is_a_series_of_the_board() -> None:
     tickers = {line.ticker for line in mb.MACRO_BOARD}
     assert set(mb.DRIVERS) == tickers
     assert {driver for drivers in mb.DRIVERS.values() for driver, _ in drivers} <= tickers
+
+
+def test_an_asset_move_is_said_in_percent_with_its_size_and_pace() -> None:
+    """An asset reads as a move only: which way, how large for that asset, and
+    whether it is gathering or losing pace."""
+    usual = [0.02, -0.02, 0.02, -0.02]  # a usual move of 2%
+    usual_acceleration = [0.01, -0.01, 0.01, -0.01]
+    falling = mb.describe_asset_move(-0.045, -0.02, usual, usual_acceleration, "over 30 days")
+    assert falling["reading"] == "Falling sharply: -4.5 % over 30 days, and gathering pace."
+    assert (falling["direction"], falling["move_size"]) == (-1, "sharp")
+    rising = mb.describe_asset_move(0.025, -0.005, usual, usual_acceleration, "over 30 days")
+    assert rising["reading"] == "Rising: +2.5 % over 30 days, but losing pace."
+    quiet = mb.describe_asset_move(0.003, 0.0, usual, usual_acceleration, "over 30 days")
+    assert quiet["reading"] == "Little changed over 30 days (+0.3 %)."
+    assert quiet["direction"] == 0
+    unknown = mb.describe_asset_move(None, None, [], [], "over 30 days")
+    assert unknown["reading"] == "Too little history to say how it is moving."
+
+
+async def test_an_asset_move_is_read_in_percent_not_in_dollars(tmp_path: Path) -> None:
+    """The same path at ten times the price reads the same: a dollar speed would
+    size every recent move of an asset that has risen against smaller old ones.
+    An asset the database does not price is absent."""
+    db = InvestmentDB(tmp_path / "assets.db")
+    try:
+        days = [date(2024, 1, 1).toordinal() + 7 * n for n in range(120)]
+        for ticker, scale in (("SPY", 1.0), ("GLD", 10.0)):
+            for n, day in enumerate(days):
+                level = scale * (100 + 3 * ((n % 6) - 3) + n * 0.1)
+                await db.command(
+                    "INSERT INTO market_data (ticker, asset_class, currency, ts, level) "
+                    "VALUES (:t, 'X', 'USD', :ts, :l)",
+                    t=ticker,
+                    ts=date.fromordinal(day).isoformat(),
+                    l=level,
+                )
+        moves = await mb.asset_moves(db, ("SPY", "IWN", "GLD"), date.fromordinal(days[-1]))
+    finally:
+        await db.close()
+    assert [m["ticker"] for m in moves] == ["SPY", "GLD"]
+    spy, gld = moves
+    assert spy["as_of"] == date.fromordinal(days[-1]).isoformat()
+    assert spy["reading"] == gld["reading"]
+    assert spy["change_pct"] == pytest.approx(gld["change_pct"])

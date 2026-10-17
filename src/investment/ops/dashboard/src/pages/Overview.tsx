@@ -3,6 +3,7 @@ import { Bell, Compass, Gauge } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   get,
+  type AssetMove,
   type LiveTrend,
   type MacroLine,
   type MacroPayload,
@@ -94,88 +95,115 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
   });
 }
 
-// THE BRIEF: two lines and the state of every asset, read before anything else
-// (owner, 2026-10-11). The first line is the macro board's own summary; the
-// second is what the rule holds.
+// How a series is moving, in the agent's own size words (`move_size`), so the
+// sentence and the board's arrows say the same thing of the same print.
+const MOVE_WORDS: Record<string, [string, string]> = {
+  slight: ["rising slightly", "falling slightly"],
+  full: ["rising", "falling"],
+  sharp: ["rising sharply", "falling sharply"],
+};
+
+const movement = (line: MacroLine): string => {
+  if (line.direction === 0) return "steady";
+  const words = MOVE_WORDS[line.move_size || "full"]!;
+  const move = words[line.direction > 0 ? 0 : 1];
+  return line.pace ? `${move}, ${line.pace}` : move;
+};
+
+// One series in a few words: its level, where that sits in ten years when it
+// is unusual, and how it is moving.
+const seriesPhrase = (line: MacroLine): string =>
+  [
+    `${line.short.replace(/^the /, "")} ${line.level_text}`,
+    line.unusual ? line.position : "",
+    movement(line),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+// THE BRIEF IS THE MACRO CONTEXT AND NOTHING ELSE (owner, 2026-10-17): what is
+// growing or not, where rates, credit and money stand, which assets are rising.
+// What the stack holds and what to place is the order card's one job; a "Rule:
+// holds …" line and a "% held" on every chip repeated it here, and two places
+// saying one thing is how they come to disagree. The trend overlay's words
+// ("in trend", "half out", "out") are the order's too: they say what the rule
+// does with an asset, so here an asset is only a move — which way, how fast
+// for it, gathering or losing pace — in the agent's sentence, shown as written.
 //
-// A TREND IS ONE FACT AND A HOLDING IS ANOTHER, and every chip says both. A
-// first version had two lists, "favoured" and "avoided", and contradicted
-// itself twice on its first day: the sleeve half out sat under "avoided" one
-// line below "the rule holds 5% of it", and the one sleeve in trend sat under
-// "favoured" while the rule held none — it is not in the month's book. Cash is
-// here too: it has no trend to read, and it was 95% of the portfolio and
-// missing from the list of assets. Nothing on this page forecasts.
+// The summary is the agent's (`overall`); under it, theme by theme, each series
+// in a few words — the full sentence the board below only shows on hover.
+// Nothing here forecasts.
 function Brief({
   summary,
-  decision,
+  themes,
+  board,
+  assets,
 }: {
   summary: string | undefined;
-  decision: Row | null;
+  themes: MacroTheme[];
+  board: MacroLine[];
+  assets: AssetMove[];
 }) {
-  const sleeves = sleevesOf(decision);
-  const target = (s(decision, "target_allocation") ?? {}) as Weights;
-  const windows = windowsOf(decision);
-  const held = (t: string): string =>
-    (target[t] ?? 0) > 0 ? `${weight(target[t])}% held` : "not held";
-  const groups = [0, 0.5, 1].map((level) => ({
-    state: trendState(level),
-    members: sleeves.filter(
-      ([, v]) => trendState(v.share).word === trendState(level).word,
-    ),
-  }));
   return (
     <div className="card brief">
       <p className="brief-line">
         <span className="brief-tag">Macro</span>
         {summary ?? "The macro board is not available."}
       </p>
-      {decision ? (
-        <p className="brief-line">
-          <span className="brief-tag">Rule</span>
-          Holds {allocationText(target)}, decided{" "}
-          {date(s(decision, "decision_date"))}.
-        </p>
-      ) : null}
-      {sleeves.length ? (
-        <div className="stance">
-          {groups.map((group) => (
-            <div key={group.state.word}>
-              <div className="stance-label">{group.state.word}</div>
-              <div className="chips">
-                {group.members.length ? (
-                  group.members.map(([t]) => (
-                    <span key={t} className={`chip ${group.state.tone}`}>
-                      {ASSETS[t] ?? t} · {held(t)}
-                    </span>
-                  ))
-                ) : (
-                  <span className="muted">none</span>
-                )}
-              </div>
-            </div>
+      {themes.length ? (
+        <ul className="brief-detail">
+          {themes.map((theme) => (
+            <li key={theme.group}>
+              <span className={`swatch heat-${theme.news}`} />
+              <span className="strong">{theme.group}</span>
+              <span className="muted"> — </span>
+              {board
+                .filter((line) => line.group === theme.group)
+                .map(seriesPhrase)
+                .join("; ")}
+              .
+            </li>
           ))}
-          <div>
-            <div className="stance-label">Cash</div>
-            <div className="chips">
-              <span className="chip">Cash · {held("cash")}</span>
-            </div>
-          </div>
-        </div>
+        </ul>
       ) : null}
-      {sleeves.length ? (
-        <details className="fold">
-          <summary>How the trend filter works</summary>
-          Each price is compared with its own average over the last{" "}
-          {windows.length ? windows.join(" and ") : "150 and 300"} trading days.
-          Above both, the asset is in trend and kept. Below one, half is sold.
-          Below both, all is sold. What is sold goes to Treasuries, or to cash
-          when Treasuries are themselves below both. An asset is held only if
-          this month&apos;s book includes it — this is a description of prices,
-          not a forecast.
-        </details>
+      {assets.length ? (
+        <>
+          <div className="section-label" style={{ marginTop: 12 }}>
+            Assets · {date(assets[0]!.as_of)}
+          </div>
+          <ul className="brief-detail">
+            {assets.map((asset) => (
+              <li key={asset.ticker}>
+                <AssetArrow asset={asset} />
+                <span className="strong">{ASSETS[asset.ticker] ?? asset.ticker}</span>
+                <span className="muted"> — </span>
+                {asset.reading}
+              </li>
+            ))}
+          </ul>
+          <div className="paper-note">
+            A move is sized against what is usual for that asset over ten
+            years; the pace is whether the move is growing or fading. It
+            describes prices, not a forecast.
+          </div>
+        </>
       ) : null}
     </div>
   );
+}
+
+// Which way, and how hard: the board's arrows, green up and red down, a slight
+// move grey — it is not news yet.
+function AssetArrow({ asset }: { asset: AssetMove }) {
+  if (asset.direction === 0) return <span className="asset-arrow muted">→</span>;
+  const arrow = ARROWS[asset.move_size || "full"]![asset.direction > 0 ? 0 : 1];
+  const tone =
+    asset.move_size === "slight"
+      ? "muted"
+      : asset.direction > 0
+        ? "heat-text-good"
+        : "heat-text-bad";
+  return <span className={`asset-arrow ${tone}`}>{arrow}</span>;
 }
 
 // The Worker's reading: the bottom line, then each part under the heading the
@@ -971,7 +999,12 @@ export function Overview() {
       <AlertList alerts={data.alerts} />
 
       <div style={{ marginTop: 14 }}>
-        <Brief summary={macro.data?.overall} decision={data.market_signal} />
+        <Brief
+          summary={macro.data?.overall}
+          themes={macro.data?.themes ?? []}
+          board={board}
+          assets={macro.data?.assets ?? []}
+        />
       </div>
 
       <div style={{ marginTop: 14 }}>

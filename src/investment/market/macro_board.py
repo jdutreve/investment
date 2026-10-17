@@ -48,10 +48,13 @@ import statistics
 from datetime import date, timedelta
 from typing import Any, Literal
 
+import pandas as pd
+
 from investment.db.sqlite import InvestmentDB
 from investment.market.derivatives import (
     OBSERVATION_LOOKBACK_TICKERS,
     WEEKLY_LOOKBACK_DAYS_TICKERS,
+    asof_lag,
 )
 
 # What a level and a move are compared with: the series' own last ten years.
@@ -580,14 +583,110 @@ def highlights(board: list[dict[str, Any]], earlier: list[dict[str, Any]]) -> li
     return lines
 
 
+async def _default_lookback_days(db: InvestmentDB) -> int:
+    """The speed lookback of a series with none of its own — the one
+    `derivatives.compute_derivatives` was run with."""
+    lookback = await db.query(
+        "SELECT value FROM system_thresholds WHERE key = 'derivative_lookback_short'"
+    )
+    return int(lookback[0]["value"]) if lookback else 30
+
+
+# THE ASSETS, READ AS MOVES AND NOTHING ELSE (owner, 2026-10-17: "parle
+# uniquement des assets en hausse, baisse, vitesse/accélération"). Beside the
+# macro, what the assets are doing: rising or falling, how fast for that asset,
+# and whether the move is gathering or losing pace. Not where they sit against
+# a moving average, which is the trend overlay's vocabulary and belongs with the
+# order.
+#
+# IN PERCENT, NOT IN DOLLARS. `market_data.speed` for a price is a dollar
+# difference, and a price that has doubled in ten years makes the same
+# percentage move twice as large in dollars, so sizing today's move against ten
+# years of them would call every recent move "sharp". The change is therefore
+# the return over the lookback, and its acceleration the change in that return
+# over the same lookback — then sized by `read_move`, the board's own rule.
+def describe_asset_move(
+    change: float | None,
+    acceleration: float | None,
+    changes: list[float],
+    accelerations: list[float],
+    period: str,
+) -> dict[str, Any]:
+    """One asset's move in words and fields. `change` and `acceleration` are
+    fractions (0.021 = +2.1%); the lists are the asset's own history of both,
+    which say what a usual move is. Pure."""
+    usual_change = statistics.pstdev(changes) if len(changes) > 1 else None
+    usual_acceleration = statistics.pstdev(accelerations) if len(accelerations) > 1 else None
+    move = read_move(change, acceleration, usual_change, usual_acceleration)
+    if move is None or change is None:
+        reading = "Too little history to say how it is moving."
+    elif move.quiet:
+        reading = f"Little changed {period} ({change * 100:+.1f} %)."
+    else:
+        pace = {"gathering pace": ", and gathering pace", "losing pace": ", but losing pace"}
+        reading = (
+            f"{move.direction.capitalize()}: {change * 100:+.1f} % {period}"
+            f"{pace.get(move.pace, '')}."
+        )
+    return {
+        "change_pct": None if change is None else change * 100,
+        "period": period,
+        "direction": 0 if move is None or move.quiet or not change else (1 if change > 0 else -1),
+        "move_size": move.size if move is not None else "",
+        "pace": move.pace if move is not None else "",
+        "reading": reading,
+    }
+
+
+async def asset_moves(
+    db: InvestmentDB, tickers: tuple[str, ...], today: date | None = None
+) -> list[dict[str, Any]]:
+    """How each asset in `tickers` is moving as of `today`, in the order given;
+    an asset the database does not price is absent."""
+    today = today or date.today()
+    days = await _default_lookback_days(db)
+    since = today - timedelta(days=round(365.25 * COMPARISON_YEARS) + 2 * days)
+    first_compared = pd.Timestamp(today - timedelta(days=round(365.25 * COMPARISON_YEARS)))
+    out: list[dict[str, Any]] = []
+    for ticker in tickers:
+        rows = await db.query(
+            "SELECT ts, level FROM market_data WHERE ticker = :t AND ts >= :since "
+            "AND ts <= :today AND level IS NOT NULL ORDER BY ts",
+            t=ticker,
+            since=since.isoformat(),
+            today=today.isoformat(),
+        )
+        if not rows:
+            continue
+        level = pd.Series(
+            [float(r["level"]) for r in rows],
+            index=pd.to_datetime([str(r["ts"])[:10] for r in rows]),
+        )
+        change = level / asof_lag(level, days) - 1
+        acceleration = change - asof_lag(change, days)
+        compared = change.index >= first_compared
+        latest_change, latest_acceleration = change.iloc[-1], acceleration.iloc[-1]
+        out.append(
+            {
+                "ticker": ticker,
+                "as_of": level.index[-1].date().isoformat(),
+                **describe_asset_move(
+                    None if pd.isna(latest_change) else float(latest_change),
+                    None if pd.isna(latest_acceleration) else float(latest_acceleration),
+                    change[compared].dropna().tolist(),
+                    acceleration[compared].dropna().tolist(),
+                    f"over {days} days",
+                ),
+            }
+        )
+    return out
+
+
 async def macro_board(db: InvestmentDB, today: date | None = None) -> dict[str, Any]:
     """The board as of `today` — one entry per registered series the database
     holds, in the registry's order — and its one-line summary."""
     today = today or date.today()
-    lookback = await db.query(
-        "SELECT value FROM system_thresholds WHERE key = 'derivative_lookback_short'"
-    )
-    default_days = int(lookback[0]["value"]) if lookback else 30
+    default_days = await _default_lookback_days(db)
     since = today - timedelta(days=round(365.25 * COMPARISON_YEARS))
     board: list[dict[str, Any]] = []
     for line in MACRO_BOARD:

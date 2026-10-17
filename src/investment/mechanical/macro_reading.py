@@ -41,11 +41,13 @@ from investment.market.macro_board import (
     CHANGE_LOOKBACK_DAYS,
     COMPARISON_YEARS,
     QUIET_MOVE,
+    asset_moves,
     highlights,
     macro_board,
     overall,
     read_themes,
 )
+from investment.mechanical.market_signal import STACK_TICKERS
 
 # How many lit invariants a theme shows: the heaviest, the rest are on the
 # Worker's side of the fence, not the reader's.
@@ -132,8 +134,8 @@ def themes_of(condition: list[dict[str, Any]], group_of_ticker: dict[str, str]) 
 
 
 async def macro_reading(db: InvestmentDB, today: date | None = None) -> dict[str, Any]:
-    """The board, its summary, what stands out on it, and per theme the sentence
-    and the invariants it lights."""
+    """The board, its summary, what stands out on it, per theme the sentence
+    and the invariants it lights, and how each asset is moving."""
     today = today or date.today()
     payload = await macro_board(db, today)
     # The same board a month earlier, for what changed colour since.
@@ -174,4 +176,8 @@ async def macro_reading(db: InvestmentDB, today: date | None = None) -> dict[str
         "overall": overall(themes),
         "highlights": highlights(payload["board"], earlier["board"]),
         "themes": [{**theme, "invariants": lit[theme["group"]]} for theme in themes],
+        # The assets the rule can hold, as moves only: which way, how fast for
+        # each, gathering or losing pace. The set is the stack's own so a sleeve
+        # added to a book is read here without anyone listing it twice.
+        "assets": await asset_moves(db, STACK_TICKERS, today),
     }
