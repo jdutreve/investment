@@ -100,52 +100,6 @@ function sleevesOf(decision: Row | null): [string, Sleeve][] {
   });
 }
 
-// Green to red (owner, 2026-10-17): what is fine first, the trouble last, in
-// the legend's own order. A stable sort, so equal colours keep the board's order.
-const COLOUR_ORDER = ["good", "watch", "poor", "bad"];
-const byColour = (themes: MacroTheme[]): MacroTheme[] =>
-  [...themes].sort(
-    (a, b) => COLOUR_ORDER.indexOf(a.news) - COLOUR_ORDER.indexOf(b.news),
-  );
-
-// THE THEMES IN WORDS, at the head of the Macro card (owner, 2026-10-17):
-// one sentence per theme — how it reads, the facts that make it read so, and
-// where it is in trouble the probable cause — then the ideas from the books it
-// wakes. The board below carries every series with its level and move; this is
-// what a reader with ten seconds needs. Green to red. Nothing here forecasts.
-function ThemeLines({ themes }: { themes: MacroTheme[] }) {
-  if (!themes.length) return null;
-  return (
-    <div className="theme-lines">
-      <ul className="brief-detail">
-        {byColour(themes).map((theme) => (
-          <li key={theme.group}>
-            <span className={`swatch heat-${theme.news}`} />
-            <span className="strong">{theme.group}</span>
-            <span className="muted"> — </span>
-            {theme.sentence}
-            {theme.invariants.length ? (
-              <ul className="lit">
-                {theme.invariants.map((inv) => (
-                  <li key={inv.id} title={inv.title}>
-                    {inv.title}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      {themes.some((theme) => theme.invariants.length) ? (
-        <div className="paper-note">
-          Under a theme, the ideas from the books whose condition holds clearly
-          today on its series. None is established, and none changes the order.
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 // The pace of a move in one word: whether it is growing or fading.
 const PACE: Record<string, string> = {
   "gathering pace": "accelerating",
@@ -802,7 +756,6 @@ function MacroBoard({
           </div>
         ) : null}
       </div>
-      <ThemeLines themes={themes} />
       {highlights.length ? (
         <div className="standout">
           <div className="section-label">What changed</div>
@@ -829,7 +782,10 @@ function MacroBoard({
         <div className="themes">
           {themes.map((theme) => (
             <div className="theme" key={theme.group}>
-              <div className="theme-head">
+              {/* The theme's sentence — the facts that colour it and, in
+                  trouble, the probable cause — on hover: the tiles below say
+                  the same facts, so it is not printed twice (owner, 2026-10-17). */}
+              <div className="theme-head" title={theme.sentence}>
                 <span className={`swatch heat-${theme.news}`} />
                 <span className="theme-name">{theme.group}</span>
               </div>
@@ -853,6 +809,15 @@ function MacroBoard({
                     </div>
                   ))}
               </div>
+              {theme.invariants.length ? (
+                <ul className="lit">
+                  {theme.invariants.map((inv) => (
+                    <li key={inv.id} title={inv.title}>
+                      {inv.title}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           ))}
         </div>
@@ -919,7 +884,10 @@ function MacroBoard({
         The colour is good or bad news for an investor building capital:
         growth, credit and liquidity are better high; rates, inflation,
         unemployment, spreads and volatility are better low. A theme reads as
-        its worst series. Hover a tile for the full sentence.
+        its worst series; hover its name for why. Under each theme, the ideas
+        from the books whose condition holds clearly today on its series — none
+        is established, and none changes the order. Hover a tile for the full
+        sentence.
       </div>
     </div>
   );

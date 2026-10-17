@@ -562,34 +562,6 @@ a {
   color: var(--ink);
 }
 
-.brief {
-  border-left: 3px solid var(--brand-purple);
-}
-.brief-line {
-  margin: 0 0 6px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-.brief-tag {
-  display: inline-block;
-  min-width: 52px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--brand-purple);
-}
-.brief-detail {
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--ink-secondary);
-}
-.brief-detail li {
-  margin-bottom: 3px;
-}
 .data-table th.center,
 .data-table td.center {
   text-align: center;
