@@ -479,6 +479,7 @@ async def _seed_market_data(
     skipped: dict[str, str] = {}
     shortfalls: dict[str, str] = {}
     rebuilt_from_archive: dict[str, str] = {}
+    chained_onto_stored: dict[str, str] = {}
     archive = archive_directory(settings.db_path)
     row_count = 0
     yahoo_calls = 0
@@ -544,16 +545,41 @@ async def _seed_market_data(
                     )
                 )[0]["first"]
                 if stored_from is not None and str(stored_from)[:10] < str(raw.index.min().date()):
+                    # KEPT, AND STILL CARRIED FORWARD. The stored history is
+                    # left as it was, and the ETF's fresh prices are chained
+                    # onto it by the weekly catch-up's own join. Until
+                    # 2026-10-17 this branch skipped the ticker whole: LBMA
+                    # answered 403 and GLD stayed a week behind every other
+                    # sleeve, with its composite (gold_10y_dev) skipped for
+                    # want of an input.
+                    stored = await catchup.stored_level(db, ticker)
+                    fetched = derivatives.apply_transform(raw, str(ticker_row["transform"]))
+                    try:
+                        written, level = await catchup.append_fetched_tail(
+                            db, ticker_row, fetched, stored, default_lookback
+                        )
+                    except LookupError as gap:
+                        skipped[ticker] = (
+                            f"splice with {proxy_ticker} rejected ({exc}) and the fresh "
+                            f"prices could not be chained onto the stored history: {gap}"
+                        )
+                        continue
                     logger.warning(
-                        "step 9: splice %s/%s rejected, stored history from %s KEPT untouched: %s",
+                        "step 9: splice %s/%s rejected, stored history from %s kept and "
+                        "%d fresh rows chained onto it: %s",
                         ticker,
                         proxy_ticker,
                         stored_from,
+                        written,
                         exc,
                     )
-                    skipped[ticker] = (
-                        f"splice with {proxy_ticker} rejected, stored history kept: {exc}"
+                    chained_onto_stored[ticker] = (
+                        f"splice with {proxy_ticker} rejected ({exc}); stored history kept, "
+                        f"{written} fresh rows chained onto it"
                     )
+                    tradable_floor[ticker] = str(level.index.min().date())
+                    transformed[ticker] = level
+                    row_count += written
                     continue
                 # Nothing longer is stored — an empty database, typically. The
                 # archive holds the splice as it last stood; the ETF's own
@@ -626,6 +652,7 @@ async def _seed_market_data(
         "tickers_skipped": skipped,
         "authoritative_write_shortfalls": shortfalls,
         "rebuilt_from_archive": rebuilt_from_archive,
+        "chained_onto_stored": chained_onto_stored,
         "tradable_floor": tradable_floor,
         "splice_reports": splice_reports,
     }

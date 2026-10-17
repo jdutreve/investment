@@ -204,9 +204,29 @@ async def refresh_series(
     fetched = derivatives.apply_transform(
         fetcher.forward_fill_gaps(raw), str(ticker_row["transform"])
     )
+    written, _ = await append_fetched_tail(db, ticker_row, fetched, stored, lookback)
+    return written
+
+
+async def append_fetched_tail(
+    db: InvestmentDB,
+    ticker_row: Mapping[str, Any],
+    fetched: pd.Series,
+    stored: pd.Series,
+    lookback: int,
+) -> tuple[int, pd.Series]:
+    """Join an already-transformed fetch onto the stored series and append the
+    new tail. Returns the rows written and the merged series.
+
+    A SECOND CALLER ARRIVED (2026-10-17): the seed, when a history proxy fails
+    with a splice already stored. It used to skip the ticker whole, fresh ETF
+    prices included — on 2026-10-17 LBMA answered 403 and GLD stayed at
+    2026-10-09 while every other sleeve reached 2026-10-16. The join it needs is
+    this one, so it is shared rather than copied."""
+    ticker = str(ticker_row["ticker"])
     tail = rebase_onto(fetched, stored, chain=ticker in HISTORY_PROXIES)
     if tail.empty:
-        return 0
+        return 0, stored
     # `combine_first` fills from the argument only where the caller is missing,
     # so the tail wins wherever it has a value. For a chained series the tail
     # starts strictly after the anchor and no stored row is touched; for a macro
@@ -230,7 +250,7 @@ async def refresh_series(
     # `replace_ts_series` would delete 35 years to rewrite a few days. The
     # dating of the rows it does write is the source's own, unchanged.
     await db.append_ts_batch("market_data", rows)
-    return len(rows)
+    return len(rows), merged
 
 
 async def refresh_market_data(

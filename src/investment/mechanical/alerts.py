@@ -76,7 +76,15 @@ from investment.writeback.writeback import RULE_MEASUREMENT_EVENT
 # means at least one chain run did not happen or did not fetch. The same figure
 # fits both watched groups: the sleeves are daily exchange prices and the two
 # FRED signals are daily business-day series with a ~1-day publication lag.
-MARKET_DATA_STALE_DAYS = 7
+#
+# A WEEK COUNTED FROM THE LAST CLOSE THE CHAIN CAN SEE, not from the chain. The
+# chain runs on Sunday (`chain.CHAIN_START_WEEKDAY`) and its newest price is
+# Friday's close, so with every chain on time that price is 8 days old the next
+# Saturday and 9 on Sunday morning before the chain refreshes it. At 7 the
+# dashboard showed this alert, critical, every weekend for a feed that was
+# working (seen 2026-10-17). 9 is that week plus the weekend: on time it never
+# fires, and one missed Sunday shows on Monday.
+MARKET_DATA_STALE_DAYS = 9
 # `macro_freshness_alert`'s two knobs. The sample is how many prints back the
 # cadence is measured over — a year of monthly prints, and enough daily ones
 # that a holiday week cannot move the median.

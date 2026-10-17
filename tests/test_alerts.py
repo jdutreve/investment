@@ -144,6 +144,19 @@ async def test_stale_prices_are_critical(db: InvestmentDB) -> None:
     assert "20 days ago" in alert.message
 
 
+async def test_a_working_weekly_feed_never_reads_as_stale(db: InvestmentDB) -> None:
+    """The Sunday chain's newest price is Friday's close. With every chain on
+    time that close is 8 days old the next Saturday and 9 on Sunday morning,
+    and the alert must stay silent; at 7 it fired, critical, every weekend
+    (2026-10-17). One missed Sunday shows on Monday."""
+    friday = date(2026, 10, 9)
+    await _prices(db, friday)
+    for day in (date(2026, 10, 17), date(2026, 10, 18)):  # the Saturday, then Sunday
+        assert await A.market_data_freshness_alert(db, day) is None
+    missed = await A.market_data_freshness_alert(db, date(2026, 10, 19))  # Monday
+    assert missed is not None and missed.code == "market_data_stale"
+
+
 async def test_the_oldest_sleeve_binds_not_the_newest(db: InvestmentDB) -> None:
     """THE failure this check exists for: a table-wide `MAX(ts)` reads fresh off
     any one series still updating while the feed the 200d overlay depends on is

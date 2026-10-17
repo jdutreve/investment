@@ -243,7 +243,7 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     THE CAP CANNOT HIDE A DEAD FEED PAST A WEEK, which is the honest form of the
     objection to answer since the pair now follows its laggard:
     `signal_freshness_alert` measures the OLDEST of `signal_tickers()` against
-    today and fires past `MARKET_DATA_STALE_DAYS` (7) — the same set, so the cap
+    today and fires past `MARKET_DATA_STALE_DAYS` — the same set, so the cap
     and the alarm cannot drift apart. Inside that week a stalled series does
     quietly pull its partner back with it, and that is the accepted cost: a pair
     read on two dates is a comparison that was true on no day, which is worse

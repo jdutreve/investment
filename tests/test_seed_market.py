@@ -111,13 +111,21 @@ def _build_series() -> dict[str, pd.Series]:
 _SERIES = _build_series()
 
 
-def _make_stub(fail: frozenset[str] = frozenset()) -> seed.FetchRawFn:
+def _make_stub(
+    fail: frozenset[str] = frozenset(), ends: Mapping[str, str] | None = None
+) -> seed.FetchRawFn:
+    """`ends` stops a ticker's series early — a fetch made before its latest
+    prices existed."""
+
     async def _stub(ticker_row: Mapping[str, Any], api_key: str, start: date | None) -> pd.Series:
         ticker = str(ticker_row["ticker"])
         if ticker in fail:
             raise RuntimeError(f"synthetic fetch failure for {ticker}")
         if ticker in _SERIES:
-            return _SERIES[ticker].copy()
+            series = _SERIES[ticker].copy()
+            if ends and ticker in ends:
+                series = series[series.index <= pd.Timestamp(ends[ticker])]
+            return series
         # Generic fallback keeps the test from crashing if a minor ticker is
         # added to ALLOWED_TICKERS later (assertions target named tickers).
         # crc32, not hash(): the latter is process-randomised (PYTHONHASHSEED).
@@ -233,8 +241,11 @@ async def test_step9_failed_fetch_is_skipped_not_fatal(tmp_path: Path) -> None:
         await db.close()
 
 
-async def test_a_rejected_splice_does_not_overwrite_the_spliced_history(tmp_path: Path) -> None:
-    """A proxy that fails on a RE-SEED must leave the stored series alone.
+async def test_a_rejected_splice_keeps_the_stored_history_and_carries_it_forward(
+    tmp_path: Path,
+) -> None:
+    """A proxy that fails on a RE-SEED must leave the stored series alone, AND
+    still carry the ETF's fresh prices onto it.
 
     What happened on 2026-10-04: LBMA answered 403, the GLD splice was rejected,
     and the seed fell back to the ETF-only series — which is on the ETF's own
@@ -246,16 +257,27 @@ async def test_a_rejected_splice_does_not_overwrite_the_spliced_history(tmp_path
 
     The ETF-only floor is the right fallback on an EMPTY database. On one that
     already holds a longer history for the ticker, it is a different series
-    arriving under the same name."""
+    arriving under the same name.
+
+    And keeping it must not freeze it. Until 2026-10-17 the ticker was skipped
+    whole: LBMA answered 403 again and GLD stayed at 2026-10-09 while every
+    other sleeve reached 2026-10-16. The fresh prices are now chained onto the
+    stored splice by the weekly catch-up's own join — returns, not levels, so no
+    cross-scale jump."""
     settings = _settings(tmp_path)
     db = InvestmentDB(settings.db_path)
+    first_end = "2026-06-19"
     try:
         await seed._seed_market_data(
-            db, settings, fetch_raw=_make_stub(), yahoo_rate_limit_seconds=0.0
+            db,
+            settings,
+            fetch_raw=_make_stub(ends={"GLD": first_end}),
+            yahoo_rate_limit_seconds=0.0,
         )
         gld = "SELECT ts, level FROM market_data WHERE ticker = 'GLD' ORDER BY ts"
         spliced = [dict(r) for r in await db.query(gld)]
         assert spliced[0]["ts"] < "2004-11-18"  # the splice reaches before the ETF existed
+        assert spliced[-1]["ts"][:10] == first_end
 
         inventory = await seed._seed_market_data(
             db,
@@ -263,8 +285,18 @@ async def test_a_rejected_splice_does_not_overwrite_the_spliced_history(tmp_path
             fetch_raw=_make_stub(frozenset({"LBMA_GOLD_AM"})),
             yahoo_rate_limit_seconds=0.0,
         )
-        assert [dict(r) for r in await db.query(gld)] == spliced
-        assert "GLD" in inventory["tickers_skipped"]
+        after = [dict(r) for r in await db.query(gld)]
+        assert after[: len(spliced)] == spliced  # the stored history, untouched
+        fresh = after[len(spliced) :]
+        assert fresh and fresh[-1]["ts"][:10] == str(_FULL_END.date())
+        # Chained by the ETF's returns from the stored level: no jump at the join.
+        etf = _SERIES["GLD"]
+        levels = [spliced[-1]["level"]] + [r["level"] for r in fresh]
+        dates = [pd.Timestamp(first_end)] + [pd.Timestamp(r["ts"][:10]) for r in fresh]
+        chained = pd.Series(levels, index=dates).pct_change().dropna()
+        assert chained.to_numpy() == pytest.approx(etf.pct_change().loc[chained.index].to_numpy())
+        assert "GLD" in inventory["chained_onto_stored"]
+        assert "GLD" not in inventory["tickers_skipped"]
         assert "GLD" not in inventory["authoritative_write_shortfalls"]
     finally:
         await db.close()
