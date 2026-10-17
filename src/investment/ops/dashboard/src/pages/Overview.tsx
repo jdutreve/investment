@@ -144,6 +144,10 @@ function Brief({
   board: MacroLine[];
   assets: AssetMove[];
 }) {
+  const latestAsOf = assets.reduce(
+    (latest, asset) => (asset.as_of > latest ? asset.as_of : latest),
+    "",
+  );
   return (
     <div className="card brief">
       <p className="brief-line">
@@ -169,7 +173,7 @@ function Brief({
       {assets.length ? (
         <>
           <div className="section-label" style={{ marginTop: 12 }}>
-            Assets · {date(assets[0]!.as_of)}
+            Assets · {date(latestAsOf)}
           </div>
           <ul className="brief-detail">
             {assets.map((asset) => (
@@ -178,6 +182,11 @@ function Brief({
                 <span className="strong">{ASSETS[asset.ticker] ?? asset.ticker}</span>
                 <span className="muted"> — </span>
                 {asset.reading}
+                {/* An asset whose prices stopped earlier says so: one date in
+                    the heading must not stand for a series that is late. */}
+                {asset.as_of !== latestAsOf ? (
+                  <span className="heat-text-bad"> Prices stop at {date(asset.as_of)}.</span>
+                ) : null}
               </li>
             ))}
           </ul>
