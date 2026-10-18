@@ -1244,9 +1244,9 @@ fetch new items (dedupe by URL hash against existing Document
 source_paths — no state table) →
 LLM triage via the curator (`skill-triage-events.md`: major vs
 routine, routine discarded) → major → Document(kind=event) with summary,
-entities, and enrichment (source text + model knowledge + **bounded fetch**
-restricted to the EVENT_SOURCES domains; insufficient → `needs-user-input`
-flag → Telegram) → ingested SYNCHRONOUSLY via CorpusIngester so the UC4
+entities, and enrichment (the official page's text via the **bounded fetch**
+restricted to the EVENT_SOURCES domains + model knowledge; nothing asked of
+the owner — 2026-10-18) → ingested SYNCHRONOUSLY via CorpusIngester so the UC4
 sweep sees it minutes later.
 
 The user note channel stays as a complement: the Telegram bot saves any

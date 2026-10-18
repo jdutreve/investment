@@ -24,7 +24,7 @@ will act.** Examples of the kind:
 If you are hesitating, it is routine. A false MAJOR costs a document in the
 corpus that says nothing; a missed one costs a week's awareness — but these
 sources publish the genuinely major items in unmistakable language, and the
-weekly cadence means a real shift will still be there next Monday in another
+weekly cadence means a real shift will still be there next Sunday in another
 form.
 
 **What to write when it is major.**
@@ -39,11 +39,20 @@ form.
   what you actually know.
 
 **The honesty rule, and it is the important one.** You are given the item's
-title, its published date and whatever text the feed carried — sometimes that is
-the full statement, sometimes it is nothing but the headline. If that is not
-enough to say what happened without inventing it, set `needs_user_input: true`
-and say in `reasoning` what is missing. The owner is then asked directly.
+title and date, the text the feed carried, and the text of its official page —
+usually the full statement, speech or account, sometimes slides, sometimes
+little more than the headline. Judge on what that text says, and write only
+what it supports:
 
-Do not fill a gap with a plausible sentence. A fabricated enrichment enters the
-corpus, gets embedded, and is retrieved months later as though it were sourced —
-this is the one failure here that compounds.
+- `summary` states what the text says happened. When the text is thin, the
+  summary is short and says what the source does not show — never a plausible
+  sentence that fills the gap.
+- `enrichment` is context you actually know, and is left empty rather than
+  guessed.
+- `reasoning` says in one or two sentences why the item is major or routine; it
+  is kept with the verdict so the verdict can be read back.
+
+Nobody will answer a question from you: decide on the text you have.
+
+A fabricated sentence enters the corpus, gets embedded, and is retrieved months
+later as though it were sourced — this is the one failure here that compounds.

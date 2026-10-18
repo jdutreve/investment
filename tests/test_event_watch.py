@@ -1,12 +1,14 @@
 """UC3 Event Watch (`watch/event_watch.py`, docs/USE_CASES.md UC3).
 
-Real throwaway SQLite, a `TestModel`-driven triage agent, no network. The three
-properties worth pinning are the ones that decide whether this job is safe to
-run unattended every week: routine items leave NO trace, an item the model
-cannot describe is NOT written, and nothing is ever triaged twice.
+Real throwaway SQLite, a `TestModel`-driven triage agent, no network (the
+official page's text is stubbed). The properties worth pinning are the ones that
+decide whether this job is safe to run unattended every week: routine items
+leave NO trace, an item is judged on its page and never on its headline alone,
+nothing asks the owner, and nothing is ever triaged twice.
 """
 
 import asyncio
+import dataclasses
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, cast
@@ -49,8 +51,8 @@ def _agent(result: EventTriage) -> Agent[None, EventTriage]:
 
     PLAIN `output_type`, not the production `NativeOutput` wrapper: TestModel
     has no native-structured-output path and refuses it outright. What is under
-    test here is the job around the model — routine discarded, flagged not
-    written, deduped — and the wrapper is a property of the transport, pinned
+    test here is the job around the model — routine discarded, major ingested,
+    deduped — and the wrapper is a property of the transport, pinned
     where it belongs (`openrouter_client.build_native_output_model`)."""
     return Agent(TestModel(custom_output_args=result), output_type=EventTriage)
 
@@ -65,6 +67,20 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 @pytest.fixture
 def ingester(db: InvestmentDB, embedder: InProcessEmbedder) -> CorpusIngester:
     return CorpusIngester(db, embedder)
+
+
+def _page_text(url: str) -> str:
+    return f"Full text of the official page at {url}."
+
+
+@pytest.fixture(autouse=True)
+def official_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every item's page answers with a known text, and no request leaves."""
+
+    async def page(session: object, url: str, domains: object) -> str:
+        return _page_text(url)
+
+    monkeypatch.setattr(EW, "fetch_article", page)
 
 
 # -- pure shaping -----------------------------------------------------------
@@ -85,7 +101,16 @@ def test_an_item_with_no_text_still_reaches_the_model_as_such() -> None:
     rendered = EW.render_item(SNB)
     assert "title only" in rendered
     assert "the feed carried no date" in rendered
+    assert "the page carried no text" in rendered
     assert SNB.url in rendered
+
+
+def test_the_official_page_reaches_the_model_beside_the_feed() -> None:
+    """The headline is not the item: the page's text is what the triage judges
+    (owner, 2026-10-18 — the September rate hikes were missed on headlines)."""
+    with_page = dataclasses.replace(SNB, article="The SNB raised its policy rate.")
+    rendered = EW.render_item(with_page)
+    assert "TEXT OF THE OFFICIAL PAGE:\nThe SNB raised its policy rate." in rendered
 
 
 def test_the_filename_carries_the_headline_because_the_title_is_read_from_it() -> None:
@@ -128,6 +153,9 @@ def test_the_document_keeps_the_sourced_text_apart_from_the_recalled_context() -
     assert "## Summary" in document and "## Context" in document
     assert "## As published" in document and FED.text in document
     assert "FOMC, federal funds rate" in document
+    # The page, when there is one, is what the corpus keeps as the source.
+    with_page = dataclasses.replace(FED, article="The full statement.")
+    assert "## As published\n\nThe full statement." in EW.event_document(with_page, triage)
 
 
 # -- dedupe -----------------------------------------------------------------
@@ -179,7 +207,7 @@ async def test_a_routine_item_leaves_no_document_only_a_verdict(
     report = await EW.run_event_watch(db, ingester, agent)
 
     assert report.routine == 1 and report.major == 0
-    assert report.ingested == [] and report.flagged == []
+    assert report.ingested == []
     assert await db.query("SELECT id FROM document") == []
     assert not list(inbox.glob("*.md"))  # and nothing reached the watcher's queue
     judged = await db.query(
@@ -187,36 +215,33 @@ async def test_a_routine_item_leaves_no_document_only_a_verdict(
     )
     assert [str(r["source_id"]) for r in judged] == [ORDER.url]
     assert "routine" in str(judged[0]["payload"])
+    # ...with its reason, so the verdict can be read back.
+    assert "an administrative order" in str(judged[0]["payload"])
 
 
-async def test_an_item_the_model_cannot_describe_is_flagged_not_written(
-    db: InvestmentDB, ingester: CorpusIngester, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_an_item_whose_page_cannot_be_fetched_is_retried_not_judged(
+    db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """THE PROPERTY THAT PROTECTS THE CORPUS. A fabricated enrichment would be
-    embedded, retrieved months later and read as sourced — so when the model
-    says it cannot describe the item, nothing is written and the owner is
-    asked (UC3: "flagged and pushed to Telegram instead of being
-    hallucinated")."""
-    agent = _agent(
-        EventTriage(
-            verdict="major",
-            needs_user_input=True,
-            reasoning="the feed carried a headline and no text",
-        )
-    )
+    """Judging on the headline alone is what kept the September rate hikes out
+    of the corpus. An item whose page is unreachable is not judged at all: it
+    is recorded as failed, left un-journalled, and seen as new next week."""
+
+    async def unreachable(session: object, url: str, domains: object) -> str:
+        raise RuntimeError("connection reset")
 
     async def one_item(session: object, source: object) -> list[FeedItem]:
-        return [SNB]
+        return [FED]
 
+    monkeypatch.setattr(EW, "fetch_article", unreachable)
     monkeypatch.setattr(EW, "fetch_feed", one_item)
-    monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "SNB", "url": "u", "domain": "d"},))
+    monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "Fed", "url": "u", "domain": "d"},))
+    agent = _agent(EventTriage(verdict="major", summary="never reached"))
 
     report = await EW.run_event_watch(db, ingester, agent)
 
-    assert report.major == 1 and report.ingested == []
-    assert [item.url for item in report.flagged] == [SNB.url]
-    assert await db.query("SELECT id FROM document") == []
-    assert SNB.url in EW.flagged_message(report.flagged)
+    assert report.major == 0 and report.routine == 0 and report.ingested == []
+    assert "connection reset" in report.failed[FED.url]
+    assert await EW.unseen(db, [FED]) == [FED]
 
 
 async def test_a_major_item_is_ingested_under_its_url(
@@ -254,6 +279,9 @@ async def test_a_major_item_is_ingested_under_its_url(
     assert rows[0]["source_type"] == "url"
     assert rows[0]["source_path"] == FED.url  # the dedupe key, not the temp file
     assert rows[0]["author"] == "Federal Reserve"
+    # The page's text is in the corpus, where the Worker's retrieval reads it.
+    passages = await db.query("SELECT content FROM passage")
+    assert any(_page_text(FED.url) in str(r["content"]) for r in passages)
     # ...and it dedupes on the next run, which is what makes the job idempotent.
     assert await EW.unseen(db, [FED]) == []
 
@@ -345,23 +373,31 @@ async def test_a_routine_item_is_not_re_triaged_the_following_week(
     assert second.routine == 0
 
 
-async def test_a_flagged_item_asks_the_owner_only_once(
+async def test_an_item_left_as_a_question_is_judged_again(
     db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`needs_user_input` is not ingested either, so the same unanswerable
-    headline was pushed to Telegram every week, forever."""
+    """Until 2026-10-18 an item the triage could not describe from its headline
+    was journalled with `needs_user_input` and left for the owner, who was never
+    reached. That row recorded a question, not a judgement, so the item comes
+    back — and is judged on its page this time."""
+    async with db.transaction():
+        await db.append_event(
+            type=EW.TRIAGE_EVENT,
+            source_uc=EW.SOURCE_UC,
+            source_id=SNB.url,
+            payload={"verdict": "major", "needs_user_input": True, "title": SNB.title},
+        )
 
     async def one_item(session: object, source: object) -> list[FeedItem]:
         return [SNB]
 
     monkeypatch.setattr(EW, "fetch_feed", one_item)
     monkeypatch.setattr(EW, "EVENT_SOURCES", ({"name": "SNB", "url": "u", "domain": "d"},))
-    agent = _agent(
-        EventTriage(verdict="major", needs_user_input=True, reasoning="a headline and no text")
-    )
+    agent = _agent(EventTriage(verdict="major", summary="cash access", reasoning="policy"))
 
-    assert len((await EW.run_event_watch(db, ingester, agent)).flagged) == 1
-    assert (await EW.run_event_watch(db, ingester, agent)).flagged == []
+    assert await EW.unseen(db, [SNB]) == [SNB]
+    assert len((await EW.run_event_watch(db, ingester, agent)).ingested) == 1
+    assert (await EW.run_event_watch(db, ingester, agent)).new == 0
 
 
 async def test_an_ingested_item_needs_no_second_record(

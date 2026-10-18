@@ -358,15 +358,20 @@ releases / FOMC statements, ECB press, SNB press; changing sources = edit
 the constant — complexify to runtime config only if a real need appears):
 
 1. Fetch new items since last run (dedupe by URL against existing Document source_paths) — mechanical.
-2. **LLM triage** (curator, `skill-triage-events`): MAJOR event
+2. **Bounded fetch** of each new item's official page, restricted to the
+   EVENT_SOURCES domains (`watch/article_text.py`: HTML main region, or the
+   PDF the page links on the same domain) — the feeds carry little more than
+   a headline. A page that cannot be fetched leaves the item un-judged and
+   retried the next week.
+3. **LLM triage** on that text (curator, `skill-triage-events`): MAJOR event
    (nomination, doctrine shift, emergency action) vs routine — routine is
-   discarded.
-3. Major events → **Document(kind=event)**: summary, entities, and
-   **enrichment** (e.g. Fed chair replaced → profile and likely intent of
-   the successor) from the source text + model knowledge + a **bounded
-   fetch** restricted to the EVENT_SOURCES domains; if still
-   insufficient, the item is flagged `needs-user-input` and pushed to
-   Telegram instead of being hallucinated.
+   discarded, its reasoning journalled. Major events → **Document(kind=event)**:
+   summary, entities, and **enrichment** (e.g. Fed chair replaced → profile
+   and likely intent of the successor) written only from the page's text and
+   what the model actually knows. Nothing is asked of the owner (owner,
+   2026-10-18 — the `needs-user-input` flag it replaces reached no one and
+   kept 11 of the first 23 major items, the September Fed and ECB hikes
+   among them, out of the corpus).
 4. Ingested SYNCHRONOUSLY via the same `CorpusIngester` (no watcher
    round-trip — UC4's sweep, minutes later, must see the events) →
    Passages + embeddings → Worker context and citable in
@@ -377,7 +382,7 @@ as a complement. Quantitative shocks stay mechanical (VIX/liquidity tags).
 General auto-watch (broad RSS, YouTube/X) stays deferred — I-9/I-26.
 **Output:** inbox deposits → Document(kind=event) (audited by
 IngestionEvent).
-**User action:** None, except answering `needs-user-input` flags.
+**User action:** None.
 
 ---
 

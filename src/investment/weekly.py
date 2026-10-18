@@ -56,7 +56,7 @@ from investment.mechanical.snapshots import build_snapshot
 from investment.ops.run_lock import AlreadyRunning
 from investment.runtime import AgentRuntime
 from investment.telegram.digest import collect_digest_inputs, render_digest
-from investment.watch.event_watch import flagged_message, run_event_watch
+from investment.watch.event_watch import run_event_watch
 
 logger = logging.getLogger(__name__)
 
@@ -193,14 +193,9 @@ def weekly_steps(
     window = int(thresholds["rolling_window_days"])
 
     async def event_watch() -> None:
-        """08:05. The flagged items are pushed to Telegram HERE rather than
-        waiting for the digest: `needs-user-input` is a question to the owner,
-        and a question that arrives four hours later inside a weekly report is
-        not a question (UC3: "flagged and pushed to Telegram instead of being
-        hallucinated")."""
-        report = await run_event_watch(db, runtime.ingester, runtime.triage_agent)
-        if report.flagged:
-            await send(flagged_message(report.flagged))
+        """08:05. Asks the owner nothing: the triage reads each item's official
+        page and decides (owner, 2026-10-18)."""
+        await run_event_watch(db, runtime.ingester, runtime.triage_agent)
 
     async def outcomes() -> None:
         """The 08:52 slot is TWO jobs (CLAUDE.md: "verdicts +12w, calibration,

@@ -1,8 +1,8 @@
 """Get the message to the owner — by whatever channel works.
 
 THE MESSAGE IS THE DELIVERABLE, the channel is an implementation detail. A week
-of work ends in one digest carrying the month's order; a `needs-user-input` flag
-is a question that has to reach a human. Until now Telegram was the only way
+of work ends in one digest carrying the month's order; an alert is a message
+that has to reach a human. Until now Telegram was the only way
 out, so a bad token meant the digest was rendered, logged as undelivered, and
 dropped — the owner losing the whole week's output to a credential.
 

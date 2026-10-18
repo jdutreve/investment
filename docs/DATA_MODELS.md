@@ -613,9 +613,11 @@ EventLog {
                         --  IngestionEvent (inbox watcher, per batch) |
                         --  ErrorEvent (failed job in the weekly chain) |
                         --  EventTriageEvent (UC3, one per item judged and
-                        --    DISCARDED — routine or needs_user_input, the two
-                        --    verdicts that create no Document; source_id =
-                        --    the item URL, which is the dedupe key) |
+                        --    DISCARDED as routine, with its reasoning — the
+                        --    verdict that creates no Document; source_id =
+                        --    the item URL, which is the dedupe key. Rows
+                        --    before 2026-10-18 may carry needs_user_input:
+                        --    a question, not a verdict, so not deduped) |
                         --  MarketSignalDriftEvent (the anti-drift verdict,
                         --    appended weekly whatever it says) |
                         --  ReplayEvent (Phase 9 shadow replay run) |
