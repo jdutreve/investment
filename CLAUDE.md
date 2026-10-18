@@ -160,7 +160,8 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   probabilities → 08:38 invariant forward sweep (`source='forward'`: every
   moment whose 12-week window has completed since the last sweep, confronted
   once) → 08:40 invariant weights → 08:45 UC6 valuations → 08:50 UC7
-  ranking → 08:52 outcomes (verdicts +12w, calibration, probation) → 08:54
+  ranking → 08:52 outcomes (verdicts +12w, calibration, probation, the Worker's
+  forecasts that came due) → 08:54
   signal attribution (`mechanical/attribution.py` — the ADOPTED strategy's own
   measurement: the stack against its CONTROL ARM `ms-trend-baseline` and against
   every enabled portfolio, over 1y/3y/5y/10y/full, on one common as-of. It
@@ -374,9 +375,9 @@ value became KNOWABLE (publication-dated, ALFRED first-release); replay and
 maturation are point-in-time by construction (`ts ≤ t`).
 
 **Entities** — 13 vertices, 11 relations (6 M:N tables + 5 FK columns),
-3 time-series, 13 document tables (10 in the spec + `curated_passage` the M7
+3 time-series, 14 document tables (10 in the spec + `curated_passage` the M7
 curation checkpoint, `innovation` the recurrence ledger, `revision_measurement`
-the measured-verdict ledger). These counts named what existed when they were
+the measured-verdict ledger, `forecast` the Worker's scored forecasts). These counts named what existed when they were
 written and drifted three times; the schema is the authority
 (`db/schema.py` section headers carry the same counts). Complete schema:
 docs/DATA_MODELS.md.

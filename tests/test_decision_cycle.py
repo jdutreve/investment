@@ -9,6 +9,7 @@ persisted; and the knowledge-only path where nothing is proposed."""
 import dataclasses
 import json
 from collections.abc import AsyncIterator
+from datetime import date
 from pathlib import Path
 
 import numpy as np
@@ -215,6 +216,43 @@ async def test_every_cycle_is_knowledge_only(rig) -> None:  # type: ignore[no-un
     assert selected == [inv["id"] for inv in result.context.top_invariants]
     assert set(selected) <= set(journalled["candidate_invariant_ids"])
     assert journalled["notes"] == result.context.notes
+
+
+async def test_the_readings_forecasts_are_recorded_with_it(rig) -> None:  # type: ignore[no-untyped-def]
+    """A forecast is only worth making if it is scored, and it can only be
+    scored if it is recorded: the reading's forecasts become rows tied to the
+    event that journalled them, due `horizon_weeks` after the cycle."""
+    db, pre, worker, post = rig
+    out = _worker_output()
+    out["market_signal_assessment"]["forecasts"] = [
+        {
+            "statement": "GLD ends below 3000",
+            "ticker": "GLD",
+            "side": "below",
+            "compared_with": "value",
+            "threshold": 3000.0,
+            "horizon_weeks": 6,
+            "probability": 0.6,
+        }
+    ]
+    q, s, w, p = _overrides(pre, worker, post, out)
+    with q, s, w, p:
+        await run_decision_cycle(
+            db,
+            pre,
+            worker,
+            post,
+            trigger="weekly",
+            thresholds=THRESHOLDS,
+            today=date(2026, 10, 18),
+        )
+    event = await db.query("SELECT id FROM event_log WHERE type = :t", t=WORKER_READING_EVENT)
+    rows = await db.query("SELECT * FROM forecast")
+    assert len(rows) == 1
+    assert rows[0]["reading_event_id"] == event[0]["id"]
+    assert rows[0]["made_on"] == "2026-10-18"
+    assert rows[0]["resolve_on"] == "2026-11-29"
+    assert rows[0]["probability"] == pytest.approx(0.6)
 
 
 def test_render_context_marks_the_defender_and_active_lighthouses() -> None:

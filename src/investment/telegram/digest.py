@@ -9,6 +9,7 @@ layer keeps decimal fractions; the presentation edge is the single place a
 reads as weights, not percentages — matching the EXAMPLE template).
 """
 
+import dataclasses
 import json
 from datetime import date, timedelta
 from typing import Any, TypedDict
@@ -24,8 +25,10 @@ from investment.market.liquidity import (
     level_in_sigma,
     liquidity_state,
 )
+from investment.mechanical import ratios
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
+from investment.mechanical.forecasts import load_forecast_record, record_summary
 from investment.mechanical.invariants import (
     ESTABLISHED_FIRST_SQL,
     ESTABLISHED_OR_JUDGED_SQL,
@@ -33,7 +36,12 @@ from investment.mechanical.invariants import (
     describe_evidence,
     evidence_summaries,
 )
-from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
+from investment.mechanical.market_signal import (
+    CREDIT_SPREAD,
+    MA_WINDOWS,
+    STACK_PORTFOLIO_ID,
+    YIELD_SLOPE,
+)
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
 from investment.worker.result import journalled_sections
@@ -275,7 +283,10 @@ def _invariant_lines(invariants: list[dict[str, Any]]) -> list[str]:
 
 
 def _market_signal_block(
-    decision: dict[str, Any] | None, worker_reading: dict[str, Any] | None = None
+    decision: dict[str, Any] | None,
+    worker_reading: dict[str, Any] | None = None,
+    live_values: dict[str, Any] | None = None,
+    forecast_record: dict[str, Any] | None = None,
 ) -> list[str]:
     """ADR-007's live monthly decision, rendered from its JOURNAL entry
     (`MarketSignalDecisionEvent`, writeback `dispose_market_signal`), not from a
@@ -369,11 +380,58 @@ def _market_signal_block(
         )
     if decision.get("reasoning"):
         lines.append(f"   Why: {decision['reasoning']}")
-    lines.extend(_worker_challenge_lines(worker_reading, decision.get("decision_date")))
+    lines.extend(_today_lines(decision, live_values or {}))
+    lines.extend(
+        _worker_challenge_lines(worker_reading, decision.get("decision_date"), forecast_record)
+    )
     return lines
 
 
-def _worker_challenge_lines(reading: dict[str, Any] | None, decision_date: Any) -> list[str]:
+def _today_lines(decision: dict[str, Any], live: dict[str, Any]) -> list[str]:
+    """Where the two signals and the checked sleeves stand TODAY, beside the
+    decision's own reads above. Printed by the machine since 2026-10-18, when
+    the Worker stopped restating it: the same facts on every channel, and never
+    a figure misquoted.
+
+    Each signal is read against the DECISION's median, as the mail's table does:
+    a ten-year median moves by basis points in a month, and that comparison is
+    the one that says where the next decision would land."""
+    signals = live.get("signals") or {}
+    sleeves = live.get("sleeves") or {}
+    if not signals and not sleeves:
+        return []
+    lines: list[str] = []
+    at_decision = decision.get("signals") or {}
+    reads = []
+    for ticker in sorted(signals):
+        now = signals[ticker]
+        median = (at_decision.get(ticker) or {}).get("trailing_median")
+        reads.append(
+            f"{ticker} {_g(now['value'])} vs {_g(median)} "
+            f"({signal_label(ticker, now['value'], median)})"
+        )
+    as_of = max((v["as_of"] for v in (*signals.values(), *sleeves.values())), default="?")
+    if reads:
+        lines.append(f"   Today ({as_of}): " + " · ".join(reads))
+    trend = []
+    for ticker in sorted(sleeves):
+        now = sleeves[ticker]
+        below = [
+            str(window)
+            for window, average in (now.get("moving_averages") or {}).items()
+            if average is not None and now["price"] < average
+        ]
+        trend.append(f"{ticker} below {'/'.join(below)}d" if below else f"{ticker} above")
+    if trend:
+        lines.append("   Trend today: " + " · ".join(trend))
+    return lines
+
+
+def _worker_challenge_lines(
+    reading: dict[str, Any] | None,
+    decision_date: Any,
+    forecast_record: dict[str, Any] | None = None,
+) -> list[str]:
     """The Worker's reading of the mechanical decision (ADR-011's "journalled and
     RENDERED" half), from the latest `WorkerReadingEvent`.
 
@@ -406,10 +464,78 @@ def _worker_challenge_lines(reading: dict[str, Any] | None, decision_date: Any) 
         for heading, points in journalled_sections(parts):
             lines.append(f"      {heading}")
             lines += [f"        · {point}" for point in points]
+        if forecast_record:
+            lines.append(f"      {forecast_record['summary']}")
         return lines
     # A reading journalled before it had parts: its text, as it was written.
     assessment = str(reading.get("market_signal_assessment") or "").strip()
     return [f"   🗣 Worker challenge{suffix}: {assessment}"] if assessment else []
+
+
+# -- today's values (live, weekly) ------------------------------------------
+
+
+async def collect_live_trend_snapshot(
+    db: InvestmentDB, decision: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Fresh sleeve/signal reads as of the latest knowable close, alongside the
+    decision's own AT-DECISION numbers (`trend_overlay.sleeves`, `signals`).
+
+    WHY THIS EXISTS. The decision is MONTHLY; this mail is WEEKLY. On every
+    holding week (most of them — ~9 out of 12, ADR-007) the decision block
+    alone shows a reading that is up to a month stale, while the catch-up job
+    has already refreshed `market_data` for the week. This queries the SAME
+    price series `mechanical.market_signal.load_series` builds its moving
+    averages from (`ratios.load_price`, `.rolling(window, min_periods=window)`
+    over an INTEGER count of trading-day rows, not a calendar window — see
+    that module's own note on the distinction), just unshifted and read at the
+    latest available row instead of the decision's previous-close."""
+    if not decision:
+        return {}
+    overlay = decision.get("trend_overlay") or {}
+    sleeve_tickers = sorted((overlay.get("sleeves") or {}).keys())
+    signal_tickers = sorted((decision.get("signals") or {}).keys())
+
+    sleeves: dict[str, dict[str, Any]] = {}
+    for ticker in sleeve_tickers:
+        series = await ratios.load_price(db, ticker)
+        if series.empty:
+            continue
+        mas = {}
+        for window in MA_WINDOWS:
+            rolling = series.rolling(window, min_periods=window).mean()
+            last = rolling.iloc[-1] if not rolling.empty else None
+            mas[window] = float(last) if last is not None and last == last else None  # NaN check
+        sleeves[ticker] = {
+            "price": float(series.iloc[-1]),
+            "as_of": series.index[-1].date().isoformat(),
+            "moving_averages": mas,
+        }
+
+    signals: dict[str, dict[str, Any]] = {}
+    for ticker in signal_tickers:
+        series = await ratios.load_price(db, ticker)
+        if series.empty:
+            continue
+        signals[ticker] = {
+            "value": float(series.iloc[-1]),
+            "as_of": series.index[-1].date().isoformat(),
+        }
+    return {"sleeves": sleeves, "signals": signals}
+
+
+def signal_label(ticker: str, value: float | None, median: float | None) -> str:
+    """A two-word descriptor matching `market_signal.BOOKS`' own naming
+    (credit-spread-tight/-wide, yield-curve-steep/-flat) — cosmetic only,
+    drives no decision; the decision's own hysteresis is the authority on the
+    book."""
+    if value is None or median is None:
+        return "?"
+    if ticker == CREDIT_SPREAD:
+        return "tight" if value < median else "wide"
+    if ticker == YIELD_SLOPE:
+        return "steep" if value > median else "flat"
+    return "?"
 
 
 def _stack_block(stack: dict[str, Any] | None) -> list[str]:
@@ -649,6 +775,8 @@ def render_digest(
     worker_reading: dict[str, Any] | None = None,
     recurring: list[dict[str, Any]] | None = None,
     signal_attribution: dict[str, Any] | None = None,
+    live_values: dict[str, Any] | None = None,
+    forecast_record: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -668,7 +796,7 @@ def render_digest(
         _regime_header(regime, global_liquidity),
         _ranking_block(ranking),
         _invariant_block(invariants),
-        _market_signal_block(market_signal, worker_reading),
+        _market_signal_block(market_signal, worker_reading, live_values, forecast_record),
         _stack_block(stack),
         _attribution_block(signal_attribution),
         _proposal_block(proposal),
@@ -825,6 +953,12 @@ class DigestInputs(TypedDict):
     worker_reading: dict[str, Any] | None
     recurring: list[dict[str, Any]]
     signal_attribution: dict[str, Any] | None
+    # TODAY's signals and trend lines beside the decision's (`collect_live_trend_snapshot`):
+    # the facts the Worker no longer restates (2026-10-18), printed by the machine.
+    live_values: dict[str, Any]
+    # The Worker's record as forecaster (`mechanical/forecasts.py`), None before
+    # the first forecast is made.
+    forecast_record: dict[str, Any] | None
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -863,6 +997,9 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
     evidence = await evidence_summaries(db, [str(r["id"]) for r in invariant_rows])
     invariants = [_with_evidence(dict(r), evidence.get(str(r["id"]))) for r in invariant_rows]
     defender = next((r for r in ranking if r.get("defender")), None)
+    market_signal = await _latest_market_signal_decision(db)
+    record = await load_forecast_record(db)
+    has_forecasts = record.scored or record.open or record.unscorable
     return DigestInputs(
         regime=dict(regime_rows[0]) if regime_rows else {},
         global_liquidity=liquidity_standing,
@@ -873,10 +1010,16 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         defender_metrics=dict(defender) if defender else None,
         alerts=await collect_alerts(db, today),
         stack=await _stack_standing(db),
-        market_signal=await _latest_market_signal_decision(db),
+        market_signal=market_signal,
         worker_reading=await _latest_worker_reading(db),
         recurring=await _recurring_themes(db),
         signal_attribution=await _latest_attribution(db),
+        live_values=await collect_live_trend_snapshot(db, market_signal),
+        forecast_record=(
+            {**dataclasses.asdict(record), "summary": record_summary(record)}
+            if has_forecasts
+            else None
+        ),
     )
 
 

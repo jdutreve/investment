@@ -1,10 +1,10 @@
 """Full SQLite schema (ADR-004) — see docs/DATA_MODELS.md for the conceptual
 spec this maps physically: 13 entity tables ("vertices"), 6 M:N tables
 ("edges" — the other 5 relations are FK+property columns on the child, per
-DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 13 document
+DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 14 document
 tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
 + `innovation`, the recurrence ledger, + `revision_measurement`,
-the measured-verdict ledger).
+the measured-verdict ledger, + `forecast`, the Worker's scored forecasts).
 
 Every count in that sentence has been wrong at some point — each named what
 existed when it was typed and outlived it. They are checked against the DDL
@@ -409,7 +409,7 @@ CREATE TABLE IF NOT EXISTS portfolio_nav (
 );
 
 -- ============================================================
--- DOCUMENT TABLES (13) — plain tables, not part of the conceptual graph
+-- DOCUMENT TABLES (14) — plain tables, not part of the conceptual graph
 -- ============================================================
 
 -- Static (5)
@@ -476,7 +476,7 @@ CREATE TABLE IF NOT EXISTS detector_state (
   updated_at              TEXT NOT NULL
 );
 
--- Analytical (8)
+-- Analytical (9)
 
 -- A PIECE OF EVIDENCE HAS TWO DATES (docs/INVARIANT_IMPROVEMENT_PLAN.md 1.1).
 -- `signal_date` is the day the condition held and the claim was put to the
@@ -697,6 +697,41 @@ CREATE TABLE IF NOT EXISTS revision_measurement (
   PRIMARY KEY (overrides_key, window_start, window_end)
 );
 
+-- THE WORKER'S FORECASTS, scored when due (`mechanical/forecasts.py`).
+--
+-- A reading that cannot be wrong teaches nothing (owner, 2026-10-18: "le
+-- worker ne fait que reprendre les faits qu'on lui donne"). Each forecast is
+-- one series, one side, one reference and one date, so the outcome is a fact
+-- the market supplies, and the Worker reads its own record back next cycle.
+--
+-- WRITTEN TWICE, never more: inserted with the reading that made it (same
+-- transaction, after its `WorkerReadingEvent`), then completed once when
+-- scored, after its `ForecastScoredEvent`. `scored_on` set with `came_true`
+-- NULL is a forecast that could not be scored, and `unscorable_reason` says why.
+CREATE TABLE IF NOT EXISTS forecast (
+  id                TEXT PRIMARY KEY,
+  reading_event_id  TEXT NOT NULL,      -- the WorkerReadingEvent that made it
+  made_on           TEXT NOT NULL,
+  resolve_on        TEXT NOT NULL,      -- scored on the last print knowable that day
+  statement         TEXT NOT NULL,      -- the same claim in words, for the owner
+  ticker            TEXT NOT NULL,
+  side              TEXT NOT NULL,      -- 'above' | 'below'
+  compared_with     TEXT NOT NULL,      -- 'value' | 'ten_year_median' | 'moving_average'
+  threshold         REAL,               -- 'value' only
+  window_days       INTEGER,            -- 'moving_average' only
+  probability       REAL NOT NULL,      -- that the claim holds on resolve_on
+  scored_on         TEXT,
+  came_true         BOOLEAN,
+  observed          REAL,
+  observed_on       TEXT,
+  reference_value   REAL,
+  unscorable_reason TEXT,
+  trace             TEXT NOT NULL,
+  created_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_forecast_due ON forecast(scored_on, resolve_on);
+
 CREATE TABLE IF NOT EXISTS replay_report (
   id                  TEXT PRIMARY KEY,
   run_at              TEXT NOT NULL,
@@ -797,6 +832,8 @@ DOCUMENT_TABLES = {
     # arrived (CLAUDE.md: "WHEN A SECOND ONE ARRIVES").
     "innovation",
     "revision_measurement",
+    # 2026-10-18: the Worker's forecasts, scored when due (`mechanical/forecasts.py`).
+    "forecast",
 }
 
 

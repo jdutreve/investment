@@ -1143,15 +1143,17 @@ class WorkerResult(BaseModel):
     regime_assessment       : str
     ranking_commentary      : str                       # explains, never re-ranks
     market_signal_assessment: MarketSignalReading   # the reading of the mechanical
-                              # decision, IN PARTS since 2026-10-11: bottom_line,
-                              # what_the_decision_saw, since_then, my_reading,
-                              # what_to_watch — a fact, a judgement and a forecast
-                              # each in a list of its own, a point <= 400 chars.
-                              # Journalled as text AND with its headed sections,
-                              # which the digest, the mail and the dashboard show.
+                              # decision, IN PARTS: bottom_line, my_reading,
+                              # what_would_prove_it_wrong, forecasts (<= 3, each
+                              # one series vs one reference at a date, with a
+                              # probability — scored when due by
+                              # mechanical/forecasts.py). No part restates facts
+                              # since 2026-10-18: the decision and today's values
+                              # are printed by the machine beside it. Journalled as
+                              # text AND with its headed sections.
     scenario_adjustments    : list[ScenarioAdjustment]  # qualitative triggers only
     evaluations             : list[EvaluationDraft]
-    innovations_proposed    : list[ImprovementProposal] # [] means "nothing", said
+    innovations_proposed    : list[ImprovementProposal] # <= 1; [] means "nothing", said
     reasoning               : str
 ```
 No `reallocation_proposed`, and no `ReallocationProposal` model: ADR-012. Every

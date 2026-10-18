@@ -105,6 +105,12 @@ export interface Overview {
   // "add a field there and render_digest must take it" (telegram/digest.py);
   // no page renders it yet.
   signal_attribution: Row | null;
+  // Today's signals and trend lines (telegram/digest.collect_live_trend_snapshot);
+  // the pages read the richer live_trend of /api/stack instead.
+  live_values: Row;
+  // The Worker's record as forecaster (mechanical/forecasts.py), with the
+  // one-sentence summary every front prints; null before any forecast.
+  forecast_record: Row | null;
 }
 
 // One series of the macro board (market/macro_board.py).

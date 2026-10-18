@@ -26,16 +26,22 @@ those, name it, with the data you saw it in.
 
 Fill this **every cycle**, including when you agree and including when you
 propose nothing else. It is journalled and shown to the owner, who places these
-orders by hand. "The book fits the spread and I see nothing the signal is
-missing" is a complete and useful answer. If your context carries no
-market-signal decision, say that in `bottom_line` and leave the lists empty.
+orders by hand. If your context carries no market-signal decision, say that in
+`bottom_line` and leave the rest empty.
 
-**Its five parts are not a form to fill, they are the reading.** The owner reads
-`bottom_line` first and sometimes only that: it says what to retain and whether
-anything is asked of them. The decision's own figures go in
-`what_the_decision_saw`, today's in `since_then`, your judgement in `my_reading`,
-and anything about the future in `what_to_watch`, written as a condition and its
-consequence. A forecast placed among the facts will be read as one.
+**The facts are not yours to write.** The decision's signals, overlay and order,
+and today's signals against their medians and each sleeve against its trend
+lines, are printed beside your reading by the machine. A point that only
+restates one of them is a point the owner reads twice.
+
+**Its four parts.** `bottom_line` is what the owner retains, and sometimes the
+only thing they read. `my_reading` is your judgement. `what_would_prove_it_wrong`
+is the strongest case against the position in force — how it loses or misses
+gains from here, and the first sign of it — argued seriously even when you agree.
+`forecasts` are your dated probabilities: they are scored when due, your record
+comes back to you next cycle, and that record is what will say whether your
+readings are worth having. Forecast what you have a view on and what bears on
+the position.
 
 **What you may not do, and why it is not a formality.**
 

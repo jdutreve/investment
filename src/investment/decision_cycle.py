@@ -40,6 +40,7 @@ from typing import Any
 from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.forecasts import describe_record, record_forecasts
 from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.mechanical.research_findings import describe_findings
@@ -294,6 +295,10 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # the measured settings because it is read the same way, and unconditional
     # because it does not depend on the ledger having rows.
     lines += ["", *describe_findings()]
+    # How the Worker's own last forecasts came out, so the next ones are made
+    # knowing it (owner, 2026-10-18).
+    if context.forecast_record is not None:
+        lines += ["", *describe_record(context.forecast_record)]
 
     lines += [
         "",
@@ -491,8 +496,9 @@ async def journal_worker_reading(
     without it, a critique read six months later cannot be told from a stale one.
     None when the context carried no market-signal decision yet."""
     market_signal = context.market_signal or {}
+    made_on = today or date.today()
     async with db.transaction():
-        await db.append_event(
+        reading_event_id = await db.append_event(
             type=WORKER_READING_EVENT,
             source_uc=SOURCE_UC,
             source_id=run_id,
@@ -510,7 +516,15 @@ async def journal_worker_reading(
                 "ranking_commentary": worker_result.ranking_commentary,
                 "reasoning": worker_result.reasoning,
             },
-            event_date=today,
+            event_date=made_on,
+        )
+        # The forecasts the reading carries become rows the outcomes step scores
+        # when due (`mechanical/forecasts.py`), after the event that made them.
+        await record_forecasts(
+            db,
+            reading_event_id=reading_event_id,
+            made_on=made_on,
+            forecasts=worker_result.market_signal_assessment.forecasts,
         )
 
 

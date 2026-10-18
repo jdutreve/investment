@@ -454,6 +454,43 @@ def test_a_reading_in_parts_is_laid_out_with_its_bottom_line_first() -> None:
     assert "the text, kept for readers of the journal" not in text
 
 
+def test_todays_values_and_the_forecast_record_are_printed_by_the_machine() -> None:
+    """Owner, 2026-10-18: the Worker no longer restates the tape, so the digest
+    prints it — each signal today against the decision's median, each checked
+    sleeve against its lines — and the Worker's record under its forecasts."""
+    decision = {
+        **_DECISION,
+        "signals": {
+            "BAA10Y": {"value": 1.47, "trailing_median": 1.95},
+            "T10Y2Y": {"value": 0.41, "trailing_median": 0.39},
+        },
+    }
+    live = {
+        "signals": {
+            "BAA10Y": {"value": 1.44, "as_of": "2026-10-16"},
+            "T10Y2Y": {"value": 0.33, "as_of": "2026-10-16"},
+        },
+        "sleeves": {
+            "IEF": {"price": 492.8, "as_of": "2026-10-16", "moving_averages": {150: 495, 300: 501}},
+            "SPY": {"price": 700.0, "as_of": "2026-10-16", "moving_averages": {150: 650, 300: 620}},
+        },
+    }
+    text = _digest(
+        market_signal=decision,
+        live_values=live,
+        forecast_record={"summary": "Forecast record: none scored yet, 2 open."},
+        worker_reading={
+            "market_signal_decision_date": "2026-08-03",
+            "market_signal_assessment": "x",
+            "market_signal_reading": {"bottom_line": "Nothing is asked of you.", "sections": []},
+        },
+    )
+    assert "   Today (2026-10-16): BAA10Y 1.44 vs 1.95 (tight) · T10Y2Y 0.33 vs 0.39 (flat)" in text
+    assert "   Trend today: IEF below 150/300d · SPY above" in text
+    assert "      Forecast record: none scored yet, 2 open." in text
+    assert text.index("Trend today") < text.index("Worker challenge")
+
+
 def test_a_reading_of_a_previous_decision_is_shown_but_flagged() -> None:
     """The decision is monthly and the Worker runs weekly, so a failed or skipped
     cognitive cycle leaves the latest reading pointing at LAST month's book.

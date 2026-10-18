@@ -304,9 +304,11 @@ function AssetsCard({
 function WorkerReading({
   reading,
   stale,
+  record,
 }: {
   reading: Row | null;
   stale: boolean;
+  record: Row | null;
 }) {
   if (!s(reading, "market_signal_assessment")) return null;
   const parts = s(reading, "market_signal_reading") as Row | undefined;
@@ -343,6 +345,9 @@ function WorkerReading({
           </div>
         ))}
       </div>
+      {s(record, "summary") ? (
+        <p className="freshness">{String(s(record, "summary"))}</p>
+      ) : null}
     </div>
   );
 }
@@ -470,12 +475,14 @@ function BookCell({ state, books }: { state: string; books: BookRow[] }) {
 function DecisionCard({
   decision,
   reading,
+  record,
   live,
   rule,
   books,
 }: {
   decision: Row | null;
   reading: Row | null;
+  record: Row | null;
   live: LiveTrend | null;
   rule: CurrentRule | null;
   books: BookRow[];
@@ -698,7 +705,7 @@ function DecisionCard({
         </div>
       </details>
 
-      <WorkerReading reading={reading} stale={stale} />
+      <WorkerReading reading={reading} stale={stale} record={record} />
 
       <div style={{ marginTop: 12 }}>
         <Link className="freshness" to="/stack">
@@ -1138,6 +1145,7 @@ export function Overview() {
         <DecisionCard
           decision={data.market_signal}
           reading={data.worker_reading}
+          record={data.forecast_record}
           live={stack.data?.live_trend ?? null}
           rule={stack.data?.current_rule ?? null}
           books={stack.data?.books ?? []}

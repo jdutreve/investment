@@ -17,6 +17,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.market_signal import MA_WINDOWS
 from investment.worker.agent import (
     OUTPUT_RETRIES,
     SKILL_ORDER,
@@ -31,6 +32,7 @@ from investment.worker.agent import (
     run_worker,
 )
 from investment.worker.result import (
+    Forecast,
     ImprovementProposal,
     ImprovementType,
     MarketSignalReading,
@@ -413,27 +415,87 @@ def test_a_point_that_runs_on_is_refused() -> None:
     with pytest.raises(ValidationError):
         MarketSignalReading.model_validate(_reading(my_reading=["x" * 401]))
     with pytest.raises(ValidationError):
-        MarketSignalReading.model_validate(_reading(what_to_watch=["one"] * 7))
+        MarketSignalReading.model_validate(_reading(what_would_prove_it_wrong=["one"] * 7))
 
 
-def test_a_forecast_keeps_its_heading_in_every_channel() -> None:
-    """A fact, a judgement and a forecast each have their own part, and the
-    heading each is shown under is journalled WITH the reading — the digest,
-    the mail and the dashboard read it from there and hold no copy."""
+def _forecast(**overrides: object) -> dict[str, object]:
+    return {
+        "statement": "IEF closes above its 150-day line",
+        "ticker": "IEF",
+        "side": "above",
+        "compared_with": "moving_average",
+        "window_days": MA_WINDOWS[0],
+        "horizon_weeks": 4,
+        "probability": 0.35,
+        **overrides,
+    }
+
+
+def test_a_forecast_carries_exactly_what_scoring_it_needs() -> None:
+    """A forecast is scored by a machine (`mechanical/forecasts.py`), so one
+    that names no reference, or a reference with the wrong field, is refused at
+    the boundary — the model answers again rather than leaving a claim nothing
+    can settle."""
+    assert Forecast.model_validate(_forecast()).window_days == MA_WINDOWS[0]
+    Forecast.model_validate(_forecast(compared_with="value", window_days=None, threshold=490.0))
+    Forecast.model_validate(_forecast(compared_with="ten_year_median", window_days=None))
+    refused = [
+        _forecast(window_days=7),  # not one of the overlay's lines
+        _forecast(compared_with="value", window_days=None),  # a value with no threshold
+        _forecast(threshold=490.0),  # a threshold on a moving average
+        _forecast(compared_with="ten_year_median"),  # a window on a median
+        _forecast(horizon_weeks=14),  # past one quarter
+        _forecast(probability=1.2),
+    ]
+    for bad in refused:
+        with pytest.raises(ValidationError):
+            Forecast.model_validate(bad)
+    with pytest.raises(ValidationError):
+        MarketSignalReading.model_validate(_reading(forecasts=[_forecast()] * 4))
+
+
+def test_the_reading_carries_no_restated_facts_and_keeps_its_headings() -> None:
+    """Owner, 2026-10-18: three parts of five restated the context. The facts
+    are printed by the machine now, so the reading has no part for them; the
+    headings it has are journalled WITH it, and the digest, the mail and the
+    dashboard read them from there and hold no copy."""
+    assert set(MarketSignalReading.model_fields) == {
+        "bottom_line",
+        "my_reading",
+        "what_would_prove_it_wrong",
+        "forecasts",
+    }
     reading = MarketSignalReading.model_validate(
         _reading(
-            what_the_decision_saw=["BAA10Y 1.47 against a median of 1.95 on 2026-10-01."],
-            what_to_watch=["If IWN breaks its second line, the book goes to 100% cash."],
+            what_would_prove_it_wrong=["A soft CPI print rallies bonds while the book is cash."],
+            forecasts=[_forecast()],
         )
     )
     journalled = reading.journal()
     assert journalled["bottom_line"].startswith("Nothing is asked")
+    assert journalled["forecasts"][0]["ticker"] == "IEF"
     assert journalled_sections(journalled) == [
-        ("What the decision saw", ["BAA10Y 1.47 against a median of 1.95 on 2026-10-01."]),
         (
-            "What to watch (forecasts, not facts)",
-            ["If IWN breaks its second line, the book goes to 100% cash."],
+            "What would prove the position wrong",
+            ["A soft CPI print rallies bonds while the book is cash."],
         ),
+        ("Forecasts (scored when due)", ["IEF closes above its 150-day line — 35%, in 4 weeks"]),
     ]
-    assert "What to watch (forecasts, not facts):" in reading.render()
-    assert "Since then" not in reading.render()  # an empty part prints no heading
+    assert "My reading" not in reading.render()  # an empty part prints no heading
+
+
+def test_a_second_innovation_is_refused() -> None:
+    """Owner, 2026-10-18: one idea worth testing a week, or none."""
+    idea = ImprovementProposal(
+        type=ImprovementType.strategy_revision, title="t", rationale="r", spec={}, trace="tr"
+    )
+    with pytest.raises(ValidationError):
+        WorkerResult(
+            regime_assessment="calm",
+            ranking_commentary="as ranked",
+            market_signal_assessment=a_reading("the book fits the spread"),
+            reasoning="—",
+            scenario_adjustments=[],
+            evaluations=[],
+            innovations_proposed=[idea, idea],
+        )

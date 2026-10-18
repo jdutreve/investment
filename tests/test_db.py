@@ -93,8 +93,9 @@ async def test_schema_declares_every_table_it_creates(db: InvestmentDB) -> None:
     # 31 in the spec + `curated_passage` (M7 curation checkpoint) + `proposal_cites`
     # (M8 reallocation citations, for the source='proposal' confrontations)
     # + `innovation` (the recurrence ledger) + `revision_measurement` (the
-    # measured-verdict ledger), both 2026-08-11.
-    assert len(expected) == 35
+    # measured-verdict ledger), both 2026-08-11, + `forecast` (the Worker's
+    # scored forecasts), 2026-10-18.
+    assert len(expected) == 36
 
 
 async def test_trace_mandatory_on_vertices(db: InvestmentDB) -> None:

@@ -1238,6 +1238,21 @@ CREATE TABLE IF NOT EXISTS revision_measurement (...);
 -- run against an as-of snapshot bounded at t answers 1991..t, and recording it
 -- under the full window would write a falsehood into the one table built to
 -- stop questions being re-asked.
+
+CREATE TABLE IF NOT EXISTS forecast (...);
+-- id STRING (PK), reading_event_id STRING (the WorkerReadingEvent that made
+--   it), made_on DATE, resolve_on DATE, statement STRING, ticker STRING,
+-- side STRING ('above'|'below'), compared_with STRING ('value'|
+--   'ten_year_median'|'moving_average'), threshold REAL, window_days INTEGER,
+-- probability REAL, scored_on DATE, came_true BOOLEAN, observed REAL,
+-- observed_on DATE, reference_value REAL, unscorable_reason STRING, trace,
+-- created_at
+-- THE WORKER'S FORECASTS (mechanical/forecasts.py, 2026-10-18), scored when
+-- due on the last print knowable on `resolve_on` (ADR-003), against the
+-- reference the rule itself computes. Written with the reading (after its
+-- event), completed once when scored (after its ForecastScoredEvent). The
+-- record — Brier score beside the 0.25 of saying 50% to everything — is read
+-- back by the Worker every cycle and printed under its forecasts.
 ```
 
 Ranking rule (applies to snapshot rows):

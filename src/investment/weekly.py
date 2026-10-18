@@ -38,7 +38,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import CYCLE_COMPLETED_EVENT, run_decision_cycle
 from investment.delivery import deliver, outbox_path
 from investment.gmail.draft import create_draft as create_gmail_draft
-from investment.gmail.render import collect_live_trend_snapshot, render_digest_html
+from investment.gmail.render import render_digest_html
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.as_of_cycle import reweigh_invariants_asof
 from investment.mechanical.attribution import run_signal_attribution
@@ -47,6 +47,7 @@ from investment.mechanical.backtests import (
     run_backtests_and_favors,
 )
 from investment.mechanical.catchup import run_catchup
+from investment.mechanical.forecasts import score_due_forecasts
 from investment.mechanical.invariants import confront_completed_moments
 from investment.mechanical.momentum_minvar import run_aaaf_r_cycle
 from investment.mechanical.outcomes import evaluate_proposals, strategy_probation_check
@@ -198,12 +199,15 @@ def weekly_steps(
         await run_event_watch(db, runtime.ingester, runtime.triage_agent)
 
     async def outcomes() -> None:
-        """The 08:52 slot is TWO jobs (CLAUDE.md: "verdicts +12w, calibration,
-        probation"). Scenario calibration is not among them: ADR-007 superseded
-        it and `score_scenarios` was removed, which `digest.build_scoreboard`
-        records by keeping `calibration_flags` empty."""
+        """The 08:52 slot is THREE jobs: CLAUDE.md's "verdicts +12w, calibration,
+        probation", and since 2026-10-18 the Worker's forecasts that have come
+        due (`mechanical/forecasts.py`) — before `uc8`, so the Worker reads a
+        record that includes them. Scenario calibration is not among them:
+        ADR-007 superseded it and `score_scenarios` was removed, which
+        `digest.build_scoreboard` records by keeping `calibration_flags` empty."""
         await evaluate_proposals(db, today)
         await strategy_probation_check(db, today)
+        await score_due_forecasts(db, today)
 
     async def cognitive_cycle() -> None:
         """09:00. Skipped when this week's chain already ran one — the only
@@ -238,7 +242,6 @@ def weekly_steps(
         inputs = await collect_digest_inputs(db, today)
         text = render_digest(**inputs)
         await send(text)
-        live = await collect_live_trend_snapshot(db, inputs.get("market_signal"))
         # `imaplib` is BLOCKING network I/O (CLAUDE.md "Asyncio single-writer:
         # never block the loop") — off the loop via `to_thread`, exactly as
         # every other synchronous network call in this codebase must be.
@@ -248,7 +251,7 @@ def weekly_steps(
             app_password=settings.gmail_app_password,
             subject=f"Investment digest — {today.isoformat()}",
             text=text,
-            html=render_digest_html(inputs, live, today),
+            html=render_digest_html(inputs, inputs["live_values"], today),
         )
 
     return [

@@ -23,9 +23,11 @@ retry policy rejects, not a silent no-op.
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from investment.mechanical.market_signal import MA_WINDOWS
 
 
 class ImprovementType(StrEnum):
@@ -139,38 +141,90 @@ Point = Annotated[str, Field(min_length=1, max_length=_POINT_CHARS)]
 Points = Annotated[list[Point], Field(max_length=_POINTS)]
 
 
+class Forecast(StrictModel):
+    """One forecast the Worker makes, in a form a machine can score.
+
+    WHY FORECASTS AT ALL (owner, 2026-10-18: "le worker ne fait que reprendre
+    les faits qu'on lui donne. Rien de pertinent n'en sort"). The reading asked
+    for "what to watch" as conditions — "if the slope stays below its median,
+    the signal turns flat" — which is the rule's own mechanics restated: a
+    program writes them, and none of them could ever be wrong. A probability
+    on a dated outcome can be, so it is scored (`mechanical/forecasts.py`) and
+    the Worker reads its own record back. That record is the only thing that
+    can tell a reading worth having from one that sounds right.
+
+    THE STATEMENT IS STRUCTURED, not parsed from prose: one series, one side,
+    one reference, one date. `statement` says the same thing in words for the
+    owner; the fields are what is scored. Three references, the ones the rule
+    itself reads: a stated value, the series' ten-year median (how the two
+    signals are read), and one of the trend overlay's moving averages."""
+
+    statement: str = Field(min_length=1, max_length=_POINT_CHARS)
+    ticker: str = Field(min_length=1, max_length=32)
+    side: Literal["above", "below"]
+    compared_with: Literal["value", "ten_year_median", "moving_average"]
+    # `value` only: the level the series is compared with, in its own unit.
+    threshold: float | None = Field(default=None, allow_inf_nan=False)
+    # `moving_average` only: which overlay line, in trading days.
+    window_days: int | None = None
+    # Scored on the last print knowable at made_on + horizon_weeks. Thirteen
+    # weeks at most: past one quarter a miss is no longer about this reading.
+    horizon_weeks: int = Field(ge=1, le=13)
+    # The probability that the statement holds on that date.
+    probability: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _reference_is_complete(self) -> Self:
+        """Each reference carries exactly the field it needs, so a forecast
+        that cannot be scored is refused here and the model answers again."""
+        if (self.compared_with == "value") != (self.threshold is not None):
+            raise ValueError("`threshold` is given exactly when compared_with is 'value'")
+        if self.compared_with == "moving_average":
+            if self.window_days not in MA_WINDOWS:
+                raise ValueError(f"`window_days` must be one of the overlay's lines {MA_WINDOWS}")
+        elif self.window_days is not None:
+            raise ValueError("`window_days` is given only when compared_with is 'moving_average'")
+        return self
+
+    def render(self) -> str:
+        """The forecast as the owner reads it: the words, then the odds and the
+        horizon."""
+        weeks = f"{self.horizon_weeks} week{'s' if self.horizon_weeks > 1 else ''}"
+        return f"{self.statement} — {self.probability:.0%}, in {weeks}"
+
+
+# At most this many a cycle: a few forecasts the Worker means, not a spread of
+# hedges that would score well by covering every side.
+_FORECASTS = 3
+
+
 class MarketSignalReading(StrictModel):
     """The Worker's reading of the month's mechanical decision, IN PARTS.
 
     IT WAS ONE STRING, and on 2026-10-11 that string was six hundred words in a
-    single paragraph: the conclusion in its last sentence, readings on two
-    clocks, judgements and forecasts all in one voice, and nothing to tell a
-    measured fact from a bet. The content was good and the owner could not read
-    it. The parts below are the ones that paragraph already contained, each in
-    a field of its own, so that what kind of statement a sentence is does not
-    depend on how it is phrased.
+    single paragraph. Split into five parts that day, two of which were FACTS
+    (what the decision saw, the tape since) and a third the rule's own
+    mechanics written as conditions — so three parts out of five restated the
+    context the Worker had been given (owner, 2026-10-18: "rien de pertinent
+    n'en sort"). Those facts are now rendered mechanically beside the reading
+    (the decision block and today's values in every channel), and the Worker is
+    asked only for what a program cannot write:
 
-    `bottom_line` comes first because the owner places the order by hand and
-    reads this on a phone: what to retain, and whether anything is asked of
-    them. The four lists keep apart what must not be mixed — the DECISION's own
-    figures, the tape since, the Worker's judgement, and its forecasts. A list
-    may be empty; the bottom line may not.
+    - `bottom_line`: what the owner should retain, and whether anything is asked.
+    - `my_reading`: what the instrument cannot see, as judgement.
+    - `what_would_prove_it_wrong`: the scenario in which the position in force
+      loses, and the first sign it is starting.
+    - `forecasts`: dated, scored probabilities (`Forecast`).
 
     The length limits are the instruction, enforced: a point that does not fit
     is two points, or is not one."""
 
     bottom_line: str = Field(min_length=1, max_length=_POINT_CHARS)
-    # Facts on the DECISION clock: what the monthly decision saw, each with its
-    # figure and date. The only place a decision-date number belongs.
-    what_the_decision_saw: Points
-    # Facts on TODAY's clock: where the tape has moved since, each dated.
-    since_then: Points
-    # Judgement: where the decision looks wrong and what the instrument cannot
-    # see. Said as judgement, because it is one.
+    # Judgement: what the instrument cannot see. Said as judgement, because it is one.
     my_reading: Points
-    # Forecasts and conditions: what would change the next decision. Kept apart
-    # because a forecast written in the voice of a reading is taken for one.
-    what_to_watch: Points
+    # The case against the position in force: how it loses, and what would show it.
+    what_would_prove_it_wrong: Points
+    forecasts: Annotated[list[Forecast], Field(max_length=_FORECASTS)]
 
     def render(self) -> str:
         """The reading as text: the bottom line, then each part under its
@@ -196,18 +250,18 @@ class MarketSignalReading(StrictModel):
         """The non-empty parts with the heading each is shown under. ONE list of
         headings, written into the journal with the reading (`journal`), so that
         a forecast cannot be labelled a fact in one channel."""
-        return [
-            (READING_HEADINGS[name], points)
-            for name in READING_HEADINGS
-            if (points := getattr(self, name))
-        ]
+        parts = {
+            "my_reading": self.my_reading,
+            "what_would_prove_it_wrong": self.what_would_prove_it_wrong,
+            "forecasts": [forecast.render() for forecast in self.forecasts],
+        }
+        return [(READING_HEADINGS[name], points) for name, points in parts.items() if points]
 
 
 READING_HEADINGS: dict[str, str] = {
-    "what_the_decision_saw": "What the decision saw",
-    "since_then": "Since then, on today's tape",
     "my_reading": "My reading (judgement, not measurement)",
-    "what_to_watch": "What to watch (forecasts, not facts)",
+    "what_would_prove_it_wrong": "What would prove the position wrong",
+    "forecasts": "Forecasts (scored when due)",
 }
 
 
@@ -259,5 +313,8 @@ class WorkerResult(StrictModel):
     # include innovations_proposed, an empty list if none").
     scenario_adjustments: list[ScenarioAdjustment]
     evaluations: list[EvaluationDraft]
-    innovations_proposed: list[ImprovementProposal]
+    # ONE AT MOST (owner, 2026-10-18): one idea worth testing a week, or none.
+    # Several a week had become the norm and none had yet become an invariant
+    # or a strategy.
+    innovations_proposed: Annotated[list[ImprovementProposal], Field(max_length=1)]
     reasoning: str  # also the Proposal vertex's reasoning (switch commentary folded in)

@@ -22,6 +22,7 @@ import pytest
 from investment.db.sqlite import InvestmentDB
 from investment.gmail import render
 from investment.mechanical.alerts import Alert
+from investment.telegram import digest
 from investment.telegram.digest import DigestInputs
 
 TODAY = date(2026, 8, 16)
@@ -362,13 +363,13 @@ DECISION = {
 async def test_the_live_snapshot_reads_the_latest_price_and_its_own_date(
     db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(render, "MA_WINDOWS", (2, 3))
+    monkeypatch.setattr(digest, "MA_WINDOWS", (2, 3))
     await _prices(db, "SPY", [100.0, 101.0, 102.0, 103.0])
     await _prices(db, "VCIT", [50.0, 50.0, 50.0, 49.0])
     await _prices(db, "BAA10Y", [1.6, 1.62, 1.64, 1.67])
     await _prices(db, "T10Y2Y", [0.44, 0.45, 0.46, 0.48])
 
-    live = await render.collect_live_trend_snapshot(db, DECISION)
+    live = await digest.collect_live_trend_snapshot(db, DECISION)
 
     assert live["sleeves"]["SPY"]["price"] == pytest.approx(103.0)
     assert live["signals"]["BAA10Y"]["value"] == pytest.approx(1.67)
@@ -384,16 +385,16 @@ async def test_insufficient_history_reports_None_not_a_wrong_average(
     """A window that has not warmed up must say so, not silently average
     fewer rows than the window claims — `min_periods=window`, the same
     convention `market_signal.load_series` uses for the decision path."""
-    monkeypatch.setattr(render, "MA_WINDOWS", (5,))
+    monkeypatch.setattr(digest, "MA_WINDOWS", (5,))
     await _prices(db, "SPY", [100.0, 101.0])  # only 2 rows, window is 5
     await _prices(db, "VCIT", [50.0])
     await _prices(db, "BAA10Y", [1.6])
     await _prices(db, "T10Y2Y", [0.44])
 
-    live = await render.collect_live_trend_snapshot(db, DECISION)
+    live = await digest.collect_live_trend_snapshot(db, DECISION)
 
     assert live["sleeves"]["SPY"]["moving_averages"][5] is None
 
 
 async def test_no_decision_means_no_query_and_an_empty_snapshot(db: InvestmentDB) -> None:
-    assert await render.collect_live_trend_snapshot(db, None) == {}
+    assert await digest.collect_live_trend_snapshot(db, None) == {}

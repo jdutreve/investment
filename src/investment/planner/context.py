@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 
 from investment.db.seed_data import SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.forecasts import ForecastRecord
 from investment.mechanical.gates import Caps
 from investment.mechanical.invariants import (
     REFERENCE_STATUS,
@@ -87,6 +88,7 @@ class PlannerContext:
     favors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    forecast_record: ForecastRecord | None = None
     stack_caps: Caps | None = None
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # THE MARGIN'S OWN TRAIL — what Call 1a asked for and what Call 1b was
@@ -277,6 +279,7 @@ def assemble_context(
         favors=baseline.favors,
         macro=baseline.macro,
         measured_revisions=baseline.measured_revisions,
+        forecast_record=baseline.forecast_record,
         stack_caps=baseline.stack_caps,
         recent_events=baseline.recent_events,
         corpus_queries=list(queries.corpus_queries) if queries else [],

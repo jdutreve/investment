@@ -2,12 +2,12 @@
 
 SAME INPUTS AS THE OTHER TWO FRONTS. `telegram.digest.collect_digest_inputs`
 is the one assembly (ADR-005) Telegram and the dashboard already share; this
-module adds no second query for anything it already returns. The one thing it
-does query itself is `collect_live_trend_snapshot` below — a FRESH read of the
-sleeve/signal prices, because the market-signal decision is MONTHLY (CLAUDE.md
-"Scheduling") while this mail goes out weekly, and the gap between "what the
-decision saw" and "what the market is doing now" is exactly what the owner
-cannot get from the decision's own journal row.
+module adds no second query for anything it already returns — including
+today's values (`digest.collect_live_trend_snapshot`, `live_values`), a FRESH
+read of the sleeve/signal prices, because the market-signal decision is MONTHLY
+(CLAUDE.md "Scheduling") while this mail goes out weekly, and the gap between
+"what the decision saw" and "what the market is doing now" is exactly what the
+owner cannot get from the decision's own journal row.
 
 LEGACY HTML ONLY — no `style=` attribute anywhere in this file. Found
 2026-08-17 by an isolated diagnostic: the Gmail draft-composition API silently
@@ -30,15 +30,8 @@ from datetime import date
 from typing import Any
 
 from investment.db.seed_data import BENCHMARK_PORTFOLIOS
-from investment.db.sqlite import InvestmentDB
 from investment.market.liquidity import PROXY_DESCRIPTION, STATE_READINGS
-from investment.mechanical import ratios
-from investment.mechanical.market_signal import (
-    CREDIT_SPREAD,
-    MA_WINDOWS,
-    STACK_PORTFOLIO_ID,
-    YIELD_SLOPE,
-)
+from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.snapshots import is_demoted
 from investment.telegram.digest import (
     CANDIDATES_HEADING,
@@ -46,6 +39,7 @@ from investment.telegram.digest import (
     measured_note,
     pct,
     short_title,
+    signal_label,
     split_by_standing,
     split_recurring,
 )
@@ -335,7 +329,11 @@ def _decision_target_table(decision: dict[str, Any]) -> list[str]:
 
 
 def _market_signal_section(
-    decision: dict[str, Any] | None, worker_reading: dict[str, Any] | None, *, has_live: bool
+    decision: dict[str, Any] | None,
+    worker_reading: dict[str, Any] | None,
+    *,
+    has_live: bool,
+    forecast_record: dict[str, Any] | None = None,
 ) -> list[str]:
     if not decision:
         return []
@@ -391,6 +389,8 @@ def _market_signal_section(
     if decision.get("reasoning"):
         lines.append(f"<p><b>Why:</b> {_esc(decision['reasoning'])}</p>")
     body = _worker_reading_html(worker_reading or {})
+    if body and forecast_record:
+        body += f"<p>{_esc(forecast_record['summary'])}</p>"
     if body:
         read_date = (worker_reading or {}).get("market_signal_decision_date")
         decision_date = decision.get("decision_date")
@@ -423,69 +423,6 @@ def _worker_reading_html(worker_reading: dict[str, Any]) -> str:
 
 
 # -- Current values (live, weekly) ------------------------------------------
-
-
-async def collect_live_trend_snapshot(
-    db: InvestmentDB, decision: dict[str, Any] | None
-) -> dict[str, Any]:
-    """Fresh sleeve/signal reads as of the latest knowable close, alongside the
-    decision's own AT-DECISION numbers (`trend_overlay.sleeves`, `signals`).
-
-    WHY THIS EXISTS. The decision is MONTHLY; this mail is WEEKLY. On every
-    holding week (most of them — ~9 out of 12, ADR-007) the decision block
-    alone shows a reading that is up to a month stale, while the catch-up job
-    has already refreshed `market_data` for the week. This queries the SAME
-    price series `mechanical.market_signal.load_series` builds its moving
-    averages from (`ratios.load_price`, `.rolling(window, min_periods=window)`
-    over an INTEGER count of trading-day rows, not a calendar window — see
-    that module's own note on the distinction), just unshifted and read at the
-    latest available row instead of the decision's previous-close."""
-    if not decision:
-        return {}
-    overlay = decision.get("trend_overlay") or {}
-    sleeve_tickers = sorted((overlay.get("sleeves") or {}).keys())
-    signal_tickers = sorted((decision.get("signals") or {}).keys())
-
-    sleeves: dict[str, dict[str, Any]] = {}
-    for ticker in sleeve_tickers:
-        series = await ratios.load_price(db, ticker)
-        if series.empty:
-            continue
-        mas = {}
-        for window in MA_WINDOWS:
-            rolling = series.rolling(window, min_periods=window).mean()
-            last = rolling.iloc[-1] if not rolling.empty else None
-            mas[window] = float(last) if last is not None and last == last else None  # NaN check
-        sleeves[ticker] = {
-            "price": float(series.iloc[-1]),
-            "as_of": series.index[-1].date().isoformat(),
-            "moving_averages": mas,
-        }
-
-    signals: dict[str, dict[str, Any]] = {}
-    for ticker in signal_tickers:
-        series = await ratios.load_price(db, ticker)
-        if series.empty:
-            continue
-        signals[ticker] = {
-            "value": float(series.iloc[-1]),
-            "as_of": series.index[-1].date().isoformat(),
-        }
-    return {"sleeves": sleeves, "signals": signals}
-
-
-def _signal_label(ticker: str, value: float | None, median: float | None) -> str:
-    """A two-word descriptor matching `market_signal.BOOKS`' own naming
-    (credit-spread-tight/-wide, yield-curve-steep/-flat) — cosmetic only,
-    drives no decision; the decision's own hysteresis is the authority on the
-    book."""
-    if value is None or median is None:
-        return "?"
-    if ticker == CREDIT_SPREAD:
-        return "tight" if value < median else "wide"
-    if ticker == YIELD_SLOPE:
-        return "steep" if value > median else "flat"
-    return "?"
 
 
 def _current_values_section(
@@ -527,7 +464,7 @@ def _current_values_section(
                         (_g(at_decision), "right", _MUTED, False),
                         (f"{_g(now['value'])} ({now['as_of']})", "right", None, True),
                         (_g(median), "right", None, False),
-                        (_signal_label(ticker, now["value"], median), "left", None, False),
+                        (signal_label(ticker, now["value"], median), "left", None, False),
                     ],
                     bg,
                 )
@@ -780,7 +717,10 @@ def render_digest_html(inputs: DigestInputs, live: dict[str, Any], today: date) 
     parts += _regime_section(inputs.get("regime") or {}, inputs.get("global_liquidity") or {})
     parts += _ranking_section(inputs.get("ranking") or [], today)
     parts += _market_signal_section(
-        inputs.get("market_signal"), inputs.get("worker_reading"), has_live=bool(live)
+        inputs.get("market_signal"),
+        inputs.get("worker_reading"),
+        has_live=bool(live),
+        forecast_record=inputs.get("forecast_record"),
     )
     parts += _current_values_section(inputs.get("market_signal"), live, today)
     parts += _invariants_section(inputs.get("invariants") or [])
