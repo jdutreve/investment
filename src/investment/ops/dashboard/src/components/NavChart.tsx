@@ -82,9 +82,11 @@ export function NavChart({
   const all = [primary, ...series];
   const multi = series.length > 0;
 
-  const data = multi
-    ? mergeSeries(all)
-    : points.filter((p) => typeof p.nav === "number");
+  // ONE SHAPE FOR ONE SERIES OR SEVERAL: every row keys its values by series
+  // id, which is what each <Line> reads. The single-series path once passed
+  // the points as they came ({ts, nav}) to a line reading "primary", and the
+  // portfolio page drew an empty Paper NAV chart.
+  const data = mergeSeries(all);
   if (data.length < 2) {
     return <div className="empty">Not enough NAV points yet to draw a series.</div>;
   }
