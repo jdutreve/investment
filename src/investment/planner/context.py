@@ -88,6 +88,7 @@ class PlannerContext:
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     stack_caps: Caps | None = None
+    recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # THE MARGIN'S OWN TRAIL — what Call 1a asked for and what Call 1b was
     # offered. Never rendered to the Worker; carried so the cycle can journal
     # them (`decision_cycle.journal_planner_context`). Without the candidates a
@@ -277,6 +278,7 @@ def assemble_context(
         macro=baseline.macro,
         measured_revisions=baseline.measured_revisions,
         stack_caps=baseline.stack_caps,
+        recent_events=baseline.recent_events,
         corpus_queries=list(queries.corpus_queries) if queries else [],
         zooms=[{"kind": str(z.kind), "arg": z.arg} for z in queries.zooms] if queries else [],
         candidate_invariant_ids=list(inv_pool),
@@ -309,6 +311,13 @@ def render_baseline_summary(baseline: Baseline) -> str:
                 f"({round_for_model(row.get('speed'))} / "
                 f"{round_for_model(row.get('acceleration'))}, {row.get('ts')})"
             )
+
+    # Titles only: Call 1a picks its searches on what is NEW, and a fresh
+    # central-bank decision is the first kind of new its prompt names.
+    if baseline.recent_events:
+        lines.append("Central-bank events read in the last weeks:")
+        for event in baseline.recent_events:
+            lines.append(f"  {event.get('read_on')} {event.get('source')}: {event.get('title')}")
 
     liq = baseline.global_liquidity
     if liq:

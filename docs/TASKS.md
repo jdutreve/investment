@@ -1281,6 +1281,9 @@ class PlannerPre:
         #      weight_effective — weight alone would surface the same Dalio
         #      heavyweights forever, regime-blind
         #   ⑤ Last 3 Proposals (any status, incl. outcomes/rejections)
+        #   ⑥ UC3 events read in the last 35 days (≤15): source, date, title,
+        #      summary — in the Worker's context whatever Call 1a searches
+        #      (owner, 2026-10-18)
         # CALL 1a — the Planner model sees baseline SUMMARY, forced tool_use
         #   "QueryStrategies" — the VARIABLE margin only:
         #   corpus_queries: list[str] (≤3)  — what to search in the corpus

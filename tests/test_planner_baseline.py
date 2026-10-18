@@ -366,3 +366,48 @@ async def test_empty_db_degrades_without_crashing(tmp_path: Path) -> None:
         assert b.top_invariants == []
     finally:
         await db.close()
+
+
+async def test_the_worker_reads_the_events_of_the_last_weeks_and_no_later(
+    tmp_path: Path,
+) -> None:
+    """The central-bank events reach the Worker whatever the Planner searched
+    (owner, 2026-10-18) — those read in the lookback window, newest first, and
+    none read after `today`, so a replay reads only what was known then."""
+    db = InvestmentDB(tmp_path / "events.db")
+    try:
+        for doc_id, read_on, title in (
+            ("doc-old", "2026-08-01T07:00:00+00:00", "Too old"),
+            ("doc-a", "2026-09-20T07:00:00+00:00", "FOMC statement"),
+            ("doc-b", "2026-10-11T07:00:00+00:00", "ECB account"),
+            ("doc-future", "2026-10-19T07:00:00+00:00", "Not yet read"),
+        ):
+            await db.command(
+                "INSERT INTO document (id, title, author, kind, source_type, source_path, "
+                "ingested_at, trace) VALUES (:id, :t, 'Federal Reserve', 'event', 'url', "
+                ":url, :at, 't')",
+                id=doc_id,
+                t=title,
+                url=f"https://www.federalreserve.gov/{doc_id}",
+                at=read_on,
+            )
+            await db.command(
+                "INSERT INTO passage (id, document_id, position, content, created_at) "
+                "VALUES (:pid, :id, 0, :content, :at)",
+                pid=f"p-{doc_id}",
+                id=doc_id,
+                content=f"# {title}\n\nPublished: unknown\n\n## Summary\n\nWhat {title} said.",
+                at=read_on,
+            )
+        events = (await bl.gather_baseline(db, date(2026, 10, 18))).recent_events
+        assert [e["title"] for e in events] == ["ECB account", "FOMC statement"]
+        assert events[0] == {
+            "source": "Federal Reserve",
+            "url": "https://www.federalreserve.gov/doc-b",
+            "read_on": "2026-10-11",
+            "title": "ECB account",
+            "published": "",
+            "summary": "What ECB account said.",
+        }
+    finally:
+        await db.close()

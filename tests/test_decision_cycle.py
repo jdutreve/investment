@@ -420,3 +420,36 @@ def test_the_refused_settings_are_rendered_right_after_the_rule() -> None:
     refused = text.index("WHAT THE HISTORY ALREADY ANSWERED")
     assert rule < refused < text.index("RANKED PORTFOLIOS")
     assert "spread_speed_wide_trigger = 0.2: REJECT" in text
+
+
+def test_the_central_bank_events_are_in_the_workers_context_with_their_date() -> None:
+    """Read whatever the corpus search found (owner, 2026-10-18), and dated by
+    publication when known — else by the day they were read, said as such, so a
+    September decision read in October cannot pass for an October one."""
+    ctx = dataclasses.replace(
+        _two_clock_context([]),
+        recent_events=[
+            {
+                "source": "Federal Reserve",
+                "read_on": "2026-10-18",
+                "published": "Wed, 16 Sep 2026 18:00:00 GMT",
+                "title": "Federal Reserve issues FOMC statement",
+                "summary": "The FOMC raised the range by 25bp to 3.75-4.00%.",
+            },
+            {
+                "source": "European Central Bank",
+                "read_on": "2026-10-18",
+                "published": "",
+                "title": "Meeting of 9-10 September 2026",
+                "summary": "",
+            },
+        ],
+    )
+    text = render_context_for_worker(ctx)
+    assert "CENTRAL-BANK EVENTS" in text
+    assert (
+        "  [Wed, 16 Sep 2026 18:00:00 GMT] Federal Reserve: Federal Reserve issues FOMC "
+        "statement — The FOMC raised the range by 25bp to 3.75-4.00%." in text
+    )
+    assert "  [read 2026-10-18] European Central Bank: Meeting of 9-10 September 2026 — " in text
+    assert "CENTRAL-BANK EVENTS" not in render_context_for_worker(_two_clock_context([]))

@@ -1076,6 +1076,9 @@ asyncio.gather (5 fixed queries — no judgment involved, so no LLM):
      regime:<current> tag | assets held by defender+challengers | global
      top by weight_effective
   ⑤ Last 3 Proposals (incl. outcome verdicts, rejection reasons)
+  ⑥ Central-bank events read in the last 35 days (≤15, newest first: source,
+     date, title, the triage's summary) — rendered to the Worker whatever the
+     corpus queries find (owner, 2026-10-18; baseline._recent_events)
 ```
 
 ### CALL 1a — Query Strategist (LLM → the VARIABLE margin only)

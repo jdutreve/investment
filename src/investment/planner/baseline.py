@@ -20,7 +20,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, cast
 
 from investment.db.sqlite import InvestmentDB
@@ -29,6 +29,7 @@ from investment.mechanical.gates import Caps, effective_caps
 from investment.mechanical.invariants import ESTABLISHED_FIRST_SQL, ESTABLISHED_OR_JUDGED_SQL
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
+from investment.watch.event_watch import read_event_passage
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
 # ≤20 after dedup"). ESTABLISHED FIRST, THEN THE CANDIDATES A CHECKPOINT HAS
@@ -51,6 +52,13 @@ from investment.mechanical.rule_revision import measured_verdicts
 BUCKET_K = 8
 INVARIANTS_CAP = 20
 RECENT_PROPOSALS = 3
+# THE CENTRAL-BANK EVENTS THE WORKER READS WHATEVER THE PLANNER SEARCHES
+# (owner, 2026-10-18). An event reached the Worker only if one of Call 1a's
+# three corpus queries happened to retrieve it, so the September Fed and ECB
+# hikes could sit in the corpus unread. One monthly decision plus a week of
+# lookback, so every decision sees what happened since the previous one.
+EVENT_LOOKBACK_DAYS = 35
+RECENT_EVENTS_CAP = 15
 
 _INVARIANT_COLS = (
     "id, title, weight_effective, tags, author, status, "
@@ -85,6 +93,9 @@ class Baseline:
     # text the Worker reads states the live figure. None only on a database with
     # no user_profile row, where no market-signal decision can exist either.
     stack_caps: Caps | None = None
+    # The major central-bank items of the last `EVENT_LOOKBACK_DAYS`, newest
+    # first: source, url, read_on, title, summary (`_recent_events`).
+    recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 # -- pure core --------------------------------------------------------------
@@ -296,6 +307,31 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+async def _recent_events(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
+    """The event documents read in the lookback window, newest first, each
+    with the title and summary its first passage carries
+    (`event_watch.read_event_passage`). Bounded above by `today` so a replay
+    reads only what had been read by then."""
+    rows = await db.query(
+        "SELECT d.author, d.source_path, d.ingested_at, p.content FROM document d "
+        "JOIN passage p ON p.document_id = d.id AND p.position = 0 "
+        "WHERE d.kind = 'event' AND d.ingested_at >= :since AND d.ingested_at < :until "
+        "ORDER BY d.ingested_at DESC LIMIT :cap",
+        since=(today - timedelta(days=EVENT_LOOKBACK_DAYS)).isoformat(),
+        until=(today + timedelta(days=1)).isoformat(),
+        cap=RECENT_EVENTS_CAP,
+    )
+    return [
+        {
+            "source": row["author"],
+            "url": row["source_path"],
+            "read_on": str(row["ingested_at"])[:10],
+            **read_event_passage(str(row["content"])),
+        }
+        for row in rows
+    ]
+
+
 async def _ranking(db: InvestmentDB) -> list[dict[str, Any]]:
     rows = await db.query(
         "SELECT * FROM portfolio_weekly_snapshot "
@@ -426,6 +462,7 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         _recent_proposals(db),
         _market_signal(db),
         _macro(db, today),
+        _recent_events(db, today),
     )
     # Unpacked after the gather rather than in the assignment: mypy widens a
     # heterogeneous `gather` to the join of its element types, so the tuple form
@@ -437,6 +474,7 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
     recent_proposals = cast(list[dict[str, Any]], results[4])
     market_signal = cast(dict[str, Any], results[5])
     macro = cast(list[dict[str, Any]], results[6])
+    recent_events = cast(list[dict[str, Any]], results[7])
     # FAVORS needs the resolved regime type, so it runs after the gather — the
     # same sequencing bucket ④ has, and for the same reason.
     top_invariants, favors = await asyncio.gather(
@@ -455,4 +493,5 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         macro=macro,
         measured_revisions=await measured_verdicts(db),
         stack_caps=await _stack_caps(db),
+        recent_events=recent_events,
     )

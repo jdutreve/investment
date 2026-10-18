@@ -62,7 +62,7 @@ from typing import Literal
 
 import aiohttp
 import feedparser
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 
@@ -173,6 +173,16 @@ class EventTriage(BaseModel):
     entities: list[str] = Field(default_factory=list)
     enrichment: str = Field(default="")
     reasoning: str = Field(default="")
+
+    @model_validator(mode="after")
+    def _a_major_item_says_what_happened(self) -> "EventTriage":
+        """A major verdict with no summary is not an answer: the Worker reads
+        the summary, and the backfill of 2026-10-18 ingested three such items
+        under an empty heading. Raised here, it is a validation error the model
+        is sent back to correct (`TRIAGE_RETRIES`)."""
+        if self.verdict == "major" and not self.summary.strip():
+            raise ValueError("a major item needs a summary of what its text says happened")
+        return self
 
 
 @dataclasses.dataclass(frozen=True)
@@ -352,6 +362,43 @@ def event_document(item: FeedItem, triage: EventTriage) -> str:
         f"## Context\n\n{triage.enrichment or '(none provided)'}\n\n"
         f"## As published\n\n{item.article or item.text or '(the title only)'}\n"
     )
+
+
+# How much of a summary the Worker's list of recent events carries per item:
+# the decision and its reasons are in the first sentences.
+EVENT_SUMMARY_CHARS = 600
+
+
+def read_event_passage(first_passage: str) -> dict[str, str]:
+    """The title, the publication date and the summary back out of an event
+    document's FIRST passage — the reader of the format `event_document`
+    writes, kept beside it so the two change together. The summary starts a few
+    lines into the document, so the first passage carries its opening sentences
+    even when the chunker splits the rest off.
+
+    A document with an empty summary (ingested before a major verdict had to
+    carry one) gives the opening of its official text instead, labelled as
+    such. Either is capped at `EVENT_SUMMARY_CHARS`."""
+
+    def section(heading: str, next_heading: str | None) -> str:
+        """The text under `heading`, up to `next_heading` or the passage's end."""
+        end = rf"(?:## {next_heading}|\Z)" if next_heading else r"\Z"
+        found = re.search(rf"## {heading}\s*(.*?)\s*{end}", first_passage, flags=re.DOTALL)
+        return re.sub(r"\s+", " ", found.group(1)).strip() if found else ""
+
+    title = re.search(r"^#\s*(.+)$", first_passage, flags=re.MULTILINE)
+    published = re.search(r"Published:\s*(.+?)\s*(?:\n|##|\Z)", first_passage)
+    text = section("Summary", "Entities")
+    if not text and (opening := section("As published", None)):
+        text = f"(opening of the official text) {opening}"
+    if len(text) > EVENT_SUMMARY_CHARS:
+        text = text[:EVENT_SUMMARY_CHARS].rsplit(" ", 1)[0] + " …"
+    date_text = published.group(1).strip() if published else ""
+    return {
+        "title": title.group(1).strip() if title else "",
+        "published": "" if date_text == "unknown" else date_text,
+        "summary": text,
+    }
 
 
 def event_filename(item: FeedItem) -> str:

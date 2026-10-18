@@ -343,6 +343,23 @@ def render_context_for_worker(context: PlannerContext) -> str:
                 f"accel {round_for_model(row.get('acceleration'))}) "
                 f"as of {row.get('ts')}"
             )
+    # THE CENTRAL BANKS' OWN WORDS, beside the tape they move (owner,
+    # 2026-10-18): a decision or a shift of stance is read here whatever the
+    # corpus search found, so a rate hike cannot sit in the corpus unread.
+    if context.recent_events:
+        lines.append("")
+        lines.append(
+            "CENTRAL-BANK EVENTS — the major Fed, ECB and SNB items of the last weeks, "
+            "newest first, each with a summary of its official text. They are the "
+            "policy backdrop of the tape above; weigh them in your reading:"
+        )
+        for event in context.recent_events:
+            # The publication date when the feed gave one; else the day it was
+            # read, said as such — a September decision read in October must not
+            # pass for an October one.
+            when = event.get("published") or f"read {event.get('read_on')}"
+            summary = event.get("summary") or "(no summary)"
+            lines.append(f"  [{when}] {event.get('source')}: {event.get('title')} — {summary}")
     if context.favors:
         lines.append("")
         lines.append(

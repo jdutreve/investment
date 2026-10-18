@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from pydantic import ValidationError
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
@@ -416,3 +417,44 @@ async def test_an_ingested_item_needs_no_second_record(
     assert len((await EW.run_event_watch(db, ingester, agent)).ingested) == 1
     assert await db.query("SELECT id FROM event_log WHERE type = :t", t=EW.TRIAGE_EVENT) == []
     assert (await EW.run_event_watch(db, ingester, agent)).new == 0
+
+
+# -- what the Worker reads back ------------------------------------------------
+
+
+def test_a_major_verdict_must_say_what_happened() -> None:
+    """The Worker reads the summary. Three backfilled items came in major with
+    an empty one; the model is now sent back to write it."""
+    with pytest.raises(ValidationError):
+        EventTriage(verdict="major", summary="  ")
+    assert EventTriage(verdict="routine").summary == ""
+
+
+def test_the_worker_line_reads_back_what_the_document_wrote() -> None:
+    """`read_event_passage` is the reader of `event_document`'s format, kept
+    beside it: the round trip is the contract."""
+    triage = EventTriage(verdict="major", summary="The Committee raised the range by 25bp.")
+    document = EW.event_document(FED, triage)
+    read = EW.read_event_passage(document)
+    assert read == {
+        "title": FED.title,
+        "published": FED.published,
+        "summary": "The Committee raised the range by 25bp.",
+    }
+
+
+def test_an_empty_summary_falls_back_to_the_official_text_and_says_so() -> None:
+    """Documents ingested before a major verdict had to carry a summary."""
+    with_page = dataclasses.replace(SNB, article="Account of the meeting of 9-10 September.")
+    document = EW.event_document(with_page, EventTriage(verdict="routine"))
+    read = EW.read_event_passage(document)
+    assert read["summary"] == (
+        "(opening of the official text) Account of the meeting of 9-10 September."
+    )
+    assert read["published"] == ""  # "unknown" is not a date
+
+
+def test_a_long_summary_is_cut_on_a_word() -> None:
+    triage = EventTriage(verdict="major", summary="word " * 400)
+    summary = EW.read_event_passage(EW.event_document(FED, triage))["summary"]
+    assert len(summary) <= EW.EVENT_SUMMARY_CHARS + 2 and summary.endswith(" …")
