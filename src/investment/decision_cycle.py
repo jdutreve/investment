@@ -309,6 +309,8 @@ def render_context_for_worker(context: PlannerContext) -> str:
         lines += ["", *describe_past_readings(context.past_readings)]
     if context.recent_ideas:
         lines += ["", *describe_recent_ideas(context.recent_ideas)]
+    if context.invariant_vocabulary:
+        lines += ["", *context.invariant_vocabulary]
 
     lines += [
         "",
@@ -405,11 +407,19 @@ def render_context_for_worker(context: PlannerContext) -> str:
             f"  {inv.get('id')} — {inv.get('title', '')} "
             f"({standing_label(inv)}, {inv.get('author', 'null')}, {state})"
         )
+    # THE BOOKS IN FULL (owner, 2026-10-25). Cut at 200 characters, mid-sentence,
+    # they were 3% of the context: the corpus the Worker is asked to reason with
+    # reached it as fragments. A passage is at most a thousand characters.
     if context.passages:
         lines.append("")
-        lines.append("RELEVANT PASSAGES:")
+        lines.append(
+            "FROM THE BOOKS — passages chosen for this week, in full. Read them for a "
+            "mechanism or a precedent the rule cannot see, and name the book you draw on:"
+        )
         for p in context.passages:
-            lines.append(f"  {str(p.get('excerpt', ''))[:200]}")
+            source = ", ".join(str(part) for part in (p.get("author"), p.get("source")) if part)
+            lines.append(f"  [{source or 'unknown source'}]")
+            lines += [f"    {line}" for line in str(p.get("excerpt", "")).splitlines() if line]
     if context.notes:
         lines.append("")
         lines.append(f"COACH NOTES: {context.notes}")

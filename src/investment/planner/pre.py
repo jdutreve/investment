@@ -182,7 +182,7 @@ def _render_pool(summary: str, inv_pool: dict[str, dict[str, Any]], pool: Retrie
     if pool.passages:
         lines.append("CANDIDATE PASSAGES (id — excerpt):")
         for p in pool.passages:
-            lines.append(f"  {p['id']} — {str(p['excerpt'])[:160]}")
+            lines.append(f"  {p['id']} — [{p.get('author') or '?'}] {str(p['excerpt'])[:160]}")
     for z in pool.zoom_results:
         lines.append(f"ZOOM {z['kind']}({z['arg']}): {len(z['rows'])} rows")
     return "\n".join(lines)

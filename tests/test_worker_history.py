@@ -116,9 +116,23 @@ def test_every_fate_is_said_in_words() -> None:
     assert idea_fate({"type": "new_invariant", "invariant_status": None}).startswith(
         "no invariant was created"
     )
-    assert idea_fate({"type": "new_invariant", "invariant_status": "proposed"}) == (
-        "measured over the history, status proposed"
+    assert (
+        idea_fate(
+            {
+                "type": "new_invariant",
+                "invariant_status": "proposed",
+                "confirmations": 7,
+                "infirmations": 3,
+            }
+        )
+        == "measured over the history: 7 confirmed, 3 refuted, status proposed"
     )
+    demoted = {
+        "type": "new_invariant",
+        "invariant_status": "reference",
+        "invariant_trace": "t [DEMOTED to reference knowledge: unknown signal: 'cpi_yoy']",
+    }
+    assert idea_fate(demoted).endswith("never measured: unknown signal: 'cpi_yoy'")
     assert idea_fate({"type": "strategy_revision", "strategy_status": "proposed"}) == (
         "strategy proposed"
     )

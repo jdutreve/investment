@@ -90,7 +90,7 @@ class RetrievalPool:
     SUPPORTS-linked invariants of the retrieved passages and the direct
     invariant-matrix hits (deduped)."""
 
-    passages: list[dict[str, Any]]  # id, excerpt, similarity
+    passages: list[dict[str, Any]]  # id, excerpt, author, source, similarity
     # id, title, weight_effective, tags, author, status — measured invariants
     # by weight, then the unmeasured reference notes by relevance.
     invariants: list[dict[str, Any]]
@@ -147,6 +147,26 @@ async def _load_matrix(
         return [], np.empty((0, 0))
     matrix = np.stack([from_blob(r["embedding"]) for r in rows])
     return rows, matrix
+
+
+async def _load_passage_matrix(db: InvestmentDB) -> tuple[list[dict[str, Any]], np.ndarray]:
+    """`_load_matrix` for the passages the corpus search reaches, each with the
+    document it comes from.
+
+    THE BOOKS, NOT THE PRESS RELEASES (owner, 2026-10-25). Event passages — the
+    central banks' statements — reach the Worker in their own block whatever was
+    searched (`baseline._recent_events`). In the search they crowded out the
+    books: on 2026-10-25 half the passages the Worker read were the September
+    FOMC text it already had. The books are where a mechanism or a precedent the
+    rule cannot see comes from, so the search reads them alone."""
+    rows = await db.query(
+        "SELECT p.id, p.content, p.embedding, d.author, d.title AS source FROM passage p "
+        "JOIN document d ON d.id = p.document_id "
+        "WHERE p.embedding IS NOT NULL AND d.kind != 'event' ORDER BY p.id"
+    )
+    if not rows:
+        return [], np.empty((0, 0))
+    return rows, np.stack([from_blob(r["embedding"]) for r in rows])
 
 
 async def _linked_invariant_ids(db: InvestmentDB, passage_ids: list[str]) -> list[str]:
@@ -253,10 +273,18 @@ async def retrieve(
     direct_invariant_ids: list[str] = []
 
     if query_vectors.size:
-        passage_rows, passage_matrix = await _load_matrix(db, "passage", "content")
+        passage_rows, passage_matrix = await _load_passage_matrix(db)
         for idx, sim in top_k_union(cosine_matrix(query_vectors, passage_matrix), passage_k):
             row = passage_rows[idx]
-            passages.append({"id": row["id"], "excerpt": row["content"], "similarity": sim})
+            passages.append(
+                {
+                    "id": row["id"],
+                    "excerpt": row["content"],
+                    "author": row["author"],
+                    "source": row["source"],
+                    "similarity": sim,
+                }
+            )
             passage_ids.append(str(row["id"]))
 
         invariant_rows, invariant_matrix = await _load_matrix(db, "invariant", "title")

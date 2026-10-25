@@ -110,6 +110,25 @@ async def test_retrieve_reaches_both_the_supports_and_direct_paths(corpus: Inves
     assert "i-direct" in ids  # direct-matrix path (has no supporting passage)
 
 
+async def test_the_search_reads_the_books_not_the_press_releases(corpus: InvestmentDB) -> None:
+    """Event passages reach the Worker in their own block; in the search they
+    crowded out the books (2026-10-25). A press release matching the query
+    exactly is not retrieved, and a book passage carries where it comes from."""
+    await corpus.command(
+        "INSERT INTO document (id, title, author, kind, source_type, ingested_at, trace) "
+        "VALUES ('d-ev', 'FOMC statement', 'Federal Reserve', 'event', 'url', '2026-01-01', 't')"
+    )
+    await corpus.command(
+        "INSERT INTO passage (id, document_id, position, content, embedding, created_at) "
+        "VALUES ('p-ev', 'd-ev', 0, 'gold in stagflation, said the Fed', :e, '2026-01-01')",
+        e=to_blob(_vec(1, 0, 0, 0)),
+    )
+    pool = await R.retrieve(corpus, _vec(1, 0, 0, 0).reshape(1, 4), zooms=[], passage_k=2)
+
+    assert [p["id"] for p in pool.passages] == ["p1", "p2"]
+    assert pool.passages[0]["source"] == "D"
+
+
 async def test_no_queries_skips_cosine_but_still_runs_zooms(corpus: InvestmentDB) -> None:
     pool = await R.retrieve(
         corpus, np.empty((0, 4)), zooms=[R.Zoom(kind=R.ZoomKind.regime_history, arg="5")]

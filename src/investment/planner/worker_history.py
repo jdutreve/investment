@@ -20,6 +20,7 @@ by then:
 """
 
 import json
+import re
 from datetime import date, timedelta
 from typing import Any
 
@@ -75,6 +76,15 @@ async def load_recent_ideas(db: InvestmentDB, today: date) -> list[dict[str, Any
         "  (SELECT status FROM invariant v WHERE v.title = i.title "
         "   AND v.source = 'agent-discovery' ORDER BY v.created_at DESC LIMIT 1) "
         "  AS invariant_status, "
+        "  (SELECT confirmation_count FROM invariant v WHERE v.title = i.title "
+        "   AND v.source = 'agent-discovery' ORDER BY v.created_at DESC LIMIT 1) "
+        "  AS confirmations, "
+        "  (SELECT infirmation_count FROM invariant v WHERE v.title = i.title "
+        "   AND v.source = 'agent-discovery' ORDER BY v.created_at DESC LIMIT 1) "
+        "  AS infirmations, "
+        "  (SELECT trace FROM invariant v WHERE v.title = i.title "
+        "   AND v.source = 'agent-discovery' ORDER BY v.created_at DESC LIMIT 1) "
+        "  AS invariant_trace, "
         "  (SELECT status FROM strategy s WHERE s.title = i.title "
         "   AND s.source = 'agent-discovery' ORDER BY s.created_at DESC LIMIT 1) "
         "  AS strategy_status "
@@ -96,11 +106,11 @@ def idea_fate(idea: dict[str, Any]) -> str:
         if status is None:
             return "no invariant was created from it: a duplicate of one in the corpus, or refused"
         if status == "reference":
-            return (
-                "became a REFERENCE NOTE, never measured: its condition and effect did not "
-                "reach the history as a testable structure"
-            )
-        return f"measured over the history, status {status}"
+            return f"became a REFERENCE NOTE, never measured: {_why_not_measured(idea)}"
+        return (
+            f"measured over the history: {idea.get('confirmations') or 0} confirmed, "
+            f"{idea.get('infirmations') or 0} refuted, status {status}"
+        )
     if kind in ("new_strategy", "strategy_revision"):
         status = idea.get("strategy_status")
         if status is None:
@@ -148,6 +158,19 @@ def describe_recent_ideas(ideas: list[dict[str, Any]]) -> list[str]:
     for idea in ideas:
         lines.append(f"  - {idea['date']} [{idea['type']}] {idea['title']}: {idea_fate(idea)}")
     return lines
+
+
+def _why_not_measured(idea: dict[str, Any]) -> str:
+    """The reason the write boundary or the 35y sweep gave, read off the
+    invariant's trace (`writeback._commit_invariant_innovation`,
+    `invariants._demote_to_reference`)."""
+    trace = str(idea.get("invariant_trace") or "")
+    demoted = re.findall(r"\[DEMOTED to reference knowledge: ([^\]]*)\]", trace)
+    if demoted:
+        return str(demoted[-1])
+    if "condition dropped" in trace or "effect dropped" in trace:
+        return "its condition was not a list of predicates, or its effect not an object"
+    return "its condition and effect did not reach the history as a testable structure"
 
 
 def _json_object(raw: Any) -> dict[str, Any]:
