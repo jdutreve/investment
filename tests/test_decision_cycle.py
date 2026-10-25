@@ -20,7 +20,6 @@ from pydantic_ai.models.test import TestModel
 from investment.db.sqlite import InvestmentDB
 from investment.decision_cycle import (
     PLANNER_CONTEXT_EVENT,
-    WORKER_READING_EVENT,
     render_context_for_worker,
     run_decision_cycle,
 )
@@ -28,6 +27,7 @@ from investment.mechanical.gates import Caps
 from investment.planner.context import PlannerContext
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
+from investment.planner.worker_history import WORKER_READING_EVENT
 from investment.worker.agent import build_worker_agent
 
 USER = {"max_single_asset_pct": 50.0, "max_drawdown_pct": -25.0}

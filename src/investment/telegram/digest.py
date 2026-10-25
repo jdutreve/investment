@@ -15,7 +15,6 @@ from datetime import date, timedelta
 from typing import Any, TypedDict
 
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import WORKER_READING_EVENT
 from investment.market.liquidity import (
     COMPONENTS as LIQUIDITY_COMPONENTS,
 )
@@ -44,6 +43,7 @@ from investment.mechanical.market_signal import (
 )
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
+from investment.planner.worker_history import WORKER_READING_EVENT
 from investment.worker.result import journalled_sections
 from investment.writeback.recurrence import NOTABLE_RECURRENCE
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
@@ -1110,7 +1110,7 @@ def short_title(title: Any) -> str:
 
 
 async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:
-    """The latest journalled Worker reading (`decision_cycle.WORKER_READING_EVENT`).
+    """The latest journalled Worker reading (`worker_history.WORKER_READING_EVENT`).
 
     Read off the EventLog by descending ULID, like the decision itself: the id IS
     the append order (CLAUDE.md "EventLog"). `None` before the first cognitive

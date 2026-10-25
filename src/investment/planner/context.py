@@ -91,6 +91,8 @@ class PlannerContext:
     forecast_record: ForecastRecord | None = None
     stack_caps: Caps | None = None
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    recent_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # THE MARGIN'S OWN TRAIL — what Call 1a asked for and what Call 1b was
     # offered. Never rendered to the Worker; carried so the cycle can journal
     # them (`decision_cycle.journal_planner_context`). Without the candidates a
@@ -282,6 +284,8 @@ def assemble_context(
         forecast_record=baseline.forecast_record,
         stack_caps=baseline.stack_caps,
         recent_events=baseline.recent_events,
+        past_readings=baseline.past_readings,
+        recent_ideas=baseline.recent_ideas,
         corpus_queries=list(queries.corpus_queries) if queries else [],
         zooms=[{"kind": str(z.kind), "arg": z.arg} for z in queries.zooms] if queries else [],
         candidate_invariant_ids=list(inv_pool),

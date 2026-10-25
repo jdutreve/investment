@@ -30,6 +30,7 @@ from investment.mechanical.gates import Caps, effective_caps
 from investment.mechanical.invariants import ESTABLISHED_FIRST_SQL, ESTABLISHED_OR_JUDGED_SQL
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
+from investment.planner.worker_history import load_past_readings, load_recent_ideas
 from investment.watch.event_watch import read_event_passage
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
@@ -100,6 +101,11 @@ class Baseline:
     # The major central-bank items of the last `EVENT_LOOKBACK_DAYS`, newest
     # first: source, url, read_on, title, summary (`_recent_events`).
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # The Worker's own last readings and recent ideas with their fate
+    # (`planner/worker_history.py`), so it stops saying again what the owner
+    # already read and filing again what was already filed.
+    past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    recent_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
 
 # -- pure core --------------------------------------------------------------
@@ -499,4 +505,6 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         forecast_record=await load_forecast_record(db),
         stack_caps=await _stack_caps(db),
         recent_events=recent_events,
+        past_readings=await load_past_readings(db, today),
+        recent_ideas=await load_recent_ideas(db, today),
     )

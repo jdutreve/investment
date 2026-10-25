@@ -105,7 +105,7 @@ logger = logging.getLogger(__name__)
 STRATEGY_ID = "market-signal-stack"
 
 # The ANTI-DRIFT verdict, journalled on every cycle run — declared here beside
-# the only thing that appends it, as `decision_cycle.WORKER_READING_EVENT` is.
+# the only thing that appends it, as `chain.ERROR_EVENT` is.
 #
 # APPENDED EVEN WHEN IT PASSES, and that is the point rather than noise: a check
 # whose passes leave no trace cannot answer "did it run", which is exactly the

@@ -1127,6 +1127,17 @@ async def _backfill_candidate_nav(db: InvestmentDB, strategy_id: str) -> None:
         logger.warning("strategy '%s': candidate NAV is empty (no prices?)", strategy_id)
 
 
+def _decoded_json(value: Any) -> Any:
+    """`value` decoded when it is a string holding JSON, else `value` unchanged
+    — prose stays prose and is refused downstream as before."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
 async def _commit_invariant_innovation(
     db: InvestmentDB,
     proposal: ImprovementProposal,
@@ -1211,7 +1222,13 @@ async def _commit_invariant_innovation(
     # is accepted, because at this boundary it is indistinguishable from a
     # dropped condition, and one of the two must not be guessed. The prose
     # survives in the trace either way.
-    raw_condition = spec.get("condition")
+    # A STRUCTURE SENT AS ITS OWN JSON TEXT IS STILL THAT STRUCTURE. On
+    # 2026-09-27 the Worker wrote a valid predicate list and effect object, each
+    # serialised into a string; both were dropped as "not a list"/"not an
+    # object" and a measurable claim became a reference note. Decoding is not
+    # guessing — the text IS the structure — and whatever it decodes to still
+    # meets every shape check below and `validate_invariant` in the 35y sweep.
+    raw_condition = _decoded_json(spec.get("condition"))
     condition_ok = (
         isinstance(raw_condition, list)
         and bool(raw_condition)
@@ -1223,7 +1240,7 @@ async def _commit_invariant_innovation(
     condition: list[dict[str, Any]] = (
         cast(list[dict[str, Any]], raw_condition) if condition_ok else []
     )
-    effect = spec.get("effect")
+    effect = _decoded_json(spec.get("effect"))
     malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
     if malformed_effect is not None or malformed_condition is not None:
         effect = None

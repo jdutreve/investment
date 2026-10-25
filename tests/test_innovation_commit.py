@@ -444,6 +444,29 @@ async def test_a_prose_condition_is_dropped_to_empty_not_followed_downstream(
     assert await db.query("SELECT id FROM invariant WHERE id='inv-good'") != []
 
 
+async def test_a_structure_sent_as_json_text_is_kept_as_that_structure(
+    db: InvestmentDB,
+) -> None:
+    """2026-09-27: the Worker wrote a valid predicate list and effect object,
+    each serialised into a string, and both were dropped as malformed — a
+    measurable claim filed as a reference note. The text IS the structure, so it
+    is decoded at the write boundary and the claim stays measurable."""
+    innovation = _innovation("Condition and effect as JSON text")
+    innovation.spec["condition"] = json.dumps(_CONDITION)
+    innovation.spec["effect"] = json.dumps(_EFFECT)
+
+    await commit_innovations(
+        db,
+        PostPlannerResult(innovations=[innovation]),
+        today=date(2026, 7, 20),
+        embedder=_StubEmbedder(),
+    )
+    row = (await db.query("SELECT condition, effect, trace FROM invariant WHERE id='inv-new'"))[0]
+    assert json.loads(row["condition"]) == _CONDITION
+    assert json.loads(row["effect"]) == _EFFECT
+    assert "dropped" not in row["trace"]
+
+
 @pytest.mark.parametrize(
     ("spec_patch", "label"),
     [

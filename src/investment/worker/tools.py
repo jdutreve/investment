@@ -171,6 +171,8 @@ MARKET_FETCH_MAX_ROWS = 30
 # composes itself is one more thing that can be wrong in a way the tool
 # cannot detect.
 MARKET_PERIODS: dict[str, int] = {
+    "1w": 8,
+    "2w": 15,
     "1m": 31,
     "3m": 92,
     "6m": 183,
@@ -454,7 +456,8 @@ class WorkerTools:
         """Recent market data for known tickers: (ts, ticker, level, speed,
         acceleration), most recent first, at most 30 rows in total. PRICE rows
         also carry `speed_pct`/`acceleration_pct` — use THOSE to compare
-        momentum across tickers."""
+        momentum across tickers. `period` is one of 1w, 2w, 1m, 3m, 6m, 1y,
+        3y, 5y."""
         if not tickers:
             raise ToolInputError("no tickers requested")
         if period not in MARKET_PERIODS:

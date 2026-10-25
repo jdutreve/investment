@@ -62,7 +62,7 @@ CYCLE_LOCK = "uc9-cycle"
 # At most ONE ad-hoc cognitive cycle per day (UC9: "it may trigger at most one
 # ad-hoc UC8 re-run per day"). Counted from the journal rather than held in
 # memory, so a restart cannot reset it — and the journal is where the cycles
-# are anyway (`decision_cycle.WORKER_READING_EVENT`).
+# are anyway (`worker_history.WORKER_READING_EVENT`).
 CYCLE_TRIGGER = "uc9-adhoc"
 MAX_ADHOC_CYCLES_PER_DAY = 1
 

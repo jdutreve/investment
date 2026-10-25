@@ -48,16 +48,20 @@ from investment.mechanical.rule_revision import describe_measured
 from investment.planner.context import PlannerContext, standing_label
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
+from investment.planner.worker_history import (
+    WORKER_READING_EVENT,
+    describe_past_readings,
+    describe_recent_ideas,
+)
 from investment.worker.agent import run_worker
 from investment.worker.result import WorkerResult
 from investment.worker.tools import round_for_model
 from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_knowledge
 
-# The cycle's own journal entry (see `journal_worker_reading`). Declared here,
-# beside the only thing that appends it, as `chain.ERROR_EVENT` and
-# `outcomes.OUTCOME_EVENT` are — writeback.py owns the event names for what
-# WRITEBACK persists, and this is not a disposition.
-WORKER_READING_EVENT = "WorkerReadingEvent"
+# The cycle's own journal entry, `WORKER_READING_EVENT` (see
+# `journal_worker_reading`), is declared in `planner/worker_history.py` rather
+# than beside this appender: the Planner reads it back into the next context,
+# and the Planner cannot import this module, which imports the Planner.
 
 # WHAT THE WORKER WAS HANDED, and how the Planner got there (see
 # `journal_planner_context`). The reading above recorded what the Worker SAID
@@ -299,6 +303,12 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # knowing it (owner, 2026-10-18).
     if context.forecast_record is not None:
         lines += ["", *describe_record(context.forecast_record)]
+    # What it already said and filed (owner, 2026-10-25: it was repeating
+    # itself, and could not know it was).
+    if context.past_readings:
+        lines += ["", *describe_past_readings(context.past_readings)]
+    if context.recent_ideas:
+        lines += ["", *describe_recent_ideas(context.recent_ideas)]
 
     lines += [
         "",
