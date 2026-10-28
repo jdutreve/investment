@@ -24,6 +24,7 @@ from investment.market.liquidity import (
     level_in_sigma,
     liquidity_state,
 )
+from investment.market.regime import describe_directions
 from investment.mechanical import ratios
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
@@ -72,18 +73,41 @@ def pct(fraction: float | None, *, signed: bool = False) -> str:
     return f"{value:+.1f}%" if signed else f"{value:.1f}%"
 
 
-def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[str]:
-    # `confidence` is one of the documented exceptions to "every other layer
-    # keeps decimal fractions": DATA_MODELS lists it with the `_pct`/`_rule`
-    # fields and pins it 0-100, and `regime.compute_confidence` clamps to that
-    # range. Running it through `pct` double-converted it — the live DB's 64.38
-    # rendered as "6438.1%".
+def regime_strength(regime: dict[str, Any]) -> str:
+    """`confidence` as what it is. It read "55.3%" and was taken for the
+    regime's probability (owner, 2026-10-28); it is a strength score,
+    `50 + 20 x each axis's strength + an acceleration bonus`, on 0-100
+    (`regime.compute_confidence`) — percent points, never a fraction, so it
+    must not go through `pct` either (the live 64.38 once printed "6438.1%")."""
     confidence = regime.get("confidence")
-    conf = f"{confidence:.1f}%" if isinstance(confidence, int | float) else str(confidence)
-    lines = [
-        f"📊 Regime: {regime.get('regime_name', '?')} "
-        f"({conf} — {regime.get('regime_type_id', '?')})"
-    ]
+    if not isinstance(confidence, int | float):
+        return "signal strength n/a"
+    return f"signal strength {confidence:.0f}/100, not a probability"
+
+
+def regime_leaning(regime: dict[str, Any]) -> str | None:
+    """Where the detector is heading, when it is not where it stands: the
+    latest print's candidate and how far it is from confirmation (hysteresis,
+    `regime_confirm_prints`). None when the latest print agrees with the
+    regime in force, or before any print."""
+    leaning = regime.get("leaning_type_id")
+    if not leaning or leaning == regime.get("regime_type_id"):
+        return None
+    name = regime.get("leaning_name") or leaning
+    directions = regime.get("leaning_directions")
+    what = f"{name} ({directions})" if directions else str(name)
+    return (
+        f"Latest print leans {what}: {regime.get('leaning_prints')} of "
+        f"{regime.get('confirm_prints')} prints to confirm"
+    )
+
+
+def _regime_header(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[str]:
+    since = f" since {regime['start_date']}" if regime.get("start_date") else ""
+    lines = [f"📊 Regime: {regime.get('regime_name', '?')}{since} ({regime_strength(regime)})"]
+    leaning = regime_leaning(regime)
+    if leaning:
+        lines.append(f"   {leaning}")
     if liquidity:
         # Through `_num` like every other indicator in this file: these are raw
         # REALs off `market_data`, and unformatted they print the full float
@@ -1001,7 +1025,7 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
     record = await load_forecast_record(db)
     has_forecasts = record.scored or record.open or record.unscorable
     return DigestInputs(
-        regime=dict(regime_rows[0]) if regime_rows else {},
+        regime=dict(regime_rows[0]) | await _regime_leaning(db) if regime_rows else {},
         global_liquidity=liquidity_standing,
         ranking=[dict(r) for r in ranking],
         invariants=invariants,
@@ -1107,6 +1131,30 @@ def short_title(title: Any) -> str:
     if len(text) <= TITLE_CHARS:
         return text
     return text[:TITLE_CHARS].rsplit(" ", 1)[0].rstrip(",;:.") + "…"
+
+
+async def _regime_leaning(db: InvestmentDB) -> dict[str, Any]:
+    """The detector's latest candidate and its count toward confirmation
+    (`regime.step` hysteresis), with what it would take. Empty before the
+    detector has read a print."""
+    rows = await db.query(
+        "SELECT ds.candidate_type, ds.consecutive_prints, rt.name FROM detector_state ds "
+        "LEFT JOIN regime_type rt ON rt.id = ds.candidate_type "
+        "WHERE ds.id = 'singleton' AND ds.candidate_type IS NOT NULL"
+    )
+    confirm = await db.query(
+        "SELECT value FROM system_thresholds WHERE key = 'regime_confirm_prints'"
+    )
+    if not rows or not confirm:
+        return {}
+    candidate = str(rows[0]["candidate_type"])
+    return {
+        "leaning_type_id": candidate,
+        "leaning_name": rows[0]["name"],
+        "leaning_directions": describe_directions(candidate),
+        "leaning_prints": int(rows[0]["consecutive_prints"]),
+        "confirm_prints": int(confirm[0]["value"]),
+    }
 
 
 async def _latest_worker_reading(db: InvestmentDB) -> dict[str, Any] | None:

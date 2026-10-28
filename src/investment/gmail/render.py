@@ -38,6 +38,8 @@ from investment.telegram.digest import (
     DigestInputs,
     measured_note,
     pct,
+    regime_leaning,
+    regime_strength,
     short_title,
     signal_label,
     split_by_standing,
@@ -115,8 +117,7 @@ def _price(value: Any) -> str:
 def _regime_section(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[str]:
     if not regime:
         return []
-    confidence = regime.get("confidence")
-    conf = f"{confidence:.1f}%" if isinstance(confidence, int | float) else "n/a"
+    since = f" since {regime['start_date']}" if regime.get("start_date") else ""
     lines = [
         "<h2>\U0001f4ca Regime</h2>",
         _table_open("60%"),
@@ -124,11 +125,22 @@ def _regime_section(regime: dict[str, Any], liquidity: dict[str, Any]) -> list[s
         _drow(
             [
                 ("Regime", "left", None, False),
-                (_esc(regime.get("regime_name", "?")), "left", None, True),
+                (_esc(f"{regime.get('regime_name', '?')}{since}"), "left", None, True),
             ]
         ),
-        _drow([("Confidence", "left", None, False), (conf, "left", None, False)], _ALT),
+        _drow(
+            [
+                ("Strength", "left", None, False),
+                (_esc(regime_strength(regime)), "left", None, False),
+            ],
+            _ALT,
+        ),
     ]
+    leaning = regime_leaning(regime)
+    if leaning:
+        lines.append(
+            _drow([("Heading", "left", None, False), (_esc(leaning), "left", None, False)])
+        )
     if liquidity:
         # THE THIRD CHANNEL SAYS WHAT THE OTHER TWO SAY (ADR-015). These were
         # two bare rows, "level 95.84" and "speed -0.80" — the display the

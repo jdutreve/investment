@@ -249,6 +249,15 @@ def quadrant(growth_dir: str, inflation_dir: str) -> str:
     return _QUADRANTS.get((growth_dir, inflation_dir), "uncertain")
 
 
+def describe_directions(regime_type_id: str) -> str | None:
+    """The two axis directions a quadrant type stands for, in words —
+    'growth rising, inflation falling'. None for a type that is no quadrant."""
+    for (growth, inflation), type_id in _QUADRANTS.items():
+        if type_id == regime_type_id:
+            return f"growth {growth}, inflation {inflation}"
+    return None
+
+
 def axis_strength(speed: float | None, scale: float) -> float:
     if speed is None or scale == 0:
         return 0.0

@@ -101,10 +101,35 @@ def _digest(**over: object) -> str:
     return D.render_digest(**kwargs)  # type: ignore[arg-type]
 
 
+def test_the_regime_says_where_the_detector_is_heading() -> None:
+    """Owner, 2026-10-28: 'Uncertain' alone hid that the latest print already
+    reads a quadrant — shown with its count toward confirmation, and only when
+    it differs from the regime in force."""
+    regime = {
+        "regime_name": "Uncertain",
+        "regime_type_id": "uncertain",
+        "confidence": 55.26,
+        "start_date": "2026-01-16",
+        "leaning_type_id": "rising-growth-falling-inflation",
+        "leaning_name": "Goldilocks",
+        "leaning_directions": "growth rising, inflation falling",
+        "leaning_prints": 1,
+        "confirm_prints": 3,
+    }
+    text = _digest(regime=regime)
+    assert "Regime: Uncertain since 2026-01-16 (signal strength 55/100, not a probability)" in text
+    assert (
+        "   Latest print leans Goldilocks (growth rising, inflation falling): "
+        "1 of 3 prints to confirm"
+    ) in text
+    holding = regime | {"leaning_type_id": "uncertain"}
+    assert "Latest print leans" not in _digest(regime=holding)
+
+
 def test_render_is_complete_and_readable() -> None:
     text = _digest()
-    # regime header with percent-formatted confidence
-    assert "Regime: Stagflation (78.0% — stag)" in text
+    # the regime with its strength, said as a score and not as a probability
+    assert "Regime: Stagflation (signal strength 78/100, not a probability)" in text
     # ranking with defender star and a demoted warning
     assert "1. 4S Balanced: Sortino 1.18 ★ (defender)" in text
     assert "Calmar 1.9" in text and "NAV n/a" in text  # no nav on this fixture row
@@ -293,8 +318,24 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
     # Pinned to the proposal's own Monday: the bridge slot is windowed on the
     # digest's date, so an undated `build_digest()` here would (correctly) drop a
     # proposal from 2026-07-20 rather than reprint it as this week's.
+    # The detector's latest print reads another quadrant, 1 of 3 toward it.
+    await db.command(
+        "INSERT INTO regime_type (id, name, aliases, framework_id, description, created_at) "
+        "VALUES ('rising-growth-falling-inflation', 'Goldilocks', '[]', '4s', 'd', '2026-01-01')"
+    )
+    await db.command(
+        "INSERT INTO detector_state (id, candidate_type, consecutive_prints, updated_at) "
+        "VALUES ('singleton', 'rising-growth-falling-inflation', 1, '2026-07-20')"
+    )
+    await db.command(
+        "INSERT INTO system_thresholds (key, value, updated_at) "
+        "VALUES ('regime_confirm_prints', 3, '2026-01-01')"
+    )
     text = await D.build_digest(db, today=date(2026, 7, 20))
-    assert "Regime: Stagflation (78.0% — stag)" in text
+    assert "Regime: Stagflation since 2026-06-01 (signal strength 78/100" in text
+    assert (
+        "Latest print leans Goldilocks (growth rising, inflation falling): 1 of 3 prints"
+    ) in text
     assert "def-pf: Sortino 1.18 ★ (defender)" in text
     assert "GLD stagflation hedge: 0.756 (8/9 confirmed) [dalio]" in text
     # the bridge's switch slot; ADR-012 removed the reallocation branch that

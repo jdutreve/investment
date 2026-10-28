@@ -16,7 +16,7 @@ import {
 } from "../api";
 import { AlertList } from "../components/Bits";
 import { ErrorState } from "../components/States";
-import { date, num, pctPoints, weight } from "../format";
+import { date, num, weight } from "../format";
 
 /*
  * THE DIGEST, LAID OUT. Every figure here comes from `/api/overview`, which
@@ -795,6 +795,27 @@ function MoveCell({ line }: { line: MacroLine }) {
   );
 }
 
+/** `confidence` as what it is: a 0-100 strength score, not a probability
+ * (owner, 2026-10-28) — the same words as `digest.regime_strength`. */
+function strengthText(confidence: unknown): string {
+  return typeof confidence === "number"
+    ? `signal strength ${Math.round(confidence)}/100, not a probability`
+    : "signal strength n/a";
+}
+
+/** Where the detector is heading when it is not where it stands — the same
+ * sentence as `digest.regime_leaning`, from the same fields. */
+function leaningText(regime: Row): string | null {
+  const leaning = s(regime, "leaning_type_id");
+  if (typeof leaning !== "string" || leaning === s(regime, "regime_type_id")) return null;
+  const name = String(s(regime, "leaning_name") ?? leaning);
+  const directions = s(regime, "leaning_directions");
+  const what = typeof directions === "string" ? `${name} (${directions})` : name;
+  return `Latest print leans ${what}: ${String(s(regime, "leaning_prints"))} of ${String(
+    s(regime, "confirm_prints"),
+  )} prints to confirm`;
+}
+
 function MacroBoard({
   board,
   themes,
@@ -829,12 +850,15 @@ function MacroBoard({
           </div>
           {name ? (
             <div className="muted">
-              {/* percent POINTS, not a fraction — see format.ts */}
-              confidence {pctPoints(s(regime, "confidence"))}
+              {/* a 0-100 strength score, not a probability (digest.regime_strength) */}
+              {strengthText(s(regime, "confidence"))}
               {s(regime, "start_date")
                 ? ` · since ${date(s(regime, "start_date"))}`
                 : ""}
             </div>
+          ) : null}
+          {leaningText(regime) ? (
+            <div className="muted">{leaningText(regime)}</div>
           ) : null}
         </div>
         {typeof state === "string" ? (
