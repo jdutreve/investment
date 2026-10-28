@@ -572,12 +572,25 @@ REGIME_HISTORY_REBUILT_EVENT = "RegimeHistoryRebuiltEvent"
 
 
 @dataclass(frozen=True)
+class Leaning:
+    """One print at which the detector leaned away from the regime in force:
+    the candidate, its consecutive prints so far, and whether that streak went
+    on to be confirmed."""
+
+    candidate_type: str
+    prints: int
+    confirmed: bool
+
+
+@dataclass(frozen=True)
 class ReplayedHistory:
     """The history the detector writes from scratch on today's data:
-    `(regime_type_id, start_date, end_date)` per episode, and its final state."""
+    `(regime_type_id, start_date, end_date)` per episode, its final state, and
+    every leaning it went through (`Leaning`)."""
 
     episodes: list[tuple[str, str, str | None]]
     state: DetectorState
+    leanings: list[Leaning]
 
 
 def replay_history(
@@ -589,10 +602,23 @@ def replay_history(
 ) -> ReplayedHistory:
     """`detect` from an empty state over every print, without writing: the
     same steps in the same order, so on unchanged data it lands exactly where
-    the persisted history stands."""
+    the persisted history stands.
+
+    THE LEANINGS ARE WHAT A PROBABILITY HAS TO BE COUNTED FROM (owner,
+    2026-10-28: "le régime le plus probable et sa probabilité?"). The detector
+    has none, so how often a leaning became a regime is counted instead.
+    PROTOCOL, fixed before any figure was read: at every print where the
+    candidate differs from the regime in force and has not yet reached
+    `confirm_prints`, one observation (candidate, prints so far), CONFIRMED iff
+    that same streak later commits. A streak still open at the last print has no
+    outcome yet and is left out. In sample: the thresholds were calibrated on
+    this same history (M3), so the count describes the detector and predicts
+    nothing."""
     state = EMPTY_STATE
     current: CurrentRegime | None = None
     starts: list[tuple[str, str]] = []
+    pending: list[tuple[tuple[str, str], str, int]] = []
+    confirmed: set[tuple[str, str]] = set()
     for ts in sorted(set(growth.ts) | set(inflation.ts)):
         result = step(
             state=state,
@@ -605,30 +631,75 @@ def replay_history(
             thresholds=thresholds,
         )
         state = result.state
+        streak = (str(state.candidate_type), str(state.candidate_start_ts))
         if result.commit is not None:
             starts.append((result.commit.regime_type_id, result.commit.start_date))
+            confirmed.add(streak)
             current = CurrentRegime(
                 id="replay",
                 regime_type_id=result.commit.regime_type_id,
                 confidence=result.commit.confidence,
                 tags=tuple(result.commit.tags),
             )
-    ends: list[str | None] = [start for _type, start in starts[1:]] + [None]
+        elif current is not None and state.candidate_type != current.regime_type_id:
+            pending.append((streak, streak[0], state.consecutive_prints))
+    # Each episode ends where the next starts; the last is open — when there is one.
+    ends: list[str | None] = [start for _type, start in starts[1:]] + ([None] if starts else [])
     episodes = [(type_id, start, end) for (type_id, start), end in zip(starts, ends, strict=True)]
-    return ReplayedHistory(episodes, state)
+    still_open = (str(state.candidate_type), str(state.candidate_start_ts))
+    leanings = [
+        Leaning(candidate, prints, streak in confirmed)
+        for streak, candidate, prints in pending
+        if streak != still_open or streak in confirmed
+    ]
+    return ReplayedHistory(episodes, state, leanings)
+
+
+# Below this many past leanings toward the same regime at the same count, the
+# record is read over leanings toward any regime instead: a 2-of-3 is a
+# proportion of nothing.
+MIN_LEANINGS = 10
+
+
+@dataclass(frozen=True)
+class LeaningRecord:
+    """How often past leanings like the current one were confirmed. `scope`
+    is the candidate's id, or None when it was read over every candidate."""
+
+    confirmed: int
+    observed: int
+    scope: str | None
+
+
+def leaning_record(
+    leanings: list[Leaning], candidate_type: str, prints: int
+) -> LeaningRecord | None:
+    """The record of the leanings at `prints` toward `candidate_type`, or
+    toward any regime when those are fewer than `MIN_LEANINGS`. None when no
+    leaning at that count was ever seen."""
+    same = [lean for lean in leanings if lean.prints == prints]
+    toward = [lean for lean in same if lean.candidate_type == candidate_type]
+    pool, scope = (toward, candidate_type) if len(toward) >= MIN_LEANINGS else (same, None)
+    if not pool:
+        return None
+    return LeaningRecord(sum(lean.confirmed for lean in pool), len(pool), scope)
+
+
+async def replay_persisted_inputs(db: InvestmentDB) -> ReplayedHistory:
+    """`replay_history` on the series and thresholds the database holds."""
+    return replay_history(
+        await _history(db, GROWTH_TICKER),
+        await _history(db, INFLATION_TICKER),
+        await _history(db, LIQUIDITY_TICKER),
+        await _history(db, VIX_TICKER),
+        await _load_thresholds(db),
+    )
 
 
 async def history_divergence(db: InvestmentDB) -> str | None:
     """None when the persisted history and detector state are what a replay on
     today's data writes; else what differs, in one line."""
-    thresholds = await _load_thresholds(db)
-    replayed = replay_history(
-        await _history(db, GROWTH_TICKER),
-        await _history(db, INFLATION_TICKER),
-        await _history(db, LIQUIDITY_TICKER),
-        await _history(db, VIX_TICKER),
-        thresholds,
-    )
+    replayed = await replay_persisted_inputs(db)
     rows = await db.query(
         "SELECT regime_type_id, start_date, end_date FROM regime ORDER BY start_date, id"
     )

@@ -811,9 +811,18 @@ function leaningText(regime: Row): string | null {
   const name = String(s(regime, "leaning_name") ?? leaning);
   const directions = s(regime, "leaning_directions");
   const what = typeof directions === "string" ? `${name} (${directions})` : name;
-  return `Latest print leans ${what}: ${String(s(regime, "leaning_prints"))} of ${String(
+  const sentence = `Latest print leans ${what}: ${String(s(regime, "leaning_prints"))} of ${String(
     s(regime, "confirm_prints"),
   )} prints to confirm`;
+  const confirmed = s(regime, "leaning_confirmed");
+  const observed = s(regime, "leaning_observed");
+  if (typeof confirmed !== "number" || typeof observed !== "number" || observed === 0) {
+    return sentence;
+  }
+  const toward = s(regime, "leaning_record_scope") ? `toward ${name}` : "toward any regime";
+  return `${sentence}. In the history, ${confirmed} of ${observed} such leanings ${toward} were confirmed (${Math.round(
+    (confirmed / observed) * 100,
+  )}%)`;
 }
 
 function MacroBoard({

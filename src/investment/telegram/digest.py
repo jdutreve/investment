@@ -24,7 +24,7 @@ from investment.market.liquidity import (
     level_in_sigma,
     liquidity_state,
 )
-from investment.market.regime import describe_directions
+from investment.market.regime import describe_directions, leaning_record, replay_persisted_inputs
 from investment.mechanical import ratios
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
@@ -96,9 +96,17 @@ def regime_leaning(regime: dict[str, Any]) -> str | None:
     name = regime.get("leaning_name") or leaning
     directions = regime.get("leaning_directions")
     what = f"{name} ({directions})" if directions else str(name)
-    return (
+    sentence = (
         f"Latest print leans {what}: {regime.get('leaning_prints')} of "
         f"{regime.get('confirm_prints')} prints to confirm"
+    )
+    confirmed, observed = regime.get("leaning_confirmed"), regime.get("leaning_observed")
+    if not isinstance(confirmed, int) or not isinstance(observed, int) or observed == 0:
+        return sentence
+    toward = f"toward {name}" if regime.get("leaning_record_scope") else "toward any regime"
+    return (
+        f"{sentence}. In the history, {confirmed} of {observed} such leanings {toward} "
+        f"were confirmed ({confirmed / observed:.0%})"
     )
 
 
@@ -1148,12 +1156,17 @@ async def _regime_leaning(db: InvestmentDB) -> dict[str, Any]:
     if not rows or not confirm:
         return {}
     candidate = str(rows[0]["candidate_type"])
+    prints = int(rows[0]["consecutive_prints"])
+    record = leaning_record((await replay_persisted_inputs(db)).leanings, candidate, prints)
     return {
         "leaning_type_id": candidate,
         "leaning_name": rows[0]["name"],
         "leaning_directions": describe_directions(candidate),
-        "leaning_prints": int(rows[0]["consecutive_prints"]),
+        "leaning_prints": prints,
         "confirm_prints": int(confirm[0]["value"]),
+        "leaning_confirmed": record.confirmed if record else None,
+        "leaning_observed": record.observed if record else None,
+        "leaning_record_scope": record.scope if record else None,
     }
 
 

@@ -694,3 +694,49 @@ async def test_a_rewritten_input_is_found_and_the_rebuilt_history_matches_it(
         assert await regime.history_divergence(db) is None
     finally:
         await db.close()
+
+
+def test_a_leaning_record_reads_its_own_regime_or_every_regime_when_too_thin() -> None:
+    """Counted, not modelled: the share of past leanings at the same count
+    that were confirmed — toward the same regime when there are enough of
+    them, toward any regime otherwise."""
+    goldilocks = "rising-growth-falling-inflation"
+    leanings = [regime.Leaning(goldilocks, 1, i < 6) for i in range(10)] + [
+        regime.Leaning("uncertain", 1, False) for _ in range(5)
+    ]
+    assert regime.leaning_record(leanings, goldilocks, 1) == regime.LeaningRecord(6, 10, goldilocks)
+    # three toward stagflation are too few: read over every leaning at 1 print
+    thin = [*leanings, *(regime.Leaning("falling-growth-rising-inflation", 1, True),) * 3]
+    assert regime.leaning_record(thin, "falling-growth-rising-inflation", 1) == (
+        regime.LeaningRecord(9, 18, None)
+    )
+    assert regime.leaning_record(leanings, goldilocks, 2) is None
+
+
+async def test_the_replay_counts_each_leaning_with_its_outcome(tmp_path: Path) -> None:
+    """Every leaning of a confirmed streak is confirmed; the open streak at
+    the last print has no outcome and is not counted."""
+    db = InvestmentDB(_settings_db(tmp_path))
+    try:
+        await _seed_minimal(db)
+        await _seed_35y_oscillating(db)
+        replayed = await regime.replay_persisted_inputs(db)
+        assert replayed.leanings
+        confirm = int(SYSTEM_THRESHOLDS["regime_confirm_prints"])
+        assert all(1 <= lean.prints < confirm for lean in replayed.leanings)
+        confirmed_at_one = sum(lean.confirmed for lean in replayed.leanings if lean.prints == 1)
+        # each episode after the first was a leaning confirmed from its first print
+        assert confirmed_at_one == len(replayed.episodes) - 1
+    finally:
+        await db.close()
+
+
+async def test_a_database_with_no_print_replays_to_an_empty_history(tmp_path: Path) -> None:
+    db = InvestmentDB(_settings_db(tmp_path))
+    try:
+        await _seed_minimal(db)
+        replayed = await regime.replay_persisted_inputs(db)
+        assert replayed.episodes == [] and replayed.leanings == []
+        assert await regime.history_divergence(db) is None
+    finally:
+        await db.close()

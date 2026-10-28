@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from investment.db.seed_data import SYSTEM_THRESHOLDS
 from investment.db.sqlite import InvestmentDB
 from investment.telegram import digest as D
 
@@ -122,6 +123,15 @@ def test_the_regime_says_where_the_detector_is_heading() -> None:
         "   Latest print leans Goldilocks (growth rising, inflation falling): "
         "1 of 3 prints to confirm"
     ) in text
+    with_record = regime | {
+        "leaning_confirmed": 16,
+        "leaning_observed": 31,
+        "leaning_record_scope": "rising-growth-falling-inflation",
+    }
+    assert (
+        "1 of 3 prints to confirm. In the history, 16 of 31 such leanings toward Goldilocks "
+        "were confirmed (52%)"
+    ) in _digest(regime=with_record)
     holding = regime | {"leaning_type_id": "uncertain"}
     assert "Latest print leans" not in _digest(regime=holding)
 
@@ -327,10 +337,12 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
         "INSERT INTO detector_state (id, candidate_type, consecutive_prints, updated_at) "
         "VALUES ('singleton', 'rising-growth-falling-inflation', 1, '2026-07-20')"
     )
-    await db.command(
-        "INSERT INTO system_thresholds (key, value, updated_at) "
-        "VALUES ('regime_confirm_prints', 3, '2026-01-01')"
-    )
+    for key, value in SYSTEM_THRESHOLDS.items():
+        await db.command(
+            "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",
+            k=key,
+            v=value,
+        )
     text = await D.build_digest(db, today=date(2026, 7, 20))
     assert "Regime: Stagflation since 2026-06-01 (signal strength 78/100" in text
     assert (
