@@ -640,3 +640,57 @@ def test_audit_over_synthetic_history_reports_bounded_metrics() -> None:
     # of months), never the full 35y span.
     assert 0 <= report.mean_detector_lag_days < 120
     assert report.max_detector_lag_days < 200
+
+
+# -- the persisted history against today's data (owner, 2026-10-28) --------
+
+
+async def test_a_history_built_on_the_current_data_matches_its_replay(tmp_path: Path) -> None:
+    """On unchanged data the replay lands exactly where `detect` left the
+    history, so the weekly check costs nothing and rebuilds nothing."""
+    db = InvestmentDB(_settings_db(tmp_path))
+    try:
+        await _seed_minimal(db)
+        await _seed_35y_oscillating(db)
+        await regime.detect(db)
+        assert await regime.history_divergence(db) is None
+    finally:
+        await db.close()
+
+
+async def test_a_rewritten_input_is_found_and_the_rebuilt_history_matches_it(
+    tmp_path: Path,
+) -> None:
+    """2026-10-17: the CPI history was rewritten and the regime table kept the
+    episodes built on the old series. The check names the divergence, the reset
+    empties what was built on the old episodes, and `detect` rewrites a history
+    the replay agrees with."""
+    db = InvestmentDB(_settings_db(tmp_path))
+    try:
+        await _seed_minimal(db)
+        await _seed_35y_oscillating(db)
+        before = await regime.detect(db)
+
+        # A different inflation history under the same dates.
+        _growth, inflation = _seed_35y_oscillating_rows()
+        rewritten = [
+            {**row, **(_INFLATION_HIGH if i % 40 < 20 else _INFLATION_LOW)}
+            for i, row in enumerate(inflation)
+        ]
+        await db.replace_ts_series("market_data", "CPIAUCSL", rewritten)
+
+        divergence = await regime.history_divergence(db)
+        assert divergence is not None and f"{len(before)} episodes persisted" in divergence
+
+        await regime.reset_history(db, divergence, date(2026, 10, 28))
+        assert await db.query("SELECT id FROM regime") == []
+        assert await db.query("SELECT id FROM backtest") == []
+        rebuilt = await db.query(
+            "SELECT payload FROM event_log WHERE type = :t", t=regime.REGIME_HISTORY_REBUILT_EVENT
+        )
+        assert json.loads(rebuilt[0]["payload"])["reason"] == divergence
+
+        await regime.detect(db)
+        assert await regime.history_divergence(db) is None
+    finally:
+        await db.close()

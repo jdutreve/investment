@@ -555,6 +555,134 @@ def audit(
     )
 
 
+# -- the persisted history against today's data ------------------------
+
+# WHY THE HISTORY IS CHECKED AGAINST A REPLAY (owner, 2026-10-28). `detect`
+# steps only the NEW prints, so the persisted history is whatever the data said
+# when each print was first read. On 2026-10-17 the CPI and GROWTH_COMPOSITE
+# histories were rewritten (812 rows: year-on-year now read by month within one
+# vintage) and nothing re-read them: eleven days later the regime table still
+# held 90 episodes built on the old series, where a replay on the current data
+# finds 78. Stagflation lost six instances and its FAVORS Sortinos halved, and
+# the digest showed a leaning towards Goldilocks that the current data does not
+# contain. A rewrite of an input is exactly when the history must be rebuilt,
+# and no caller can be relied on to remember it, so the catch-up compares the
+# two every week and rebuilds when they differ (`mechanical/catchup.py`).
+REGIME_HISTORY_REBUILT_EVENT = "RegimeHistoryRebuiltEvent"
+
+
+@dataclass(frozen=True)
+class ReplayedHistory:
+    """The history the detector writes from scratch on today's data:
+    `(regime_type_id, start_date, end_date)` per episode, and its final state."""
+
+    episodes: list[tuple[str, str, str | None]]
+    state: DetectorState
+
+
+def replay_history(
+    growth: SeriesHistory,
+    inflation: SeriesHistory,
+    liquidity: SeriesHistory,
+    vix: SeriesHistory,
+    thresholds: RegimeThresholds,
+) -> ReplayedHistory:
+    """`detect` from an empty state over every print, without writing: the
+    same steps in the same order, so on unchanged data it lands exactly where
+    the persisted history stands."""
+    state = EMPTY_STATE
+    current: CurrentRegime | None = None
+    starts: list[tuple[str, str]] = []
+    for ts in sorted(set(growth.ts) | set(inflation.ts)):
+        result = step(
+            state=state,
+            current=current,
+            print_ts=date.fromisoformat(ts),
+            growth=growth.asof_smoothed(ts, thresholds.smoothing_months),
+            inflation=inflation.asof_smoothed(ts, thresholds.smoothing_months),
+            liquidity=liquidity.asof(ts),
+            vix_level=vix.asof(ts).level,
+            thresholds=thresholds,
+        )
+        state = result.state
+        if result.commit is not None:
+            starts.append((result.commit.regime_type_id, result.commit.start_date))
+            current = CurrentRegime(
+                id="replay",
+                regime_type_id=result.commit.regime_type_id,
+                confidence=result.commit.confidence,
+                tags=tuple(result.commit.tags),
+            )
+    ends: list[str | None] = [start for _type, start in starts[1:]] + [None]
+    episodes = [(type_id, start, end) for (type_id, start), end in zip(starts, ends, strict=True)]
+    return ReplayedHistory(episodes, state)
+
+
+async def history_divergence(db: InvestmentDB) -> str | None:
+    """None when the persisted history and detector state are what a replay on
+    today's data writes; else what differs, in one line."""
+    thresholds = await _load_thresholds(db)
+    replayed = replay_history(
+        await _history(db, GROWTH_TICKER),
+        await _history(db, INFLATION_TICKER),
+        await _history(db, LIQUIDITY_TICKER),
+        await _history(db, VIX_TICKER),
+        thresholds,
+    )
+    rows = await db.query(
+        "SELECT regime_type_id, start_date, end_date FROM regime ORDER BY start_date, id"
+    )
+    persisted = [(r["regime_type_id"], r["start_date"], r["end_date"]) for r in rows]
+    state = await _load_state(db)
+    persisted_lean = (state.candidate_type, state.candidate_start_ts, state.consecutive_prints)
+    replayed_lean = (
+        replayed.state.candidate_type,
+        replayed.state.candidate_start_ts,
+        replayed.state.consecutive_prints,
+    )
+    if persisted == replayed.episodes and persisted_lean == replayed_lean:
+        return None
+    first = next(
+        (i for i, (a, b) in enumerate(zip(persisted, replayed.episodes, strict=False)) if a != b),
+        min(len(persisted), len(replayed.episodes)),
+    )
+    where = (
+        f"first difference at episode {first + 1} "
+        f"({persisted[first][1] if first < len(persisted) else 'none'} persisted, "
+        f"{replayed.episodes[first][1] if first < len(replayed.episodes) else 'none'} replayed)"
+    )
+    return (
+        f"{len(persisted)} episodes persisted, {len(replayed.episodes)} on today's data, "
+        f"{where}; detector state {persisted_lean} persisted, {replayed_lean} replayed"
+    )
+
+
+async def reset_history(db: InvestmentDB, reason: str, today: date) -> None:
+    """Empty the regime history and what is built on it, so `detect` rewrites
+    it from the first print. The backtests are Strategy x Regime instance and
+    FAVORS aggregates them: both refer to episodes that no longer exist, and the
+    caller rebuilds them (`backtests.run_backtests_and_favors`). The EventLog
+    keeps the old RegimeEvents (append-only); this event marks where the
+    history they describe was replaced, and why."""
+    async with db.transaction():
+        await db.append_event(
+            type=REGIME_HISTORY_REBUILT_EVENT,
+            source_uc="catch-up",
+            source_id=None,
+            payload={"reason": reason},
+            event_date=today,
+        )
+        await db.command("DELETE FROM favors")
+        await db.command("DELETE FROM backtest")
+        await db.command("DELETE FROM regime")
+        await db.command(
+            "UPDATE detector_state SET candidate_type = NULL, candidate_start_ts = NULL, "
+            "consecutive_prints = 0, last_print_ts_growth = NULL, "
+            "last_print_ts_inflation = NULL, updated_at = :now WHERE id = 'singleton'",
+            now=datetime.now(UTC).isoformat(),
+        )
+
+
 # -- async DB layer (writer path — agent-only, ADR-004/ADR-005) ----------
 
 

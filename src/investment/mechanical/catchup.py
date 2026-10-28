@@ -85,7 +85,7 @@ from investment.db.seed_data import (
 )
 from investment.db.sqlite import InvestmentDB
 from investment.market import composites, derivatives, fetcher, regime, splice
-from investment.mechanical import ratios
+from investment.mechanical import backtests, ratios
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,8 @@ class CatchupReport:
     market_rows: int
     composites: list[str]
     regime_episodes: int
+    # Why the regime history was rebuilt this run, or None (the usual week).
+    regime_history_rebuilt: str | None
     navs_rebuilt: int
     skipped: dict[str, str]
 
@@ -406,6 +408,17 @@ async def run_catchup(
     # the UC9 prelude (seed `_materialize_regimes`), and it steps per new print:
     # with no new print it commits nothing, which is the normal weekly outcome.
     episodes = await regime.detect(db)
+    # THE HISTORY MUST BE WHAT TODAY'S DATA SAYS (`regime.history_divergence`):
+    # a rewritten input series leaves `detect`'s incremental history describing
+    # data that no longer exists. Rebuilt here, with the backtests and FAVORS
+    # built on it, so no reader between now and the 08:30 step sees an empty
+    # FAVORS or one keyed on deleted episodes.
+    rebuilt = await regime.history_divergence(db)
+    if rebuilt is not None:
+        logger.warning("catch-up: regime history rebuilt — %s", rebuilt)
+        await regime.reset_history(db, rebuilt, date.today())
+        episodes = await regime.detect(db)
+        await backtests.run_backtests_and_favors(db, int(thresholds["rolling_window_days"]))
     navs = await refresh_nav(db, int(thresholds["rolling_window_days"]))
 
     report = CatchupReport(
@@ -413,6 +426,7 @@ async def run_catchup(
         market_rows=rows + composite_rows,
         composites=composites,
         regime_episodes=len(episodes),
+        regime_history_rebuilt=rebuilt,
         navs_rebuilt=navs,
         skipped=skipped,
     )
