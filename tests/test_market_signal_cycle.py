@@ -933,3 +933,67 @@ async def test_a_missing_strategy_row_reads_as_enabled(db: InvestmentDB) -> None
     await _market(db, spread=1.0, slope=2.0)
     assert await MSC.strategy_is_enabled(db) is True
     assert (await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 3))).emitted
+
+
+# -- the month decided as soon as it is complete (2026-11-01) ----------------
+
+
+def test_the_next_session_exists_only_once_the_month_is_complete() -> None:
+    """A complete month (the calendar ends on its last business day) seen from
+    the next month gives the next business day. Seen from inside the month, or
+    with data that stops early, it gives nothing and the decision waits for its
+    session, as it always did."""
+    friday = pd.DatetimeIndex(pd.bdate_range("2026-10-01", "2026-10-30"))
+    assert MS.next_session(friday, date(2026, 11, 1)) == pd.Timestamp("2026-11-02")
+    assert MS.next_session(friday, date(2026, 10, 31)) is None  # still October
+    stopped_early = friday[friday <= "2026-10-16"]  # a provider outage
+    assert MS.next_session(stopped_early, date(2026, 11, 1)) is None
+    # Good Friday 2024-03-29 was March's last business day and had no close.
+    good_friday = pd.DatetimeIndex(pd.bdate_range("2024-03-01", "2024-03-28"))
+    assert MS.next_session(good_friday, date(2024, 3, 31)) is None
+
+
+async def test_a_complete_month_is_decided_before_its_session_and_only_once(
+    db: InvestmentDB,
+) -> None:
+    """The fixture's prices stop on Friday 2025-10-31. Sunday's run decides
+    November for Monday 2025-11-03, and that decision is the one the walk takes
+    once Monday is priced: it reads Friday's close in both cases. The run a week
+    later reaches the same month through the calendar and decides nothing."""
+    await _market(db, spread=1.0, slope=2.0)
+    await db.command("DELETE FROM market_data WHERE ts > '2025-10-31'")
+
+    sunday = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 2))
+    assert sunday.decision.date == pd.Timestamp("2025-11-03")
+    assert sunday.skipped_reason is None
+    early = sunday.decision
+
+    # Monday is priced, the weekend empty. Its CLOSES jump, and the decision must
+    # not read them (it reads Friday's). Its signal prints stay where they were:
+    # the signals are read as of the session itself (ADR-003 dating), and a
+    # Monday print exists only for a value published on a Sunday, which does not
+    # happen for the two daily series the rule reads.
+    for ticker in ("SPY", "IWN", "GLD", "VCIT", "IEF", "^IRX", MS.CREDIT_SPREAD, MS.YIELD_SLOPE):
+        last = await db.query(
+            "SELECT level FROM market_data WHERE ticker = :t ORDER BY ts DESC LIMIT 1", t=ticker
+        )
+        jump = 1.0 if ticker in (MS.CREDIT_SPREAD, MS.YIELD_SLOPE, "^IRX") else 1.5
+        await db.append_ts_batch(
+            "market_data",
+            [
+                {
+                    "ts": "2025-11-03",
+                    "ticker": ticker,
+                    "asset_class": "equities",
+                    "currency": "USD",
+                    "level": float(last[0]["level"]) * jump,
+                }
+            ],
+        )
+    reached = MS.decide(await MS.load_series(db), start=MSC.HISTORY_START, end=date(2025, 11, 3))[
+        -1
+    ]
+    assert reached == early
+
+    again = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 9))
+    assert again.skipped_reason is not None and "already decided" in again.skipped_reason

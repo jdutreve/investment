@@ -228,6 +228,7 @@ decision that disagreed with the backtest would have to disagree with itself.
 import dataclasses
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
+from typing import Any
 
 import pandas as pd
 
@@ -1866,6 +1867,31 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # measuring an all-NaN speed that never vetoes.
     raw = {CREDIT_SPREAD: spread_raw, YIELD_SLOPE: slope_raw, LONG_YIELD: long_yield_raw}
     missing_signals = [t for t in signal_tickers() if raw[t].empty]
+    return StackSeries(
+        calendar=calendar,
+        rf=rf,
+        prices=prices,
+        spread_raw=spread_raw,
+        slope_raw=slope_raw,
+        long_yield_raw=long_yield_raw,
+        missing_signals=missing_signals,
+        **_decision_views(calendar, prices, spread_raw, slope_raw, long_yield_raw),
+    )
+
+
+def _decision_views(
+    calendar: pd.DatetimeIndex,
+    prices: Mapping[str, pd.Series],
+    spread_raw: pd.Series,
+    slope_raw: pd.Series,
+    long_yield_raw: pd.Series,
+) -> dict[str, Any]:
+    """Everything the walk reads at a decision date, built on `calendar`.
+
+    ONE BUILDER, TWO CALLERS: `load_series` on the stack's calendar, and
+    `with_next_session` on that calendar plus the coming month's first session,
+    so the decision taken ahead of that session cannot be computed differently
+    from the one the calendar will reach a week later."""
     spread = spread_raw.reindex(calendar).ffill()
     slope = slope_raw.reindex(calendar).ffill()
     long_yield = long_yield_raw.reindex(calendar).ffill()
@@ -1907,24 +1933,17 @@ async def load_series(db: InvestmentDB) -> StackSeries:
     # The CURVE's own trajectory (`SLOPE_SPEED_VETO`), built on the same terms as
     # the two speeds above: unconditionally, so a sweep's two arms read one series.
     slope_speed = compute_derivatives(slope, YIELD_SLOPE, SPEED_LOOKBACK_DAYS)["speed"]
-    return StackSeries(
-        calendar=calendar,
-        rf=rf,
-        prices=prices,
-        decision_prices=decision_prices,
-        spread_raw=spread_raw,
-        slope_raw=slope_raw,
-        long_yield_raw=long_yield_raw,
-        spread=spread,
-        slope=slope,
-        spread_median=spread_median,
-        slope_median=slope_median,
-        spread_speed=spread_speed,
-        long_yield_speed=long_yield_speed,
-        moving_averages=moving_averages,
-        slope_speed=slope_speed,
-        missing_signals=missing_signals,
-    )
+    return {
+        "decision_prices": decision_prices,
+        "spread": spread,
+        "slope": slope,
+        "spread_median": spread_median,
+        "slope_median": slope_median,
+        "spread_speed": spread_speed,
+        "long_yield_speed": long_yield_speed,
+        "moving_averages": moving_averages,
+        "slope_speed": slope_speed,
+    }
 
 
 def latest_trend_reads(series: StackSeries) -> tuple[pd.Timestamp, dict[str, TrendRead]]:
@@ -2008,6 +2027,63 @@ def decide(s: StackSeries, *, start: date, end: date, cadence: str = "monthly") 
         s.long_yield_speed,
         s.slope_speed,
     )
+
+
+def next_session(calendar: pd.DatetimeIndex, today: date) -> pd.Timestamp | None:
+    """The coming month's first session, when the month it reads is COMPLETE
+    and that session has no price yet; else None.
+
+    WHY (owner, 2026-11-01: "pourquoi attendre le premier jour de bourse du
+    mois? cela ne semble pas nécessaire"). A decision dated D reads the close
+    BEFORE D (`decision_prices` and the moving averages are shifted one
+    session) and the signals as of D, so once the month's last close is in, the
+    decision is fully determined. The walk could not take it until D had a row
+    in the calendar, which the Sunday chain only loads the week after: the
+    November 2026 order, determined by the close of Friday 30 October, would
+    have reached the owner on 8 November for a decision dated the 2nd.
+
+    COMPLETE means the calendar ends on the month's last business day and today
+    is past that month. A month whose last business day had no close (an
+    exchange holiday, Good Friday on 2024-03-29) or whose data stopped early
+    (a provider outage) returns None, and the decision waits for its session as
+    it always did.
+
+    The session is the next business day, not the next exchange session: on a
+    holiday (1 January) the decision is dated one day before the exchange
+    opens. The month, not the day, is the cycle's idempotency key
+    (`market_signal_cycle`), so the session the calendar reaches later does not
+    decide the month twice."""
+    if calendar.empty:
+        return None
+    last = calendar[-1]
+    month_complete = pd.offsets.BMonthEnd().rollforward(last) == last
+    if not month_complete or (today.year, today.month) <= (last.year, last.month):
+        return None
+    return pd.Timestamp(last + pd.offsets.BDay(1))
+
+
+def with_next_session(s: StackSeries, session: pd.Timestamp) -> StackSeries:
+    """`s` whose decision views also hold `session`, read exactly as the walk
+    will read them once the session is priced: the previous close and the
+    averages through it (each price series gets an empty row there before the
+    one-session shift), the signals carried forward on the extended calendar.
+
+    FOR `decide` ONLY. The session has no price, so this series must never be
+    priced (`shadow_book_nav`): its calendar holds a day nothing traded on."""
+    calendar = s.calendar.union(pd.DatetimeIndex([session]))
+    prices = {t: p.reindex(p.index.union(pd.DatetimeIndex([session]))) for t, p in s.prices.items()}
+    views = _decision_views(calendar, prices, s.spread_raw, s.slope_raw, s.long_yield_raw)
+    return dataclasses.replace(s, calendar=calendar, **views)
+
+
+def decide_through(s: StackSeries, *, start: date, today: date) -> list[Decision]:
+    """`decide` up to today, plus the coming month's decision as soon as its
+    month is complete (`next_session`). What the live cycle orders and what
+    the dashboard shows as the month's order, so the two cannot disagree."""
+    session = next_session(s.calendar, today)
+    if session is None:
+        return decide(s, start=start, end=today)
+    return decide(with_next_session(s, session), start=start, end=session.date())
 
 
 async def run_market_signal(

@@ -312,6 +312,31 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/INVARIANT_TASKS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 1),
+        about="rule",
+        question=(
+            "Does it cost the stack that the owner places the monthly order the Monday after "
+            "the Sunday digest, rather than on the decision date the backtest trades on?"
+        ),
+        answer="no, but the backtest is optimistic",
+        evidence=(
+            "1977-2026. Sunday path minus an order placed on the decision date: -0.09 pp a "
+            "year [-0.42, +0.23], Sortino -0.014, 30% of resamples at or above zero. That "
+            "weekday order minus the backtest: -0.62 pp a year, Sortino -0.091 [-0.143, "
+            "-0.046]; since 1993 -0.83 pp, Sortino -0.132. The backtest trades at the very "
+            "close its decision reads, which no hand-placed order can; the cost is broad "
+            "(34 of 50 years)."
+        ),
+        consequence=(
+            "Do not propose publishing the order on a weekday: it buys nothing measurable. "
+            "Read the stack's backtested figures as about 0.6 pp a year above what a "
+            "hand-placed order earns; a comparison with SPY, a static portfolio or a frozen "
+            "book is optimistic for the stack by that much, its attribution against "
+            "ms-trend-baseline is not."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
 )
 
 _HEADINGS = {

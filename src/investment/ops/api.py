@@ -61,7 +61,7 @@ from investment.mechanical.market_signal import (
     STACK_PORTFOLIO_ID,
     TREND_BASELINE_PORTFOLIO_ID,
     apply_trend_overlay,
-    decide,
+    decide_through,
     latest_signal_reads,
     latest_trend_reads,
     load_series,
@@ -374,7 +374,7 @@ async def handle_stack(request: web.Request) -> web.Response:
         # on today's prices — what the next decision would start from. It
         # decides nothing. `previous_target` is last month's, for whether
         # anything is to place.
-        walk = decide(market_series, start=HISTORY_START, end=date.today())
+        walk = decide_through(market_series, start=HISTORY_START, today=date.today())
         current_rule: dict[str, Any] | None = None
         if len(walk) >= 2:
             book = BOOKS[walk[-1].held]

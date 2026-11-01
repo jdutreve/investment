@@ -60,8 +60,13 @@ CADENCE. Monthly (docs/V1_STRATEGY.md "Why monthly"). The decision date is
 the same clock the backtest stepped on — NOT "whenever the chain happens to
 run". A chain that first runs mid-month therefore decides on that month's
 anchor date, with the data knowable then; a second run in the same month is a
-no-op (idempotent on the journalled decision date), which is what lets this sit
-in the weekly weekly chain unguarded.
+no-op (idempotent on the journalled decision's MONTH), which is what lets this
+sit in the weekly chain unguarded.
+
+AHEAD OF ITS SESSION when it can be (2026-11-01, `market_signal.next_session`):
+the decision reads the close before its date, so a month whose last close is in
+is decided by the first run after it, dated on the coming session, instead of
+waiting for that session to be priced a week later.
 """
 
 import dataclasses
@@ -85,6 +90,7 @@ from investment.mechanical.market_signal import (
     Decision,
     DriftCheck,
     check_drift,
+    decide_through,
     load_series,
     persist_stack_nav,
     persist_trend_baseline_nav,
@@ -446,9 +452,17 @@ async def run_market_signal_cycle(
     # on deciding weeks would go three weeks out of four without looking.
     await journal_drift(db, today)
 
-    decision = run.decisions[-1]
+    # THE MONTH'S DECISION AS SOON AS ITS MONTH IS COMPLETE, not when the
+    # calendar reaches its session (`market_signal.next_session`): the same
+    # decision, read off the same closes, a week earlier when the month ends
+    # before a Sunday.
+    decision = decide_through(series, start=HISTORY_START, today=today)[-1]
     decision_date = str(decision.date.date())
-    if await last_decision_date(db) == decision_date:
+    # THE MONTH IS THE KEY, not the date: a month decided ahead of its session
+    # is reached again by the calendar the week after, possibly on another day
+    # (a holiday shifts the session), and must not decide twice.
+    last = await last_decision_date(db)
+    if last is not None and last[:7] == decision_date[:7]:
         return MarketSignalCycleResult(decision, {}, None, None, f"{decision_date} already decided")
 
     held = await held_allocation(db)

@@ -149,7 +149,8 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   **market-signal monthly decision** (`market_signal_cycle.py` — ADR-007's LIVE
   allocation: PIT inputs → credit-spread/slope signal → book → trend overlay →
   binding caps → EventLog → `Proposal(proposal_type='market-signal')`; runs on
-  every week but is a no-op unless the month's decision date is new, so the
+  every week but is a no-op unless the month is new — decided by the first run
+  after the month it reads is complete, ahead of its session — so the
   monthly cadence needs no separate schedule. It refreshes the stack's
   `portfolio_nav` on EVERY run, before that monthly check — the NAV is a weekly
   artefact feeding the ranking and the drawdown alert, only the DECISION is

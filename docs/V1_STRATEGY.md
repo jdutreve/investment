@@ -1720,3 +1720,42 @@ link" and its slope margin "boundary fragility" the morning the tests refused
 both: the results were in ignored folders and nothing carried them to it. A
 research result that is not in that list does not exist for the Worker.
 
+
+## When the order is placed, and what the backtest assumes (2026-11-01, `2026-11-01-execution-delay`)
+
+**The decision no longer waits for its session.** A decision dated D, the
+month's first session, reads the close before D. The live walk could not take
+it until D had a price, which the Sunday chain loads the week after: the
+November 2026 order, fixed by the close of Friday 30 October, would have reached
+the owner on 8 November. Since 2026-11-01 the month is decided by the first run
+after its last close (`market_signal.next_session`), dated on the coming
+session; the month, not the date, is the idempotency key. A test pins that the
+early decision equals the one the walk takes once D is priced.
+
+**What the delay costs, put to 49 years.** Every change of target executed k
+sessions after D, the rule otherwise unchanged (protocol and figures in the
+research folder):
+
+    1977-2026, minus the backtest     Sortino [90%]              log return / year
+    1 session                         -0.091 [-0.143, -0.046]    -0.62 pp
+    the Sunday path until 11-01       -0.175 [-0.273, -0.090]    -1.17 pp
+    the Sunday path since 11-01       -0.066 [-0.125, -0.014]    -0.42 pp
+
+The pre-registered criterion reads "the Sunday publication costs", and that is
+not the reading. The NAV engine applies a target dated D to D's own return —
+the book trades at the close of D-1, the close the decision reads — and no order
+placed by hand can. Read that way (an order placed on session X is the engine's
+target dated X+1), the two publication paths tie: Sunday minus a weekday order
+placed on D, -0.09 pp a year [-0.42, +0.23], Sortino -0.014 (30% of resamples
+at or above zero). **No weekday publication is built.**
+
+**What it says about the backtest.** An order placed by hand on the decision
+date earns about 0.6 pp a year less than the backtest (12.19% against 12.88%,
+1977-2026), 0.8 pp since 1993 (10.51% against 11.44%, Sortino 1.170 against
+1.302). The cost is broad — 34 of 50 years — not one event. The control arm
+`ms-trend-baseline` shares the convention, so the signal layer's attribution is
+not biased by it in one direction; a static book's rebalance carries no
+information about the next session and is not flattered by it. Every
+comparison of the stack's backtested figures with SPY, a static portfolio or a
+frozen book is optimistic for the stack by about this amount. Re-pinning the
+stack on a realistic execution is an owner decision, not taken here.
