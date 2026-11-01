@@ -338,6 +338,29 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/V1_STRATEGY.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 1),
+        about="rule",
+        question=(
+            "Would SPY 60 / GLD 40 held without the trend overlay, never sold and steered "
+            "with purchases only, do as well as the stack for less in fees?"
+        ),
+        answer="no: cheaper, much riskier",
+        evidence=(
+            "1977-2026, never traded: 10.53% a year against the stack's 12.19%, Sortino "
+            "0.629 against 1.071 (0% of resamples at or above), max drawdown -47.8% against "
+            "-29.0%, worst year -31.7% against -11.3%. Since 1993: 10.34% against 10.51%, "
+            "Sortino 0.747 against 1.170, drawdown -47.1% against -15.3%. Rebalanced yearly: "
+            "Sortino 0.719, drawdown -35.5%. The stack's fees, already in its figures: "
+            "1.06-1.19 points a year."
+        ),
+        consequence=(
+            "The overlay sells the drawdown and pays for its fees. Do not propose dropping "
+            "it to save trading costs; the stack's edge over a book under the same overlay "
+            "is the open question, not the overlay."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
 )
 
 _HEADINGS = {

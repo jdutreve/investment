@@ -1786,3 +1786,15 @@ positive on the point estimate and established on no window. Against SPY the
 stack keeps a clear risk-adjusted lead (Sortino +0.41, 1% of resamples at or
 below zero, 1977-2026; max drawdown -29.0% against -55.2%) and since 1993 no
 lead in return (10.51% against 10.74% a year).
+
+**The book without its overlay (same day, `2026-11-01-static-tight-flat`).**
+The owner asked whether SPY 60 / GLD 40 held and never sold — the ratio steered
+with purchases only — would not be cheaper. It is cheaper: the stack turns over
+2.0-2.2 times a year and pays 1.06-1.19 points a year for it at 23 bps per
+order. It is not better. Never traded, the book returns 10.53% against 12.19%
+on 1977-2026 (10.34% against 10.51% since 1993) with a Sortino of 0.629 against
+1.071 (0.747 against 1.170; 0 and 2% of resamples at or above the stack), a
+maximum drawdown of -47.8% against -29.0% (-47.1% against -15.3% since 1993)
+and a worst year of -31.7% against -11.3%. Rebalanced yearly: Sortino 0.719,
+drawdown -35.5%. What the overlay sells is the drawdown, and it pays for its
+fees. Steering with purchases lies between "never" and "yearly".
