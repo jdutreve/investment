@@ -1971,8 +1971,8 @@ def latest_trend_reads(series: StackSeries) -> tuple[pd.Timestamp, dict[str, Tre
     on.
 
     THE MOVING AVERAGES ARE RECOMPUTED UNSHIFTED, not read off
-    `series.moving_averages` (owner, 2026-08-19: "LATEST n'a pas son overlay
-    mis a jour"). `load_series` lags those by one day (`.shift(1)`) so the
+    `series.moving_averages` (owner, 2026-08-19: "LATEST does not have its
+    overlay updated"). `load_series` lags those by one day (`.shift(1)`) so the
     DECISION never compares a price to an average that includes its own
     close — necessary there, because that average sets a real order. A live
     snapshot protects no order: pairing today's own close with an average
@@ -2047,8 +2047,8 @@ def next_session(calendar: pd.DatetimeIndex, today: date) -> pd.Timestamp | None
     """The coming month's first session, when the month it reads is COMPLETE
     and that session has no price yet; else None.
 
-    WHY (owner, 2026-11-01: "pourquoi attendre le premier jour de bourse du
-    mois? cela ne semble pas nécessaire"). A decision dated D reads the close
+    WHY (owner, 2026-11-01: "why wait for the month's first trading day? it
+    does not seem necessary"). A decision dated D reads the close
     BEFORE D (`decision_prices` and the moving averages are shifted one
     session) and the signals as of D, so once the month's last close is in, the
     decision is fully determined. The walk could not take it until D had a row

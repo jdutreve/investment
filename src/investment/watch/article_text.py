@@ -1,8 +1,8 @@
 """The text of a central-bank press item, fetched from its official page —
 UC3's "bounded fetch restricted to the EVENT_SOURCES domains".
 
-WHY IT EXISTS (owner, 2026-10-18: "ne me pose plus ces questions … ce tri doit
-être automatique et pertinent"). The ECB and SNB feeds carry a title and
+WHY IT EXISTS (owner, 2026-10-18: "stop asking me these questions … this triage
+must be automatic and relevant"). The ECB and SNB feeds carry a title and
 nothing else, and the Fed's a ninety-character summary, so the triage read
 headlines. Its honesty rule then refused to describe what it could not see and
 asked the owner instead, over a channel that was off: 11 of the first 23 items

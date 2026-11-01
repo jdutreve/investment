@@ -605,7 +605,7 @@ def replay_history(
     the persisted history stands.
 
     THE LEANINGS ARE WHAT A PROBABILITY HAS TO BE COUNTED FROM (owner,
-    2026-10-28: "le régime le plus probable et sa probabilité?"). The detector
+    2026-10-28: "the most probable regime and its probability?"). The detector
     has none, so how often a leaning became a regime is counted instead.
     PROTOCOL, fixed before any figure was read: at every print where the
     candidate differs from the regime in force and has not yet reached

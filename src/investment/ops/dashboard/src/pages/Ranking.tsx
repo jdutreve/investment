@@ -25,8 +25,8 @@ import { num, pct, signClass } from "../format";
  * The last two both bar candidacy but by different mechanisms, and benchmark
  * carries no flag at all — the flag on the snapshot means the drawdown one.
  *
- * THE RETURN COLUMN IS 3y, NOT 1y — owner correction, 2026-08-15: "la durée du
- * rendement doit être calée sur celle du risque". Sortino/Sharpe/Calmar/Max DD
+ * THE RETURN COLUMN IS 3y, NOT 1y — owner correction, 2026-08-15: "the return's
+ * horizon must match the risk's". Sortino/Sharpe/Calmar/Max DD
  * are computed on the pinned 756-TRADING-DAY rolling window (CLAUDE.md
  * "Mechanical calculations"), which is exactly 3 calendar years (756 / 252).
  * Putting `return_1y` in the same row made `ms-stack` read as the worst

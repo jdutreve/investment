@@ -257,8 +257,8 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     the spread AND the slope sit against their medians — so a row each from a
     different date is not a fresher
     tape, it is a comparison that was never true on any day. Per-ticker MAX(ts)
-    produced exactly that on 2026-08-30 (owner: "il faut passer T10Y2Y à la même
-    date que celle de BAA10Y"): BAA10Y stopped at 08-28 while T10Y2Y, published a
+    produced exactly that on 2026-08-30 (owner: "T10Y2Y must be read on the same
+    date as BAA10Y"): BAA10Y stopped at 08-28 while T10Y2Y, published a
     day later, reached 08-29 and fell from 0.47 to 0.39 — across its median. The
     Worker duly wrote that the slope had crossed below and the next decision would
     read flat, while the dashboard, anchored on the last day the sleeves are

@@ -699,8 +699,8 @@ CREATE TABLE IF NOT EXISTS revision_measurement (
 
 -- THE WORKER'S FORECASTS, scored when due (`mechanical/forecasts.py`).
 --
--- A reading that cannot be wrong teaches nothing (owner, 2026-10-18: "le
--- worker ne fait que reprendre les faits qu'on lui donne"). Each forecast is
+-- A reading that cannot be wrong teaches nothing (owner, 2026-10-18: "the
+-- worker only repeats the facts it is given"). Each forecast is
 -- one series, one side, one reference and one date, so the outcome is a fact
 -- the market supplies, and the Worker reads its own record back next cycle.
 --

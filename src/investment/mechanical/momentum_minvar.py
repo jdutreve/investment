@@ -187,8 +187,7 @@ def build_targets(
     for the beginning, let the data decide": the walk's first EMITTED target
     is what seeds the book, `shadow_book_nav`'s own contract.
 
-    `Aucun ancien poids silencieusement conservé` (recipe step 9, "no old
-    weight is silently kept") is automatic here: every kept date fully
+    "No old weight is silently kept" (recipe step 9) is automatic here: every kept date fully
     recomputes momentum and the optimizer from scratch — nothing here reads a
     previous target."""
     targets: dict[pd.Timestamp, dict[str, float]] = {}

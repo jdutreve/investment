@@ -1,7 +1,7 @@
 """The macro board read in plain words, with the lighthouses it lights.
 
-WHY THIS EXISTS (owner, 2026-10-11: "donne un résumé MACRO simple et didactique
-en sortant les invariants qui le soutiennent"). The board gave eighteen
+WHY THIS EXISTS (owner, 2026-10-11: "give a simple, didactic MACRO summary,
+bringing out the invariants that support it"). The board gave eighteen
 readings and one line naming the four that stood out; the lighthouses were
 listed at the foot of the page by weight, with no link to the tape. The two
 belong together: an invariant is a claim of the form "when the macro looks like
@@ -12,7 +12,7 @@ So each theme of the board (growth, inflation, rates, credit, money, markets)
 carries its sentence and the invariants CLEARLY LIT by it, reading at least one
 series of that theme.
 
-CLEARLY, WITH A MARGIN (owner, 2026-10-17: "une marge"). The Planner's test —
+CLEARLY, WITH A MARGIN (owner, 2026-10-17: "a margin"). The Planner's test —
 `planner.context.condition_active_now` — is true at the letter: on 2026-10-11
 "when growth is rising and inflation is rising, bonds underperform" was lit by a
 growth speed of +0.10, which the tile beside it called flat, and it sat over a

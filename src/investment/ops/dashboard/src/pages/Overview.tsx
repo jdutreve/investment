@@ -499,8 +499,8 @@ function DecisionCard({
   }
   const gate = s(decision, "gate");
   const blocked = Boolean(gate) && gate !== "passed";
-  // THE RULE, STEP BY STEP, UNDER TODAY'S RULE (owner, 2026-10-17: "plusieurs
-  // colonnes pour comprendre visuellement la logique"): the book the signal
+  // THE RULE, STEP BY STEP, UNDER TODAY'S RULE (owner, 2026-10-17: "several
+  // columns to understand the logic visually"): the book the signal
   // selects, that book through the trend filter at the decision — the month's
   // target — and the same book through the filter on today's prices. The
   // journal keeps the decision as it was taken, which after a book change is
@@ -620,7 +620,7 @@ function DecisionCard({
         <div>
           <div className="section-label">Why this book</div>
           {/* THE REASON, IN WORDS; THE FIGURES ONCE, in the fold below (owner,
-              2026-10-17: "ne garde qu'une version"). This list carried each
+              2026-10-17: "keep only one version"). This list carried each
               signal's value and median, and the fold the same values again. */}
           <p className="why-prose">{whyThisBook(signals, sleevesOf(decision), target)}</p>
           <div className="section-label" style={{ marginTop: 14 }}>
@@ -1039,7 +1039,7 @@ function MacroBoard({
 }
 
 // THE LIGHTHOUSES, as a reader meets them (owner, 2026-10-11: "Standing,
-// Confirmed, Rate 95% range, Mean effect, Worst: c'est du bruit"). Five columns
+// Confirmed, Rate 95% range, Mean effect, Worst: that's noise"). Five columns
 // of statistics asked the reader to do the judging. Each idea now says, in
 // order: what it claims, how often history agreed (one square per time it was
 // put to the test), and what that is worth — with the reason when it is not

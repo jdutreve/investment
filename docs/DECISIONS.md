@@ -451,8 +451,8 @@ moving-block bootstrap, the sampling interval of the same Sortino difference is
 directions were therefore being decided inside the luck margin: `SLOPE_BEAR_VETO`
 was refused on -0.013 of Sortino (90% interval [-0.16, +0.14]) and
 `SPREAD_SPEED_VETO`, live since 2026-08-11, adopts at P = 0.11. The owner's
-ruling, 2026-09-16: "tagge on ne sait pas si c'est le cas pour tous les knobs. Et
-pose cette question."
+ruling, 2026-09-16: "tag it: we don't know whether that holds for every knob. And
+ask that question."
 
 So a FIFTH verdict, `insufficient`, and the question asked on every measurement.
 `measure_revision` now runs a paired moving-block bootstrap (63-day blocks, 2000
@@ -922,8 +922,8 @@ believe about it.
 
 ## ADR-010 — Every NAV is charged the same trading cost, at one rate
 
-**Status:** accepted 2026-08-02 (owner decision: "tout le monde au même régime,
-comparaison fair").
+**Status:** accepted 2026-08-02 (owner decision: "everyone on the same footing,
+a fair comparison").
 
 **Context.** ADR-009 put the market-signal stack into the UC7 ranking as a real
 `portfolio_nav` row. That immediately exposed an unfair comparison: the stack's
@@ -1349,8 +1349,8 @@ producing one by hand each week, chose the manual gesture — new dependency,
 new secret category, and touching `delivery.py`'s two-channel framing were not
 judged worth it for a once-a-week email
 (`project-third-channel-gmail-digest` memory). Hours later the owner reopened
-the question: "genere automatiquement... et mets le dans brouillon" — generate
-it automatically, every week, without being asked. That is real automation,
+the question: "generate it automatically... and put it in drafts" — every
+week, without being asked. That is real automation,
 which the manual gesture cannot become no matter how well the format is
 pinned: the assistant is not a process the weekly chain can call.
 

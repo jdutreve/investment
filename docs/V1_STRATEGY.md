@@ -1598,7 +1598,7 @@ of taking a 2008 at -20.7% instead of -6.0%. The overlay does nothing for
 it pays, it pays in the long bear markets.
 
 **And over an accumulation horizon?** (`2026-10-11-accumulation-horizon`,
-the owner's test: "voir si ces drawdowns sont rattrapés sur cet horizon".) One
+the owner's test: "see whether these drawdowns are recovered over that horizon".) One
 unit invested every month for 10, 15 or 20 years, from every start month,
 1977-2026, each intensity against the rule on the same start:
 

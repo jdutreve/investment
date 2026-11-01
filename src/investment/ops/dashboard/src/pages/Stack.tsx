@@ -149,8 +149,8 @@ function OutcomeChip({ outcome }: { outcome: Outcome }) {
 
 /*
  * ONE SLEEVE'S READ, rendered with WHICH line(s) it is below — not a flat
- * "below" badge (owner, 2026-08-19: "BELOW ne precise pas si c'est sur 150,
- * 300 ou les 2"). `moving_averages` is ordered the same as `windowsList`
+ * "below" badge (owner, 2026-08-19: "BELOW does not say whether it is the 150,
+ * the 300 or both"). `moving_averages` is ordered the same as `windowsList`
  * (`market_signal.MA_WINDOWS`/`TrendRead.moving_averages`), so zipping the
  * two is enough to name the exact line(s) breached — recomputed here rather
  * than trusted from a `below`/`breached` flag, so a badge and its own numbers
@@ -375,8 +375,8 @@ export function Stack() {
   const lastNavPoint = [...data.nav].reverse().find((p) => typeof p.nav === "number") ?? null;
   const startYear = stackInception ? Number(stackInception.slice(0, 4)) : null;
   const endYear = lastNavPoint ? Number(lastNavPoint.ts.slice(0, 4)) : null;
-  // YEAR GRANULARITY, not a day-by-day slider (owner, 2026-08-19: "un slider
-  // ... pour que je puisse demarrer la date n'importe quand"). A ~35-year
+  // YEAR GRANULARITY, not a day-by-day slider (owner, 2026-08-19: "a slider
+  // ... so that I can start the date anywhere"). A ~35-year
   // daily series has ~9000 points; dragging by year is the useful grain for
   // "how does this look since the 2008 drawdown", and null (unmoved) means
   // the full history rather than forcing a choice on first load.

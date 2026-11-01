@@ -257,8 +257,8 @@ async def test_latest_trend_reads_matches_the_calendars_own_tail(tmp_path: Path)
     exactly what a direct read of the series' own tail would give, not an
     approximation of it.
 
-    THE MOVING AVERAGES ARE RECOMPUTED UNSHIFTED (2026-08-19 fix: "LATEST n'a
-    pas son overlay mis a jour" — the first version paired today's own close
+    THE MOVING AVERAGES ARE RECOMPUTED UNSHIFTED (2026-08-19 fix: "LATEST does not
+    have its overlay updated" — the first version paired today's own close
     with `series.moving_averages`, which is lagged one day for the decision
     path's look-ahead guard, so the two numbers on a live row were never
     quoted on the same day). The expected value here is therefore a FRESH

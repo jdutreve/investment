@@ -1,7 +1,7 @@
 """What the Worker already said, handed back to it before it speaks again.
 
-WHY THIS EXISTS (owner, 2026-10-25: "j'ai l'impression qu'il ressasse les
-chiffres"). Each Sunday the Worker started from nothing: its context carried the
+WHY THIS EXISTS (owner, 2026-10-25: "I have the feeling it keeps rehashing the
+figures"). Each Sunday the Worker started from nothing: its context carried the
 market, the rule and its forecast record, never its own last readings or the
 ideas it had filed. So it rediscovered the same evidence every week. The 5% IWN
 round trip was raised three Sundays running and filed twice as an innovation.

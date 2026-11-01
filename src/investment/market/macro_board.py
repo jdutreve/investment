@@ -2,8 +2,8 @@
 person recognises, with a sentence that says where it stands against its own
 past and what it is doing.
 
-WHY THIS EXISTS (owner, 2026-10-11: "Regime est difficile à lire et il manque
-des valeurs MACRO et leur vitesse et accélération"). The Overview page showed a
+WHY THIS EXISTS (owner, 2026-10-11: "Regime is hard to read, and MACRO values
+are missing, with their speed and acceleration"). The Overview page showed a
 regime label, a confidence and the liquidity composite — the detector's
 CONCLUSION, without the readings it is drawn from. The series were all in
 `market_data` with their level, speed and acceleration; nothing laid them out.
@@ -27,7 +27,7 @@ components of the composites (central-bank balance sheets, GDP, M2 in dollars);
 those are inputs, not readings. A series named here that the database does not
 hold is absent from the board — a young database is a legitimate state.
 
-A COLOUR SAYS GOOD NEWS OR BAD (owner, 2026-10-11: "la couleur doit représenter
+A COLOUR SAYS GOOD NEWS OR BAD (owner, 2026-10-11: "the colour must represent
 good or bad news"). A first version coloured the distance from normal on either
 side, so a credit spread at its tightest and one at its widest were the same
 orange, and the reader still had to work out which he was looking at. Each
@@ -388,8 +388,8 @@ def read_themes(board: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One plain sentence per group of the board, in the board's order. A group
     whose series all declare no favourable side has no reading and is left out.
 
-    A SUMMARY, NOT THE LIST (owner, 2026-10-17: "un résumé pour rapidement
-    prendre les choses importantes à savoir"). The board below carries every
+    A SUMMARY, NOT THE LIST (owner, 2026-10-17: "a summary to quickly
+    pick up the important things to know"). The board below carries every
     series with its level and move; the sentence says how the theme reads and
     the facts that make it read so — at most `THEME_FACTS` of them: the series
     that set its colour first, then any that stands out (an unusual level, a
@@ -411,8 +411,8 @@ def read_themes(board: list[dict[str, Any]]) -> list[dict[str, Any]]:
         facts = [_fact(e) for e in (culprits + by_salience)[:THEME_FACTS]]
         sentence = THEME_WORDS[worst].capitalize()
         sentence += (": " + "; ".join(facts) + ".") if facts else "; nothing stands out."
-        # WHERE THE TROUBLE IS, ITS PROBABLE CAUSE (owner, 2026-10-11: "pour
-        # chaque constat ajoute la cause probable"): on the series that makes
+        # WHERE THE TROUBLE IS, ITS PROBABLE CAUSE (owner, 2026-10-11: "for
+        # each finding add the probable cause"): on the series that makes
         # the theme poor or bad, read toward its unfavourable side.
         if worst in ("poor", "bad") and culprits:
             culprit = culprits[0]
@@ -436,7 +436,7 @@ MAX_EXTREMES, MAX_MOVERS, MAX_CHANGES = 3, 2, 2
 
 # WHAT USUALLY DRIVES EACH SERIES, among the other series of the board: the
 # driver, and +1 when the two move together, -1 when they move opposite (owner,
-# 2026-10-11: "pour chaque constat ajoute la cause probable"). Like the
+# 2026-10-11: "for each finding add the probable cause"). Like the
 # favourable side, this is a STATED CONVENTION — textbook macro, one line per
 # series — and not a measurement: nothing here was fitted or tested. It is used
 # one way only: a highlight names those of its drivers that are, today, moving
@@ -516,8 +516,8 @@ def highlights(board: list[dict[str, Any]], earlier: list[dict[str, Any]]) -> li
     the theme sentences said them; those sentences are now a hover on the theme
     name, and this is again the one place the page states them.
 
-    WORDS ONLY (owner, 2026-10-11: "les chiffres sont inutiles et ajoutent du
-    bruit, car déjà spécifiés"): every figure is on the series' own tile, and a
+    WORDS ONLY (owner, 2026-10-11: "the figures are useless and add
+    noise, since they are already given"): every figure is on the series' own tile, and a
     summary that repeats them is the board a second time. Pure, and built from
     the board alone, so it cannot say what the tiles do not show."""
     lines: list[dict[str, str]] = []
@@ -634,8 +634,8 @@ async def _default_lookback_days(db: InvestmentDB) -> int:
     return int(lookback[0]["value"]) if lookback else 30
 
 
-# THE ASSETS, READ AS MOVES AND NOTHING ELSE (owner, 2026-10-17: "parle
-# uniquement des assets en hausse, baisse, vitesse/accélération"). Beside the
+# THE ASSETS, READ AS MOVES AND NOTHING ELSE (owner, 2026-10-17: "talk
+# only about assets rising, falling, speed/acceleration"). Beside the
 # macro, what the assets are doing: rising or falling, how fast for that asset,
 # and whether the move is gathering or losing pace. Not where they sit against
 # a moving average, which is the trend overlay's vocabulary and belongs with the
@@ -660,8 +660,8 @@ def describe_asset_move(
     usual_change = statistics.pstdev(changes) if len(changes) > 1 else None
     usual_acceleration = statistics.pstdev(accelerations) if len(accelerations) > 1 else None
     move = read_move(change, acceleration, usual_change, usual_acceleration)
-    # A STILL ASSET CAN BE TURNING (owner, 2026-10-17: "pourquoi Treasuries est
-    # steady alors que l'accélération est élevée ?"). `read_move` gives a pace
+    # A STILL ASSET CAN BE TURNING (owner, 2026-10-17: "why is Treasuries
+    # steady when its acceleration is high?"). `read_move` gives a pace
     # only to a move that exists; an asset flat over the month whose speed moved
     # by a real amount — a fall that stopped, a rise that stalled — read
     # "steady" beside a bar that showed the turn. It is named by the side it is
@@ -692,8 +692,8 @@ def describe_asset_move(
         "direction": 0 if move is None or move.quiet or not change else (1 if change > 0 else -1),
         "move_size": move.size if move is not None else "",
         "pace": pace,
-        # The two magnitudes a picture needs (owner, 2026-10-17: "visualiser
-        # vitesse et accélération"): the change and its acceleration in units
+        # The two magnitudes a picture needs (owner, 2026-10-17: "visualise
+        # speed and acceleration"): the change and its acceleration in units
         # of THIS asset's usual one — the same scale `read_move` sizes words on.
         "speed_z": _in_usual_units(change, usual_change),
         "acceleration_z": _in_usual_units(acceleration, usual_acceleration),

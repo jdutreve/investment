@@ -35,8 +35,8 @@ FOUR STEPS, and only one of them is a model:
      week.
 
 THE OFFICIAL PAGE IS THE SOURCE TEXT, NOT THE FEED, AND NOTHING IS ASKED OF THE
-OWNER (owner, 2026-10-18: "ne me pose plus ces questions … ce tri doit être
-automatique et pertinent"). The feeds carry a headline — the ECB and the SNB
+OWNER (owner, 2026-10-18: "stop asking me these questions … this triage must be
+automatic and relevant"). The feeds carry a headline — the ECB and the SNB
 nothing else — and the triage used to read only that, flagging what it could
 not describe as `needs-user-input` for the owner to answer. Telegram was off,
 so the question reached no one: 11 of the first 23 items judged major never

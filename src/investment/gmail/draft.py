@@ -1,6 +1,6 @@
 """Creates the weekly digest as a genuine Gmail DRAFT — the agent's own hand,
-not the manual weekly gesture it replaces (owner, 2026-08-17: "genere
-automatiquement... et mets le dans brouillon" reopened and reversed the
+not the manual weekly gesture it replaces (owner, 2026-08-17: "generate
+it automatically... and put it in drafts" reopened and reversed the
 2026-08-17 "formalize the manual gesture" call from earlier the same day).
 
 IMAP APPEND, not the Gmail REST API — deliberately (owner's choice between the

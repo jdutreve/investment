@@ -144,8 +144,8 @@ Points = Annotated[list[Point], Field(max_length=_POINTS)]
 class Forecast(StrictModel):
     """One forecast the Worker makes, in a form a machine can score.
 
-    WHY FORECASTS AT ALL (owner, 2026-10-18: "le worker ne fait que reprendre
-    les faits qu'on lui donne. Rien de pertinent n'en sort"). The reading asked
+    WHY FORECASTS AT ALL (owner, 2026-10-18: "the worker only repeats
+    the facts it is given. Nothing relevant comes out of it"). The reading asked
     for "what to watch" as conditions — "if the slope stays below its median,
     the signal turns flat" — which is the rule's own mechanics restated: a
     program writes them, and none of them could ever be wrong. A probability

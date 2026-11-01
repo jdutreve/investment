@@ -1,8 +1,8 @@
 """The Worker's forecasts: recorded with the reading that made them, scored
 mechanically when due, and read back by the Worker as its own record.
 
-WHY (owner, 2026-10-18: "le worker ne fait que reprendre les faits qu'on lui
-donne. Rien de pertinent n'en sort"). The reading's "what to watch" was the
+WHY (owner, 2026-10-18: "the worker only repeats the facts it is given.
+Nothing relevant comes out of it"). The reading's "what to watch" was the
 rule's mechanics written as conditions — true by construction, so nothing could
 ever say whether the Worker reads the market well. A dated probability can be
 wrong, and this module is what finds out. No LLM here: the outcome is a print in
