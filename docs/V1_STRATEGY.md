@@ -1798,3 +1798,21 @@ maximum drawdown of -47.8% against -29.0% (-47.1% against -15.3% since 1993)
 and a worst year of -31.7% against -11.3%. Rebalanced yearly: Sortino 0.719,
 drawdown -35.5%. What the overlay sells is the drawdown, and it pays for its
 fees. Steering with purchases lies between "never" and "yearly".
+
+**The stack against its best frozen book, in detail (same day, descriptive,
+`2026-11-01-stack-vs-frozen-detail`).** Both filled the session after each
+decision, 1977-2026. The +41.5 log points the stack gains in all come from the
+stress books: holding wide-steep +30.6, wide-flat +20.6, tight-steep +5.0
+(+21 before the current stay, which is -16.4, the worst of 31 stays), and
+-14.7 on the days it holds tight-flat itself — the cost of switching back into
+the frozen book's allocation. 21 stays won, 10 lost; the five best make 81% of
+the net. By decade the stack leads in the 1980s, 1990s, 2000s and 2010s on
+return and trails in 2020-26 (8.6% against 10.5%). In crises it is better in
+2008 (drawdown -6.0% against -13.0%) and 2011, worse in 1987 (-29.0% against
+-18.4%) and in the Volcker years (+27% against +39%), identical in 1990, 2020
+and 2022. Its edge is return, not protection: over rolling windows it leads on
+return in 69% (3 years), 82% (5) and 97% (10) of them, on Sortino in 65%, 76%,
+89%, and has the shallower drawdown in only about a third. Saving one unit a
+month, it ends richer in 95% of 10-year, 97% of 15- and 20-year start months
+(median +7%, +11%, +17%; worst -16%, -15%, -11%). Overlapping windows are not
+independent evidence; the bootstrap's 16% is the honest uncertainty.
