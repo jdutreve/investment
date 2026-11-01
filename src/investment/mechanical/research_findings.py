@@ -361,6 +361,48 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/V1_STRATEGY.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 1),
+        about="rule",
+        question=(
+            "Is a frozen book a better choice than the stack, given that its edge over the "
+            "best frozen book is not established?"
+        ),
+        answer="no: the best book is hindsight",
+        evidence=(
+            "The best frozen book (tight-flat) is known only in hindsight; it was the worst "
+            "of four on 1977-1993. Chosen each January with the data of the time: 7.53% a "
+            "year against the stack's 10.61% from 1987, Sortino 0.642 against 1.059 (+0.415 "
+            "[+0.185, +0.651], 0% of resamples at or below zero). Picked once and held, it "
+            "loses to the stack for all 30 start years 1987-2016."
+        ),
+        consequence=(
+            "Do not propose replacing the stack with one frozen book: which book is best "
+            "is not knowable in advance, and the switching is what protects against picking "
+            "the wrong one."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
+    Finding(
+        measured_on=date(2026, 11, 1),
+        about="rule",
+        question=(
+            "Should a steep curve whose 10-year yield is rising fast (a bear steepener) read "
+            "as flat, so the stack holds SPY 60 / GLD 40 instead of the bond book?"
+        ),
+        answer="refused on 48 years",
+        evidence=(
+            "SLOPE_BEAR_VETO at 0.10, 0.15, 0.20, 0.30 on 1977-07 to 2025-06, the 2025 stay "
+            "excluded: Sortino -0.010 to +0.018 (32-56% of resamples at or below zero); "
+            "since 1993 -0.018 to +0.008. Its gain is the episode that prompts it: +8.2 "
+            "points a year from 2025-07 at 0.10."
+        ),
+        consequence=(
+            "The bear steepener is detectable but acting on it is noise in the history. Do "
+            "not propose it again on the strength of the 2025-26 stay."
+        ),
+        record="docs/V1_STRATEGY.md",
+    ),
 )
 
 _HEADINGS = {

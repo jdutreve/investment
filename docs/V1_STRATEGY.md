@@ -1816,3 +1816,23 @@ return in 69% (3 years), 82% (5) and 97% (10) of them, on Sortino in 65%, 76%,
 month, it ends richer in 95% of 10-year, 97% of 15- and 20-year start months
 (median +7%, +11%, +17%; worst -16%, -15%, -11%). Overlapping windows are not
 independent evidence; the bootstrap's 16% is the honest uncertainty.
+
+**The bar's own hindsight, and the bear-steepening veto (same day, pre-registered,
+`2026-11-01-frozen-choice-and-bear-veto`).** The best frozen book is chosen
+knowing 1993-2026; tight-flat was the worst of the four on 1977-1993. Chosen
+with the data of the time — each January from 1987, the frozen book with the
+best Sortino since 1977 — the frozen approach returns 7.53% a year against the
+stack's 10.61%, Sortino 0.642 against 1.059 (stack minus +0.415 [+0.185,
++0.651], no resample at or below zero; since 1993 +0.454). Picked once and held,
+it loses to the stack for every one of the 30 start years 1987-2016, on Sortino
+and on return; in eight of them the book picked was the bond book (1-5% a
+year). **The signal earns its complexity against any frozen choice that could
+have been made at the time**; only the book known in hindsight comes close.
+
+`SLOPE_BEAR_VETO` (a steep reading whose 10-year yield rises fast reads flat),
+put to 1977-2025.06 with the 2025 stay excluded: Sortino between -0.010 and
++0.018 at every threshold (32-56% of resamples at or below zero), since 1993
+between -0.018 and +0.008. **Refused.** The bear steepener is detectable — the
+long end drove this steepening — but over 48 years acting on it is noise; its
+gain is the one episode that prompts it (+8.2 points a year since 2025-07 at
+0.10).
