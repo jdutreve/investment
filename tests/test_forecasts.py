@@ -15,6 +15,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.mechanical.forecasts import (
     FORECAST_SCORED_EVENT,
     Resolution,
+    base_rate,
     describe_record,
     load_forecast_record,
     record_forecasts,
@@ -187,3 +188,98 @@ async def test_a_series_nobody_prices_is_closed_at_once_as_unscorable(db: Invest
     assert record.brier is None
     assert "UNSCORABLE, no series named NOPE" in "\n".join(describe_record(record))
     assert record_summary(record) == "Forecast record: none scored yet, 0 open, 1 unscorable."
+
+
+# -- the base rate: history's own frequency for the claim ------------------------
+
+
+def _walk(days: int, step: float = 0.01, start: date = date(2000, 1, 3)) -> pd.Series:
+    """A series that alternates up and down by `step`: every past two-week move
+    is small and centred on zero."""
+    levels = [1.0 + (step if i % 2 else 0.0) for i in range(days)]
+    return pd.Series(levels, index=pd.date_range(start, periods=days, freq="D"))
+
+
+def test_a_claim_far_from_its_reference_has_the_base_rate_history_gives_it() -> None:
+    """Far above a threshold the past moves cannot reach, "still above" always
+    held and "below" never did; history alone settles it, whatever is said."""
+    series = _walk(800)
+    made_on = series.index[-1].date()
+    common = {"made_on": made_on, "horizon_weeks": 2, "compared_with": "value", "window_days": None}
+    assert base_rate(series, side="above", threshold=0.5, relative=False, **common) == 1.0
+    assert base_rate(series, side="below", threshold=0.5, relative=True, **common) == 0.0
+
+
+def test_the_base_rate_reads_only_what_was_known_on_the_day() -> None:
+    """A crash after `made_on` must not move the base rate of a forecast made
+    before it: the line is drawn from what was knowable then."""
+    calm = _walk(800)
+    crash = pd.Series(
+        [0.1] * 30, index=pd.date_range(calm.index[-1] + pd.Timedelta(days=1), periods=30)
+    )
+    made_on = calm.index[-1].date()
+    common = {
+        "made_on": made_on,
+        "horizon_weeks": 2,
+        "side": "above",
+        "compared_with": "moving_average",
+        "threshold": None,
+        "window_days": 20,
+        "relative": True,
+    }
+    assert base_rate(pd.concat([calm, crash]), **common) == base_rate(calm, **common)
+
+
+def test_too_little_history_gives_no_base_rate() -> None:
+    series = _walk(100)
+    assert (
+        base_rate(
+            series,
+            made_on=series.index[-1].date(),
+            horizon_weeks=2,
+            side="above",
+            compared_with="value",
+            threshold=1.0,
+            window_days=None,
+            relative=False,
+        )
+        is None
+    )
+
+
+async def test_a_forecast_carries_its_base_rate_and_is_scored_against_it(
+    db: InvestmentDB,
+) -> None:
+    """Frozen at recording, then read back beside the probability: the record
+    shows history's Brier next to the Worker's, and each line both numbers."""
+    await _prices(db, "IEF", MADE_ON - timedelta(days=800), [480.0] * 795 + [500.0] * 40)
+    await _record(db, [_forecast("IEF", 490.0, 0.8)])
+    (row,) = await db.query("SELECT base_rate FROM forecast")
+    assert row["base_rate"] == 1.0  # flat at 500 for weeks, 10 above: it always held
+
+    assert await score_due_forecasts(db, MADE_ON + timedelta(weeks=2)) == 1
+    record = await load_forecast_record(db)
+    assert record.base_brier == 0.0 and record.with_base == 1
+    assert "history's own frequency 0.00 on 1 of them" in record_summary(record)
+    assert "said 80%, history 100%" in "\n".join(describe_record(record))
+    assert record.latest_base_rates == {"IEF above 490.0": 1.0}
+
+
+def test_the_digest_prints_each_forecast_beside_its_base_rate() -> None:
+    from investment.telegram.digest import _worker_challenge_lines
+
+    reading = {
+        "market_signal_decision_date": "2026-11-02",
+        "market_signal_reading": {
+            "bottom_line": "Nothing to do.",
+            "sections": [
+                {"heading": "Forecasts", "points": ["GLD above its line — 15%, in 8 weeks"]}
+            ],
+        },
+    }
+    record = {
+        "summary": "Forecast record: none scored yet.",
+        "latest_base_rates": {"GLD above its line": 0.05},
+    }
+    lines = _worker_challenge_lines(reading, "2026-11-02", record)
+    assert "        · GLD above its line — 15%, in 8 weeks (history: 5%)" in lines

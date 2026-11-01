@@ -527,9 +527,15 @@ def _worker_challenge_lines(
         # LAID OUT, the bottom line first (2026-10-11): one point per line under
         # the heading that says what kind of statement it is.
         lines = [f"   🗣 Worker challenge{suffix}: {parts['bottom_line']}"]
+        # Each forecast beside history's own frequency for it (`forecasts.base_rate`):
+        # a probability that only restates history tells the owner nothing.
+        bases = (forecast_record or {}).get("latest_base_rates") or {}
         for heading, points in journalled_sections(parts):
             lines.append(f"      {heading}")
-            lines += [f"        · {point}" for point in points]
+            for point in points:
+                base = next((b for st, b in bases.items() if point.startswith(st)), None)
+                history = f" (history: {base:.0%})" if base is not None else ""
+                lines.append(f"        · {point}{history}")
         if forecast_record:
             lines.append(f"      {forecast_record['summary']}")
         return lines

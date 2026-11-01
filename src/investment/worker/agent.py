@@ -294,7 +294,12 @@ none, and one near 0% or 100% on something already settled tells the owner \
 nothing: it is padding, and read as such. PERSISTENCE IS THE BAR: a forecast \
 that today's state still holds in a few weeks usually comes true and shows no \
 judgement. Forecast a change you expect, or a persistence the tape argues \
-against, and say in `statement` which of the two it is.
+against, and say in `statement` which of the two it is. Each forecast is also \
+scored against HISTORY: how often the same move, from the same distance to the \
+same reference, came true over the past decades. Your probability and that \
+frequency are printed side by side and both are scored: a probability equal to \
+history's adds nothing, so give one only where your reading says this time \
+differs, and say why.
 YOU HAVE WRITTEN BEFORE. Your last readings and your recent ideas, with what \
 became of each, are in your context, and the owner has read them. A point they \
 already read is not a reading: make it again only if something changed, and \

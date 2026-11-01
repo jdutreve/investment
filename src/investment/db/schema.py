@@ -726,6 +726,10 @@ CREATE TABLE IF NOT EXISTS forecast (
   observed_on       TEXT,
   reference_value   REAL,
   unscorable_reason TEXT,
+  -- How often the same move, from the same distance to the same reference,
+  -- came true over the series' history known on made_on
+  -- (`forecasts.base_rate`): the line the probability is scored against.
+  base_rate         REAL,
   trace             TEXT NOT NULL,
   created_at        TEXT NOT NULL
 );
@@ -912,6 +916,10 @@ ADDED_COLUMNS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     # `invariant_null_score`; the checkpoint rule changes the maturation
     # fingerprint, so the next sweep re-measures every definition and fills it.
     ("invariant", "null_confirmation_rate", "REAL", ()),
+    # A forecast's historical base rate. NULL on every row that predates the
+    # column: `forecasts.fill_base_rates` computes each as of its made_on, at
+    # the next scoring step, so a late fill reads only what was knowable then.
+    ("forecast", "base_rate", "REAL", ()),
 )
 
 # Indexes on columns that RENAMED_COLUMNS / ADDED_COLUMNS bring to an existing
