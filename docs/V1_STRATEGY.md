@@ -1757,5 +1757,32 @@ date earns about 0.6 pp a year less than the backtest (12.19% against 12.88%,
 not biased by it in one direction; a static book's rebalance carries no
 information about the next session and is not flattered by it. Every
 comparison of the stack's backtested figures with SPY, a static portfolio or a
-frozen book is optimistic for the stack by about this amount. Re-pinning the
-stack on a realistic execution is an owner decision, not taken here.
+frozen book is optimistic for the stack by about this amount.
+
+**Re-pinned on a realistic fill (owner signature, 2026-11-01).** Every
+signal-driven target — the stack, its control arm `ms-trend-baseline`, AAAF-R —
+is now priced on the session after its decision (`replay.executed_targets`); the
+journal keeps the decision dates. Static books are unchanged: their rebalance
+reads nothing. The bounded pinned pair moves 11.463% / -16.50% -> **10.477% /
+-15.28%**, Sortino 1.288 -> 1.150 (1993-11 to 2026-07, live data, 393
+decisions).
+
+**The owner's bar, measured again on that fill** (stack against SPY and its four
+books each held frozen under the same overlay, the books' overlay filled the
+same way; `frozen_books.py`, same bootstrap and seed as `pre1993/full_span.py`):
+
+    stack minus the best frozen book (tight-flat)    at the signal close        filled next session
+    1977-2026   Sortino                              +0.198 [-0.026, +0.423]    +0.125 [-0.091, +0.340]
+                share of resamples <= 0              7%                         16%
+                return per year                      +1.36 pp                   +0.85 pp
+    1993-2026   Sortino                              +0.150 (14%)               +0.052 (36%)
+                return per year                      +0.84 pp                   +0.23 pp
+    1977-1993, against the bond book (tight-steep)   -0.181 (60%)               -0.026 (51%)
+
+The stack trades more often than a frozen book — book switches on top of the
+overlay — so the fill costs it more, and its lead over the best frozen book
+shrinks by a third on 49 years and by two thirds since 1993. The lead is still
+positive on the point estimate and established on no window. Against SPY the
+stack keeps a clear risk-adjusted lead (Sortino +0.41, 1% of resamples at or
+below zero, 1977-2026; max drawdown -29.0% against -55.2%) and since 1993 no
+lead in return (10.51% against 10.74% a year).

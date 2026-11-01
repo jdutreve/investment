@@ -812,3 +812,19 @@ def test_both_arms_start_from_the_same_seeded_defender() -> None:
     pd.testing.assert_series_equal(
         result.nav_agent_follow[before], result.nav_hold_defender[before]
     )
+
+
+def test_a_decided_target_is_priced_on_the_session_after_its_decision() -> None:
+    """A decision dated D reads the close before D; priced on D, the book would
+    trade at that very close, which no hand-placed order can (2026-11-01: 0.62 pp
+    a year over 1977-2026). It is priced on the next session instead, and a
+    target decided on the last priced session has not been filled yet."""
+    calendar = pd.bdate_range("2026-10-26", "2026-11-06")
+    decided = {
+        pd.Timestamp("2026-10-26"): {"SPY": 100.0},
+        pd.Timestamp("2026-10-30"): {"cash": 100.0},  # a Friday
+        pd.Timestamp("2026-11-06"): {"SPY": 100.0},  # the last priced session
+    }
+    executed = replay.executed_targets(decided, calendar)
+    assert list(executed) == [pd.Timestamp("2026-10-27"), pd.Timestamp("2026-11-02")]
+    assert executed[pd.Timestamp("2026-11-02")] == {"cash": 100.0}

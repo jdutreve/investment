@@ -330,10 +330,11 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         consequence=(
             "Do not propose publishing the order on a weekday: it buys nothing measurable. "
-            "Read the stack's backtested figures as about 0.6 pp a year above what a "
-            "hand-placed order earns; a comparison with SPY, a static portfolio or a frozen "
-            "book is optimistic for the stack by that much, its attribution against "
-            "ms-trend-baseline is not."
+            "Since this finding every signal-driven NAV (the stack, ms-trend-baseline, "
+            "AAAF-R) is priced on the session after its decision, so today's figures already "
+            "carry the cost. Measured that way, the stack's lead over its best frozen book "
+            "(tight-flat) is +0.125 Sortino on 1977-2026 (16% of resamples at or below zero) "
+            "and +0.052 since 1993 (36%): positive, established on no window."
         ),
         record="docs/V1_STRATEGY.md",
     ),

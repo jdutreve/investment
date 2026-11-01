@@ -179,10 +179,17 @@ owner-arbitrated:
   book, and under the overlay the 10% now follows IEF to cash when IEF fails its
   trend instead of being trend-checked on its own.
 
-The pinned pair is therefore **11.46% / -16.50%**, the BOUNDED measurement that
+- 2026-11-01, AN ORDER FILLS THE SESSION AFTER ITS DECISION (owner signature):
+  every signal-driven target is priced on the session after its decision date
+  (`replay.executed_targets`) instead of on it, which traded at the close the
+  decision reads. Bounded pinned CAGR 11.463% -> **10.477%**, Sortino 1.288 ->
+  1.150, drawdown -16.50% -> **-15.28%**. The control arm and AAAF-R take the
+  same fill. Not a change of the rule: of what a hand-placed order can earn.
+
+The pinned pair is therefore **10.48% / -15.28%**, the BOUNDED measurement that
 `PINNED_CAGR` holds (see that constant for why the bounded figure is the
 reference). The earlier figures are history, not targets. Any OTHER divergence
-from 11.46% is drift and must be explained, which is what this module exists to
+from 10.48% is drift and must be explained, which is what this module exists to
 guarantee.
 
 That sentence named 10.71% for two supersessions after 10.71% stopped being the
@@ -731,8 +738,15 @@ PINNED_WINDOW: tuple[date, date] = (date(1993, 11, 1), date(2026, 7, 1))
 # unchanged to five digits: the tight-steep book drops its IWN 10 for IEF 50
 # (see the supersession list at the top and BOOKS). Same window, same bounded
 # measurement, on a copy of the live database.
-PINNED_CAGR = 0.11463
-PINNED_MAX_DRAWDOWN = -0.16500
+#
+# RE-PINNED 2026-11-01 (owner signature) — 0.11463 -> 0.10477, drawdown
+# -16.500% -> -15.280%, Sortino 1.288 -> 1.150: every change of target is now
+# priced on the session AFTER its decision (`replay.executed_targets`), an
+# order placed by hand during D, where it used to trade at the close of D-1,
+# the close the decision reads. Same window, same 393 decisions, same bounded
+# measurement, on a copy of the live database.
+PINNED_CAGR = 0.10477
+PINNED_MAX_DRAWDOWN = -0.15280
 
 # WHAT COUNTS AS DRIFT, in percentage POINTS of the indicator.
 #
@@ -2110,7 +2124,9 @@ async def run_market_signal(
         raise ValueError(f"market-signal stack missing signal series for {s.missing_signals}")
     decisions = decide(s, start=start, end=end, cadence=cadence)
     targets = {d.date: d.target for d in decisions if d.changed}
-    nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
+    # Journalled on their decision dates, priced on their fill dates.
+    executed = replay.executed_targets(targets, s.calendar)
+    nav, turnover = shadow_book_nav(executed, s.prices, s.rf, cost_bps, s.calendar)
     return MarketSignalRun(
         nav=nav,
         targets=targets,
@@ -2187,7 +2203,10 @@ async def run_trend_baseline(
     s = series or await load_series(db)
     dates = replay.decision_dates(s.calendar, start, end, cadence)
     targets = trend_baseline_targets(dates, s.moving_averages, s.decision_prices)
-    nav, turnover = shadow_book_nav(targets, s.prices, s.rf, cost_bps, s.calendar)
+    # The same one-session fill as the stack's, or the attribution would credit
+    # the signal layer with an execution the control arm was denied.
+    executed = replay.executed_targets(targets, s.calendar)
+    nav, turnover = shadow_book_nav(executed, s.prices, s.rf, cost_bps, s.calendar)
     return MarketSignalRun(nav=nav, targets=targets, turnover=turnover)
 
 

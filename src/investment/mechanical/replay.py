@@ -295,6 +295,35 @@ def _refuse_unpriced_sleeves(
                 )
 
 
+# ONE SESSION BETWEEN A DECISION AND ITS TRADE (owner, 2026-11-01). A decision
+# dated D reads the close before D; `shadow_book_nav` applies a target dated D
+# to D's own return, which is a trade at that very close. No order placed by
+# hand can do that: the owner places it during D at the earliest. Priced that
+# way the stack earned 0.62 pp a year less over 1977-2026 (0.83 since 1993,
+# Sortino -0.13), the cost spread over 34 of 50 years
+# (docs/V1_STRATEGY.md "When the order is placed").
+EXECUTION_LAG_SESSIONS = 1
+
+
+def executed_targets(
+    targets: Mapping[pd.Timestamp, Mapping[str, float]], calendar: pd.DatetimeIndex
+) -> dict[pd.Timestamp, Mapping[str, float]]:
+    """Each target re-dated to the session its order is filled on,
+    `EXECUTION_LAG_SESSIONS` after its decision: the date `shadow_book_nav`
+    must price it on for every strategy whose target comes from a signal read
+    at a close. A static book's rebalance reads nothing and keeps its date.
+
+    A target decided on the calendar's last session is not executed yet and is
+    left out: the series is priced up to its last close, and that order fills
+    on the session after it."""
+    executed: dict[pd.Timestamp, Mapping[str, float]] = {}
+    for decided, target in sorted(targets.items()):
+        i = int(calendar.searchsorted(decided)) + EXECUTION_LAG_SESSIONS
+        if i < len(calendar):
+            executed[calendar[i]] = target
+    return executed
+
+
 def shadow_book_nav(
     targets: Mapping[pd.Timestamp, Mapping[str, float]],
     prices: Mapping[str, pd.Series],

@@ -245,7 +245,10 @@ async def run_aaaf_r(
     decision_prices = {t: p.shift(1) for t, p in prices.items()}
     dates = replay.decision_dates(calendar, start, end, "monthly")
     targets = build_targets(dates, decision_prices)
-    nav, turnover = replay.shadow_book_nav(targets, prices, rf, cost_bps, calendar)
+    # Filled one session after the month-end signal, like the stack it is
+    # ranked against (`replay.executed_targets`).
+    executed = replay.executed_targets(targets, calendar)
+    nav, turnover = replay.shadow_book_nav(executed, prices, rf, cost_bps, calendar)
     return AaafRRun(nav=nav, targets=targets, turnover=turnover)
 
 
