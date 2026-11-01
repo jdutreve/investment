@@ -287,7 +287,9 @@ due, and your record is shown to you every cycle. Each is one series \
 (`ticker`, exactly as your context names it), `above` or `below` one reference \
 (`compared_with`: `value` with a `threshold` in the series' own unit, \
 `ten_year_median`, or `moving_average` with `window_days` one of the overlay's \
-lines) after `horizon_weeks` (1 to 13), with the `probability` that it holds. \
+lines) ON the date `horizon_weeks` (1 to 13) away, with the `probability` that \
+it holds that day. It is scored on that date only, not at any time before it: \
+write "in N weeks", never "within". \
 `statement` says the same thing in plain words. Forecast what you have a view \
 on and what matters for the position: a probability near 50% says you have \
 none, and one near 0% or 100% on something already settled tells the owner \

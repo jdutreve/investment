@@ -283,3 +283,19 @@ def test_the_digest_prints_each_forecast_beside_its_base_rate() -> None:
     }
     lines = _worker_challenge_lines(reading, "2026-11-02", record)
     assert "        · GLD above its line — 15%, in 8 weeks (history: 5%)" in lines
+
+
+def test_a_forecast_said_within_a_period_is_refused() -> None:
+    """It is scored on its date only; "within" would claim more than is scored."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match="scored ON its date"):
+        Forecast(
+            statement="SPY will close below its 150-day line within 6 weeks",
+            ticker="SPY",
+            side="below",
+            compared_with="moving_average",
+            window_days=150,
+            horizon_weeks=6,
+            probability=0.3,
+        )

@@ -21,6 +21,7 @@ carries the meaning; a missing field would be a schema violation the Phase-1bis
 retry policy rejects, not a silent no-op.
 """
 
+import re
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
@@ -184,6 +185,15 @@ class Forecast(StrictModel):
                 raise ValueError(f"`window_days` must be one of the overlay's lines {MA_WINDOWS}")
         elif self.window_days is not None:
             raise ValueError("`window_days` is given only when compared_with is 'moving_average'")
+        # SCORED ON ITS DATE, NOT BEFORE IT (2026-11-01). "SPY will close below its
+        # 150-day line within 6 weeks" was scored on week six only, so a break in
+        # week three that healed by week six would have read as false. The claim
+        # in words must be the claim that is scored.
+        if re.search(r"\b(within|at any (time|point))\b", self.statement, re.I):
+            raise ValueError(
+                "a forecast is scored ON its date, not at any time before it: say "
+                "'in N weeks' or 'on <date>', never 'within'"
+            )
         return self
 
     def render(self) -> str:
