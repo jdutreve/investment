@@ -69,7 +69,7 @@ asked to respond to. It stays unwired until something gives it a meaning.
 import asyncio
 import dataclasses
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from datetime import date, timedelta
 from typing import Any, cast
 
@@ -89,7 +89,7 @@ from investment.mechanical import backtests, ratios
 
 logger = logging.getLogger(__name__)
 
-FetchRawFn = Callable[[Mapping[str, Any], str, date | None], Awaitable[pd.Series]]
+FetchRawFn = fetcher.FetchRawFn
 
 # How far BACK of the stored tail the network window starts, and the number is
 # a maximum of three separate requirements rather than a round guess:
@@ -185,6 +185,7 @@ async def refresh_series(
     *,
     fetch_raw: FetchRawFn,
     lookback: int,
+    breaker: fetcher.ProviderBreaker | None = None,
 ) -> int:
     """Refresh ONE series' tail. Returns the number of rows written.
 
@@ -199,7 +200,9 @@ async def refresh_series(
         raise LookupError(f"{ticker} has no stored history — run the seed, not the catch-up")
 
     since = stored.index.max().date() - timedelta(days=FETCH_MARGIN_DAYS)
-    raw = await fetch_raw(ticker_row, api_key, since)
+    # `breaker` is the pass's, shared by every series of it; a lone call
+    # gets a fresh one, which is plain full retries.
+    raw = await (breaker or fetcher.ProviderBreaker()).fetch(fetch_raw, ticker_row, api_key, since)
     if raw.empty:
         return 0
 
@@ -275,6 +278,9 @@ async def refresh_market_data(
     refreshed = rows = 0
     skipped: dict[str, str] = {}
     yahoo_calls = 0
+    # ONE per pass: bounds the time spent on a provider that is down, not
+    # only each series (market/fetcher.py `ProviderBreaker`).
+    breaker = fetcher.ProviderBreaker()
 
     for ticker_row in ALLOWED_TICKERS:
         if ticker_row["source"] not in ("yahoo", "fred"):
@@ -286,7 +292,7 @@ async def refresh_market_data(
             yahoo_calls += 1
         try:
             written = await refresh_series(
-                db, ticker_row, api_key, fetch_raw=fetch_raw, lookback=lookback
+                db, ticker_row, api_key, fetch_raw=fetch_raw, lookback=lookback, breaker=breaker
             )
         except Exception as exc:
             logger.warning("catch-up: %s skipped — %s", ticker, exc)

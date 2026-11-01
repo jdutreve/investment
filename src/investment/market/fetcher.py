@@ -17,7 +17,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 import aiohttp
 import pandas as pd
@@ -40,6 +40,10 @@ LBMA_GOLD_AM_URL = "https://prices.lbma.org.uk/json/gold_am.json"
 LBMA_TIMEOUT_SECONDS = 30.0
 
 RETRY_ATTEMPTS = 3
+# Two, not one: a single lost series can be a dead endpoint (a retired FRED
+# id, a delisted ticker) while the provider is fine. Two in a row is the
+# provider (see `ProviderBreaker`).
+BREAKER_LOST_IN_A_ROW = 2
 RETRY_BACKOFF_BASE_SECONDS = 60.0
 YAHOO_RATE_LIMIT_SECONDS = 0.5
 # THE ONE PROVIDER WITHOUT A TIMEOUT UNTIL NOW. FRED and LBMA both go through
@@ -71,22 +75,93 @@ YAHOO_TIMEOUT_SECONDS = 30.0
 REVISED_SERIES = frozenset({"INDPRO", "CPIAUCSL", "UNRATE", "GDP"})
 
 
-async def _with_retry[T](fn: Callable[[], Awaitable[T]], *, label: str) -> T:
+async def _with_retry[T](
+    fn: Callable[[], Awaitable[T]], *, label: str, attempts: int = RETRY_ATTEMPTS
+) -> T:
     """3 attempts, exponential backoff off a 60s base (docs/TASKS.md Task
-    2.1) — the caller decides the missing-data fallback on final failure."""
+    2.1) — the caller decides the missing-data fallback on final failure.
+    `attempts` is lowered to 1 only by an open `ProviderBreaker`."""
     last_exc: Exception | None = None
-    for attempt in range(RETRY_ATTEMPTS):
+    for attempt in range(attempts):
         try:
             return await fn()
         except Exception as exc:
             last_exc = exc
             logger.warning(
-                "fetch failed (%s), attempt %d/%d: %s", label, attempt + 1, RETRY_ATTEMPTS, exc
+                "fetch failed (%s), attempt %d/%d: %s", label, attempt + 1, attempts, exc
             )
-            if attempt < RETRY_ATTEMPTS - 1:
+            if attempt < attempts - 1:
                 await asyncio.sleep(RETRY_BACKOFF_BASE_SECONDS * (2**attempt))
     assert last_exc is not None
     raise last_exc
+
+
+class FetchRawFn(Protocol):
+    """The shape of `fetch_raw_series`, which the catch-up's tests replace."""
+
+    def __call__(
+        self, ticker_row: Mapping[str, Any], api_key: str, start: date | None, *, attempts: int
+    ) -> Awaitable[pd.Series]: ...
+
+
+class ProviderBreaker:
+    """Bounds the whole pass over one provider, not each series alone.
+
+    WHY (2026-11-01). FRED answered 500 for most of a Sunday morning. Each
+    series had its bound, 3 attempts over 3 minutes, and nothing bounded the
+    provider: four series in a row were lost after their full 3 attempts, and
+    the catch-up spent 12 of its 16 minutes waiting on a provider that was down.
+    The retries were not the waste. Four other series failed once and came back
+    on the second attempt, a minute later, among them T10Y2Y, an input of the
+    monthly decision. So the patience stays, and only a provider that has
+    plainly stopped answering loses it.
+
+    After `BREAKER_LOST_IN_A_ROW` series of one source are lost in a row, every
+    further series of that source gets ONE attempt, not zero, so a provider
+    that comes back still delivers. One success closes the breaker and full
+    retries resume. One per pass (`catchup.refresh_market_data`): the state of
+    last Sunday's provider says nothing about today's."""
+
+    def __init__(self) -> None:
+        self._lost_in_a_row: dict[str, int] = {}
+
+    def is_open(self, source: str) -> bool:
+        return self._lost_in_a_row.get(source, 0) >= BREAKER_LOST_IN_A_ROW
+
+    async def fetch(
+        self,
+        fetch_raw: FetchRawFn,
+        ticker_row: Mapping[str, Any],
+        api_key: str,
+        start: date | None,
+    ) -> pd.Series:
+        """`fetch_raw` with the attempts this source has earned, recording
+        the outcome. Re-raises a failure for the caller's skip logic."""
+        source = str(ticker_row["source"])
+        attempts = 1 if self.is_open(source) else RETRY_ATTEMPTS
+        if attempts == 1:
+            # Logged per series: the bound spent here is retries NOT made.
+            logger.warning(
+                "breaker open for %s: %s tried once, without retry", source, ticker_row["ticker"]
+            )
+        try:
+            series = await fetch_raw(ticker_row, api_key, start, attempts=attempts)
+        except Exception:
+            self._lost_in_a_row[source] = self._lost_in_a_row.get(source, 0) + 1
+            if self._lost_in_a_row[source] == BREAKER_LOST_IN_A_ROW:
+                logger.warning(
+                    "breaker OPEN for %s: %d series lost in a row after %d attempts each; "
+                    "every further %s series gets one attempt until one succeeds",
+                    source,
+                    BREAKER_LOST_IN_A_ROW,
+                    RETRY_ATTEMPTS,
+                    source,
+                )
+            raise
+        if self.is_open(source):
+            logger.warning("breaker closed for %s: %s answered", source, ticker_row["ticker"])
+        self._lost_in_a_row[source] = 0
+        return series
 
 
 def _to_naive_date_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -115,7 +190,9 @@ def _fetch_yahoo_sync(ticker: str, start: date | None) -> pd.Series:
     return series[~series.index.duplicated(keep="last")].sort_index()
 
 
-async def fetch_yahoo_series(ticker: str, start: date | None = None) -> pd.Series:
+async def fetch_yahoo_series(
+    ticker: str, start: date | None = None, *, attempts: int = RETRY_ATTEMPTS
+) -> pd.Series:
     """Adjusted close (dividends/splits folded in via `auto_adjust`), USD
     (or the pair's own quote currency for FX tickers like CHFUSD=X)."""
 
@@ -133,14 +210,19 @@ async def fetch_yahoo_series(ticker: str, start: date | None = None) -> pd.Serie
             timeout=YAHOO_TIMEOUT_SECONDS,
         )
 
-    return await _with_retry(_call, label=f"yahoo:{ticker}")
+    return await _with_retry(_call, label=f"yahoo:{ticker}", attempts=attempts)
 
 
 # -- FRED / ALFRED ------------------------------------------------------------
 
 
 async def fetch_fred_observations(
-    series_id: str, api_key: str, *, output_type: int, observation_start: str
+    series_id: str,
+    api_key: str,
+    *,
+    output_type: int,
+    observation_start: str,
+    attempts: int = RETRY_ATTEMPTS,
 ) -> list[dict[str, str]]:
     params = {
         "series_id": series_id,
@@ -172,7 +254,7 @@ async def fetch_fred_observations(
             data = await resp.json()
             return list(data["observations"])
 
-    return await _with_retry(_call, label=f"fred:{series_id}")
+    return await _with_retry(_call, label=f"fred:{series_id}", attempts=attempts)
 
 
 def parse_fred_current(observations: list[dict[str, str]], lag_days: int) -> pd.Series:
@@ -300,15 +382,21 @@ def _as_known_on(vintages: list[tuple[date, float]], on: date) -> float | None:
     return known[-1] if known else None
 
 
-async def fetch_fred_series(series_id: str, api_key: str, start: date, lag_days: int) -> pd.Series:
+async def fetch_fred_series(
+    series_id: str, api_key: str, start: date, lag_days: int, *, attempts: int = RETRY_ATTEMPTS
+) -> pd.Series:
     observation_start = start.isoformat()
     if series_id in REVISED_SERIES:
         obs = await fetch_fred_observations(
-            series_id, api_key, output_type=2, observation_start=observation_start
+            series_id,
+            api_key,
+            output_type=2,
+            observation_start=observation_start,
+            attempts=attempts,
         )
         return parse_alfred_first_release(obs)
     obs = await fetch_fred_observations(
-        series_id, api_key, output_type=1, observation_start=observation_start
+        series_id, api_key, output_type=1, observation_start=observation_start, attempts=attempts
     )
     return parse_fred_current(obs, lag_days)
 
@@ -331,7 +419,7 @@ def parse_lbma_gold_json(raw: bytes) -> pd.Series:
     return _series_from_date_map(prices)
 
 
-async def fetch_lbma_gold_daily() -> pd.Series:
+async def fetch_lbma_gold_daily(*, attempts: int = RETRY_ATTEMPTS) -> pd.Series:
     async def _call() -> pd.Series:
         timeout = aiohttp.ClientTimeout(total=LBMA_TIMEOUT_SECONDS)
         async with (
@@ -342,7 +430,7 @@ async def fetch_lbma_gold_daily() -> pd.Series:
             raw = await resp.read()
         return parse_lbma_gold_json(raw)
 
-    return await _with_retry(_call, label="lbma:gold")
+    return await _with_retry(_call, label="lbma:gold", attempts=attempts)
 
 
 # -- shared --------------------------------------------------------------
@@ -362,17 +450,23 @@ def forward_fill_gaps(series: pd.Series, max_days: int = 5) -> pd.Series:
 
 
 async def fetch_raw_series(
-    ticker_row: Mapping[str, Any], api_key: str, start: date | None
+    ticker_row: Mapping[str, Any],
+    api_key: str,
+    start: date | None,
+    *,
+    attempts: int = RETRY_ATTEMPTS,
 ) -> pd.Series:
     """Dispatch by `allowed_tickers.source` — the shape UC0 seed step 9 and
     the future Monday catch-up job both loop over."""
     source = ticker_row["source"]
     ticker = str(ticker_row["ticker"])
     if source == "yahoo":
-        return await fetch_yahoo_series(ticker, start)
+        return await fetch_yahoo_series(ticker, start, attempts=attempts)
     if source == "fred":
         lag_days = int(ticker_row.get("availability_lag_days") or 0)
-        return await fetch_fred_series(ticker, api_key, start or date(1900, 1, 1), lag_days)
+        return await fetch_fred_series(
+            ticker, api_key, start or date(1900, 1, 1), lag_days, attempts=attempts
+        )
     if source == "lbma":
-        return await fetch_lbma_gold_daily()
+        return await fetch_lbma_gold_daily(attempts=attempts)
     raise ValueError(f"unsupported source for raw fetch: {source!r}")

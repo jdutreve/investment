@@ -8,6 +8,7 @@ here is about the failure modes — a dead endpoint, a ticker with no history, a
 restated close.
 """
 
+import contextlib
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
 from pathlib import Path
@@ -17,8 +18,9 @@ import pandas as pd
 import pytest
 
 from investment.config import Settings
+from investment.db.seed_data import ALLOWED_TICKERS
 from investment.db.sqlite import InvestmentDB
-from investment.market import derivatives
+from investment.market import derivatives, fetcher
 from investment.mechanical import catchup, ratios
 
 TODAY = date(2026, 8, 10)
@@ -102,7 +104,7 @@ async def test_the_tail_is_fetched_and_the_history_is_not(db: InvestmentDB) -> N
     await _store(db, "SPY", stored)
     asked: list[date | None] = []
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         asked.append(start)
         return _tail_overlapping(stored)
 
@@ -125,7 +127,7 @@ async def test_the_derivatives_match_what_a_full_rebuild_would_produce(db: Inves
     tail = _rising(5, TODAY + timedelta(days=1), base=100.0 + _DAYS * 0.1)
     await _store(db, "QQQ", stored)
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         return pd.concat([stored.iloc[-30:], tail])
 
     await catchup.refresh_series(db, _QQQ, "k", fetch_raw=fetch, lookback=LOOKBACK)
@@ -150,7 +152,7 @@ async def test_a_restated_close_wins_over_the_stored_one(db: InvestmentDB) -> No
     await _store(db, "QQQ", _rising(_DAYS, _START))
     restated_day = TODAY - timedelta(days=3)
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         return pd.Series([999.0], index=pd.to_datetime([restated_day]))
 
     await catchup.refresh_series(db, _QQQ, "k", fetch_raw=fetch, lookback=LOOKBACK)
@@ -166,7 +168,7 @@ async def test_a_ticker_with_no_history_is_refused_rather_than_half_filled(
     LOOKS complete, and every rolling window computed on it afterwards would be
     quietly wrong. Backfilling is the seed's job."""
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         return _rising(10, TODAY)
 
     with pytest.raises(LookupError, match="run the seed"):
@@ -178,7 +180,7 @@ async def test_an_empty_fetch_writes_nothing_and_is_not_an_error(db: InvestmentD
     a FAILURE, which the caller records by name."""
     await _store(db, "QQQ", _rising(_DAYS, _START))
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         return pd.Series(dtype=float)
 
     assert await catchup.refresh_series(db, _QQQ, "k", fetch_raw=fetch, lookback=LOOKBACK) == 0
@@ -192,7 +194,7 @@ async def test_one_dead_endpoint_does_not_cost_the_others(db: InvestmentDB, tmp_
     for ticker in ("SPY", "IEF"):
         await _store(db, ticker, _rising(_DAYS, _START))
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         if str(row["ticker"]) == "SPY":
             raise RuntimeError("yahoo said no")
         return pd.Series(dtype=float)
@@ -216,7 +218,7 @@ async def test_a_second_run_changes_nothing(db: InvestmentDB) -> None:
     await _store(db, "SPY", stored)
     tail = _tail_overlapping(stored)
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         return tail
 
     await catchup.refresh_series(db, _SPY, "k", fetch_raw=fetch, lookback=LOOKBACK)
@@ -273,7 +275,7 @@ async def test_a_spliced_tickers_tail_is_chained_and_never_pasted(db: Investment
     await _store(db, "SPY", stored)
     quote = stored / 21.0  # the same shape on the quote's own scale
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         anchor = stored.index.max()
         extra = pd.Series(
             [float(quote.iloc[-1]) * 1.01, float(quote.iloc[-1]) * 1.02],
@@ -299,7 +301,7 @@ async def test_a_gap_too_wide_to_chain_is_refused_rather_than_guessed(db: Invest
     stored = _rising(_DAYS, _START, base=16000.0, step=1.0)
     await _store(db, "SPY", stored)
 
-    async def fetch(row: Any, key: str, start: date | None) -> pd.Series:
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
         far = stored.index.max() + pd.Timedelta(days=90)
         return pd.Series([800.0, 801.0], index=pd.to_datetime([far, far + pd.Timedelta(days=1)]))
 
@@ -355,3 +357,55 @@ async def test_a_rebuilt_nav_that_starts_later_prunes_the_head_it_no_longer_cove
     )
     assert len(rows) == len(short)
     assert rows[0]["ts"] == short[0].date().isoformat()
+
+
+async def test_a_provider_that_is_down_stops_costing_retries(
+    db: InvestmentDB, tmp_path: Path
+) -> None:
+    """2026-11-01: FRED answered 500 all morning and four series in a row were
+    each lost after their full 3 attempts, 3 minutes apiece. The breaker is
+    shared by the whole pass: after two FRED series lost in a row, the next
+    FRED series gets one attempt, and Yahoo, a different provider, keeps its
+    full retries."""
+    fred = [str(r["ticker"]) for r in ALLOWED_TICKERS if r["source"] == "fred"][:3]
+    for ticker in [*fred, "SPY"]:
+        await _store(db, ticker, _rising(_DAYS, _START))
+    asked: dict[str, int] = {}
+
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
+        asked[str(row["ticker"])] = attempts
+        if row["source"] == "fred":
+            raise RuntimeError("500 Internal Server Error")
+        return pd.Series(dtype=float)
+
+    _refreshed, _rows, skipped = await catchup.refresh_market_data(
+        db,
+        _settings(tmp_path),
+        fetch_raw=fetch,
+        yahoo_rate_limit_seconds=0.0,
+        lookback=LOOKBACK,
+    )
+    assert [asked[t] for t in fred] == [3, 3, 1]
+    assert set(fred) <= set(skipped)  # a series tried once is still reported
+    assert asked["SPY"] == 3
+
+
+async def test_one_answer_closes_the_breaker() -> None:
+    """One attempt, not zero, so a provider that comes back still delivers, and
+    the first series it answers restores full retries for the next one."""
+    breaker = fetcher.ProviderBreaker()
+    answers = iter([False, False, True, True])
+    asked: list[int] = []
+
+    async def fetch(row: Any, key: str, start: date | None, *, attempts: int) -> pd.Series:
+        asked.append(attempts)
+        if not next(answers):
+            raise RuntimeError("500")
+        return pd.Series(dtype=float)
+
+    for n in range(4):
+        row = {"ticker": f"S{n}", "source": "fred"}
+        with contextlib.suppress(RuntimeError):
+            await breaker.fetch(fetch, row, "k", None)
+    assert asked == [3, 3, 1, 3]
+    assert not breaker.is_open("fred")
