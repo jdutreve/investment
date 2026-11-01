@@ -7,8 +7,8 @@ info.recipeinvesting.com/recipe/t.aaaf.html; the owner's refinement (2026-08-18)
 fixes two implementation gaps in it — a 20-session RAW covariance becomes 63
 sessions SHRUNK via Ledoit-Wolf, and an unconstrained min-variance solve
 becomes bounded 10-40% per asset — without adding a third mechanism (no
-credit spread, no yield curve, no trend overlay: "un challenger autonome et
-lisible").
+credit spread, no yield curve, no trend overlay: "a self-contained and
+readable challenger").
 
 THE RULE, monthly at the last close of each month:
     1. universe: SPY, IWM, QQQ, IYR, TLT, EEM, EFA, GLD, DBC

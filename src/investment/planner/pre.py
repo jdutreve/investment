@@ -48,6 +48,7 @@ from investment.planner.context import (
     standing_label,
 )
 from investment.planner.retrieval import QueryStrategies, RetrievalPool, retrieve
+from investment.telegram.digest import owner_view
 
 logger = logging.getLogger(__name__)
 
@@ -246,4 +247,5 @@ class PlannerPre:
         regime_type = baseline.regime.get("regime_type_id")
         active = await active_invariant_ids(self._db, selection.invariant_ids, regime_type)
         evidence = await evidence_summaries(self._db, selection.invariant_ids)
-        return assemble_context(baseline, pool, selection, active, queries, evidence)
+        context = assemble_context(baseline, pool, selection, active, queries, evidence)
+        return dataclasses.replace(context, owner_view=await owner_view(self._db))

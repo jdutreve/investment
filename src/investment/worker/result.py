@@ -205,8 +205,8 @@ class MarketSignalReading(StrictModel):
     single paragraph. Split into five parts that day, two of which were FACTS
     (what the decision saw, the tape since) and a third the rule's own
     mechanics written as conditions — so three parts out of five restated the
-    context the Worker had been given (owner, 2026-10-18: "rien de pertinent
-    n'en sort"). Those facts are now rendered mechanically beside the reading
+    context the Worker had been given (owner, 2026-10-18: "nothing relevant
+    comes out of it"). Those facts are now rendered mechanically beside the reading
     (the decision block and today's values in every channel), and the Worker is
     asked only for what a program cannot write:
 

@@ -997,3 +997,45 @@ async def test_a_complete_month_is_decided_before_its_session_and_only_once(
 
     again = await MSC.run_market_signal_cycle(db, USER, today=date(2025, 11, 9))
     assert again.skipped_reason is not None and "already decided" in again.skipped_reason
+
+
+async def test_the_coming_decision_is_provisional_until_its_month_is_complete(
+    db: InvestmentDB,
+) -> None:
+    """Mid-month, the coming decision is the rule on the latest close, dated on
+    the next month's first session and reading that month's last close; once
+    the month is complete it is fixed, and it is the decision the walk takes."""
+    await _market(db, spread=1.0, slope=2.0)
+    await db.command("DELETE FROM market_data WHERE ts > '2025-10-31'")
+    series = await MS.load_series(db)
+    sunday = date(2025, 11, 2)
+    done = MS.coming_decision(series, start=MSC.HISTORY_START, today=sunday)
+    assert done is not None and done.fixed
+    assert done.decision == MS.decide_through(series, start=MSC.HISTORY_START, today=sunday)[-1]
+
+    await db.command("DELETE FROM market_data WHERE ts > '2025-10-15'")
+    series = await MS.load_series(db)
+    mid = MS.coming_decision(series, start=MSC.HISTORY_START, today=date(2025, 10, 19))
+    assert mid is not None and not mid.fixed
+    assert mid.decision.date == pd.Timestamp("2025-11-03")
+    assert mid.priced_on == pd.Timestamp("2025-10-15")
+    assert mid.reads_close_of == pd.Timestamp("2025-10-31")
+
+
+def test_the_digest_names_the_next_order_and_whether_it_is_fixed() -> None:
+    from investment.telegram.digest import _coming_order_lines
+
+    in_force = {"decision_date": "2026-11-02", "target_allocation": {"cash": 100.0}}
+    provisional = {
+        "decision_date": "2026-12-01",
+        "fixed": False,
+        "priced_on": "2026-11-13",
+        "reads_close_of": "2026-11-30",
+        "target": {"IEF": 100.0},
+        "pending_book": None,
+    }
+    (line,) = _coming_order_lines(provisional, in_force)
+    assert "decision of 2026-12-01" in line and "PROVISIONAL, on the close of 2026-11-13" in line
+    assert "IEF 100 — a change" in line
+    # The coming decision IS the one in force: the block above already says it.
+    assert _coming_order_lines({**provisional, "decision_date": "2026-11-02"}, in_force) == []

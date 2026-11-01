@@ -47,13 +47,16 @@ import logging
 from pathlib import Path
 
 from pydantic_ai import Agent, PromptedOutput
+from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
 from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.run import AgentRunResult
 from pydantic_ai.usage import UsageLimits
 
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.rule_revision import describe_testable_parameters
 from investment.openrouter_client import build_openrouter_client
+from investment.worker.repeated_figures import repeated_figures
 from investment.worker.result import WorkerResult
 from investment.worker.tools import WorkerTools, describe_schema
 
@@ -185,6 +188,10 @@ WORKER_REASONING_EFFORT = "high"
 # reads its own last readings and ideas back (`planner/worker_history.py`), is
 # told to repeat only what changed, to forecast against persistence, and to
 # file a blind spot of the rule as a revision rather than conclude it away.
+# On 2026-11-01 it still restated about half of what the digest printed, and the
+# owner asked for "relevant proposals, not leftovers": it now reads the digest
+# itself, may repeat none of its figures (`run_worker` checks it and sends a
+# reading back once), and reads the coming order instead of guessing it.
 WORKER_SYSTEM_PROMPT = """\
 You are the CAPTAIN of this ship — a long-term investment expert, Phase 1 \
 accumulation. Your DESTINATION is fixed: build retirement capital over 15-20 \
@@ -248,10 +255,20 @@ claim about markets or about the rule that a measurement could settle.
 Your reading of the market-signal allocation goes in market_signal_assessment \
 — always, even when you agree and even when you propose nothing else. It is \
 recorded and shown to the owner, who reads it on a phone and places the order \
-by hand. THE OWNER ALREADY SEES THE FACTS: the decision's signals, overlay and \
-order, and today's signals and trend lines, are printed beside your reading by \
-the machine. Restating them is not a reading. Write only what a program could \
-not write. It has FOUR PARTS:
+by hand. THE OWNER ALREADY READS THE DIGEST, and your context prints it in full \
+under WHAT THE OWNER ALREADY READS: the regime, the ranking, the decision's \
+signals, overlay and order, today's signals and trend lines, the coming order. \
+NO FIGURE PRINTED THERE MAY APPEAR IN YOUR READING — no level, median, weight, \
+percentage or window. If you need one, name it in words: "the slope, now below \
+its median", "the coming order". Your reading is checked against that digest \
+and a repeated figure is sent back to you. A figure belongs in your reading \
+only when the digest does not print it AND a proposal rests on it: the price \
+that would change the order, the level at which your view flips, the number \
+your evidence is. PROPOSALS, NOT A RECAP: every point gives the owner \
+something to act on, watch for or decide — a risk and what would hedge it, a \
+sign and its trigger, a claim worth filing — or the cause behind a move that no \
+program can name. A point that describes what the tape did is a recap: drop \
+it. Write only what a program could not write. It has FOUR PARTS:
 - bottom_line: what the owner should retain, and whether anything is asked of \
 them. Two sentences at most. If nothing is asked, say that nothing is. If your \
 context carries no market-signal allocation, say so here and leave the rest empty.
@@ -282,8 +299,8 @@ YOU HAVE WRITTEN BEFORE. Your last readings and your recent ideas, with what \
 became of each, are in your context, and the owner has read them. A point they \
 already read is not a reading: make it again only if something changed, and \
 lead with the change. An idea already filed is not filed again.
-WRITE TO BE READ. One idea per point, two sentences at most. Every number \
-carries its unit and its date. A term of art — bear steepener, duration, \
+WRITE TO BE READ. One idea per point, two sentences at most. The few numbers \
+you give carry their unit and their date. A term of art — bear steepener, duration, \
 hysteresis — is explained in a few plain words the first time it appears. Name \
 what you cite: an invariant by its title, a setting by its name, never "the \
 three notes" or "the rule text" without saying which.
@@ -295,6 +312,11 @@ reading, it is a repetition. If you still disagree, say what new data or what \
 different mechanism yours brings. But a test settles a question about the \
 PAST: it does not tell what happens next, so it never excuses a forecast or \
 the case against the position. Citing the tests back is not a reading either.
+THE COMING ORDER IS PRINTED in that digest: the date of the next decision, \
+the close it reads, and whether its order is already FIXED (that close is in) \
+or PROVISIONAL (the rule on the latest close). Reason about that order and \
+what could still change it before its close. Never speak of a decision on a \
+day the digest does not show one.
 TWO CLOCKS, AND YOU REASON ON THE LATER ONE. The monthly decision is frozen at \
 its anchor date: cite those figures ONLY to explain why the book in force is \
 what it is. Everything since — today's macro tape — decided nothing, and it is \
@@ -452,7 +474,9 @@ def build_worker_agent(
     return agent
 
 
-async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerResult:
+async def run_worker(
+    agent: Agent[None, WorkerResult], context: str, *, printed: frozenset[str] = frozenset()
+) -> WorkerResult:
     """Run one UC8 cycle: hand the Worker its prepared context and let it call
     the tools until it produces a complete `WorkerResult`.
 
@@ -477,7 +501,7 @@ async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerRe
         try:
             async with asyncio.timeout(WORKER_CALL_BUDGET_SECONDS):
                 result = await agent.run(context, usage_limits=limits)
-            return result.output
+            return await _without_repeated_figures(agent, result, printed)
         except (TimeoutError, json.JSONDecodeError) as exc:
             last = exc
             logger.warning(
@@ -495,3 +519,64 @@ async def run_worker(agent: Agent[None, WorkerResult], context: str) -> WorkerRe
     raise WorkerCallExhausted(
         f"all {WORKER_CALL_ATTEMPTS} worker calls cut or truncated ({type(last).__name__}: {last})"
     ) from last
+
+
+# ONE rewrite turn, and the tools are not its to use: it edits a reading it has
+# already written, from the figures it is told it repeated.
+REWRITE_REQUEST_LIMIT = OUTPUT_RETRIES + 2
+
+
+async def _without_repeated_figures(
+    agent: Agent[None, WorkerResult],
+    result: AgentRunResult[WorkerResult],
+    printed: frozenset[str],
+) -> WorkerResult:
+    """The reading with no figure the owner already reads (`printed`, from
+    `telegram.digest.owner_view`; owner, 2026-11-01: "relevant proposals, not
+    leftovers"). A reading that repeats one is sent back ONCE with the list;
+    the count before and after is logged, so the rule's effect is measured
+    rather than assumed. A rewrite that fails keeps the first reading: a
+    repeated figure is not worth losing the cycle's reading over."""
+    output = result.output
+    if not printed:
+        return output  # no digest to compare with (a replay without one, a test)
+    repeated = repeated_figures(reading_text(output), printed)
+    if not repeated:
+        logger.info("worker reading repeats no figure the owner already reads")
+        return output
+    logger.warning(
+        "worker reading repeats %d figure(s) the owner already reads (%s); sending it back once",
+        len(repeated),
+        ", ".join(repeated),
+    )
+    request = (
+        "Your market_signal_assessment restates figures the owner already reads in the "
+        f"digest: {', '.join(repeated)}. Return the same WorkerResult with none of them in "
+        "bottom_line, my_reading or what_would_prove_it_wrong: say what they mean for the "
+        "position, or drop a point that only restated them. Change nothing else, and do not "
+        "call tools."
+    )
+    try:
+        async with asyncio.timeout(WORKER_CALL_BUDGET_SECONDS):
+            rewritten = await agent.run(
+                request,
+                message_history=result.all_messages(),
+                usage_limits=UsageLimits(request_limit=REWRITE_REQUEST_LIMIT, tool_calls_limit=0),
+            )
+    except (TimeoutError, json.JSONDecodeError, UsageLimitExceeded, UnexpectedModelBehavior) as exc:
+        logger.warning("worker rewrite failed (%s); keeping the first reading", type(exc).__name__)
+        return output
+    still = repeated_figures(reading_text(rewritten.output), printed)
+    logger.info(
+        "worker reading after the rewrite repeats %d figure(s)%s",
+        len(still),
+        f" ({', '.join(still)})" if still else "",
+    )
+    return rewritten.output
+
+
+def reading_text(result: WorkerResult) -> str:
+    """The parts of the reading the owner reads as prose. The forecasts are
+    left out: each is a structured, scored claim whose threshold is its point."""
+    reading = result.market_signal_assessment
+    return "\n".join([reading.bottom_line, *reading.my_reading, *reading.what_would_prove_it_wrong])

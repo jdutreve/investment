@@ -94,6 +94,10 @@ class PlannerContext:
     past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     recent_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     invariant_vocabulary: list[str] = dataclasses.field(default_factory=list)
+    # The digest as the owner will read it, without the Worker's reading
+    # (`telegram.digest.owner_view`): what the Worker must not restate. Set by
+    # `PlannerPre.run`, which sits above both the digest and this module.
+    owner_view: str = ""
     # THE MARGIN'S OWN TRAIL — what Call 1a asked for and what Call 1b was
     # offered. Never rendered to the Worker; carried so the cycle can journal
     # them (`decision_cycle.journal_planner_context`). Without the candidates a

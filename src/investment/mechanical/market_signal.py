@@ -2100,6 +2100,49 @@ def decide_through(s: StackSeries, *, start: date, today: date) -> list[Decision
     return decide(with_next_session(s, session), start=start, end=session.date())
 
 
+@dataclasses.dataclass(frozen=True)
+class ComingDecision:
+    """The next monthly decision as the rule takes it on today's data.
+
+    FIXED when the close it reads is already in (its month is complete): it is
+    the decision itself, and the cycle journals it this run. PROVISIONAL
+    otherwise: the rule applied to the latest close, which the decision will not
+    read — it reads the month's last close, `reads_close_of`."""
+
+    decision: Decision
+    fixed: bool
+    reads_close_of: pd.Timestamp
+    priced_on: pd.Timestamp
+
+
+def coming_decision(s: StackSeries, *, start: date, today: date) -> ComingDecision | None:
+    """The decision of the coming month's first session, fixed or provisional.
+
+    WHY (owner, 2026-11-01). The Worker wrote of "today's decision" on a Sunday
+    that decided nothing, and warned that "a coming order" could swing to IEF
+    when the coming order, fixed by the close two days before, was all cash.
+    It could not know which order came next or what it would read; nor could the
+    owner, who places it. Computed with the same walk and the same views as the
+    decision itself (`with_next_session`), so the provisional order is the one
+    the rule would give if the month ended on the latest close."""
+    if s.calendar.empty:
+        return None
+    last = s.calendar[-1]
+    session = next_session(s.calendar, today)
+    fixed = session is not None
+    if session is None:
+        session = pd.Timestamp(pd.offsets.BMonthBegin().rollforward(last + pd.Timedelta(days=1)))
+    decisions = decide(with_next_session(s, session), start=start, end=session.date())
+    if not decisions or decisions[-1].date != session:
+        return None
+    return ComingDecision(
+        decision=decisions[-1],
+        fixed=fixed,
+        reads_close_of=pd.Timestamp(session - pd.offsets.BDay(1)),
+        priced_on=last,
+    )
+
+
 async def run_market_signal(
     db: InvestmentDB,
     *,

@@ -81,8 +81,8 @@ function rebaseFrom(points: NavPoint[], refDate: string | null): NavPoint[] {
 
 /*
  * CHAIN A LATE-STARTING SERIES ONTO AN EARLIER ONE'S REBASED LEVEL, rather
- * than restarting it at 100 (owner, 2026-08-19: "fait demarrer AAAF-R au
- * meme niveau que SPY"). `rebaseFrom`'s no-op for a series that starts after
+ * than restarting it at 100 (owner, 2026-08-19: "start AAAF-R at
+ * the same level as SPY"). `rebaseFrom`'s no-op for a series that starts after
  * `refDate` left aaaf-r-USD opening at its own 100 on the SAME chart where
  * spy-USD, decades into compounding, was already far above that — a visual
  * reset with no meaning, since the two numbers were never on the same base.

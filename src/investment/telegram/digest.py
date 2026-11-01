@@ -25,6 +25,7 @@ from investment.market.liquidity import (
     liquidity_state,
 )
 from investment.market.regime import describe_directions, leaning_record, replay_persisted_inputs
+from investment.market_signal_cycle import HISTORY_START
 from investment.mechanical import ratios
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
@@ -37,10 +38,13 @@ from investment.mechanical.invariants import (
     evidence_summaries,
 )
 from investment.mechanical.market_signal import (
+    CONFIRM_DECISIONS,
     CREDIT_SPREAD,
     MA_WINDOWS,
     STACK_PORTFOLIO_ID,
     YIELD_SLOPE,
+    coming_decision,
+    load_series,
 )
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
@@ -319,6 +323,7 @@ def _market_signal_block(
     worker_reading: dict[str, Any] | None = None,
     live_values: dict[str, Any] | None = None,
     forecast_record: dict[str, Any] | None = None,
+    coming_order: dict[str, Any] | None = None,
 ) -> list[str]:
     """ADR-007's live monthly decision, rendered from its JOURNAL entry
     (`MarketSignalDecisionEvent`, writeback `dispose_market_signal`), not from a
@@ -413,9 +418,38 @@ def _market_signal_block(
     if decision.get("reasoning"):
         lines.append(f"   Why: {decision['reasoning']}")
     lines.extend(_today_lines(decision, live_values or {}))
+    lines.extend(_coming_order_lines(coming_order, decision))
     lines.extend(
         _worker_challenge_lines(worker_reading, decision.get("decision_date"), forecast_record)
     )
+    return lines
+
+
+def _coming_order_lines(coming: dict[str, Any] | None, decision: dict[str, Any]) -> list[str]:
+    """The NEXT order, so neither the owner nor the Worker has to work out the
+    calendar (`market_signal.coming_decision`). Absent when the coming decision
+    is the one just journalled: the block above is that order."""
+    if not coming or coming.get("decision_date") == decision.get("decision_date"):
+        return []
+    target = coming.get("target") or {}
+    in_force = decision.get("target_allocation") or {}
+    order = ", ".join(f"{t} {w:g}" for t, w in sorted(target.items(), key=lambda kv: -kv[1]))
+    change = "no change from the order in force" if target == in_force else "a change"
+    if coming.get("fixed"):
+        status = f"FIXED (it reads the close of {coming['reads_close_of']}, already in)"
+    else:
+        status = (
+            f"PROVISIONAL, on the close of {coming['priced_on']}; it will read the close of "
+            f"{coming['reads_close_of']}"
+        )
+    lines = [
+        f"   ⏭ Next order, decision of {coming['decision_date']}: {status}: {order} — {change}"
+    ]
+    if coming.get("pending_book"):
+        lines.append(
+            f"      Book switch pending: {coming['pending_book']} "
+            f"{coming.get('pending_count')}/{coming.get('confirm_decisions')}"
+        )
     return lines
 
 
@@ -809,6 +843,7 @@ def render_digest(
     signal_attribution: dict[str, Any] | None = None,
     live_values: dict[str, Any] | None = None,
     forecast_record: dict[str, Any] | None = None,
+    coming_order: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -828,7 +863,9 @@ def render_digest(
         _regime_header(regime, global_liquidity),
         _ranking_block(ranking),
         _invariant_block(invariants),
-        _market_signal_block(market_signal, worker_reading, live_values, forecast_record),
+        _market_signal_block(
+            market_signal, worker_reading, live_values, forecast_record, coming_order
+        ),
         _stack_block(stack),
         _attribution_block(signal_attribution),
         _proposal_block(proposal),
@@ -991,6 +1028,9 @@ class DigestInputs(TypedDict):
     # The Worker's record as forecaster (`mechanical/forecasts.py`), None before
     # the first forecast is made.
     forecast_record: dict[str, Any] | None
+    # The next monthly decision, fixed or provisional (`market_signal.coming_decision`);
+    # None when the stack's series cannot be loaded.
+    coming_order: dict[str, Any] | None
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -1052,7 +1092,46 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
             if has_forecasts
             else None
         ),
+        coming_order=await _coming_order(db, today),
     )
+
+
+async def _coming_order(db: InvestmentDB, today: date) -> dict[str, Any] | None:
+    """`market_signal.coming_decision` as the digest and the dashboard read it.
+    None on a database whose stack cannot be loaded (a missing sleeve or
+    signal): a digest must never be the thing that fails on the morning it runs."""
+    try:
+        series = await load_series(db)
+        if series.missing_signals:
+            return None
+        coming = coming_decision(series, start=HISTORY_START, today=today)
+    except ValueError:
+        return None
+    if coming is None:
+        return None
+    d = coming.decision
+    return {
+        "decision_date": str(d.date.date()),
+        "fixed": coming.fixed,
+        "reads_close_of": str(coming.reads_close_of.date()),
+        "priced_on": str(coming.priced_on.date()),
+        "target": d.target,
+        "book": d.held,
+        "pending_book": d.pending,
+        "pending_count": d.pending_count,
+        "confirm_decisions": CONFIRM_DECISIONS,
+    }
+
+
+async def owner_view(db: InvestmentDB, today: date | None = None) -> str:
+    """The digest as the owner will read it, without the Worker's own reading:
+    what the Worker must not restate (owner, 2026-11-01: "remove every figure
+    already given elsewhere, the mechanical ones above all; I want relevant
+    proposals, not leftovers"). The same assembly and rendering as the digest,
+    so the two cannot differ."""
+    inputs = await collect_digest_inputs(db, today)
+    inputs["worker_reading"] = None
+    return render_digest(**inputs)
 
 
 async def _latest_attribution(db: InvestmentDB) -> dict[str, Any] | None:

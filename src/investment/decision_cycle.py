@@ -54,6 +54,7 @@ from investment.planner.worker_history import (
     describe_recent_ideas,
 )
 from investment.worker.agent import run_worker
+from investment.worker.repeated_figures import figures_in
 from investment.worker.result import WorkerResult
 from investment.worker.tools import round_for_model
 from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_knowledge
@@ -287,6 +288,16 @@ def render_context_for_worker(context: PlannerContext) -> str:
         f"GLOBAL LIQUIDITY: {context.global_liquidity}",
     ]
     lines.extend(_market_signal_lines(context.market_signal, context.macro, context.stack_caps))
+    # WHAT THE OWNER READS AROUND THE READING (owner, 2026-11-01: no figure given
+    # elsewhere, "relevant proposals, not leftovers"). The digest itself, so the
+    # Worker knows exactly what not to restate; `run_worker` checks it did not.
+    if context.owner_view:
+        lines += [
+            "",
+            "WHAT THE OWNER ALREADY READS — the digest your reading is printed inside. "
+            "NOT ONE FIGURE OF IT MAY APPEAR IN YOUR READING:",
+            *[f"  | {line}" for line in context.owner_view.splitlines() if line.strip()],
+        ]
     # WHAT HAS ALREADY BEEN TRIED, and this is the fifth time this week that a
     # fact the system held was not reaching the only thing that could use it.
     # "Add VCIT to the trend overlay" arrived three times across independent
@@ -592,7 +603,9 @@ async def run_decision_cycle(
     await journal_planner_context(
         db, context, worker_context, trigger=trigger, run_id=run_id, today=today
     )
-    worker_result = await run_worker(worker_agent, worker_context)
+    worker_result = await run_worker(
+        worker_agent, worker_context, printed=figures_in(context.owner_view)
+    )
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today
     )
