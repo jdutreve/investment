@@ -809,8 +809,10 @@ def describe_measured(verdicts: Sequence[Mapping[str, Any]]) -> list[str]:
         "setting is as much a fact about this market as the rule itself: before writing "
         "that the rule lacks a mechanism, look here, because it may exist and be switched "
         "off because it lost. Do not re-propose a measured setting; if you still disagree, "
-        "say what yours changes that these did not. Deltas are the setting minus the rule; "
-        "a POSITIVE max-drawdown delta is a SHALLOWER drawdown.",
+        "say what yours changes that these did not. Each window reads: its verdict, then "
+        "the Sortino / CAGR / max-drawdown deltas of the setting minus the rule (a POSITIVE "
+        "drawdown delta is a SHALLOWER drawdown), and how often chance alone does it when "
+        "the history was resampled.",
     ]
     by_knobs: dict[tuple[str, ...], list[tuple[dict[str, Any], Mapping[str, Any]]]] = {}
     for experiment in verdicts:
@@ -833,8 +835,11 @@ def describe_measured(verdicts: Sequence[Mapping[str, Any]]) -> list[str]:
                 else f"{verdict.upper()} (one window only: no out-of-sample check)"
             )
             setting = ", ".join(f"{knob} = {json.dumps(overrides[knob])}" for knob in knobs)
-            lines.append(f"    {setting}: {headline}")
-            lines += [f"      {_window_line(window)}" for window in windows]
+            # ONE LINE A VALUE (owner, 2026-11-03: trim the context): every number
+            # the three window lines carried, without their repeated words.
+            lines.append(
+                f"    {setting}: {headline} — " + " · ".join(_window_line(w) for w in windows)
+            )
     return lines
 
 
@@ -879,10 +884,9 @@ def _distinct_windows(windows: Sequence[Mapping[str, Any]]) -> list[Mapping[str,
 def _window_line(window: Mapping[str, Any]) -> str:
     sortino = window["sortino_delta"]
     return (
-        f"{_span(window)} {window['verdict']}: "
-        f"sortino {'n/a' if sortino is None else format(sortino, '+.3f')}, "
-        f"cagr {_pp(window['cagr_delta'])}, max drawdown {_pp(window['drawdown_delta'])}"
-        f"{_chance(window)}"
+        f"{_span(window)} {window['verdict']} "
+        f"{'n/a' if sortino is None else format(sortino, '+.3f')} / "
+        f"{_pp(window['cagr_delta'])} / {_pp(window['drawdown_delta'])}{_chance(window)}"
     )
 
 
@@ -892,8 +896,8 @@ def _chance(window: Mapping[str, Any]) -> str:
     before the bootstrap say so rather than showing a number they do not have."""
     improve, degrade = window.get("sortino_p_improve"), window.get("sortino_p_degrade")
     if improve is None or degrade is None:
-        return " (evidence not measured)"
-    return f", chance alone does this {min(float(improve), float(degrade)):.0%} of the time"
+        return ""
+    return f", chance alone {min(float(improve), float(degrade)):.0%}"
 
 
 def _pp(fraction: float | None) -> str:

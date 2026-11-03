@@ -390,8 +390,8 @@ def test_a_refused_setting_is_described_as_fully_as_the_rule() -> None:
     assert market_signal.SPREAD_SPEED_WIDE_TRIGGER is None
     assert "[rule today: off]" in text
     assert "spread_speed_wide_trigger = 0.2: MIXED" in text
-    assert "1991-2026 reject: sortino -0.050, cagr -0.40pp, max drawdown +0.00pp" in text
-    assert "1991-2008 adopt: sortino +0.010, cagr +0.16pp" in text
+    assert "1991-2026 reject -0.050 / -0.40pp / +0.00pp" in text
+    assert "1991-2008 adopt +0.010 / +0.16pp" in text
     assert text.count("2009-2026 reject") == 1
     # measured alone AND in a pair: its meaning is still said once
     assert text.count("spread_speed_wide_trigger — ") == 1
@@ -528,4 +528,4 @@ async def test_the_evidence_is_recorded_with_the_verdict(db: InvestmentDB) -> No
     verdicts = await rule_revision.measured_verdicts(db)
     text = "\n".join(rule_revision.describe_measured(verdicts))
     assert "MEASURED AND UNDECIDABLE" in text
-    assert "chance alone does this 30% of the time" in text
+    assert "chance alone 30%" in text

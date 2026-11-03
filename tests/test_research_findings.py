@@ -1,11 +1,17 @@
 """What research answered reaches the Worker, and stays tied to its record."""
 
+import re
 import subprocess
 from datetime import date
 from pathlib import Path
 
 from investment.decision_cycle import render_context_for_worker
-from investment.mechanical.research_findings import FINDINGS, Finding, describe_findings
+from investment.mechanical.research_findings import (
+    FINDINGS,
+    Finding,
+    describe_findings,
+    headline_evidence,
+)
 from investment.planner.context import PlannerContext
 
 REPO = Path(__file__).resolve().parents[1]
@@ -33,7 +39,9 @@ def test_every_finding_reaches_the_worker_whatever_else_its_context_holds() -> N
     assert "WHAT STRUCTURAL TESTS ALREADY ANSWERED" in text
     for finding in FINDINGS:
         assert finding.question in text
-        assert finding.evidence in text
+        # Its headline figures since 2026-11-03 (the full table is in its record).
+        assert headline_evidence(finding.evidence) in text
+        assert re.search(r"\d\.\d|\d%|\d/\d", headline_evidence(finding.evidence))
         assert finding.consequence in text
 
 

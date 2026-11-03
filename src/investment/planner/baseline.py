@@ -61,7 +61,9 @@ RECENT_PROPOSALS = 3
 # hikes could sit in the corpus unread. One monthly decision plus a week of
 # lookback, so every decision sees what happened since the previous one.
 EVENT_LOOKBACK_DAYS = 35
-RECENT_EVENTS_CAP = 15
+# Eight: the decisions and speeches of the month, newest first; a fifteenth
+# item was a September account still being read in November (2026-11-03).
+RECENT_EVENTS_CAP = 8
 
 _INVARIANT_COLS = (
     "id, title, weight_effective, tags, author, status, "

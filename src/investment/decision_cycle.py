@@ -271,6 +271,30 @@ def _market_signal_lines(
     return lines
 
 
+# A central-bank summary as the Worker reads it (owner, 2026-11-03: trim the
+# context): the decision and its reason, not the statement's every paragraph.
+EVENT_SUMMARY_CHARS = 400
+
+
+def _clipped(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
+
+
+def _rounded(value: Any, digits: int) -> str:
+    return f"{float(value):.{digits}f}" if isinstance(value, int | float) else "?"
+
+
+def _liquidity_line(liquidity: dict[str, Any]) -> str:
+    """The global-liquidity standing in words, not as a raw mapping."""
+    if not liquidity:
+        return "not available"
+    state = str(liquidity.get("state", "?")).removeprefix("liquidity-")
+    return (
+        f"{state}, level {_rounded(liquidity.get('level'), 2)} on {liquidity.get('ts', '?')}, "
+        f"speed {_rounded(liquidity.get('speed'), 2)}"
+    )
+
+
 def render_context_for_worker(context: PlannerContext) -> str:
     """The PlannerContext as the text the Worker reads (docs/ARCHITECTURE.md
     WORKER: "the data in your context"). Deliberately unaware of provenance —
@@ -285,8 +309,8 @@ def render_context_for_worker(context: PlannerContext) -> str:
     regime = context.regime
     lines = [
         f"REGIME: {regime.get('regime_name', '?')} ({regime.get('regime_type_id', '?')}), "
-        f"confidence {regime.get('confidence', '?')}",
-        f"GLOBAL LIQUIDITY: {context.global_liquidity}",
+        f"signal strength {_rounded(regime.get('confidence'), 0)}/100, not a probability",
+        f"GLOBAL LIQUIDITY: {_liquidity_line(context.global_liquidity)}",
     ]
     lines.extend(_market_signal_lines(context.market_signal, context.macro, context.stack_caps))
     # WHAT THE OWNER READS AROUND THE READING (owner, 2026-11-01: no figure given
@@ -331,11 +355,16 @@ def render_context_for_worker(context: PlannerContext) -> str:
     for row in context.ranking:
         star = " *" if row.get("defender") else ""
         alloc = _allocation(row) if row.get("allocation") else {}
-        lines.append(
-            f"  {row.get('rank')}. {row.get('portfolio_id')}{star} "
-            f"sortino={row.get('sortino_rolling')} calmar={row.get('calmar_rolling')} "
-            f"maxDD={row.get('max_drawdown')} alloc={alloc}"
+        # THE SCORES ARE IN THE DIGEST ABOVE when it is in the context (owner,
+        # 2026-11-03: trim the context); what only this list says is what each
+        # portfolio holds.
+        scores = (
+            ""
+            if context.owner_view
+            else f"sortino={row.get('sortino_rolling')} calmar={row.get('calmar_rolling')} "
+            f"maxDD={row.get('max_drawdown')} "
         )
+        lines.append(f"  {row.get('rank')}. {row.get('portfolio_id')}{star} {scores}alloc={alloc}")
     lines.append("")
     lines.append("SCENARIOS (probability, week-over-week shift):")
     for sc in context.scenarios:
@@ -387,7 +416,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
             # read, said as such — a September decision read in October must not
             # pass for an October one.
             when = event.get("published") or f"read {event.get('read_on')}"
-            summary = event.get("summary") or "(no summary)"
+            summary = _clipped(str(event.get("summary") or "(no summary)"), EVENT_SUMMARY_CHARS)
             lines.append(f"  [{when}] {event.get('source')}: {event.get('title')} — {summary}")
     if context.favors:
         lines.append("")

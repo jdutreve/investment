@@ -31,6 +31,7 @@ which will then raise the question again, plausibly and at length.
 """
 
 import dataclasses
+import re
 from datetime import date
 from typing import Literal
 
@@ -370,11 +371,11 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         answer="no: the best book is hindsight",
         evidence=(
-            "The best frozen book (tight-flat) is known only in hindsight; it was the worst "
-            "of four on 1977-1993. Chosen each January with the data of the time: 7.53% a "
-            "year against the stack's 10.61% from 1987, Sortino 0.642 against 1.059 (+0.415 "
-            "[+0.185, +0.651], 0% of resamples at or below zero). Picked once and held, it "
-            "loses to the stack for all 30 start years 1987-2016."
+            "Chosen each January with the data of the time: 7.53% a year against the "
+            "stack's 10.61% from 1987, Sortino 0.642 against 1.059 (+0.415, 0% of resamples "
+            "at or below zero). Picked once and held, it loses for all 30 start years "
+            "1987-2016. The best frozen book (tight-flat) is known only in hindsight; it was "
+            "the worst of four on 1977-1993."
         ),
         consequence=(
             "Do not propose replacing the stack with one frozen book: which book is best "
@@ -431,7 +432,35 @@ def describe_findings(findings: tuple[Finding, ...] = FINDINGS) -> list[str]:
         for finding in selected:
             lines += [
                 f"    [{finding.measured_on.isoformat()}] {finding.question}",
-                f"      ANSWER: {finding.answer.upper()}. {finding.evidence}",
+                f"      ANSWER: {finding.answer.upper()}. {headline_evidence(finding.evidence)}",
                 f"      SO: {finding.consequence}",
             ]
     return lines
+
+
+# THE HEADLINE FIGURES, NOT THE WHOLE TABLE (owner, 2026-11-03: trim the
+# context). The full evidence is in the record each finding names; the Worker
+# needs enough of it to quote the result right.
+EVIDENCE_CHARS = 220
+
+
+def headline_evidence(evidence: str) -> str:
+    """`evidence` cut to about `EVIDENCE_CHARS`, the sentences that carry figures
+    kept first, then the others while they fit, in their own order; an
+    ellipsis marks the cut. A first figure-bearing sentence longer than the
+    budget is cut at a word."""
+    if len(evidence) <= EVIDENCE_CHARS:
+        return evidence
+    sentences = re.split(r"(?<=[.;])\s+", evidence)
+    # A measured figure: a decimal, a percentage or a count of n/m.
+    figured = [
+        i for i, sentence in enumerate(sentences) if re.search(r"\d\.\d|\d%|\d/\d", sentence)
+    ]
+    order = figured + [i for i in range(len(sentences)) if i not in figured]
+    kept: list[int] = []
+    for i in order:
+        if sum(len(sentences[j]) + 1 for j in kept) + len(sentences[i]) <= EVIDENCE_CHARS:
+            kept.append(i)
+    if not kept or (figured and not set(kept) & set(figured)):
+        return sentences[order[0]][:EVIDENCE_CHARS].rsplit(" ", 1)[0] + " …"
+    return " ".join(sentences[i] for i in sorted(kept)) + " …"
