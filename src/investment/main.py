@@ -208,7 +208,7 @@ async def run_agent(settings: Settings) -> None:
     runtime = AgentRuntime(
         db=db,
         settings=settings,
-        lock=RunLock(),
+        lock=RunLock(keep_awake=True),
         planner_pre=PlannerPre(db, embedder, settings.planner_model, settings.openrouter_api_key),
         worker_agent=build_worker_agent(db, settings.worker_model, settings.openrouter_api_key),
         planner_post=PlannerPost(settings.planner_model, settings.openrouter_api_key),

@@ -8,6 +8,9 @@ SAYS, is the feature.
 """
 
 import asyncio
+import os
+import shutil
+import subprocess
 
 import pytest
 
@@ -87,3 +90,26 @@ async def test_a_concurrent_task_is_refused_rather_than_queued() -> None:
     assert await second() == "refused: weekly-chain"
     release.set()
     assert await task == "first done"
+
+
+def _caffeinate_running() -> bool:
+    found = subprocess.run(
+        ["pgrep", "-f", f"caffeinate -i -w {os.getpid()}"], capture_output=True, check=False
+    )
+    return found.returncode == 0
+
+
+@pytest.mark.skipif(shutil.which("caffeinate") is None, reason="macOS only")
+async def test_the_mac_stays_awake_exactly_while_the_lock_is_held() -> None:
+    """2026-11-01: an ad-hoc cycle lost its last call to an idle sleep one minute
+    after the Worker answered. Held, the lock holds an idle-sleep assertion;
+    released, on failure too, it does not."""
+    lock = RunLock(keep_awake=True)
+    async with lock.hold("weekly-chain"):
+        assert _caffeinate_running()
+    assert not _caffeinate_running()
+    with pytest.raises(RuntimeError):
+        async with lock.hold("uc9-cycle"):
+            assert _caffeinate_running()
+            raise RuntimeError("the cycle failed")
+    assert not _caffeinate_running()

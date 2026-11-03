@@ -22,10 +22,21 @@ scheduler, the watcher, the bot and the API all live inside it, which is exactly
 the set of callers that can collide. A second `python -m investment.main` is a
 different failure — two writers on one SQLite file — and belongs to whatever
 guards the process itself, not here.
+
+THE MAC STAYS AWAKE WHILE THE LOCK IS HELD (owner, 2026-11-02). An ad-hoc cycle
+on 2026-11-01 lost its Planner's last call when the laptop idle-slept one minute
+after the Worker answered: the request timed out across seven hours of sleep and
+wake, and the cycle failed with its knowledge uncommitted. Holding the lock now
+holds a `caffeinate -i` assertion (idle sleep only: closing the lid still sleeps
+the Mac, ADR-002), released with the lock, and tied to the agent's pid so it
+cannot outlive the agent.
 """
 
+import asyncio
 import dataclasses
 import logging
+import os
+import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -64,8 +75,11 @@ class RunLock:
     them, so no other task can interleave (the same argument
     `InvestmentDB._serialized` makes about its transaction guard)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, keep_awake: bool = False) -> None:
         self._holder: Holder | None = None
+        # The live agent only (`main.py`): tests and tools hold the lock
+        # without touching the machine's power state.
+        self._keep_awake = keep_awake
 
     @property
     def holder(self) -> Holder | None:
@@ -87,12 +101,35 @@ class RunLock:
         holder = Holder(name=name, since=datetime.now(UTC))
         self._holder = holder
         logger.info("run-lock acquired by %s", name)
+        awake = await _prevent_idle_sleep(name) if self._keep_awake else None
         try:
             yield holder
         finally:
+            if awake is not None:
+                await _allow_idle_sleep(awake, name)
             # RELEASED ON FAILURE TOO. A chain that raises must not leave the
             # lock held: every later run would be refused with the name of an
             # operation that died hours ago, and the agent would go quiet in a
             # way that looks exactly like "nothing was due".
             self._holder = None
             logger.info("run-lock released by %s", name)
+
+
+async def _prevent_idle_sleep(name: str) -> asyncio.subprocess.Process | None:
+    """A `caffeinate -i` assertion for as long as `name` runs, or None where the
+    command does not exist (not macOS). `-w` ends it with the agent's process
+    if the release below never runs."""
+    command = shutil.which("caffeinate")
+    if command is None:
+        logger.info("no caffeinate here: %s runs without an idle-sleep assertion", name)
+        return None
+    process = await asyncio.create_subprocess_exec(command, "-i", "-w", str(os.getpid()))
+    logger.info("idle sleep prevented while %s runs (caffeinate pid %d)", name, process.pid)
+    return process
+
+
+async def _allow_idle_sleep(process: asyncio.subprocess.Process, name: str) -> None:
+    if process.returncode is None:
+        process.terminate()
+        await process.wait()
+    logger.info("idle sleep allowed again after %s", name)
