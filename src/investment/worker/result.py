@@ -133,13 +133,22 @@ class ImprovementProposal(StrictModel):
     trace: str
 
 
-# One point of a reading: long enough for a number, its date and what it means,
-# short enough that a second idea has to go in a second point.
-_POINT_CHARS = 400
-_POINTS = 6
+# THE LENGTH LIMITS ARE THE BUDGET (owner, 2026-11-03: "simplify and shorten its
+# prose"). The reading of that morning was 686 words in thirteen points of about
+# fifty words, its re-entry threshold said three times, and its case against
+# the position the four scenarios of two days earlier reworded. A reading now
+# fits about 250 words: a point is one idea in about 35 words, the case against
+# is the two strongest cases, a forecast's statement is the claim and a
+# one-clause reason. A part that does not fit is refused and written again.
+_BOTTOM_LINE_CHARS = 260
+_POINT_CHARS = 220
+_READING_POINTS = 3
+_CASE_POINTS = 2
+_STATEMENT_CHARS = 170
 
 Point = Annotated[str, Field(min_length=1, max_length=_POINT_CHARS)]
-Points = Annotated[list[Point], Field(max_length=_POINTS)]
+ReadingPoints = Annotated[list[Point], Field(max_length=_READING_POINTS)]
+CasePoints = Annotated[list[Point], Field(max_length=_CASE_POINTS)]
 
 
 class Forecast(StrictModel):
@@ -160,7 +169,7 @@ class Forecast(StrictModel):
     itself reads: a stated value, the series' ten-year median (how the two
     signals are read), and one of the trend overlay's moving averages."""
 
-    statement: str = Field(min_length=1, max_length=_POINT_CHARS)
+    statement: str = Field(min_length=1, max_length=_STATEMENT_CHARS)
     ticker: str = Field(min_length=1, max_length=32)
     side: Literal["above", "below"]
     compared_with: Literal["value", "ten_year_median", "moving_average"]
@@ -229,11 +238,11 @@ class MarketSignalReading(StrictModel):
     The length limits are the instruction, enforced: a point that does not fit
     is two points, or is not one."""
 
-    bottom_line: str = Field(min_length=1, max_length=_POINT_CHARS)
+    bottom_line: str = Field(min_length=1, max_length=_BOTTOM_LINE_CHARS)
     # Judgement: what the instrument cannot see. Said as judgement, because it is one.
-    my_reading: Points
+    my_reading: ReadingPoints
     # The case against the position in force: how it loses, and what would show it.
-    what_would_prove_it_wrong: Points
+    what_would_prove_it_wrong: CasePoints
     forecasts: Annotated[list[Forecast], Field(max_length=_FORECASTS)]
 
     def render(self) -> str:

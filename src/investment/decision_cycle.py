@@ -33,6 +33,7 @@ leaves no trace at all.
 """
 
 import dataclasses
+import functools
 import json
 from datetime import date
 from typing import Any
@@ -40,7 +41,7 @@ from typing import Any
 from pydantic_ai import Agent
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.forecasts import describe_record, record_forecasts
+from investment.mechanical.forecasts import describe_record, history_for, record_forecasts
 from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.mechanical.research_findings import describe_findings
@@ -604,7 +605,10 @@ async def run_decision_cycle(
         db, context, worker_context, trigger=trigger, run_id=run_id, today=today
     )
     worker_result = await run_worker(
-        worker_agent, worker_context, printed=figures_in(context.owner_view)
+        worker_agent,
+        worker_context,
+        printed=figures_in(context.owner_view),
+        history=functools.partial(history_for, db, today or date.today()),
     )
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today

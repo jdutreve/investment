@@ -44,6 +44,7 @@ the worst of both. State the requirement; let the smoke test state the model.
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from pydantic_ai import Agent, PromptedOutput
@@ -56,8 +57,8 @@ from pydantic_ai.usage import UsageLimits
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.rule_revision import describe_testable_parameters
 from investment.openrouter_client import build_openrouter_client
-from investment.worker.repeated_figures import repeated_figures
-from investment.worker.result import WorkerResult
+from investment.worker.repeated_figures import figures_said_twice, repeated_figures
+from investment.worker.result import Forecast, WorkerResult
 from investment.worker.tools import WorkerTools, describe_schema
 
 logger = logging.getLogger(__name__)
@@ -269,19 +270,26 @@ something to act on, watch for or decide — a risk and what would hedge it, a \
 sign and its trigger, a claim worth filing — or the cause behind a move that no \
 program can name. A point that describes what the tape did is a recap: drop \
 it. Write only what a program could not write. It has FOUR PARTS:
-- bottom_line: what the owner should retain, and whether anything is asked of \
-them. Two sentences at most. If nothing is asked, say that nothing is. If your \
-context carries no market-signal allocation, say so here and leave the rest empty.
-- my_reading: what the instrument cannot see and what you make of it — policy, \
-positioning, the cause behind a move, a risk building outside the two signals. \
+THE WHOLE READING IS ABOUT 250 WORDS; the limits below are enforced, and a part \
+that does not fit is refused. EACH FIGURE IN ONE PLACE: a threshold or a sign \
+said in the bottom line is not said again below.
+- bottom_line: what the owner should retain, whether anything is asked of \
+them, and the ONE price or sign to watch. At most 40 words. If nothing is \
+asked, say that nothing is. If your context carries no market-signal \
+allocation, say so here and leave the rest empty.
+- my_reading: at most THREE points of about 35 words: what the instrument cannot \
+see and what you make of it — policy, positioning, the cause behind a move, a \
+risk building outside the two signals. \
 Each point a judgement with the evidence you saw it in, not a figure repeated. \
 A blind spot that would change the order is a claim about the RULE: file it in \
 innovations_proposed as a strategy_revision. Naming it here and concluding that \
 the rule works as measured leaves it unmeasured for good.
-- what_would_prove_it_wrong: the case AGAINST the position in force. How does \
-it lose money or miss gains from here, and what would be the first sign it is \
-happening? Argue it seriously, even when you agree with the position: the \
-owner holds it, and is entitled to the strongest objection to it.
+- what_would_prove_it_wrong: at most TWO points, the strongest case AGAINST the \
+position in force. How does it lose money or miss gains from here, and what \
+would be the first sign? Argue it seriously, even when you agree with the \
+position. A case you already made, unchanged, is not argued again: name it in \
+a few words ("unchanged since <date>: the re-entry whipsaw") and spend the \
+point on what is new.
 - forecasts: one to three dated probabilities, each SCORED mechanically when \
 due, and your record is shown to you every cycle. Each is one series \
 (`ticker`, exactly as your context names it), `above` or `below` one reference \
@@ -290,7 +298,8 @@ due, and your record is shown to you every cycle. Each is one series \
 lines) ON the date `horizon_weeks` (1 to 13) away, with the `probability` that \
 it holds that day. It is scored on that date only, not at any time before it: \
 write "in N weeks", never "within". \
-`statement` says the same thing in plain words. Forecast what you have a view \
+`statement` says the same thing in plain words: the claim and one clause of \
+reason, about 25 words. Forecast what you have a view \
 on and what matters for the position: a probability near 50% says you have \
 none, and one near 0% or 100% on something already settled tells the owner \
 nothing: it is padding, and read as such. PERSISTENCE IS THE BAR: a forecast \
@@ -301,12 +310,14 @@ scored against HISTORY: how often the same move, from the same distance to the \
 same reference, came true over the past decades. Your probability and that \
 frequency are printed side by side and both are scored: a probability equal to \
 history's adds nothing, so give one only where your reading says this time \
-differs, and say why.
+differs, and say why. Before your forecasts are final you are shown history's \
+frequency for each, and asked to confirm or correct them.
 YOU HAVE WRITTEN BEFORE. Your last readings and your recent ideas, with what \
 became of each, are in your context, and the owner has read them. A point they \
 already read is not a reading: make it again only if something changed, and \
-lead with the change. An idea already filed is not filed again.
-WRITE TO BE READ. One idea per point, two sentences at most. The few numbers \
+lead with the change. This holds for every part, the case against included. \
+An idea already filed is not filed again.
+WRITE TO BE READ. One idea per point, about 35 words. The few numbers \
 you give carry their unit and their date. A term of art — bear steepener, duration, \
 hysteresis — is explained in a few plain words the first time it appears. Name \
 what you cite: an invariant by its title, a setting by its name, never "the \
@@ -481,8 +492,16 @@ def build_worker_agent(
     return agent
 
 
+# History's frequency for a forecast, as of today (`forecasts.history_for`).
+History = Callable[[Forecast], Awaitable[float | None]]
+
+
 async def run_worker(
-    agent: Agent[None, WorkerResult], context: str, *, printed: frozenset[str] = frozenset()
+    agent: Agent[None, WorkerResult],
+    context: str,
+    *,
+    printed: frozenset[str] = frozenset(),
+    history: History | None = None,
 ) -> WorkerResult:
     """Run one UC8 cycle: hand the Worker its prepared context and let it call
     the tools until it produces a complete `WorkerResult`.
@@ -508,7 +527,7 @@ async def run_worker(
         try:
             async with asyncio.timeout(WORKER_CALL_BUDGET_SECONDS):
                 result = await agent.run(context, usage_limits=limits)
-            return await _without_repeated_figures(agent, result, printed)
+            return await _review(agent, result, printed, history)
         except (TimeoutError, json.JSONDecodeError) as exc:
             last = exc
             logger.warning(
@@ -533,57 +552,95 @@ async def run_worker(
 REWRITE_REQUEST_LIMIT = OUTPUT_RETRIES + 2
 
 
-async def _without_repeated_figures(
+async def _review(
     agent: Agent[None, WorkerResult],
     result: AgentRunResult[WorkerResult],
     printed: frozenset[str],
+    history: History | None,
 ) -> WorkerResult:
-    """The reading with no figure the owner already reads (`printed`, from
-    `telegram.digest.owner_view`; owner, 2026-11-01: "relevant proposals, not
-    leftovers"). A reading that repeats one is sent back ONCE with the list;
-    the count before and after is logged, so the rule's effect is measured
-    rather than assumed. A rewrite that fails keeps the first reading: a
-    repeated figure is not worth losing the cycle's reading over."""
+    """One review turn, when the first reading needs one (owner, 2026-11-01 and
+    -03: "relevant proposals, not leftovers", "simplify and shorten its prose").
+    The Worker is told, in one message, the figures it restates from the digest
+    the owner reads (`printed`), the figures it says in more than one place, and
+    history's own frequency for each of its forecasts — which it otherwise
+    guesses: on 2026-11-03 it called a 42% forecast "well above history's
+    frequency", and history said 42%. Each count is logged before and after,
+    so what the review changes is measured. A review that fails keeps the first
+    reading: none of this is worth losing the cycle's reading over."""
     output = result.output
-    if not printed:
-        return output  # no digest to compare with (a replay without one, a test)
-    repeated = repeated_figures(reading_text(output), printed)
-    if not repeated:
-        logger.info("worker reading repeats no figure the owner already reads")
+    if not printed and history is None:
+        return output  # nothing to review against (a replay without a digest, a test)
+    reading = output.market_signal_assessment
+    repeated = repeated_figures(reading_text(output), printed) if printed else []
+    twice = figures_said_twice(reading_parts(output))
+    bases = [(f, await history(f)) for f in reading.forecasts] if history else []
+    bases = [(f, b) for f, b in bases if b is not None]
+    if not (repeated or twice or bases):
+        logger.info("worker reading needs no review")
         return output
     logger.warning(
-        "worker reading repeats %d figure(s) the owner already reads (%s); sending it back once",
+        "worker reading review: %d digest figure(s) repeated (%s), %d said twice (%s), "
+        "%d forecast(s) against history (%s)",
         len(repeated),
         ", ".join(repeated),
+        len(twice),
+        ", ".join(twice),
+        len(bases),
+        ", ".join(f"{f.probability:.0%} vs {b:.0%}" for f, b in bases),
     )
+    asks = []
+    if repeated:
+        asks.append(
+            f"It restates figures the owner already reads in the digest: {', '.join(repeated)}. "
+            "Remove them: say what they mean for the position, or drop a point that only "
+            "restated them."
+        )
+    if twice:
+        asks.append(
+            f"It says these figures in more than one place: {', '.join(twice)}. Each figure "
+            "belongs in ONE place, the one where a proposal rests on it."
+        )
+    if bases:
+        lines = "; ".join(f'"{f.statement[:70]}": history {b:.0%}' for f, b in bases)
+        asks.append(
+            "History's own frequency for each of your forecasts, from where each series "
+            f"stands today: {lines}. Keep a probability away from history's only where your "
+            "reading says this time differs, and make the statement say so truthfully; "
+            "otherwise move it to history's or replace the forecast."
+        )
     request = (
-        "Your market_signal_assessment restates figures the owner already reads in the "
-        f"digest: {', '.join(repeated)}. Return the same WorkerResult with none of them in "
-        "bottom_line, my_reading or what_would_prove_it_wrong: say what they mean for the "
-        "position, or drop a point that only restated them. Change nothing else, and do not "
-        "call tools."
+        "Review your market_signal_assessment. "
+        + " ".join(asks)
+        + " Return the whole WorkerResult with only these fixed, within the same limits, "
+        "and do not call tools."
     )
     try:
         async with asyncio.timeout(WORKER_CALL_BUDGET_SECONDS):
-            rewritten = await agent.run(
+            reviewed = await agent.run(
                 request,
                 message_history=result.all_messages(),
                 usage_limits=UsageLimits(request_limit=REWRITE_REQUEST_LIMIT, tool_calls_limit=0),
             )
     except (TimeoutError, json.JSONDecodeError, UsageLimitExceeded, UnexpectedModelBehavior) as exc:
-        logger.warning("worker rewrite failed (%s); keeping the first reading", type(exc).__name__)
+        logger.warning("worker review failed (%s); keeping the first reading", type(exc).__name__)
         return output
-    still = repeated_figures(reading_text(rewritten.output), printed)
+    after = reviewed.output
     logger.info(
-        "worker reading after the rewrite repeats %d figure(s)%s",
-        len(still),
-        f" ({', '.join(still)})" if still else "",
+        "worker reading after review: %d digest figure(s) repeated, %d said twice, forecasts %s",
+        len(repeated_figures(reading_text(after), printed)) if printed else 0,
+        len(figures_said_twice(reading_parts(after))),
+        ", ".join(f"{f.probability:.0%}" for f in after.market_signal_assessment.forecasts),
     )
-    return rewritten.output
+    return after
+
+
+def reading_parts(result: WorkerResult) -> list[str]:
+    """The prose parts of the reading, one string each."""
+    reading = result.market_signal_assessment
+    return [reading.bottom_line, *reading.my_reading, *reading.what_would_prove_it_wrong]
 
 
 def reading_text(result: WorkerResult) -> str:
     """The parts of the reading the owner reads as prose. The forecasts are
     left out: each is a structured, scored claim whose threshold is its point."""
-    reading = result.market_signal_assessment
-    return "\n".join([reading.bottom_line, *reading.my_reading, *reading.what_would_prove_it_wrong])
+    return "\n".join(reading_parts(result))

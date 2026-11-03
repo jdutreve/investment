@@ -219,6 +219,24 @@ def is_price(ticker: str) -> bool:
     return row is not None and row["source"] == "yahoo" and not ticker.startswith("^")
 
 
+async def history_for(db: InvestmentDB, made_on: date, forecast: Forecast) -> float | None:
+    """The base rate of a forecast not yet recorded, as of `made_on`: what the
+    Worker is shown before its forecasts are final (`worker.agent.run_worker`)."""
+    series = await ratios.load_price(db, forecast.ticker)
+    if series.empty:
+        return None
+    return base_rate(
+        series,
+        made_on=made_on,
+        horizon_weeks=forecast.horizon_weeks,
+        side=forecast.side,
+        compared_with=forecast.compared_with,
+        threshold=forecast.threshold,
+        window_days=forecast.window_days,
+        relative=is_price(forecast.ticker),
+    )
+
+
 async def fill_base_rates(db: InvestmentDB) -> int:
     """Compute the base rate of every forecast that has none, each as of its
     own `made_on`. Idempotent and resumable: a filled row is never selected

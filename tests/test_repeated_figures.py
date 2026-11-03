@@ -10,7 +10,7 @@ from pydantic_ai.models.function import AgentInfo, FunctionModel
 
 from investment.db.sqlite import InvestmentDB
 from investment.worker.agent import build_worker_agent, run_worker
-from investment.worker.repeated_figures import figures_in, repeated_figures
+from investment.worker.repeated_figures import figures_in, figures_said_twice, repeated_figures
 from investment.worker.result import WorkerResult
 
 
@@ -78,3 +78,60 @@ async def test_a_reading_with_no_repeated_figure_is_not_sent_back(tmp_path: Path
     finally:
         await db.close()
     assert len(calls) == 1
+
+
+def test_a_figure_said_in_two_parts_is_said_twice() -> None:
+    parts = [
+        "Watch IEF: a close above 502.3 turns December into Treasuries.",
+        "The bond rally stalled; IEF sits under its line.",
+        "A re-entry above 502.3 then a hike is the likeliest loss.",
+    ]
+    assert figures_said_twice(parts) == ["502.3"]
+
+
+async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
+    tmp_path: Path,
+) -> None:
+    """The Worker guessed history and guessed wrong (2026-11-03: "well above
+    history's frequency" for a forecast history put at its own 42%). It is now
+    shown history's frequency for each forecast before they are final."""
+    db = InvestmentDB(tmp_path / "w.db")
+    seen: list[str] = []
+
+    def model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        seen.append(str(messages[-1]))
+        reading = a_reading("Nothing is asked.")
+        reading["forecasts"] = [
+            {
+                "statement": "SPY below its 150-day line in 9 weeks",
+                "ticker": "SPY",
+                "side": "below",
+                "compared_with": "moving_average",
+                "window_days": 150,
+                "horizon_weeks": 9,
+                "probability": 0.42 if len(seen) > 1 else 0.6,
+            }
+        ]
+        output = WorkerResult(
+            regime_assessment="calm",
+            ranking_commentary="as ranked",
+            market_signal_assessment=reading,
+            reasoning="-",
+            scenario_adjustments=[],
+            evaluations=[],
+            innovations_proposed=[],
+        ).model_dump_json()
+        return ModelResponse(parts=[TextPart(output)])
+
+    async def history(forecast: object) -> float:
+        return 0.42
+
+    try:
+        agent = build_worker_agent(db, "test/worker", "sk-test")
+        with agent.override(model=FunctionModel(model)):
+            result = await run_worker(agent, "ctx", history=history)
+    finally:
+        await db.close()
+    assert len(seen) == 2
+    assert "history 42%" in seen[1]
+    assert result.market_signal_assessment.forecasts[0].probability == 0.42

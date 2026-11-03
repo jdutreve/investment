@@ -44,6 +44,17 @@ def repeated_figures(reading: str, printed: frozenset[str]) -> list[str]:
     return sorted(figures_in(reading) & printed, key=float)
 
 
+def figures_said_twice(parts: list[str]) -> list[str]:
+    """The figures that appear in more than one part of a reading, sorted.
+    Each fact in one place (owner, 2026-10-17): on 2026-11-03 the re-entry
+    threshold was in the bottom line, a reading point and a case against."""
+    seen: dict[str, int] = {}
+    for part in parts:
+        for figure in figures_in(part):
+            seen[figure] = seen.get(figure, 0) + 1
+    return sorted((f for f, n in seen.items() if n > 1), key=float)
+
+
 def _canonical(bare: str) -> str:
     value = float(bare)
     return str(int(value)) if value == int(value) else f"{value:.6f}".rstrip("0").rstrip(".")
