@@ -2115,7 +2115,9 @@ class ComingDecision:
     priced_on: pd.Timestamp
 
 
-def coming_decision(s: StackSeries, *, start: date, today: date) -> ComingDecision | None:
+def coming_decision(
+    s: StackSeries, *, start: date, today: date, last_published: date | None = None
+) -> ComingDecision | None:
     """The decision of the coming month's first session, fixed or provisional.
 
     WHY (owner, 2026-11-01). The Worker wrote of "today's decision" on a Sunday
@@ -2128,6 +2130,17 @@ def coming_decision(s: StackSeries, *, start: date, today: date) -> ComingDecisi
     if s.calendar.empty:
         return None
     last = s.calendar[-1]
+    # A DECISION THE WALK HAS TAKEN AND NOBODY HAS PUBLISHED comes first: the
+    # month's session is priced (an ad-hoc catch-up mid-week), the chain that
+    # journals it has not run yet. It is fixed — its close is long in.
+    walk = decide(s, start=start, end=today)
+    if walk and last_published is not None:
+        newest = walk[-1].date
+        if (newest.year, newest.month) > (last_published.year, last_published.month):
+            before = s.calendar[s.calendar < newest]
+            return ComingDecision(
+                decision=walk[-1], fixed=True, reads_close_of=before[-1], priced_on=last
+            )
     session = next_session(s.calendar, today)
     fixed = session is not None
     if session is None:

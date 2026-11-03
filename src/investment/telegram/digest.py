@@ -1110,7 +1110,14 @@ async def _coming_order(db: InvestmentDB, today: date) -> dict[str, Any] | None:
         series = await load_series(db)
         if series.missing_signals:
             return None
-        coming = coming_decision(series, start=HISTORY_START, today=today)
+        published = await _latest_market_signal_decision(db)
+        last = (published or {}).get("decision_date")
+        coming = coming_decision(
+            series,
+            start=HISTORY_START,
+            today=today,
+            last_published=date.fromisoformat(str(last)) if last else None,
+        )
     except ValueError:
         return None
     if coming is None:

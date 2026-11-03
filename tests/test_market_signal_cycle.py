@@ -1039,3 +1039,28 @@ def test_the_digest_names_the_next_order_and_whether_it_is_fixed() -> None:
     assert "IEF 100 — a change" in line
     # The coming decision IS the one in force: the block above already says it.
     assert _coming_order_lines({**provisional, "decision_date": "2026-11-02"}, in_force) == []
+
+
+async def test_a_decision_taken_but_not_yet_published_is_the_next_order(
+    db: InvestmentDB,
+) -> None:
+    """The month's session is priced mid-week (an ad-hoc catch-up) before the
+    chain journals its decision: that decision, fixed, is the next order, not
+    the provisional one of the month after."""
+    await _market(db, spread=1.0, slope=2.0)
+    await db.command("DELETE FROM market_data WHERE ts > '2025-11-05'")
+    series = await MS.load_series(db)
+    coming = MS.coming_decision(
+        series,
+        start=MSC.HISTORY_START,
+        today=date(2025, 11, 5),
+        last_published=date(2025, 10, 1),
+    )
+    assert coming is not None and coming.fixed
+    assert coming.decision.date == pd.Timestamp("2025-11-01")
+    assert coming.reads_close_of == pd.Timestamp("2025-10-31")
+    # Once November is published, the next order is December's, provisional.
+    later = MS.coming_decision(
+        series, start=MSC.HISTORY_START, today=date(2025, 11, 5), last_published=date(2025, 11, 1)
+    )
+    assert later is not None and not later.fixed and later.decision.date.month == 12
