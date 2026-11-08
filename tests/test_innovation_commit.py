@@ -603,3 +603,29 @@ async def test_a_revision_naming_an_unusable_value_is_reported_not_crashed(
     assert (await db.query("SELECT status FROM strategy WHERE id='strat-rev'"))[0]["status"] == (
         "proposed"
     )
+
+
+async def test_a_raw_ticker_in_a_condition_is_born_under_its_alias(db: InvestmentDB) -> None:
+    """2026-11-08: the Worker wrote `^VIX` — the series it reads through
+    `market_fetch` — and the sweep demoted the claim, the registry naming only
+    aliases. The ticker and its alias are one series, so it is renamed."""
+    proposal = _innovation("Volatility spike in tight credit favours equities").model_copy(
+        update={
+            "spec": {
+                "id": "inv-vix",
+                "condition": [
+                    {"signal": "^VIX", "feature": "speed", "op": ">", "value": 8},
+                    {"signal": "credit_spread", "feature": "level", "op": "<", "value": 2},
+                ],
+                "effect": _EFFECT,
+            }
+        }
+    )
+    await commit_innovations(
+        db,
+        PostPlannerResult(innovations=[proposal]),
+        today=date(2026, 11, 8),
+        embedder=_StubEmbedder(),
+    )
+    row = (await db.query("SELECT condition FROM invariant WHERE id='inv-vix'"))[0]
+    assert [p["signal"] for p in json.loads(row["condition"])] == ["vix", "credit_spread"]

@@ -53,6 +53,7 @@ from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.planner.worker_history import (
     WORKER_READING_EVENT,
+    describe_applied_ideas,
     describe_past_readings,
     describe_recent_ideas,
 )
@@ -443,6 +444,8 @@ def render_context_for_worker(context: PlannerContext) -> str:
         lines += ["", *describe_past_readings(context.past_readings)]
     if context.recent_ideas:
         lines += ["", *describe_recent_ideas(context.recent_ideas)]
+    if context.applied_ideas:
+        lines += ["", *describe_applied_ideas(context.applied_ideas)]
     if context.invariant_vocabulary:
         lines += ["", *context.invariant_vocabulary]
     if context.system_inventory:

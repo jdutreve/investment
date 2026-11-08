@@ -32,7 +32,11 @@ from investment.mechanical.invariants import ESTABLISHED_FIRST_SQL, ESTABLISHED_
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
 from investment.planner.invariant_vocabulary import load_invariant_vocabulary
-from investment.planner.worker_history import load_past_readings, load_recent_ideas
+from investment.planner.worker_history import (
+    load_applied_ideas,
+    load_past_readings,
+    load_recent_ideas,
+)
 from investment.watch.event_watch import EVENT_LOOKBACK_DAYS, EVENT_SOURCES, read_event_passage
 from investment.watch.world_events import WORLD_EVENTS_SOURCE
 
@@ -116,6 +120,8 @@ class Baseline:
     # already read and filing again what was already filed.
     past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     recent_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # The system ideas the owner applied, with what each has done so far.
+    applied_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # How to write a new invariant the 35y sweep can measure, off the live
     # registries (`planner/invariant_vocabulary.py`).
     invariant_vocabulary: list[str] = dataclasses.field(default_factory=list)
@@ -572,6 +578,7 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         recent_events=recent_events,
         past_readings=await load_past_readings(db, today),
         recent_ideas=await load_recent_ideas(db, today),
+        applied_ideas=await load_applied_ideas(db, today),
         system_inventory=await system_inventory(db),
         invariant_vocabulary=await load_invariant_vocabulary(db),
     )

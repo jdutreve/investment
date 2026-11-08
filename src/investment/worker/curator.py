@@ -37,11 +37,11 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_ai import Agent, NativeOutput
 from pydantic_ai.models.openai import OpenAIChatModelSettings
 
-from investment.db.seed_data import BENCHMARK_CLASSES, SIGNAL_ALIASES
+from investment.db.seed_data import BENCHMARK_CLASSES, SIGNAL_ALIASES, canonical_signal
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.invariants import Registries, validate_invariant
 from investment.openrouter_client import build_native_output_model
@@ -151,6 +151,13 @@ class Predicate(BaseModel):
     feature: str = Field(description="One of: level, speed, acceleration")
     op: str = Field(description="One of: <, <=, >, >=, ==, !=")
     value: float
+
+    @field_validator("signal")
+    @classmethod
+    def _registry_name(cls, signal: str) -> str:
+        """A raw ticker that has an alias is that alias (`BAA10Y` ->
+        `credit_spread`): one series, one name — seed_data `canonical_signal`."""
+        return canonical_signal(signal)
 
 
 class Effect(BaseModel):
@@ -377,8 +384,13 @@ async def build_registries(db: InvestmentDB) -> Registries:
     strategies = {str(r["id"]) for r in await db.query("SELECT id FROM strategy")}
     regime_types = {str(r["id"]) for r in await db.query("SELECT id FROM regime_type")}
     assets = {str(r["ticker"]) for r in await db.query("SELECT ticker FROM allowed_tickers")}
+    # Signals are the aliases ALONE, the registry the 35y sweep validates
+    # against (`invariants._load_measurement_inputs`). `| assets` admitted a
+    # raw ticker here that the sweep then demoted to a reference note, which
+    # broke the promise `gate_candidate` makes. A ticker with an alias arrives
+    # already renamed (`Predicate._registry_name`).
     return Registries(
-        signals=set(SIGNAL_ALIASES) | assets,
+        signals=set(SIGNAL_ALIASES),
         asset_classes=set(BENCHMARK_CLASSES),
         strategies=strategies,
         assets=assets,

@@ -9,14 +9,17 @@ The bear-steepener intuition was filed four times as a new invariant, and each
 time it ended as a reference note that nothing measures. The Worker could not
 know either thing. The owner, who had read both, could.
 
-Two blocks, both bounded by `today` so a replay reads only what had been said
+Three blocks, all bounded by `today` so a replay reads only what had been said
 by then:
 
 - its last readings, in the sections it wrote them under, so it can be told to
   repeat a point only when something changed;
 - its recent ideas, each with what became of it: a measured invariant, a
   reference note that could not be measured, a strategy in probation, or a
-  remark that nothing measures.
+  remark that nothing measures;
+- the system ideas the owner applied, with what each has done so far
+  (owner, 2026-11-08: the Worker is the brain of the system's adaptation, and
+  an adaptation it cannot see the effect of teaches it nothing).
 """
 
 import json
@@ -24,8 +27,10 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
+from investment.db.seed_data import TICKER_SIGNALS
 from investment.db.sqlite import InvestmentDB
 from investment.worker.result import PROPOSAL_HEADING, journalled_sections
+from investment.writeback.recurrence import APPLIED_EVENT
 
 WORKER_READING_EVENT = "WorkerReadingEvent"
 
@@ -37,6 +42,10 @@ PAST_READINGS = 2
 # enough to show an idea arriving twice, short enough to stay a list.
 IDEAS_LOOKBACK_DAYS = 63
 IDEAS_CAP = 10
+
+# Half a year of applied ideas: the 12 weeks a measurement plan usually names,
+# and as long again to see whether the effect lasted.
+APPLIED_LOOKBACK_DAYS = 182
 
 
 async def load_past_readings(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
@@ -87,7 +96,8 @@ async def load_recent_ideas(db: InvestmentDB, today: date) -> list[dict[str, Any
         "  AS invariant_trace, "
         "  (SELECT status FROM strategy s WHERE s.title = i.title "
         "   AND s.source = 'agent-discovery' ORDER BY s.created_at DESC LIMIT 1) "
-        "  AS strategy_status "
+        "  AS strategy_status, "
+        "  MAX(i.source_id) AS became "
         "FROM innovation i "
         "WHERE i.date <= :today AND i.date >= :since AND substr(i.created_at, 1, 10) <= :today "
         "GROUP BY i.title ORDER BY MAX(i.date) DESC LIMIT :cap",
@@ -119,6 +129,8 @@ def idea_fate(idea: dict[str, Any]) -> str:
                 "the measured settings"
             )
         return f"strategy {status}"
+    if idea.get("became"):
+        return f"APPLIED by the owner, as {idea['became']}: what it has done so far is below"
     measure = _measure(idea.get("spec"))
     if measure:
         return f"recorded for the owner; to be measured by: {measure}"
@@ -132,6 +144,124 @@ def _measure(spec: Any) -> str:
     except ValueError:
         return ""
     return str(parsed.get("measure") or "") if isinstance(parsed, dict) else ""
+
+
+async def load_applied_ideas(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
+    """The system ideas the owner applied in the last `APPLIED_LOOKBACK_DAYS`,
+    each with its measurement so far (docs/IMPROVEMENTS.md I-65).
+
+    WHY THIS EXISTS (owner, 2026-11-08: "measure it when it is possible").
+    A system idea states how it would be measured; once applied, these are the
+    figures the machine can already give:
+
+    - for a SERIES, the readings since the change that name its ticker, against
+      as many readings before it — the Worker's own plan for the oil series —
+      and the invariants now written on it, with their 35-year record, which
+      is what a series is for here;
+    - for anything else, only the measurement the idea stated."""
+    rows = await db.query(
+        "SELECT i.type, i.title, i.spec, i.source_id AS became, e.event_date AS applied_on "
+        "FROM innovation i JOIN event_log e ON e.source_id = i.id AND e.type = :applied "
+        "WHERE e.event_date <= :today AND e.event_date >= :since "
+        "ORDER BY e.event_date DESC",
+        applied=APPLIED_EVENT,
+        today=today.isoformat(),
+        since=(today - timedelta(days=APPLIED_LOOKBACK_DAYS)).isoformat(),
+    )
+    ideas = []
+    for row in rows:
+        idea = dict(row)
+        idea["applied_on"] = str(row["applied_on"])[:10]
+        idea["measure"] = _measure(row["spec"])
+        alias = TICKER_SIGNALS.get(str(row["became"]))
+        if alias is not None:
+            idea["signal"] = alias
+            idea["readings"] = await _readings_naming(
+                db, str(row["became"]), idea["applied_on"], today
+            )
+            idea["invariants"] = await _invariants_on(db, alias, today)
+        ideas.append(idea)
+    return ideas
+
+
+async def _readings_naming(
+    db: InvestmentDB, ticker: str, applied_on: str, today: date
+) -> dict[str, int]:
+    """Readings after `applied_on` that name `ticker`, against the same number
+    of readings before it."""
+    after = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t AND event_date > :applied "
+        "AND event_date <= :today",
+        t=WORKER_READING_EVENT,
+        applied=applied_on,
+        today=today.isoformat(),
+    )
+    before = await db.query(
+        "SELECT payload FROM event_log WHERE type = :t AND event_date <= :applied "
+        "ORDER BY event_date DESC, id DESC LIMIT :n",
+        t=WORKER_READING_EVENT,
+        applied=applied_on,
+        n=len(after),
+    )
+    return {
+        "since": len(after),
+        "naming_since": sum(ticker in str(row["payload"]) for row in after),
+        "naming_before": sum(ticker in str(row["payload"]) for row in before),
+    }
+
+
+async def _invariants_on(db: InvestmentDB, signal: str, today: date) -> list[dict[str, Any]]:
+    """The invariants whose condition reads `signal`, with their record."""
+    rows = await db.query(
+        "SELECT DISTINCT v.id, v.title, v.status, v.confirmation_count, v.infirmation_count "
+        "FROM invariant v, json_each(v.condition) p "
+        "WHERE json_extract(p.value, '$.signal') = :signal "
+        "AND substr(v.created_at, 1, 10) <= :today ORDER BY v.created_at",
+        signal=signal,
+        today=today.isoformat(),
+    )
+    return [dict(row) for row in rows]
+
+
+def describe_applied_ideas(ideas: list[dict[str, Any]]) -> list[str]:
+    """The applied system ideas as the Worker reads them back, each with what
+    it has done so far."""
+    if not ideas:
+        return []
+    lines = [
+        "YOUR IDEAS THE OWNER APPLIED, AND WHAT THEY HAVE DONE SO FAR. Judge them by "
+        "these figures; propose to undo or extend one only on what they show:"
+    ]
+    for idea in ideas:
+        lines.append(
+            f"  - [{idea['type']}] {idea['title']}: applied {idea['applied_on']} as "
+            f"{idea['became']}."
+        )
+        if idea.get("measure"):
+            lines.append(f"    Your stated measurement: {idea['measure']}")
+        readings = idea.get("readings")
+        if readings is not None:
+            lines.append(
+                f"    Readings since that name {idea['became']}: {readings['naming_since']} "
+                f"of {readings['since']}; in as many readings before: "
+                f"{readings['naming_before']}."
+            )
+        invariants = idea.get("invariants")
+        if invariants is not None:
+            if not invariants:
+                lines.append(
+                    f"    Invariants written on `{idea['signal']}`: none yet. It is in the "
+                    "vocabulary a new_invariant may use."
+                )
+            for invariant in invariants:
+                lines.append(
+                    f"    Invariant on `{idea['signal']}`: {invariant['title']} — "
+                    f"status {invariant['status']}, {invariant['confirmation_count'] or 0} "
+                    f"confirmed, {invariant['infirmation_count'] or 0} refuted."
+                )
+        if readings is None and invariants is None:
+            lines.append("    Nothing measures this kind of change mechanically yet.")
+    return lines
 
 
 def describe_past_readings(readings: list[dict[str, Any]]) -> list[str]:

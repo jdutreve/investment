@@ -469,6 +469,22 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 1,
     },
+    # Crude oil, WTI spot (USD per barrel, daily from 1986) — THE WORKER'S OWN
+    # PROPOSAL, the first system idea applied (innovation of 2026-11-08,
+    # owner: "oui ajoute le pétrole"). Its case: the Hormuz shock drives the
+    # inflation that decides whether the stack's bonds come back, and nothing
+    # the system read priced oil — DBC/DJP blend it with every other commodity.
+    # MACRO, not a sleeve: it is a signal, never held. Taken as quoted: one
+    # print went NEGATIVE (2020-04-20, -36.98, a contract-expiry squeeze), so
+    # its speed is a difference in dollars, never a percentage.
+    {
+        "ticker": "DCOILWTICO",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 1,
+    },
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch.
     #
@@ -803,9 +819,32 @@ SIGNAL_ALIASES: dict[str, str] = {
     "debt_to_gdp": "DEBT_TO_GDP",
     "credit_growth": "CREDIT_GROWTH",
     "delinquency": "DRSFRMACBS",
+    # Equity fear (2026-11-08): the Worker wrote a claim on `^VIX` and the
+    # sweep demoted it to a reference note — the series was fetched and named
+    # nowhere in the vocabulary.
+    "vix": "^VIX",
+    # The energy shock (2026-11-08), the Worker's own proposal: see the
+    # DCOILWTICO row in ALLOWED_TICKERS.
+    "oil": "DCOILWTICO",
 }
-# The signal registry = SIGNAL_ALIASES union any raw allowed_tickers series.
-# The Writeback VALIDATION GATE rejects a condition signal not in the registry.
+# THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a
+# condition's series through it, and the VALIDATION GATE demotes a signal it
+# does not hold to a reference note. One name per signal, so two spellings of
+# one claim cannot both be born (the dedup compares names). This comment said
+# "union any raw allowed_tickers series" until 2026-11-08, which the sweep never
+# did: two Worker claims written on a raw ticker (`T10Y2Y`, `^VIX`) were demoted
+# for it. A raw ticker that HAS an alias is now written as that alias at the
+# write boundary (`canonical_signal`).
+TICKER_SIGNALS: dict[str, str] = {ticker: alias for alias, ticker in SIGNAL_ALIASES.items()}
+assert len(TICKER_SIGNALS) == len(SIGNAL_ALIASES), "two aliases name one series"
+
+
+def canonical_signal(name: str) -> str:
+    """The registry's name for a signal: a raw ticker that has an alias is that
+    alias (`^VIX` -> `vix`, `BAA10Y` -> `credit_spread`); anything else is
+    returned unchanged for the gate to judge."""
+    return name if name in SIGNAL_ALIASES else TICKER_SIGNALS.get(name, name)
+
 
 # Static reference for USER_BENCHMARK and portfolio.vs_benchmark (replaces
 # 60/40 everywhere). Classic Dalio All Weather allocation, regime-agnostic

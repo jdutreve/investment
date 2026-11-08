@@ -27,7 +27,7 @@ the codebase where two claims are "the same" by wording.
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -222,3 +222,32 @@ async def import_run_innovations(
         imported += 1
     logger.info("imported %d innovations from %s (%d already present)", imported, journals, skipped)
     return imported, skipped
+
+
+# The owner applied a system idea (docs/IMPROVEMENTS.md I-65). Journalled, so
+# the date the measurement starts from is a fact rather than a recollection.
+APPLIED_EVENT = "InnovationAppliedEvent"
+APPLIED_SOURCE = "owner"
+
+
+async def mark_applied(db: InvestmentDB, innovation_id: str, became: str, today: date) -> None:
+    """Record that a system idea was applied, and what it became — a series'
+    ticker for a `data` idea. `source_id` is the ledger's "what it became"
+    column, the one a new_invariant fills with its invariant's id; the idea's
+    follow-up (`worker_history.load_applied_ideas`) measures from here."""
+    rows = await db.query("SELECT type, title FROM innovation WHERE id = :id", id=innovation_id)
+    if not rows:
+        raise LookupError(f"no innovation {innovation_id}")
+    async with db.transaction() as tx:
+        await tx.append_event(
+            type=APPLIED_EVENT,
+            source_uc=APPLIED_SOURCE,
+            source_id=innovation_id,
+            payload={"type": rows[0]["type"], "title": rows[0]["title"], "became": became},
+            event_date=today,
+        )
+        await tx.command(
+            "UPDATE innovation SET source_id = :became WHERE id = :id",
+            became=became,
+            id=innovation_id,
+        )

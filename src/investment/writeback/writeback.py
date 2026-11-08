@@ -39,6 +39,7 @@ from typing import Any, cast
 from ulid import ULID
 
 from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
+from investment.db.seed_data import canonical_signal
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
 from investment.mechanical.gates import (
@@ -1240,6 +1241,17 @@ async def _commit_invariant_innovation(
     condition: list[dict[str, Any]] = (
         cast(list[dict[str, Any]], raw_condition) if condition_ok else []
     )
+    # A RAW TICKER IS ITS ALIAS. The Worker reads series by ticker through
+    # `market_fetch` and wrote `^VIX` on 2026-11-08 (`T10Y2Y` on 2026-08-12);
+    # the registry names `vix` and `yield_slope`, so both measurable claims
+    # were demoted to reference notes. Renaming is not guessing: the ticker
+    # and its alias are one series (seed_data `canonical_signal`).
+    condition = [
+        {**predicate, "signal": canonical_signal(str(predicate.get("signal")))}
+        if "signal" in predicate
+        else predicate
+        for predicate in condition
+    ]
     effect = _decoded_json(spec.get("effect"))
     malformed_effect = None if effect is None or isinstance(effect, dict) else repr(effect)
     if malformed_effect is not None or malformed_condition is not None:

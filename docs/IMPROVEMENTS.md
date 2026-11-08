@@ -2887,6 +2887,17 @@ STATED.
 **Trigger to build:** the first system idea the owner applies. Its stated
 measurement is then the spec of the job to write.
 
+**PARTLY BUILT, 2026-11-08 — the trigger fired.** The owner applied the
+Worker's oil series (`DCOILWTICO`, alias `oil`). An applied idea is journalled
+(`recurrence.mark_applied`, an `InnovationAppliedEvent`, and the ledger's
+`source_id` set to what it became), and for half a year the Worker reads what
+it has done (`worker_history.load_applied_ideas`): for a SERIES, the readings
+since the change that name its ticker against as many readings before, and the
+invariants written on its alias with their 35-year record. Still open: the
+SOURCE and PROCESS kinds below (an applied one shows only its stated
+measurement), and a command to apply an idea — today it is a one-off with the
+agent stopped.
+
 **What it would take, by kind:**
 - a new SOURCE (a feed, a central bank): how often its items reach the Worker's
   context and are named in its reading, against the source it replaced, over

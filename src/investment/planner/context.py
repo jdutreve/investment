@@ -93,6 +93,7 @@ class PlannerContext:
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     recent_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    applied_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     invariant_vocabulary: list[str] = dataclasses.field(default_factory=list)
     system_inventory: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     # The digest as the owner will read it, without the Worker's reading
@@ -296,6 +297,7 @@ def assemble_context(
         recent_events=baseline.recent_events,
         past_readings=baseline.past_readings,
         recent_ideas=baseline.recent_ideas,
+        applied_ideas=baseline.applied_ideas,
         invariant_vocabulary=baseline.invariant_vocabulary,
         system_inventory=baseline.system_inventory,
         corpus_queries=list(queries.corpus_queries) if queries else [],

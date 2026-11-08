@@ -492,11 +492,14 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
   Requires a machine-readable CONDITION + EFFECT over KNOWN signals:
     condition : Predicate[]  (ANDed; empty ⇒ 'always')  — WHEN active
       Predicate = { signal, feature, op, value }
-      signal  ∈ the SIGNAL REGISTRY (db/seed_data.py SIGNAL_ALIASES): any
-                collected MarketData series (from allowed_tickers), any DERIVED
-                composite (GROWTH_COMPOSITE, GLOBAL_LIQUIDITY,
+      signal  ∈ the SIGNAL REGISTRY (db/seed_data.py SIGNAL_ALIASES) and
+                nothing else: an ALIAS for a collected MarketData series
+                (credit_spread = BAA10Y, vix = ^VIX, oil = DCOILWTICO, …) or
+                a DERIVED composite (GROWTH_COMPOSITE, GLOBAL_LIQUIDITY,
                 real_rate = irx − inflation, real_yield = DGS10 − inflation),
-                or 'regime'
+                or 'regime'. A collected series without an alias is NOT a
+                signal; a raw ticker that has one is renamed to it at the
+                write boundary (`canonical_signal`, 2026-11-08)
       feature = 'level' | 'speed' | 'acceleration' for a series signal;
                 'type' for 'regime' ONLY (they are not interchangeable — a
                 series carries no 'type' column and vice versa)
