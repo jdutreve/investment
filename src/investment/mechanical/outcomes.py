@@ -44,6 +44,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from investment.db.seed_data import NON_SLEEVE_ASSET_CLASSES
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
 from investment.mechanical.gates import (
@@ -454,10 +455,9 @@ async def _user_profile(db: InvestmentDB) -> dict[str, Any]:
 async def _allowed_tickers(db: InvestmentDB) -> frozenset[str]:
     """Same set the reallocation gates use (writeback `_allowed_reallocation_
     tickers`): active tradable tickers plus the synthetic 'cash' sleeve."""
-    rows = await db.query(
-        "SELECT ticker FROM allowed_tickers WHERE active = 1 AND asset_class != 'MACRO'"
-    )
-    return frozenset({str(r["ticker"]) for r in rows} | {"cash"})
+    rows = await db.query("SELECT ticker, asset_class FROM allowed_tickers WHERE active = 1")
+    sleeves = {str(r["ticker"]) for r in rows if r["asset_class"] not in NON_SLEEVE_ASSET_CLASSES}
+    return frozenset(sleeves | {"cash"})
 
 
 def _fallback_regime(

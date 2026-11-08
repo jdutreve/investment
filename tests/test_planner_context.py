@@ -154,7 +154,7 @@ def test_summary_reads_todays_tape_not_the_regime_opening_events() -> None:
     ]
     text = C.render_baseline_summary(_baseline(macro=macro))
     assert "CPI up" not in text
-    assert "CPIAUCSL: 3.7249 (0.2061 / 0.4267, 2026-09-11)" in text
+    assert "CPIAUCSL: 3.7249 (speed 0.2061, accel 0.4267) as of 2026-09-11" in text
 
 
 # -- integration: active_invariant_ids ---------------------------------------

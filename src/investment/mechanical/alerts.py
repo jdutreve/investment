@@ -59,6 +59,7 @@ import json
 import statistics
 from datetime import date
 
+from investment.db.seed_data import INDICATOR_ASSET_CLASSES
 from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import DRIFT_EVENT
 from investment.mechanical.invariants import check_contradictions
@@ -93,7 +94,7 @@ MACRO_OVERDUE_GRACE_DAYS = 14
 # into MACRO because it carries its own `asset_class` (db/seed_data.py) while
 # being printed in the Worker's prompt header on every cycle — watching
 # 'MACRO' alone left it covered by nothing.
-WATCHED_INDICATOR_CLASSES: tuple[str, ...] = ("MACRO", "GLOBAL_LIQUIDITY")
+WATCHED_INDICATOR_CLASSES: tuple[str, ...] = (*INDICATOR_ASSET_CLASSES, "GLOBAL_LIQUIDITY")
 # Overdue at one and a half of its own periods: half-way into the period a
 # series skipped, so a monthly print is late at ~46 days and not at 32.
 MACRO_OVERDUE_PERIODS = 1.5

@@ -30,7 +30,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from investment.db.seed_data import SIGNAL_ALIASES
+from investment.db.seed_data import (
+    MACRO_INDICATOR_FAMILIES,
+    NON_PRICE_ASSET_CLASSES,
+    SIGNAL_ALIASES,
+)
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical.forecasts import ForecastRecord
 from investment.mechanical.gates import Caps
@@ -325,13 +329,8 @@ def render_baseline_summary(baseline: Baseline) -> str:
     # 2026-09-27 cycle on the 2026-01-16 figures (CPI 2.8 while the tape read
     # 3.72), and the Worker had to catch the contradiction in the coach notes.
     if baseline.macro:
-        lines.append("Macro tape (today's clock, level / speed / accel, as of):")
-        for row in baseline.macro:
-            lines.append(
-                f"  {row.get('ticker')}: {round_for_model(row.get('level'))} "
-                f"({round_for_model(row.get('speed'))} / "
-                f"{round_for_model(row.get('acceleration'))}, {row.get('ts')})"
-            )
+        lines.append("Macro tape (today's clock, level / speed / accel, by family):")
+        lines += macro_tape_lines(baseline.macro)
 
     # Titles only: Call 1a picks its searches on what is NEW, and a fresh
     # central-bank decision or world event is the first kind of new its prompt
@@ -379,3 +378,46 @@ def render_baseline_summary(baseline: Baseline) -> str:
             )
 
     return "\n".join(lines)
+
+
+def macro_tape_lines(macro: list[dict[str, Any]]) -> list[str]:
+    """The tape under its families (`seed_data.MACRO_INDICATOR_FAMILIES`), in the
+    families' order; a series no family names comes last, under "other"."""
+    by_ticker = {str(row.get("ticker")): row for row in macro}
+    named = {t for tickers in MACRO_INDICATOR_FAMILIES.values() for t in tickers}
+    groups = {
+        family: [by_ticker[t] for t in tickers if t in by_ticker]
+        for family, tickers in MACRO_INDICATOR_FAMILIES.items()
+    }
+    groups["other"] = [row for t, row in by_ticker.items() if t not in named]
+    lines = []
+    for family, rows in groups.items():
+        if not rows:
+            continue
+        lines.append(f"  {family.capitalize()}:")
+        lines += [f"    {_tape_line(row)}" for row in rows]
+    return lines
+
+
+def _tape_line(row: dict[str, Any]) -> str:
+    """One indicator. A PRICE (GLD) is stored as a total-return index spliced
+    back to 1991, so its level is no quote and its speed in index points means
+    nothing: it is printed as momentum in percent of its level, the way
+    `market_fetch` normalises a price row."""
+    level, speed, accel = row.get("level"), row.get("speed"), row.get("acceleration")
+    dated = f"as of {row.get('ts')}"
+    asset_class = row.get("asset_class")
+    is_price = asset_class is not None and asset_class not in NON_PRICE_ASSET_CLASSES
+    if is_price and isinstance(level, int | float) and level > 0:
+        pct = [
+            f"{value / level * 100.0:+.2f}%" if isinstance(value, int | float) else "n/a"
+            for value in (speed, accel)
+        ]
+        return (
+            f"{row.get('ticker')}: price, total-return index (no quote) — "
+            f"speed {pct[0]}, accel {pct[1]} of its level, {dated}"
+        )
+    return (
+        f"{row.get('ticker')}: {round_for_model(level)} (speed {round_for_model(speed)}, "
+        f"accel {round_for_model(accel)}) {dated}"
+    )

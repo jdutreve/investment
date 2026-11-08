@@ -747,6 +747,45 @@ NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
     {"MACRO", "RISK_FREE", "VOLATILITY", "GLOBAL_LIQUIDITY"}
 )
 
+# The classes NO allocation may hold: the non-price ones and FX. The
+# question the paragraph above separates from "is it a price". Two gates used
+# `asset_class != 'MACRO'` until 2026-11-08, which named the only non-sleeve
+# class there was when they were written and let ^VIX, ^IRX and the FX quotes
+# through as holdable.
+NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {"FX"}
+
+# The series the Worker reads as INDICATORS on its macro tape, and whose
+# freshness is watched. VOLATILITY and RISK_FREE joined MACRO on 2026-11-08
+# (owner: the VIX "at the same level of information as oil"): ^VIX and ^IRX were
+# fetched and listed among the fetchable series, yet absent from the tape the
+# Worker reasons on.
+INDICATOR_ASSET_CLASSES: tuple[str, ...] = ("MACRO", "VOLATILITY", "RISK_FREE")
+
+# THE MACRO TAPE BY FAMILY (owner, 2026-11-08: "oil, volatility, liquidity,
+# gold, rates are all macro indicators that let you understand the present and
+# anticipate the future — tell the Worker so it uses them"). Each family is a
+# question the Worker can put to the tape; a series of an indicator class that
+# no family names is still printed, under "other", so a new one is never
+# dropped. GLD is the one PRICE here: gold is read as an indicator as well as
+# held as a sleeve.
+MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
+    "rates and the yield curve": ("DGS10", "T10Y2Y", "^IRX", "real_yield_10y", "real_rate"),
+    "credit and debt": (
+        "BAA10Y",
+        "CREDIT_GROWTH",
+        "DRSFRMACBS",
+        "DEBT_TO_GDP",
+        "TOTBKCR",
+        "TCMDODNS",
+    ),
+    "inflation and growth": ("CPIAUCSL", "INDPRO", "UNRATE", "GROWTH_COMPOSITE", "GDP"),
+    "liquidity": ("WALCL", "ECBASSETSW", "JPNASSETS", "M2SL", "m2_yoy", "m2_accel_12m"),
+    "energy": ("DCOILWTICO",),
+    "volatility": ("^VIX",),
+    "gold": ("GLD", "gold_10y_dev"),
+    "equities": ("equity_trend",),
+}
+
 # The derived series that are NOT composites. The four composites used to be
 # listed here too — two of them, anyway, which is how DEBT_TO_GDP and
 # CREDIT_GROWTH came to be in neither this map nor ALLOWED_TICKERS and were

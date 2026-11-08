@@ -39,7 +39,7 @@ from typing import Any, cast
 from ulid import ULID
 
 from investment.corpus.embedding import Embedder, invariant_embedding_input, to_blob
-from investment.db.seed_data import canonical_signal
+from investment.db.seed_data import NON_SLEEVE_ASSET_CLASSES, canonical_signal
 from investment.db.sqlite import InvestmentDB
 from investment.mechanical import ratios
 from investment.mechanical.gates import (
@@ -132,10 +132,9 @@ async def _allowed_sleeve_tickers(db: InvestmentDB) -> frozenset[str]:
     Was `_allowed_reallocation_tickers` until ADR-012 removed the cognitive
     reallocation it was named after. Its one remaining caller is the
     market-signal disposition, which is what the name now says."""
-    rows = await db.query(
-        "SELECT ticker FROM allowed_tickers WHERE active = 1 AND asset_class != 'MACRO'"
-    )
-    return frozenset({str(r["ticker"]) for r in rows} | {"cash"})
+    rows = await db.query("SELECT ticker, asset_class FROM allowed_tickers WHERE active = 1")
+    sleeves = {str(r["ticker"]) for r in rows if r["asset_class"] not in NON_SLEEVE_ASSET_CLASSES}
+    return frozenset(sleeves | {"cash"})
 
 
 def market_signal_gates(

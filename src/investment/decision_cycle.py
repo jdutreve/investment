@@ -48,7 +48,7 @@ from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.mechanical.research_findings import describe_findings
 from investment.mechanical.rule_revision import describe_measured
-from investment.planner.context import PlannerContext, standing_label
+from investment.planner.context import PlannerContext, macro_tape_lines, standing_label
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
 from investment.planner.worker_history import (
@@ -498,18 +498,13 @@ def render_context_for_worker(context: PlannerContext) -> str:
         lines.append("")
         lines.append(
             "MACRO TAPE — TODAY'S CLOCK (level / speed / acceleration, latest knowable). "
-            "None of this decided the book in force; it is the proxy for what the NEXT "
-            "monthly decision will see, and it is where your forward reading belongs. "
-            "Each line carries its own date — a monthly series is normally weeks old, "
-            "so check the date before calling a number current:"
+            "These are your macro indicators, by family: read them together to understand "
+            "the present and anticipate what comes next. None of this decided the book in "
+            "force; it is the proxy for what the NEXT monthly decision will see, and it is "
+            "where your forward reading belongs. Each line carries its own date — a monthly "
+            "series is normally weeks old, so check the date before calling a number current:"
         )
-        for row in context.macro:
-            lines.append(
-                f"  {row.get('ticker')}: {round_for_model(row.get('level'))} "
-                f"(speed {round_for_model(row.get('speed'))}, "
-                f"accel {round_for_model(row.get('acceleration'))}) "
-                f"as of {row.get('ts')}"
-            )
+        lines += macro_tape_lines(context.macro)
     # THE CENTRAL BANKS' OWN WORDS, beside the tape they move (owner,
     # 2026-10-18), and SINCE 2026-11-08 THE WORLD AROUND THEM: the midterms
     # and the Iran war had reached the Worker only as an ECB "energy shock".

@@ -438,3 +438,123 @@ async def test_the_inventory_is_what_the_system_is_wired_to(tmp_path: Path) -> N
     ]
     assert inventory["series the tools can fetch (prices, rates, macro)"] == ["SPY"]
     assert inventory["books in the corpus"] == []
+
+
+async def test_volatility_is_read_on_the_tape_like_any_indicator(seeded: InvestmentDB) -> None:
+    """Owner 2026-11-08: the VIX "at the same level of information as oil". It
+    was fetched and fetchable, and absent from the tape the Worker reasons on,
+    because the tape read the MACRO class alone."""
+    for ticker, asset_class, level in (
+        ("^VIX", "VOLATILITY", 25.6),
+        ("DCOILWTICO", "MACRO", 99.6),
+        ("SPY", "US_EQUITY", 600.0),
+    ):
+        await seeded.command(
+            "INSERT INTO market_data (ticker, asset_class, currency, ts, level, speed) "
+            "VALUES (:t, :c, 'USD', '2026-11-06', :lvl, 1.0)",
+            t=ticker,
+            c=asset_class,
+            lvl=level,
+        )
+
+    tape = {str(r["ticker"]) for r in (await bl.gather_baseline(seeded, date(2026, 11, 8))).macro}
+
+    assert {"^VIX", "DCOILWTICO"} <= tape
+    assert "SPY" not in tape  # a sleeve's price is not an indicator
+
+
+async def test_no_allocation_may_hold_an_indicator(seeded: InvestmentDB) -> None:
+    """The holdable set excluded MACRO alone, so ^VIX, ^IRX and the FX quotes
+    passed as sleeves."""
+    from investment.mechanical.outcomes import _allowed_tickers
+    from investment.writeback.writeback import _allowed_sleeve_tickers
+
+    for ticker, asset_class in (
+        ("SPY", "US_EQUITY"),
+        ("^VIX", "VOLATILITY"),
+        ("^IRX", "RISK_FREE"),
+        ("CHFUSD=X", "FX"),
+        ("DCOILWTICO", "MACRO"),
+    ):
+        await seeded.command(
+            "INSERT OR REPLACE INTO allowed_tickers (ticker, asset_class, currency, source, "
+            "transform, availability_lag_days, active) VALUES (:t, :c, 'USD', 'yahoo', 'none', "
+            "0, 1)",
+            t=ticker,
+            c=asset_class,
+        )
+
+    for holdable in (await _allowed_sleeve_tickers(seeded), await _allowed_tickers(seeded)):
+        assert "SPY" in holdable and "cash" in holdable
+        assert not holdable & {"^VIX", "^IRX", "CHFUSD=X", "DCOILWTICO"}
+
+
+def test_every_indicator_series_belongs_to_a_family() -> None:
+    """A family a new series misses still prints it, under "other"; this keeps
+    "other" empty for the series the seed knows."""
+    from investment.db.seed_data import (
+        ALLOWED_TICKERS,
+        INDICATOR_ASSET_CLASSES,
+        MACRO_INDICATOR_FAMILIES,
+    )
+
+    named = {t for tickers in MACRO_INDICATOR_FAMILIES.values() for t in tickers}
+    indicators = {
+        str(t["ticker"]) for t in ALLOWED_TICKERS if t["asset_class"] in INDICATOR_ASSET_CLASSES
+    }
+    assert indicators <= named
+
+
+def test_the_tape_reads_by_family_and_a_price_as_momentum() -> None:
+    """Owner 2026-11-08: oil, volatility, liquidity, gold and rates are the
+    indicators the Worker reads the present and the future with."""
+    from investment.planner.context import macro_tape_lines
+
+    lines = macro_tape_lines(
+        [
+            {
+                "ticker": "^VIX",
+                "asset_class": "VOLATILITY",
+                "ts": "2026-11-06",
+                "level": 25.6,
+                "speed": 10.5,
+                "acceleration": 10.7,
+            },
+            {
+                "ticker": "DGS10",
+                "asset_class": "MACRO",
+                "ts": "2026-11-06",
+                "level": 4.84,
+                "speed": -0.43,
+                "acceleration": -0.92,
+            },
+            {
+                "ticker": "GLD",
+                "asset_class": "GOLD",
+                "ts": "2026-11-06",
+                "level": 10000.0,
+                "speed": -100.0,
+                "acceleration": 750.0,
+            },
+            {
+                "ticker": "NEWSERIES",
+                "asset_class": "MACRO",
+                "ts": "2026-11-06",
+                "level": 1.0,
+                "speed": 0.0,
+                "acceleration": 0.0,
+            },
+        ]
+    )
+
+    assert lines == [
+        "  Rates and the yield curve:",
+        "    DGS10: 4.84 (speed -0.43, accel -0.92) as of 2026-11-06",
+        "  Volatility:",
+        "    ^VIX: 25.6 (speed 10.5, accel 10.7) as of 2026-11-06",
+        "  Gold:",
+        "    GLD: price, total-return index (no quote) — speed -1.00%, accel +7.50% of its "
+        "level, as of 2026-11-06",
+        "  Other:",
+        "    NEWSERIES: 1.0 (speed 0.0, accel 0.0) as of 2026-11-06",
+    ]

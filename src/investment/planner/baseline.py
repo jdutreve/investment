@@ -24,6 +24,7 @@ import json
 from datetime import date, timedelta
 from typing import Any, cast
 
+from investment.db.seed_data import INDICATOR_ASSET_CLASSES, MACRO_INDICATOR_FAMILIES
 from investment.db.sqlite import InvestmentDB
 from investment.market.liquidity import liquidity_state
 from investment.mechanical.forecasts import ForecastRecord, load_forecast_record
@@ -298,6 +299,15 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     tickers = signal_tickers()
     named = ", ".join(f":sig{i}" for i in range(len(tickers)))
     signals = {f"sig{i}": t for i, t in enumerate(tickers)}
+    indicator_classes = {f"cls{i}": c for i, c in enumerate(INDICATOR_ASSET_CLASSES)}
+    classes = ", ".join(f":{k}" for k in indicator_classes)
+    # The families name a few series outside those classes: GLD, a price read
+    # as an indicator.
+    family_tickers = {
+        f"fam{i}": t
+        for i, t in enumerate(t for ts in MACRO_INDICATOR_FAMILIES.values() for t in ts)
+    }
+    families = ", ".join(f":{k}" for k in family_tickers)
     clock = {f"clk{i}": t for i, t in enumerate((*tickers, *STACK_TICKERS))}
     clock_named = ", ".join(f":{k}" for k in clock)
     # THE DECISION'S OWN CLOCK, not the pair's. Capping the pair at the latest
@@ -326,8 +336,9 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
     # the other), and an equality join would drop the signal entirely rather
     # than show it one print older.
     rows = await db.query(
-        "SELECT m.ticker, m.ts, m.level, m.speed, m.acceleration FROM market_data m "
-        "JOIN (SELECT ticker, MAX(ts) AS ts FROM market_data WHERE asset_class = 'MACRO' "
+        "SELECT m.ticker, m.asset_class, m.ts, m.level, m.speed, m.acceleration "
+        "FROM market_data m JOIN (SELECT ticker, MAX(ts) AS ts FROM market_data "
+        f"      WHERE (asset_class IN ({classes}) OR ticker IN ({families})) "
         "      AND ts <= :today "
         f"      AND (ticker NOT IN ({named}) OR :cutoff IS NULL OR ts <= :cutoff) "
         "      GROUP BY ticker) last ON last.ticker = m.ticker AND last.ts = m.ts "
@@ -335,6 +346,8 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
         today=today.isoformat(),
         cutoff=cutoff,
         **signals,
+        **indicator_classes,
+        **family_tickers,
     )
     return [dict(r) for r in rows]
 
