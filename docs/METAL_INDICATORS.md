@@ -136,3 +136,38 @@ statement of that date. The timing comparison holds a position over
 - **Consequence for the digest and the Worker:** the block stays, as a
   description of the present, and says it is measured and is not a forecast
   (`research_findings.FINDINGS`, 2026-11-08).
+
+## Second study: copper/gold, sharper (protocol committed 2026-11-08, before the run)
+
+Owner, the same day: "dig — I hold gold today; should I sell it for copper?"
+Searching the 2004-2026 data again for a version of H6 that clears the bar
+would manufacture one. So the lead is put to data the first study never saw,
+and the owner's own question is put as a hypothesis of its own.
+
+**Out-of-sample data, 1992-2003.** Copper: FRED `PCOPPUSDM` (IMF, monthly
+average, USD per tonne, from 1992-01). Its first releases come a median 43 days
+after the month starts and sometimes months later, so a month's value is taken
+as knowable on the first day of the month THREE months later (a January average
+is used from April 1st) — conservative, and cheap for a 12-month average.
+Gold: GLD's daily series (LBMA-spliced) averaged over the same calendar month.
+The ratio copper/gold is the month's copper average over the month's gold
+average; its scale does not matter, since it is read against its own average.
+CG_UP_M: the ratio above its mean over the 12 months up to it, read from its
+knowable date and held until the next one.
+
+**Hypotheses.**
+
+| # | window | signal | outcome (12 weeks, entry the next trading day) | claim |
+|---|---|---|---|---|
+| Q1 | 1993-2003, signal dates | CG_UP_M | SPY return − IEF return | higher when ON (H6 replicated out of sample) |
+| Q2 | 2004-2026 (the first study's window and grid) | CG_UP | HG=F return − GC=F return | higher when ON (the ratio's momentum: copper keeps beating gold) |
+| Q3 | 1993-2003 | CG_UP_M | copper return − gold return, monthly averages: the average of the month 3 months after entry over the average of the entry month | higher when ON |
+
+Non-overlapping 12-week grids from each window's first readable date, as in the
+first study; four offsets; halves (1993-1998 / 1999-2003 for Q1 and Q3, the
+first study's halves for Q2); the same bootstrap and the same verdict rule.
+Q1 is the test of the lead: SUPPORTED on 1993-2003 would make it worth an
+invariant; anything else closes it. Q2 and Q3 answer the owner's question.
+
+**Context, no verdict:** copper against gold held outright over 2004-2026 and
+since 2020 (futures, CAGR and drawdown of each).
