@@ -500,7 +500,7 @@ FINDINGS: tuple[Finding, ...] = (
             "Does following the copper/gold momentum — copper while the ratio trends up, "
             "gold otherwise — beat holding gold?"
         ),
-        answer="no alone; barely as the exit of the cheap entry",
+        answer="no alone; barely as an exit",
         evidence=(
             "2001-2026: above its 200-day, 252-day average or a rising 6 months gave +2.9%, "
             "+6.7%, +5.8% a year against +11.3% for gold, drawdowns -65% to -70%, 230-280 "
