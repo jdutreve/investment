@@ -450,6 +450,29 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/METAL_INDICATORS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 8),
+        about="indicators",
+        question=(
+            "Read without hindsight — copper/gold more than one standard deviation from its "
+            "5-year relation — is the ratio's cycle tradable: does cheap copper then beat "
+            "gold, and rich copper lag it?"
+        ),
+        answer="cheap side yes at 6 months, rich side no",
+        evidence=(
+            "1997-2026, IMF monthly copper knowable three months on: from cheap, copper "
+            "minus gold +17.1% over 6 months [90%: +6.7%, +28.0%], p=0.002, both halves and "
+            "all offsets; 12 months +25.4% but the second half -2.9%. From rich -1.5% at 6 "
+            "months, nothing. About seven episodes carry it (2003, 2009, 2016, 2020 rebounds "
+            "against 2002, 2015, 2019, 2025 failures)."
+        ),
+        consequence=(
+            "Copper cheap on its 5-year range has preceded copper beating gold over six "
+            "months; that is worth naming when it holds, never as a sure thing. It does not "
+            "hold today: the last cheap episode ended in 2026-05 and z sits near -0.5 to -0.7."
+        ),
+        record="docs/METAL_INDICATORS.md",
+    ),
 )
 
 _HEADINGS = {

@@ -5,6 +5,7 @@ SQLite, and the block the owner reads."""
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
@@ -101,6 +102,7 @@ def test_the_block_says_each_metal_in_a_word_then_the_comparators() -> None:
         copper=None,
         gold_silver=M.Leg("2026-11-06", 78.5, 85.2, False),
         copper_gold=M.Leg("2026-11-06", 1.53, 1.41, True),
+        copper_gold_cycle=M.Cycle("2026-11", -1.4),
     )
     assert _metals_block(_metals_standing(metals)) == [
         "🥇 Gold: OFF — ON when either leg is on",
@@ -111,9 +113,30 @@ def test_the_block_says_each_metal_in_a_word_then_the_comparators() -> None:
         "(risk appetite) (2026-11-06)",
         "⚖️ Copper/gold (per 1000) 1.53 vs its 12-month average 1.41: copper ahead of gold "
         "(growth) (2026-11-06)",
-        "   Role: a description of the present, not a forecast — measured 2026-11-08 on "
-        "2004-2026, no reading held over the next 12 weeks, and timing GLD on the "
-        "switch halved its return (docs/METAL_INDICATORS.md)",
+        "🔄 Copper/gold cycle: z -1.40 on its 5-year range (2026-11) — CHEAP (below -1): "
+        "from here copper has beaten gold over the next 6 months, +17% on average, "
+        "1997-2026, about seven episodes, not every one",
+        "   Role: descriptions of the present — measured 2026-11-08: no switch and no "
+        "12-month comparator foretold the next 12 weeks, and timing GLD on the switch "
+        "halved its return; the cycle line is the one reading that held "
+        "(docs/METAL_INDICATORS.md)",
     ]
     nothing = M.Metals(M.GoldSwitch(None, None), None, None, None, None)
     assert _metals_block(_metals_standing(nothing)) == []
+
+
+def test_the_cycle_is_the_ratio_on_its_own_five_years_in_deviations() -> None:
+    """Third study: the log of the monthly-average ratio against its 60 months."""
+    days = pd.bdate_range("2020-01-01", "2026-11-06")
+    gold = pd.Series(4000.0, index=days)
+    steady = pd.Series(6.0, index=days) * (1 + 0.05 * np.sin(np.arange(len(days)) / 40))
+    crash = steady.copy()
+    crash[crash.index >= "2026-10-01"] *= 0.7
+    assert M.cycle_reading(steady, gold) is not None
+    reading = M.cycle_reading(crash, gold)
+    assert reading is not None and reading.month == "2026-11"
+    assert reading.state == "cheap" and reading.z < -1
+    assert M.Cycle("2026-11", 1.3).state == "rich"
+    assert M.Cycle("2026-11", 0.2).state == "neither"
+    # Fewer than 60 months: no range to read against.
+    assert M.cycle_reading(steady[steady.index >= "2023-01-01"], gold) is None

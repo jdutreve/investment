@@ -34,6 +34,7 @@ the averages hold nothing published later.
 import dataclasses
 from datetime import date, timedelta
 
+import numpy as np
 import pandas as pd
 
 from investment.db.sqlite import InvestmentDB
@@ -49,6 +50,13 @@ COPPER_GOLD = "copper_gold_ratio"
 YEAR_AVERAGE_DAYS = 365
 # Two hundred sessions: the classic trend line counts trading days.
 TREND_SESSIONS = 200
+# THE COPPER/GOLD CYCLE (third study, docs/METAL_INDICATORS.md): the log ratio
+# against its own 5 years of monthly averages, in standard deviations. Below
+# -1, copper has beaten gold over the next six months (1997-2026, about seven
+# episodes); above +1 it has not lagged measurably.
+CYCLE_MONTHS = 60
+CYCLE_BAND = 1.0
+GOLD_FUTURE = "GC=F"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -76,12 +84,41 @@ class GoldSwitch:
 
 
 @dataclasses.dataclass(frozen=True)
+class Cycle:
+    """Where copper/gold sits on its 5-year range, in standard deviations."""
+
+    month: str
+    z: float
+
+    @property
+    def state(self) -> str:
+        if self.z < -CYCLE_BAND:
+            return "cheap"
+        return "rich" if self.z > CYCLE_BAND else "neither"
+
+
+@dataclasses.dataclass(frozen=True)
 class Metals:
     gold: GoldSwitch
     silver: Leg | None  # ON when silver is above its 200-session average
     copper: Leg | None  # ON when copper is above its 200-session average
     gold_silver: Leg | None  # rising: gold ahead of silver
     copper_gold: Leg | None  # rising: copper ahead of gold
+    copper_gold_cycle: Cycle | None = None
+
+
+def cycle_reading(copper: pd.Series, gold: pd.Series) -> Cycle | None:
+    """The latest month's z: monthly averages of both futures, the log of their
+    ratio against its mean and deviation over the 60 months up to it (the
+    current month counts with the days it has). Scale-free, so copper's USD/lb
+    against gold's USD/oz does not matter."""
+    monthly = copper.resample("MS").mean() / gold.resample("MS").mean()
+    ratio = pd.Series(np.log(monthly), index=monthly.index).dropna()
+    if len(ratio) < CYCLE_MONTHS:
+        return None
+    window = ratio.iloc[-CYCLE_MONTHS:]
+    z = (float(ratio.iloc[-1]) - float(window.mean())) / float(window.std())
+    return Cycle(ratio.index[-1].strftime("%Y-%m"), z)
 
 
 def year_average_leg(series: pd.Series, *, on_below: bool) -> Leg | None:
@@ -122,11 +159,15 @@ async def load_metals(db: InvestmentDB, today: date) -> Metals:
         copper=trend_leg(await _series(db, COPPER_TICKER, today)),
         gold_silver=year_average_leg(await _series(db, GOLD_SILVER, today), on_below=False),
         copper_gold=year_average_leg(await _series(db, COPPER_GOLD, today), on_below=False),
+        copper_gold_cycle=cycle_reading(
+            await _series(db, COPPER_TICKER, today, years=6),
+            await _series(db, GOLD_FUTURE, today, years=6),
+        ),
     )
 
 
-async def _series(db: InvestmentDB, ticker: str, today: date) -> pd.Series:
-    since = today - timedelta(days=2 * YEAR_AVERAGE_DAYS)
+async def _series(db: InvestmentDB, ticker: str, today: date, *, years: int = 2) -> pd.Series:
+    since = today - timedelta(days=years * YEAR_AVERAGE_DAYS)
     rows = await db.query(
         "SELECT ts, level FROM market_data WHERE ticker = :t AND ts > :since AND ts <= :today "
         "AND level IS NOT NULL ORDER BY ts",

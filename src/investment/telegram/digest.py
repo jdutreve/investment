@@ -46,7 +46,7 @@ from investment.mechanical.market_signal import (
     coming_decision,
     load_series,
 )
-from investment.mechanical.metals import Metals, load_metals
+from investment.mechanical.metals import Cycle, Metals, load_metals
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
 from investment.planner.worker_history import WORKER_READING_EVENT
@@ -894,13 +894,32 @@ def _metals_block(metals: dict[str, Any] | None) -> list[str]:
                 f"⚖️ {label} {leg['value']:.4g} vs its 12-month average {leg['average']:.4g}: "
                 f"{above if leg['on'] else below} ({leg['as_of']})"
             )
+    cycle = metals.get("copper_gold_cycle")
+    if cycle:
+        lines.append(
+            f"🔄 Copper/gold cycle: z {cycle['z']:+.2f} on its 5-year range ({cycle['month']}) — "
+            f"{CYCLE_READINGS[_cycle_state(cycle['z'])]}"
+        )
     if lines:
         lines.append(
-            "   Role: a description of the present, not a forecast — measured 2026-11-08 on "
-            "2004-2026, no reading held over the next 12 weeks, and timing GLD on the "
-            "switch halved its return (docs/METAL_INDICATORS.md)"
+            "   Role: descriptions of the present — measured 2026-11-08: no switch and no "
+            "12-month comparator foretold the next 12 weeks, and timing GLD on the switch "
+            "halved its return; the cycle line is the one reading that held "
+            "(docs/METAL_INDICATORS.md)"
         )
     return lines
+
+
+CYCLE_READINGS = {
+    "cheap": "CHEAP (below -1): from here copper has beaten gold over the next 6 months, "
+    "+17% on average, 1997-2026, about seven episodes, not every one",
+    "rich": "RICH (above +1): measured to say nothing about what follows",
+    "neither": "neither cheap (below -1) nor rich (above +1): no measured reading",
+}
+
+
+def _cycle_state(z: float) -> str:
+    return Cycle("", z).state
 
 
 def _on(flag: bool) -> str:
@@ -1199,7 +1218,13 @@ def _metals_standing(metals: Metals) -> dict[str, Any] | None:
     data = dataclasses.asdict(metals)
     data["gold"]["on"] = metals.gold.on
     readable = metals.gold.on is not None or any(
-        (metals.silver, metals.copper, metals.gold_silver, metals.copper_gold)
+        (
+            metals.silver,
+            metals.copper,
+            metals.gold_silver,
+            metals.copper_gold,
+            metals.copper_gold_cycle,
+        )
     )
     return data if readable else None
 

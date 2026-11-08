@@ -251,3 +251,39 @@ tails are where they are thin.
 **Context, no verdict:** z today, from the latest knowable copper print, and
 from the daily futures (GC=F, HG=F) on the same 60-month definition without the
 publication lag — where the ratio sits now on this scale.
+
+### Result of the third study (run once, 2026-11-08)
+
+| # | test | statistic [90%] | p | halves | offsets 0/1/2/3 mo | group n | verdict |
+|---|---|---|---|---|---|---|---|
+| K1 | CHEAP vs rest, copper − gold, 12 mo | +25.4% [+1.2, +50.1] | 0.043 | +47.3 / −2.9 | +25.4 +28.3 +27.3 +34.3 | 7 | not supported (second half) |
+| K2 | CHEAP vs rest, copper − gold, 6 mo | +17.1% [+6.7, +28.0] | 0.002 | +21.8 / +11.7 | +17.1 +13.8 +6.3 +10.5 | 17 | **SUPPORTED** |
+| K3 | RICH vs rest, 12 mo (claim lower) | −3.4% [−19.1, +13.0] | 0.36 | −6.0 / −7.8 | −3.4 +14.9 +34.2 +12.6 | 5 | not supported |
+| K4 | RICH vs rest, 6 mo (claim lower) | −1.5% [−12.0, +9.5] | 0.40 | −2.1 / −4.3 | −1.5 +3.6 +11.3 +3.0 | 11 | not supported |
+| K5 | Spearman(z, copper − gold 12 mo) | −0.25 [−0.55, +0.11] | 0.13 | −0.38 / −0.12 | −0.25 −0.22 −0.35 −0.34 | 29 | not supported |
+
+Main grid 1997-03 to 2025-03 (12 months, n = 29) and 1997-03 to 2026-03 (6
+months, n = 59).
+
+**What it says.**
+
+- **The cycle holds on one side, and it is the cheap side.** When copper sits
+  more than one standard deviation below its 5-year relation to gold, it beat
+  gold by 17 points over the next six months, on both halves and every offset,
+  p = 0.002 — under the correction for the five tests here (0.01) and for all
+  sixteen of the three studies (0.003). Over twelve months the gain is larger
+  but rests on the first half alone.
+- **The rich side says nothing.** Copper expensive against gold did not give
+  back measurably, at six or twelve months.
+- **Its evidence is about seven episodes, not seventeen observations.** The
+  cheap state came in runs — 1998-99, 2001-03, 2008-09, 2011-12, 2015-16,
+  2019-20, 2024-26 — and the gain is carried by the rebounds out of 2003, 2009,
+  2016 and 2020, against failures in 2002, 2015, 2019 and 2025. A real
+  regularity, thinly evidenced; a reason to watch, not a rule to trade.
+- **Where it stands today:** not cheap. The last episode ran from 2024-08 to
+  2026-05 (IMF months); z is −0.71 on the latest knowable print (2026-08) and
+  −0.45 on the futures for November. The rebound the owner's chart shows is the
+  one the episode foretold, and it has happened.
+- **Copper is not a handle this system can hold or confront** (no copper
+  sleeve, no asset-class benchmark), so this stays a finding and a line of the
+  digest, not an invariant.
