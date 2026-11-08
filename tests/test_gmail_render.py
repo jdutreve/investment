@@ -379,6 +379,25 @@ async def test_the_live_snapshot_reads_the_latest_price_and_its_own_date(
     assert live["sleeves"]["SPY"]["moving_averages"][3] == pytest.approx(102.0)
 
 
+async def test_every_series_is_read_on_the_latest_date_they_all_have(
+    db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T10Y2Y publishes a day ahead of BAA10Y and the sleeves: its extra print
+    must wait for the others, or the pair is a comparison true on no day
+    (2026-11-08: BAA10Y of 11-06 beside T10Y2Y of 11-07)."""
+    monkeypatch.setattr(digest, "MA_WINDOWS", (2,))
+    await _prices(db, "SPY", [100.0, 101.0, 102.0])
+    await _prices(db, "VCIT", [50.0, 50.0, 49.0])
+    await _prices(db, "BAA10Y", [1.6, 1.62, 1.64])
+    await _prices(db, "T10Y2Y", [0.44, 0.45, 0.46, 0.35])  # one print ahead
+
+    live = await digest.collect_live_trend_snapshot(db, DECISION)
+
+    assert live["signals"]["T10Y2Y"]["value"] == pytest.approx(0.46)
+    assert live["signals"]["T10Y2Y"]["as_of"] == live["signals"]["BAA10Y"]["as_of"]
+    assert live["sleeves"]["SPY"]["as_of"] == "2026-01-03"
+
+
 async def test_insufficient_history_reports_None_not_a_wrong_average(
     db: InvestmentDB, monkeypatch: pytest.MonkeyPatch
 ) -> None:

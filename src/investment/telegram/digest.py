@@ -561,16 +561,33 @@ async def collect_live_trend_snapshot(
     averages from (`ratios.load_price`, `.rolling(window, min_periods=window)`
     over an INTEGER count of trading-day rows, not a calendar window — see
     that module's own note on the distinction), just unshifted and read at the
-    latest available row instead of the decision's previous-close."""
+    latest available row instead of the decision's previous-close.
+
+    EVERY SERIES IS READ ON ONE DATE — the latest that the signals AND the
+    sleeves all have, the clock `planner.baseline._macro` gives the Worker. A
+    row each at its own last date showed "Today (2026-11-07): BAA10Y 1.57 ·
+    T10Y2Y 0.35" on 2026-11-08: the spread of 11-06 beside the slope of 11-07,
+    a comparison true on no day, while the Worker's context read 0.38 for the
+    same slope — the 2026-08-30 divergence, back on the digest's own path. A
+    series with no rows does not constrain the date."""
     if not decision:
         return {}
     overlay = decision.get("trend_overlay") or {}
     sleeve_tickers = sorted((overlay.get("sleeves") or {}).keys())
     signal_tickers = sorted((decision.get("signals") or {}).keys())
 
+    loaded = {
+        ticker: await ratios.load_price(db, ticker) for ticker in (*sleeve_tickers, *signal_tickers)
+    }
+    present = [series for series in loaded.values() if not series.empty]
+    if not present:
+        return {"sleeves": {}, "signals": {}}
+    cutoff = min(series.index[-1] for series in present)
+    read_on = {ticker: series.loc[:cutoff] for ticker, series in loaded.items()}
+
     sleeves: dict[str, dict[str, Any]] = {}
     for ticker in sleeve_tickers:
-        series = await ratios.load_price(db, ticker)
+        series = read_on[ticker]
         if series.empty:
             continue
         mas = {}
@@ -586,7 +603,7 @@ async def collect_live_trend_snapshot(
 
     signals: dict[str, dict[str, Any]] = {}
     for ticker in signal_tickers:
-        series = await ratios.load_price(db, ticker)
+        series = read_on[ticker]
         if series.empty:
             continue
         signals[ticker] = {
