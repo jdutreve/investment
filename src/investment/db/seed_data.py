@@ -469,6 +469,35 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 1,
     },
+    # THE THREE METALS AS INDICATORS (owner, 2026-11-08: "add silver and copper
+    # as indicators on the same footing as gold, and comparators between gold,
+    # silver and copper"). Front-month futures, in their natural units — gold
+    # and silver in USD per troy ounce, copper in USD per pound — because the
+    # comparators are read as prices of one another (gold/silver near 80), and
+    # GLD's stored level is a total-return index, no quote. Daily from
+    # 2000-08-30; a roll between contracts shows as a small step. Class METAL:
+    # a price (its momentum is read in percent), never a sleeve.
+    {
+        "ticker": "GC=F",
+        "asset_class": "METAL",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "SI=F",
+        "asset_class": "METAL",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    {
+        "ticker": "HG=F",
+        "asset_class": "METAL",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
     # The 5-year REAL yield, the TIPS market yield (percent, daily from
     # 2003-01-02 — a narrower window than 1991, like IYR's). Owner, 2026-11-08:
     # one of the two legs of the digest's gold switch
@@ -774,14 +803,14 @@ NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
 # `asset_class != 'MACRO'` until 2026-11-08, which named the only non-sleeve
 # class there was when they were written and let ^VIX, ^IRX and the FX quotes
 # through as holdable.
-NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {"FX"}
+NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {"FX", "METAL"}
 
 # The series the Worker reads as INDICATORS on its macro tape, and whose
 # freshness is watched. VOLATILITY and RISK_FREE joined MACRO on 2026-11-08
 # (owner: the VIX "at the same level of information as oil"): ^VIX and ^IRX were
 # fetched and listed among the fetchable series, yet absent from the tape the
 # Worker reasons on.
-INDICATOR_ASSET_CLASSES: tuple[str, ...] = ("MACRO", "VOLATILITY", "RISK_FREE")
+INDICATOR_ASSET_CLASSES: tuple[str, ...] = ("MACRO", "VOLATILITY", "RISK_FREE", "METAL")
 
 # THE MACRO TAPE BY FAMILY (owner, 2026-11-08: "oil, volatility, liquidity,
 # gold, rates are all macro indicators that let you understand the present and
@@ -811,7 +840,15 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
     "liquidity": ("WALCL", "ECBASSETSW", "JPNASSETS", "M2SL", "m2_yoy", "m2_accel_12m"),
     "energy": ("DCOILWTICO",),
     "volatility": ("^VIX",),
-    "gold": ("GLD", "gold_10y_dev"),
+    "metals: gold, silver, copper": (
+        "GLD",
+        "GC=F",
+        "SI=F",
+        "HG=F",
+        "gold_silver_ratio",
+        "copper_gold_ratio",
+        "gold_10y_dev",
+    ),
     "equities": ("equity_trend",),
 }
 
@@ -822,6 +859,16 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
 # carried in ALLOWED_TICKERS above, so this map no longer names any of them
 # rather than naming half of them.
 DERIVED_SIGNALS: dict[str, str] = {
+    # THE METALS' COMPARATORS (owner, 2026-11-08), each the price of one metal in
+    # units of another, on the days both futures print. Gold/silver RISES when
+    # gold outpaces silver — the defensive metal over the half-industrial one;
+    # copper/gold RISES when the industrial metal outpaces the defensive one,
+    # the market's growth-versus-fear gauge. Those readings are the customary
+    # ones, not measured here.
+    "gold_silver_ratio": "GC=F / SI=F  # ounces of silver one ounce of gold buys",
+    # Per THOUSAND, so the figure reads 1.5 rather than 0.0015, whose speed the
+    # four decimals every number reaches the Worker with would round away.
+    "copper_gold_ratio": "1000 x HG=F / GC=F  # copper USD/lb per 1000 USD/oz of gold",
     "real_rate": "irx - CPIAUCSL(yoy_pct)   # nominal SHORT rate minus inflation",
     # The LONG real yield — a distinct signal, not a refinement of real_rate:
     # opportunity-cost claims (gold vs a yielding alternative) are stated
@@ -896,6 +943,9 @@ SIGNAL_ALIASES: dict[str, str] = {
     "oil": "DCOILWTICO",
     # The market's 5-year real yield (2026-11-08): see the DFII5 row.
     "real_yield_5y": "DFII5",
+    # The metals' comparators (2026-11-08): see DERIVED_SIGNALS.
+    "gold_silver": "gold_silver_ratio",
+    "copper_gold": "copper_gold_ratio",
 }
 # THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a
 # condition's series through it, and the VALIDATION GATE demotes a signal it

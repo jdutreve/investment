@@ -30,7 +30,6 @@ from investment.mechanical import ratios
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
 from investment.mechanical.forecasts import load_forecast_record, record_summary
-from investment.mechanical.gold_switch import GoldSwitch, load_gold_switch
 from investment.mechanical.invariants import (
     ESTABLISHED_FIRST_SQL,
     ESTABLISHED_OR_JUDGED_SQL,
@@ -47,6 +46,7 @@ from investment.mechanical.market_signal import (
     coming_decision,
     load_series,
 )
+from investment.mechanical.metals import Metals, load_metals
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
 from investment.planner.worker_history import WORKER_READING_EVENT
@@ -850,31 +850,70 @@ def _defender_block(metrics: dict[str, Any] | None) -> list[str]:
     return lines
 
 
-def _gold_block(gold: dict[str, Any] | None) -> list[str]:
-    """One word, then the two legs that decide it (owner, 2026-11-08). Context
-    only, said as such: nothing measured it as a signal."""
-    if not gold:
+def _metals_block(metals: dict[str, Any] | None) -> list[str]:
+    """Gold, silver and copper, each in one word with what decides it, then the
+    two comparators (owner, 2026-11-08). Context only, said as such: nothing
+    measured them as signals."""
+    if not metals:
         return []
-    real, trend = gold.get("real_yield"), gold.get("gold_trend")
-    lines = [f"🥇 Gold: {'ON' if gold['on'] else 'OFF'} — ON when either leg is on"]
-    if real:
-        side = "under" if real["on"] else "over"
+    gold = metals["gold"]
+    lines: list[str] = []
+    if gold.get("on") is not None:
+        lines.append(f"🥇 Gold: {_on(gold['on'])} — ON when either leg is on")
+        real = gold.get("real_yield")
+        if real:
+            side = "under" if real["on"] else "over"
+            lines.append(
+                f"   5y real yield (DFII5) {real['value']:.2f}% {side} its 12-month average "
+                f"{real['average']:.2f}% → {_on(real['on']).lower()} ({real['as_of']})"
+            )
+        else:
+            lines.append("   5y real yield (DFII5): n/a — less than a year of data")
+        lines.append(_trend_line("GLD", gold.get("gold_trend"), indent="   "))
+    for emoji, name, ticker in (("🥈", "Silver", "SI=F"), ("🟤", "Copper", "HG=F")):
+        leg = metals.get(name.lower())
+        if leg:
+            lines.append(f"{emoji} {name}: {_on(leg['on'])} — " + _trend_line(ticker, leg))
+    for key, label, above, below in (
+        (
+            "gold_silver",
+            "Gold/silver",
+            "gold ahead of silver (defensive)",
+            "silver ahead of gold (risk appetite)",
+        ),
+        (
+            "copper_gold",
+            "Copper/gold (per 1000)",
+            "copper ahead of gold (growth)",
+            "gold ahead of copper (growth fear)",
+        ),
+    ):
+        leg = metals.get(key)
+        if leg:
+            lines.append(
+                f"⚖️ {label} {leg['value']:.4g} vs its 12-month average {leg['average']:.4g}: "
+                f"{above if leg['on'] else below} ({leg['as_of']})"
+            )
+    if lines:
         lines.append(
-            f"   5y real yield (DFII5) {real['value']:.2f}% {side} its 12-month average "
-            f"{real['average']:.2f}% → {'on' if real['on'] else 'off'} ({real['as_of']})"
+            "   Role: context only — none of these is measured as an allocation signal; "
+            "the comparators' readings are the customary ones"
         )
-    else:
-        lines.append("   5y real yield (DFII5): n/a — less than a year of data")
-    if trend:
-        gap = trend["value"] / trend["average"] - 1.0
-        lines.append(
-            f"   GLD {pct(gap, signed=True)} vs its 200-day average "
-            f"→ {'on' if trend['on'] else 'off'} ({trend['as_of']})"
-        )
-    else:
-        lines.append("   GLD vs its 200-day average: n/a — fewer than 200 sessions")
-    lines.append("   Role: context only — not measured as an allocation signal")
     return lines
+
+
+def _on(flag: bool) -> str:
+    return "ON" if flag else "OFF"
+
+
+def _trend_line(ticker: str, leg: dict[str, Any] | None, *, indent: str = "") -> str:
+    if not leg:
+        return f"{indent}{ticker} vs its 200-day average: n/a — fewer than 200 sessions"
+    gap = leg["value"] / leg["average"] - 1.0
+    return (
+        f"{indent}{ticker} {pct(gap, signed=True)} vs its 200-day average "
+        f"→ {_on(leg['on']).lower()} ({leg['as_of']})"
+    )
 
 
 def render_digest(
@@ -895,7 +934,7 @@ def render_digest(
     live_values: dict[str, Any] | None = None,
     forecast_record: dict[str, Any] | None = None,
     coming_order: dict[str, Any] | None = None,
-    gold_switch: dict[str, Any] | None = None,
+    metals: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -913,7 +952,7 @@ def render_digest(
     blocks = [
         _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
-        _gold_block(gold_switch),
+        _metals_block(metals),
         _ranking_block(ranking),
         _invariant_block(invariants),
         _market_signal_block(
@@ -1084,8 +1123,9 @@ class DigestInputs(TypedDict):
     # The next monthly decision, fixed or provisional (`market_signal.coming_decision`);
     # None when the stack's series cannot be loaded.
     coming_order: dict[str, Any] | None
-    # Gold ON/OFF (`mechanical/gold_switch.py`): context, never an allocation.
-    gold_switch: dict[str, Any] | None
+    # Gold, silver and copper as indicators (`mechanical/metals.py`): context,
+    # never an allocation.
+    metals: dict[str, Any] | None
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -1148,15 +1188,19 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
             else None
         ),
         coming_order=await _coming_order(db, today),
-        gold_switch=_gold_standing(await load_gold_switch(db, today)),
+        metals=_metals_standing(await load_metals(db, today)),
     )
 
 
-def _gold_standing(switch: GoldSwitch) -> dict[str, Any] | None:
-    """The switch as plain data, for the digest and the dashboard alike."""
-    if switch.on is None:
-        return None
-    return {"on": switch.on, **dataclasses.asdict(switch)}
+def _metals_standing(metals: Metals) -> dict[str, Any] | None:
+    """The metals as plain data, for the digest and the dashboard alike; None
+    when nothing at all can be read."""
+    data = dataclasses.asdict(metals)
+    data["gold"]["on"] = metals.gold.on
+    readable = metals.gold.on is not None or any(
+        (metals.silver, metals.copper, metals.gold_silver, metals.copper_gold)
+    )
+    return data if readable else None
 
 
 async def _coming_order(db: InvestmentDB, today: date) -> dict[str, Any] | None:

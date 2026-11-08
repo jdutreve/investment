@@ -552,9 +552,20 @@ def test_the_tape_reads_by_family_and_a_price_as_momentum() -> None:
         "    DGS10: 4.84 (speed -0.43, accel -0.92) as of 2026-11-06",
         "  Volatility:",
         "    ^VIX: 25.6 (speed 10.5, accel 10.7) as of 2026-11-06",
-        "  Gold:",
-        "    GLD: price, total-return index (no quote) — speed -1.00%, accel +7.50% of its "
+        "  Metals: gold, silver, copper:",
+        "    GLD: total-return index, no quote — speed -1.00%, accel +7.50% of its "
         "level, as of 2026-11-06",
         "  Other:",
         "    NEWSERIES: 1.0 (speed 0.0, accel 0.0) as of 2026-11-06",
     ]
+
+
+def test_a_quoted_price_prints_its_quote_and_a_spliced_one_says_it_has_none() -> None:
+    from investment.planner.context import macro_tape_lines
+
+    row = {"asset_class": "METAL", "ts": "2026-11-06", "speed": -40.0, "acceleration": 80.0}
+    lines = macro_tape_lines(
+        [{**row, "ticker": "GC=F", "level": 4000.0}, {**row, "ticker": "GLD", "level": 10000.0}]
+    )
+    assert "    GC=F: price 4000.0 — speed -1.00%, accel +2.00% of its level" in lines[2]
+    assert "GLD: total-return index, no quote" in lines[1]

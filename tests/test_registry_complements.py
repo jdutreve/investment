@@ -54,6 +54,7 @@ PRICE_ASSET_CLASSES = frozenset(
         "FX",
         "GOLD",
         "INTL_EQUITY",
+        "METAL",
         "US_EQUITY",
         "US_IG_CREDIT",
         "US_LONG_TREASURY",

@@ -31,6 +31,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from investment.db.seed_data import (
+    HISTORY_PROXIES,
     MACRO_INDICATOR_FAMILIES,
     NON_PRICE_ASSET_CLASSES,
     SIGNAL_ALIASES,
@@ -400,10 +401,10 @@ def macro_tape_lines(macro: list[dict[str, Any]]) -> list[str]:
 
 
 def _tape_line(row: dict[str, Any]) -> str:
-    """One indicator. A PRICE (GLD) is stored as a total-return index spliced
-    back to 1991, so its level is no quote and its speed in index points means
-    nothing: it is printed as momentum in percent of its level, the way
-    `market_fetch` normalises a price row."""
+    """One indicator. A PRICE's momentum is printed in percent of its level, the
+    way `market_fetch` normalises a price row: a dollar of speed means nothing
+    across a $6 copper and a $4,000 gold. Its level is a quote, except where a
+    HISTORY_PROXIES splice made it a total-return index (GLD), which is said."""
     level, speed, accel = row.get("level"), row.get("speed"), row.get("acceleration")
     dated = f"as of {row.get('ts')}"
     asset_class = row.get("asset_class")
@@ -413,10 +414,13 @@ def _tape_line(row: dict[str, Any]) -> str:
             f"{value / level * 100.0:+.2f}%" if isinstance(value, int | float) else "n/a"
             for value in (speed, accel)
         ]
-        return (
-            f"{row.get('ticker')}: price, total-return index (no quote) — "
-            f"speed {pct[0]}, accel {pct[1]} of its level, {dated}"
+        ticker = str(row.get("ticker"))
+        quote = (
+            "total-return index, no quote"
+            if ticker in HISTORY_PROXIES
+            else f"price {round_for_model(level)}"
         )
+        return f"{ticker}: {quote} — speed {pct[0]}, accel {pct[1]} of its level, {dated}"
     return (
         f"{row.get('ticker')}: {round_for_model(level)} (speed {round_for_model(speed)}, "
         f"accel {round_for_model(accel)}) {dated}"

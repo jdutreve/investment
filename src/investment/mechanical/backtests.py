@@ -249,6 +249,34 @@ async def _materialize_real_rates(db: InvestmentDB, default_lookback_days: int) 
     written.update(await _materialize_broad_money(db, default_lookback_days))
     written[EQUITY_TREND_TICKER] = await _materialize_equity_trend(db, default_lookback_days)
     written[GOLD_10Y_DEV_TICKER] = await _materialize_gold_10y_dev(db, default_lookback_days)
+    written.update(await _materialize_metal_ratios(db, default_lookback_days))
+    return written
+
+
+# The metals' comparators (db/seed_data.py DERIVED_SIGNALS): id -> (numerator,
+# denominator, scale), both front-month futures in their natural units.
+METAL_RATIOS: dict[str, tuple[str, str, float]] = {
+    "gold_silver_ratio": ("GC=F", "SI=F", 1.0),
+    "copper_gold_ratio": ("HG=F", "GC=F", 1000.0),
+}
+
+
+async def _materialize_metal_ratios(db: InvestmentDB, default_lookback_days: int) -> dict[str, int]:
+    """Each ratio on the days BOTH futures print — one exchange calendar, so
+    nothing is forward-filled and no day's price meets another day's. Point in
+    time like its legs: a Yahoo close is knowable the day it is made."""
+    written: dict[str, int] = {}
+    for derived_id, (numerator, denominator, scale) in METAL_RATIOS.items():
+        top = await ratios.load_price(db, numerator)
+        bottom = await ratios.load_price(db, denominator)
+        ratio = (scale * top / bottom.where(bottom > 0)).dropna()
+        if ratio.empty:
+            written[derived_id] = 0
+            continue
+        deriv = derivatives.compute_derivatives(ratio, derived_id, default_lookback_days)
+        rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
+        await db.replace_ts_series("market_data", derived_id, rows)
+        written[derived_id] = len(rows)
     return written
 
 
