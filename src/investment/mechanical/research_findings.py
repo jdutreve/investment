@@ -424,8 +424,29 @@ FINDINGS: tuple[Finding, ...] = (
         consequence=(
             "Read them as a description of the present, not a forecast: none earns a "
             "forecast, a tilt or an invariant on its own. Timing gold on the switch halved "
-            "its return without cutting its drawdown. The copper/gold lead on equities over "
-            "bonds is the only one worth a sharper question, not a claim."
+            "its return without cutting its drawdown. The one lead, copper/gold on equities "
+            "over bonds, did not replicate out of sample (next finding)."
+        ),
+        record="docs/METAL_INDICATORS.md",
+    ),
+    Finding(
+        measured_on=date(2026, 11, 8),
+        about="indicators",
+        question=(
+            "Does copper/gold above its 12-month average favour equities over bonds out of "
+            "sample, and does it say copper will keep beating gold?"
+        ),
+        answer="no to both",
+        evidence=(
+            "1993-2003, monthly IMF copper, 48 outcomes: SPY minus IEF +1.75% "
+            "[90%: -2.13%, +5.48%], one offset of four reversed. Copper minus gold: "
+            "2004-2026 +2.57% [-1.62%, +6.83%]; 1993-2003 -4.60% [-9.97%, +0.71%]. Held "
+            "outright 2004-2026: gold +10.44% a year, drawdown -44.4%; copper +8.06%, -69.4%."
+        ),
+        consequence=(
+            "The copper/gold ratio describes the growth mood; it does not time equities "
+            "against bonds or copper against gold. Do not propose trading on it, or "
+            "swapping gold for copper, without new data."
         ),
         record="docs/METAL_INDICATORS.md",
     ),

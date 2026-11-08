@@ -171,3 +171,31 @@ invariant; anything else closes it. Q2 and Q3 answer the owner's question.
 
 **Context, no verdict:** copper against gold held outright over 2004-2026 and
 since 2020 (futures, CAGR and drawdown of each).
+
+### Result of the second study (run once, 2026-11-08)
+
+| # | window | outcome | ON − OFF [90%] | p | halves | offsets 0/3/6/9 wk | n, ON | verdict |
+|---|---|---|---|---|---|---|---|---|
+| Q1 | 1993-2003 | SPY − IEF | +1.75% [−2.13, +5.48] | 0.22 | +1.41 / +0.75 | +1.75 +0.43 −1.12 +1.28 | 48, 38% | not supported |
+| Q2 | 2004-2026 | HG=F − GC=F | +2.57% [−1.62, +6.83] | 0.16 | +1.29 / +4.08 | +2.57 −4.42 −1.38 +2.62 | 99, 40% | not supported |
+| Q3 | 1993-2003 | copper − gold | −4.60% [−9.97, +0.71] | 0.92 | −0.84 / −9.03 | −4.60 −2.34 −3.00 −1.76 | 48, 38% | not supported |
+
+Context, held outright (front-month futures): from 2004-01-07 gold +10.44% a
+year with a −44.4% worst drawdown, copper +8.06% with −69.4%; from 2020-01-02
+gold +15.45% (−26.7%), copper +12.22% (−34.9%).
+
+**What it says.**
+
+- **The lead is closed.** Out of sample, copper/gold above its average points
+  the same way for equities over bonds (+1.75%) but at a third of the
+  conviction, its interval wide across zero and one offset of four reversed:
+  the 2004-2026 figure was not a property the earlier decade shares. As the
+  protocol set, it does not become an invariant.
+- **A rising copper/gold ratio does not say copper will keep beating gold.**
+  2004-2026: +2.57%, two offsets of four the other way. 1993-2003: the opposite
+  sign on every offset (−4.60%), short of significance — if anything the ratio
+  reverted.
+- **For a holder choosing between the two metals**, neither period gives copper
+  the edge: gold returned more, with a drawdown a third shallower over 2004-2026.
+  Copper is in none of the stack's books and the system measures nothing that
+  would put it there.
