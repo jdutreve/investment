@@ -287,3 +287,38 @@ months, n = 59).
 - **Copper is not a handle this system can hold or confront** (no copper
   sleeve, no asset-class benchmark), so this stays a finding and a line of the
   digest, not an invariant.
+
+## Fourth study: the owner's channel rule — trade the band touches, nothing between (protocol committed 2026-11-08, before the run)
+
+Owner, the same day, with a monthly chart of copper/gold since 2002 and its
+falling channel: "I only play the touches of the channel's bands, nothing in
+between." The rule: hold gold; when copper/gold touches the LOWER band, switch
+to copper; when it touches the UPPER band, switch back to gold.
+
+**Data.** Daily R = 1000 × HG=F / GC=F (front-month futures, 2000-08-30 to
+2026-11-06), on the days both print; returns are the futures' daily changes
+(a roll shows as a small step in each).
+
+**Two channels.**
+
+- **A, as drawn (hindsight, an upper bound).** An ordinary least-squares line
+  through ln R over the whole span; the bands are that line shifted to the
+  lowest and the highest residual. Every band touch in A is known only at the
+  end, so A says what the drawn channel would have paid at best, nothing more.
+- **B, without hindsight (what the rule could have done).** On the first
+  trading day of each month, the same fit over the ten years before it (the
+  first channel: 2010-09); bands at that window's lowest and highest residual,
+  extended through the month along the fitted slope.
+
+**Touch.** ln R(t) within 0.02 (about 2%) of a band, or beyond it, at day t's
+close. **Trade:** the switch is made at day t+1's close; 23 bp per order, two
+orders a switch (ADR-010). Start in gold on each channel's first day.
+
+**Reported, no significance claimed** (a handful of round trips): every
+completed trade's copper-minus-gold return and its dates; for each channel,
+CAGR, worst drawdown and switches, against gold held and copper held over the
+same span; where R sits today against B's bands.
+
+**Reading, fixed now.** The rule is CONSISTENT with the history if, on B, most
+completed copper trades beat gold AND the strategy's CAGR beats gold held;
+otherwise NOT SHOWN. A alone can never make it consistent.
