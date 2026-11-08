@@ -203,8 +203,8 @@ questions).
 **Why deferred (general RSS moved out of V1, 2026-07):** curation of
 CHOSEN sources is the essence; a feed vacuum produces news noise, not
 Dalio-grade invariants. V1 ships the narrow **UC3 Event Watch** (pinned
-official sources — Fed/ECB/SNB press — LLM triage, bounded enrichment)
-plus user deposits. This item covers everything broader: general RSS
+official sources — Fed/ECB/BoJ press, the BoJ replacing the SNB on
+2026-11-08 — LLM triage, bounded enrichment) plus user deposits. This item covers everything broader: general RSS
 (reactivate with I-26 tiering), YouTube/X/podcasts (transcription
 overhead on top).
 

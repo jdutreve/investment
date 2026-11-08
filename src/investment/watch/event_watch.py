@@ -37,14 +37,14 @@ FOUR STEPS, and only one of them is a model:
 
 THE OFFICIAL PAGE IS THE SOURCE TEXT, NOT THE FEED, AND NOTHING IS ASKED OF THE
 OWNER (owner, 2026-10-18: "stop asking me these questions … this triage must be
-automatic and relevant"). The feeds carry a headline — the ECB and the SNB
-nothing else — and the triage used to read only that, flagging what it could
-not describe as `needs-user-input` for the owner to answer. Telegram was off,
-so the question reached no one: 11 of the first 23 items judged major never
-entered the corpus, the Fed's and the ECB's September rate hikes among them.
-The text was one request away on the same domain, which is UC3's "bounded
-fetch". An item whose page cannot be fetched is skipped un-journalled and
-retried the next week, like a failed triage.
+automatic and relevant"). The feeds carry a headline — the ECB and the SNB (the
+BoJ since 2026-11-08) nothing else — and the triage used to read only that,
+flagging what it could not describe as `needs-user-input` for the owner to
+answer. Telegram was off, so the question reached no one: 11 of the first 23
+items judged major never entered the corpus, the Fed's and the ECB's September
+rate hikes among them. The text was one request away on the same domain, which
+is UC3's "bounded fetch". An item whose page cannot be fetched is skipped
+un-journalled and retried the next week, like a failed triage.
 
 WHY THE SKILL FILE LIVES HERE and not in `worker/skills/`: that directory is the
 WORKER's prompt, and `worker/agent.py::load_skills` concatenates every `.md` it
@@ -86,12 +86,17 @@ logger = logging.getLogger(__name__)
 #     separate press_monetary.xml feed is a strict subset and is not watched —
 #     it would arrive, dedupe against the same URL, and cost a triage call.
 #   ecb.europa.eu/rss/press.html             15 entries, NO summary — title only.
-#   snb.ch/public/en/rss/news                20 entries, NO summary, NO published
-#     date. Its titles carry their own date ("2026-08-12 - Banknotes and coins
-#     - ..."), which is why dedupe is by URL and never by date.
+#   boj.or.jp/en/rss/whatsnew.xml            42 entries, NO summary — title only;
+#     links are http:// and redirect to https on the same domain. Verified
+#     2026-11-08, when it replaced the SNB (owner: "remove the SNB's events, my
+#     intuition is that Japan's has more impact" — the BoJ's policy moves the
+#     yen carry trade and global long yields, the SNB's mostly the franc, and
+#     the stack holds no franc asset). Its speeches are PDFs behind a cover
+#     page, which `article_text` follows one hop.
 #
-# Two candidates 404'd and are recorded so nobody re-derives them:
-# ecb.europa.eu/press/rss/press.html and snb.ch/en/rss/news.
+# Three candidates 404'd and are recorded so nobody re-derives them:
+# ecb.europa.eu/press/rss/press.html, snb.ch/en/rss/news and
+# boj.or.jp/en/rss/release.xml.
 EVENT_SOURCES: tuple[dict[str, str], ...] = (
     {
         "name": "Federal Reserve",
@@ -104,9 +109,9 @@ EVENT_SOURCES: tuple[dict[str, str], ...] = (
         "domain": "ecb.europa.eu",
     },
     {
-        "name": "Swiss National Bank",
-        "url": "https://www.snb.ch/public/en/rss/news",
-        "domain": "snb.ch",
+        "name": "Bank of Japan",
+        "url": "https://www.boj.or.jp/en/rss/whatsnew.xml",
+        "domain": "boj.or.jp",
     },
 )
 

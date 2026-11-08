@@ -517,7 +517,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
     if central_bank:
         lines += [
             "",
-            "CENTRAL-BANK EVENTS — the major Fed, ECB and SNB items of the last weeks, "
+            "CENTRAL-BANK EVENTS — the major Fed, ECB and BoJ items of the last weeks, "
             "newest first, each with a summary of its official text. They are the "
             "policy backdrop of the tape above; weigh them in your reading:",
         ]

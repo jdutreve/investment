@@ -21,9 +21,9 @@ is the job, not a failure to notice.
   outages of scale, export bans, fuel rationing;
 - fiscal and trade policy of a large economy: budgets, shutdowns, debt-ceiling
   standoffs, tariffs, sanctions, export controls;
-- a central-bank decision OUTSIDE the Fed, the ECB and the SNB (these three are
-  read elsewhere): the Bank of Japan, the Bank of England, the People's Bank of
-  China, and others when the move is large or signals a global trend;
+- a central-bank decision OUTSIDE the Fed, the ECB and the Bank of Japan (these
+  three are read elsewhere): the Bank of England, the People's Bank of China,
+  and others when the move is large or signals a global trend;
 - a sovereign default, bailout or currency crisis; a large bank or market
   failure; a systemic cyber or infrastructure failure; a pandemic.
 

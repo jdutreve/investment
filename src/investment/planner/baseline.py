@@ -371,7 +371,7 @@ async def _recent_events(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
 def event_date(published: str) -> date | None:
     """An event's own date out of its `Published:` line: an ISO date for the
     world events, an RFC 2822 stamp for the Fed's and the ECB's feeds, nothing
-    for the SNB's."""
+    for a feed that gives none."""
     if not published:
         return None
     with contextlib.suppress(ValueError):

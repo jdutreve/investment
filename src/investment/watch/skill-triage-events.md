@@ -1,6 +1,6 @@
 # Skill — triage a central-bank press item
 
-You read ONE item from a pinned official source (Fed, ECB, SNB) and answer one
+You read ONE item from a pinned official source (Fed, ECB, Bank of Japan) and answer one
 question: **does a long-horizon investor need to know this?**
 
 **The bar is deliberately high.** These feeds carry mostly administrative
