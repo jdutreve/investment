@@ -469,6 +469,21 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 1,
     },
+    # The 5-year REAL yield, the TIPS market yield (percent, daily from
+    # 2003-01-02 — a narrower window than 1991, like IYR's). Owner, 2026-11-08:
+    # one of the two legs of the digest's gold switch
+    # (`mechanical/gold_switch.py`); and the MARKET's real rate, where
+    # `real_yield_10y` is DGS10 minus lagged CPI. Lag measured that day against
+    # FRED first-release vintages, 264 observations: min 1, median 1, p95 3,
+    # max 6 — 5 is the p95 plus two days, JPNASSETS' rule.
+    {
+        "ticker": "DFII5",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 5,
+    },
     # Crude oil, WTI spot (USD per barrel, daily from 1986) — THE WORKER'S OWN
     # PROPOSAL, the first system idea applied (innovation of 2026-11-08,
     # owner: "oui ajoute le pétrole"). Its case: the Hormuz shock drives the
@@ -776,7 +791,14 @@ INDICATOR_ASSET_CLASSES: tuple[str, ...] = ("MACRO", "VOLATILITY", "RISK_FREE")
 # dropped. GLD is the one PRICE here: gold is read as an indicator as well as
 # held as a sleeve.
 MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
-    "rates and the yield curve": ("DGS10", "T10Y2Y", "^IRX", "real_yield_10y", "real_rate"),
+    "rates and the yield curve": (
+        "DGS10",
+        "T10Y2Y",
+        "^IRX",
+        "DFII5",
+        "real_yield_10y",
+        "real_rate",
+    ),
     "credit and debt": (
         "BAA10Y",
         "CREDIT_GROWTH",
@@ -872,6 +894,8 @@ SIGNAL_ALIASES: dict[str, str] = {
     # The energy shock (2026-11-08), the Worker's own proposal: see the
     # DCOILWTICO row in ALLOWED_TICKERS.
     "oil": "DCOILWTICO",
+    # The market's 5-year real yield (2026-11-08): see the DFII5 row.
+    "real_yield_5y": "DFII5",
 }
 # THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a
 # condition's series through it, and the VALIDATION GATE demotes a signal it

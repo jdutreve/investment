@@ -30,6 +30,7 @@ from investment.mechanical import ratios
 from investment.mechanical.alerts import Alert, collect_alerts
 from investment.mechanical.attribution import ATTRIBUTION_EVENT
 from investment.mechanical.forecasts import load_forecast_record, record_summary
+from investment.mechanical.gold_switch import GoldSwitch, load_gold_switch
 from investment.mechanical.invariants import (
     ESTABLISHED_FIRST_SQL,
     ESTABLISHED_OR_JUDGED_SQL,
@@ -849,6 +850,33 @@ def _defender_block(metrics: dict[str, Any] | None) -> list[str]:
     return lines
 
 
+def _gold_block(gold: dict[str, Any] | None) -> list[str]:
+    """One word, then the two legs that decide it (owner, 2026-11-08). Context
+    only, said as such: nothing measured it as a signal."""
+    if not gold:
+        return []
+    real, trend = gold.get("real_yield"), gold.get("gold_trend")
+    lines = [f"🥇 Gold: {'ON' if gold['on'] else 'OFF'} — ON when either leg is on"]
+    if real:
+        side = "under" if real["on"] else "over"
+        lines.append(
+            f"   5y real yield (DFII5) {real['value']:.2f}% {side} its 12-month average "
+            f"{real['average']:.2f}% → {'on' if real['on'] else 'off'} ({real['as_of']})"
+        )
+    else:
+        lines.append("   5y real yield (DFII5): n/a — less than a year of data")
+    if trend:
+        gap = trend["value"] / trend["average"] - 1.0
+        lines.append(
+            f"   GLD {pct(gap, signed=True)} vs its 200-day average "
+            f"→ {'on' if trend['on'] else 'off'} ({trend['as_of']})"
+        )
+    else:
+        lines.append("   GLD vs its 200-day average: n/a — fewer than 200 sessions")
+    lines.append("   Role: context only — not measured as an allocation signal")
+    return lines
+
+
 def render_digest(
     *,
     regime: dict[str, Any],
@@ -867,6 +895,7 @@ def render_digest(
     live_values: dict[str, Any] | None = None,
     forecast_record: dict[str, Any] | None = None,
     coming_order: dict[str, Any] | None = None,
+    gold_switch: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -884,6 +913,7 @@ def render_digest(
     blocks = [
         _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
+        _gold_block(gold_switch),
         _ranking_block(ranking),
         _invariant_block(invariants),
         _market_signal_block(
@@ -1054,6 +1084,8 @@ class DigestInputs(TypedDict):
     # The next monthly decision, fixed or provisional (`market_signal.coming_decision`);
     # None when the stack's series cannot be loaded.
     coming_order: dict[str, Any] | None
+    # Gold ON/OFF (`mechanical/gold_switch.py`): context, never an allocation.
+    gold_switch: dict[str, Any] | None
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -1116,7 +1148,15 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
             else None
         ),
         coming_order=await _coming_order(db, today),
+        gold_switch=_gold_standing(await load_gold_switch(db, today)),
     )
+
+
+def _gold_standing(switch: GoldSwitch) -> dict[str, Any] | None:
+    """The switch as plain data, for the digest and the dashboard alike."""
+    if switch.on is None:
+        return None
+    return {"on": switch.on, **dataclasses.asdict(switch)}
 
 
 async def _coming_order(db: InvestmentDB, today: date) -> dict[str, Any] | None:
