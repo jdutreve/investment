@@ -400,3 +400,25 @@ Copper held: +6.3% to +9.1% a year over the same spans, drawdown −69%.
 - **Today every variant holds copper:** R 1.531 sits above its 200- and
   252-session averages (1.394, 1.364), up 16% in six months; M4 entered on the
   2024-26 cheap episode and holds while R stays above its 200-session average.
+
+## Sixth study: both ways — the copper/gold spread, long and short (protocol committed 2026-11-08, before the run)
+
+Owner: "but I play both directions." The position is the SPREAD: +1 = long
+copper and short gold for equal dollars, −1 = the reverse, 0 = flat; its daily
+return is position × (copper return − gold return), plus the cash collateral's
+^IRX. Costs: 23 bp per order, two orders per unit of position change (a flip
+from +1 to −1 is four). Market-neutral, so its benchmark is CASH (^IRX); gold
+held is shown beside it.
+
+| id | position |
+|---|---|
+| S1 | +1 while R > its 200-session average, −1 otherwise |
+| S2 | +1 while R > its 252-session average, −1 otherwise |
+| S3 | +1 while R's 6-month change > 0, −1 otherwise |
+| S4 | a cheap reading (z < −1) arms the long: +1 while R > MA200, back to 0 below it (disarmed); a rich reading (z > +1) arms the short: −1 while R < MA200, back to 0 above it (disarmed); 0 otherwise |
+| S5 | channel B (fourth study): +1 from a lower-band touch until an upper-band touch, then −1 until the next lower-band touch |
+
+Same data, signal timing and periods as the fifth study (S5 from 2010-09).
+CAGR, worst drawdown, position changes, whole span and both halves.
+**Reading:** CONSISTENT if the CAGR beats cash on the whole span AND on both
+halves; NOT SHOWN otherwise.
