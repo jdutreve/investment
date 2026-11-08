@@ -59,7 +59,7 @@ def test_a_finding_points_at_a_record_the_repository_holds() -> None:
 
 def test_a_finding_is_complete_and_dated() -> None:
     for finding in FINDINGS:
-        assert finding.about in ("rule", "corpus")
+        assert finding.about in ("rule", "corpus", "indicators")
         assert finding.question.endswith("?")
         assert finding.answer and len(finding.answer) <= 40  # a headline, not a paragraph
         assert finding.evidence and finding.consequence

@@ -111,8 +111,9 @@ def test_the_block_says_each_metal_in_a_word_then_the_comparators() -> None:
         "(risk appetite) (2026-11-06)",
         "⚖️ Copper/gold (per 1000) 1.53 vs its 12-month average 1.41: copper ahead of gold "
         "(growth) (2026-11-06)",
-        "   Role: context only — none of these is measured as an allocation signal; "
-        "the comparators' readings are the customary ones",
+        "   Role: a description of the present, not a forecast — measured 2026-11-08 on "
+        "2004-2026, no reading held over the next 12 weeks, and timing GLD on the "
+        "switch halved its return (docs/METAL_INDICATORS.md)",
     ]
     nothing = M.Metals(M.GoldSwitch(None, None), None, None, None, None)
     assert _metals_block(_metals_standing(nothing)) == []

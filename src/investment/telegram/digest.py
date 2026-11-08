@@ -896,8 +896,9 @@ def _metals_block(metals: dict[str, Any] | None) -> list[str]:
             )
     if lines:
         lines.append(
-            "   Role: context only — none of these is measured as an allocation signal; "
-            "the comparators' readings are the customary ones"
+            "   Role: a description of the present, not a forecast — measured 2026-11-08 on "
+            "2004-2026, no reading held over the next 12 weeks, and timing GLD on the "
+            "switch halved its return (docs/METAL_INDICATORS.md)"
         )
     return lines
 

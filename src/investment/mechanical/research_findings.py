@@ -41,7 +41,7 @@ class Finding:
     """One question put to the history, and what it answered."""
 
     measured_on: date
-    about: Literal["rule", "corpus"]
+    about: Literal["rule", "corpus", "indicators"]
     question: str
     answer: str  # the headline, a few words
     evidence: str  # the figures that carry it, with their window
@@ -404,11 +404,37 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/V1_STRATEGY.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 8),
+        about="indicators",
+        question=(
+            "Do the digest's metal indicators — the gold switch and its two legs, the silver "
+            "and copper trends, the gold/silver and copper/gold ratios against their "
+            "12-month average — foretell the next 12 weeks as their customary readings say?"
+        ),
+        answer="no — none of the eight readings holds",
+        evidence=(
+            "2004-01 to 2026-07, 99 non-overlapping 12-week outcomes, ON minus OFF: gold "
+            "switch on GLD -0.64% [90%: -3.80%, +2.28%]; real-yield leg -0.59%; GLD trend "
+            "+0.86% [-2.05%, +3.66%]; silver and copper trends on themselves +1.08%, +0.02%. "
+            "Closest: copper/gold rising on SPY minus IEF +2.07% [-0.28%, +4.50%], p=0.07, "
+            "one offset of four negative. Timing GLD on the switch: CAGR 4.84% against "
+            "9.96% held, Sortino 0.37 against 0.73, drawdown -45.4% against -45.6%."
+        ),
+        consequence=(
+            "Read them as a description of the present, not a forecast: none earns a "
+            "forecast, a tilt or an invariant on its own. Timing gold on the switch halved "
+            "its return without cutting its drawdown. The copper/gold lead on equities over "
+            "bonds is the only one worth a sharper question, not a claim."
+        ),
+        record="docs/METAL_INDICATORS.md",
+    ),
 )
 
 _HEADINGS = {
     "rule": "about the rule",
     "corpus": "about the lighthouses",
+    "indicators": "about the indicators",
 }
 
 
@@ -417,8 +443,9 @@ def describe_findings(findings: tuple[Finding, ...] = FINDINGS) -> list[str]:
     if not findings:
         return []
     lines = [
-        "WHAT STRUCTURAL TESTS ALREADY ANSWERED — questions about the rule and about the "
-        "lighthouses that are not a setting of the rule, each put to a protocol written "
+        "WHAT STRUCTURAL TESTS ALREADY ANSWERED — questions about the rule, the "
+        "lighthouses and the indicators that are not a setting of the rule, each put to a "
+        "protocol written "
         "before its figures. They weigh as much as the settings above. Before you call a "
         "part of the rule its weak link, or propose one of these repairs, read here: the "
         "question may have been asked and answered. Do not raise one again without saying "

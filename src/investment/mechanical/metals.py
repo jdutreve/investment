@@ -20,10 +20,12 @@ half-industrial one; copper/gold rising = the industrial metal ahead of the
 defensive one, the market's growth-versus-fear gauge. Those are the customary
 readings, not measured ones.
 
-CONTEXT, NOT A SIGNAL OF THE STACK. Nothing allocates on these and nothing has
-measured them: they are printed so the owner, and the Worker who reads the
-digest, see the metals in a few words. A leg whose series is missing reads
-n/a and does not vote.
+CONTEXT, NOT A SIGNAL OF THE STACK, AND MEASURED AS SUCH (2026-11-08,
+docs/METAL_INDICATORS.md): on 2004-2026 none of these readings foretold the next
+12 weeks, and holding GLD only while the gold switch was ON halved its return
+without cutting its drawdown. Nothing allocates on them; they are printed so the
+owner, and the Worker who reads the digest, see the metals in a few words. A leg
+whose series is missing reads n/a and does not vote.
 
 POINT IN TIME (ADR-003): every series is read on rows knowable by `today`, so
 the averages hold nothing published later.

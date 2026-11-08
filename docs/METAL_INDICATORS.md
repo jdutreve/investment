@@ -83,6 +83,56 @@ GOLD_TREND against buy-and-hold GLD: CAGR, annualised volatility, Sortino
 (daily, against ^IRX), maximum drawdown, number of changes. No verdict rule:
 this is the price list of each choice, read beside H1-H3.
 
-## Result
+## Result (run once, 2026-11-08)
 
-(to be written after the single run)
+**One deviation from the protocol, made before any figure was seen.** The
+window starts 2004-01-07, not 2004-01-02: DFII5's first row is dated
+2003-01-07 (its 5-day lag), so GOLD_REAL cannot be read for a full year before
+the 7th, and the protocol's "first date every signal can be read" was a wrong
+statement of that date. The timing comparison holds a position over
+(close t+1, close t+2] on the signal read at close t — the stricter reading of
+"hold on day t+1", and the same one-day delay as the outcome's entry.
+
+99 non-overlapping 12-week outcomes, 2004-01-07 to 2026-07-22 (offset 0).
+
+| # | signal → outcome | ON − OFF [90%] | p | halves | offsets 0/3/6/9 wk | ON | verdict |
+|---|---|---|---|---|---|---|---|
+| H1 | GOLD_SWITCH → GLD | −0.64% [−3.80, +2.28] | 0.63 | −0.59 / −0.70 | −0.64 +0.31 +0.89 +0.13 | 77% | not supported |
+| H2 | GOLD_REAL → GLD | −0.59% [−3.29, +2.18] | 0.65 | −2.45 / +1.15 | −0.59 −0.61 −1.51 +0.76 | 51% | not supported |
+| H3 | GOLD_TREND → GLD | +0.86% [−2.05, +3.66] | 0.31 | +1.42 / +0.36 | +0.86 +2.21 +1.49 +0.39 | 69% | not supported |
+| H4 | SILVER → SI=F | +1.08% [−3.96, +6.10] | 0.36 | +5.16 / −2.76 | +1.08 +3.52 −4.04 +0.09 | 59% | not supported |
+| H5 | COPPER → HG=F | +0.02% [−4.30, +4.39] | 0.50 | +1.40 / −1.33 | +0.02 −1.05 −0.13 −0.36 | 56% | not supported |
+| H6 | CG_UP → SPY − IEF | +2.07% [−0.28, +4.50] | 0.07 | +3.65 / +2.07 | +2.07 −0.52 +1.53 +2.36 | 40% | not supported |
+| H7 | CG_UP → DGS10 change | +0.057 pt [−0.076, +0.190] | 0.24 | +0.081 / +0.113 | +0.057 +0.018 +0.043 +0.181 | 40% | not supported |
+| H8 | GS_UP → SPY − IEF (claim lower) | −1.49% [−4.08, +0.97] | 0.16 | −0.39 / −3.22 | −1.49 −2.33 −1.05 −0.84 | 55% | not supported |
+
+**Timing gold**, daily, 2004-01-07 to 2026-11-06, cash at ^IRX, 23 bp a change:
+
+| | CAGR | vol | Sortino | max drawdown | changes |
+|---|---|---|---|---|---|
+| buy-and-hold GLD | +9.96% | 18.2% | 0.73 | −45.6% | 0 |
+| GOLD_SWITCH | +4.84% | 15.6% | 0.37 | −45.4% | 158 |
+| GOLD_REAL | +5.82% | 13.2% | 0.50 | −35.8% | 122 |
+| GOLD_TREND | +4.92% | 15.0% | 0.38 | −43.2% | 183 |
+
+**What it says.**
+
+- **No reading holds.** None of the eight clears the protocol's bar; none
+  approaches the corrected one (p < 0.006). None is contradicted either: the
+  metals' states say nothing measurable about the next twelve weeks, in either
+  direction.
+- **The gold switch is worse than useless as a timing rule.** Holding GLD only
+  while it is ON halved the return (4.84% against 9.96% a year) and left the
+  drawdown where it was (−45.4% against −45.6%): it is ON 77% of the time, so it
+  is out mostly in the rallies that follow a dip below the line. The real-yield
+  leg alone is the least bad — it cut the drawdown to −35.8% — at the cost of
+  four points of return a year.
+- **The one lead is copper/gold on equities over bonds**: +2.07% per twelve
+  weeks when the ratio sits above its 12-month average, same sign on both
+  halves, p = 0.07, one offset of four the other way. It is not a claim; it is
+  the only question here worth asking sharper — for instance as an invariant on
+  `copper_gold` against a protocol of its own, since the confrontation engine
+  samples condition-active time rather than a fixed grid.
+- **Consequence for the digest and the Worker:** the block stays, as a
+  description of the present, and says it is measured and is not a forecast
+  (`research_findings.FINDINGS`, 2026-11-08).
