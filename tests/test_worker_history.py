@@ -97,7 +97,7 @@ async def test_the_worker_reads_its_recent_ideas_once_each_with_their_fate(
         text = "\n".join(describe_recent_ideas(ideas))
         assert "Do not file one again" in text
         assert "Bear steepeners: became a REFERENCE NOTE, never measured" in text
-        assert "Flag stale orders: recorded for the owner; nothing measures it" in text
+        assert "Flag stale orders: recorded for the owner; no measurement was stated" in text
 
         # An archived replay idea: a 2008 decision date, filed in 2026.
         await _file_idea(
@@ -159,6 +159,7 @@ def test_the_weekly_proposal_is_shown_to_the_owner_but_not_read_back_twice() -> 
         rationale="The BoJ moves global long yields; the stack holds no franc asset.",
         spec={},
         trace="t",
+        measure="how often a BoJ item reaches the reading in 12 weeks",
     )
     sections = proposal_sections([proposal])
     assert sections == [
@@ -166,7 +167,8 @@ def test_the_weekly_proposal_is_shown_to_the_owner_but_not_read_back_twice() -> 
             "heading": PROPOSAL_HEADING,
             "points": [
                 "[data] Read the Bank of Japan instead of the SNB — The BoJ moves global "
-                "long yields; the stack holds no franc asset."
+                "long yields; the stack holds no franc asset. Measured by: how often a BoJ "
+                "item reaches the reading in 12 weeks"
             ],
         }
     ]

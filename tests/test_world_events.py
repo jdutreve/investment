@@ -143,3 +143,23 @@ async def test_a_day_whose_page_fails_is_read_again_next_run(
 async def test_a_pick_that_names_no_item_of_the_day_is_refused() -> None:
     with pytest.raises(UnexpectedModelBehavior):
         await _agent([{**ELECTION, "index": 9}]).run("day", deps=3)
+
+
+async def test_a_rate_limit_stops_the_run_and_leaves_the_days_for_the_next(
+    db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-11-08: after one refusal every further request was refused too,
+    34 of them in seven seconds. The run stops instead."""
+    monkeypatch.setattr(WE, "EVENT_LOOKBACK_DAYS", 3)
+    monkeypatch.setattr(WE, "REQUEST_SPACING_SECONDS", 0.0)
+    asked: list[date] = []
+
+    async def refused(session: aiohttp.ClientSession, day: date) -> str:
+        asked.append(day)
+        raise WE.RateLimitedError("refused twice (429)")
+
+    report = await WE.run_world_events(db, ingester, _agent([]), TODAY, fetch=refused)
+
+    assert asked == [date(2026, 11, 5)]  # the oldest day, then nothing more
+    assert report.days_read == 0
+    assert len(await WE.days_to_read(db, TODAY)) == 3

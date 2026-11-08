@@ -141,7 +141,14 @@ async def record_innovation(
             type=str(proposal.type),
             title=proposal.title,
             rationale=proposal.rationale,
-            spec=json.dumps(proposal.spec, default=str),
+            # The measurement plan travels with the spec: it is what the idea's
+            # follow-up reads (`worker_history.idea_fate`).
+            spec=json.dumps(
+                {**proposal.spec, "measure": proposal.measure}
+                if proposal.measure
+                else proposal.spec,
+                default=str,
+            ),
             theme=theme_id,
             source=source_id,
             emb=to_blob(vector),

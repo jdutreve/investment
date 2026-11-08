@@ -479,16 +479,38 @@ def test_the_reading_carries_no_restated_facts_and_keeps_its_headings() -> None:
     assert "My reading" not in reading.render()  # an empty part prints no heading
 
 
-def test_a_second_innovation_is_refused() -> None:
-    """Owner, 2026-10-18: one idea worth testing a week, or none."""
-    idea = ImprovementProposal(
+def _result(*ideas: ImprovementProposal) -> WorkerResult:
+    return WorkerResult(
+        market_signal_assessment=a_reading("the book fits the spread"),
+        reasoning="—",
+        scenario_adjustments=[],
+        evaluations=[],
+        innovations_proposed=list(ideas),
+    )
+
+
+def test_two_ideas_in_one_scope_are_refused_but_scopes_cooperate() -> None:
+    """Owner, 2026-11-08: one idea per scope — market, rule, system — and the
+    scopes cooperate rather than compete (it was one in all since 2026-10-18)."""
+    revision = ImprovementProposal(
         type=ImprovementType.strategy_revision, title="t", rationale="r", spec={}, trace="tr"
     )
-    with pytest.raises(ValidationError):
-        WorkerResult(
-            market_signal_assessment=a_reading("the book fits the spread"),
-            reasoning="—",
-            scenario_adjustments=[],
-            evaluations=[],
-            innovations_proposed=[idea, idea],
+    series = ImprovementProposal(
+        type=ImprovementType.data,
+        title="Fetch the yen-dollar rate",
+        rationale="the carry-trade invariant needs it",
+        spec={},
+        trace="tr",
+        measure="whether the invariant that needs it becomes measurable",
+    )
+    with pytest.raises(ValidationError, match="one idea per scope"):
+        _result(revision, revision)
+    assert len(_result(revision, series).innovations_proposed) == 2
+
+
+def test_a_system_idea_says_how_it_will_be_measured() -> None:
+    """Owner, 2026-11-08: "measure it when it is possible"."""
+    with pytest.raises(ValidationError, match="states `measure`"):
+        ImprovementProposal(
+            type=ImprovementType.process, title="t", rationale="r", spec={}, trace="tr"
         )

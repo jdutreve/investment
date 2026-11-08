@@ -74,10 +74,18 @@ WORLD_EVENTS_SOURCE = "World events (Wikipedia Current events)"
 
 API_URL = "https://en.wikipedia.org/w/api.php"
 PAGE_URL = "https://en.wikipedia.org/wiki/Portal:Current_events/{day}"
-# Wikimedia asks automated clients to say who they are. Generic on purpose:
-# nothing that identifies the owner leaves the machine.
-USER_AGENT = "investment-agent/1.0 (personal non-commercial research agent)"
+# WIKIMEDIA'S ROBOT POLICY asks an automated client for a name AND a way to
+# contact its operator; without the second it throttles (2026-11-08: one day
+# read, then "429 Too many requests, please respect our robot policy" on the
+# 34 others). The contact is the project's public repository, no personal data.
+USER_AGENT = "investment-agent/1.0 (https://github.com/jdutreve/investment)"
 FETCH_TIMEOUT_SECONDS = 30.0
+# Requests one after the other and spaced, as the same policy asks: a day whose
+# triage fails returns at once, and a run of them was a burst.
+REQUEST_SPACING_SECONDS = 1.0
+# A 429 says when to come back (`Retry-After`). Waited once, up to this; a
+# second refusal ends the run, and the unread days are read next time.
+MAX_RETRY_AFTER_SECONDS = 60.0
 
 # A day rarely holds more than three items worth a macro reader's week; eight
 # is a ceiling against a triage that stops being selective, not a quota.
@@ -262,9 +270,29 @@ def as_event(item: WorldItem, pick: WorldEventPick) -> tuple[FeedItem, EventTria
 FetchDay = Callable[[aiohttp.ClientSession, date], Awaitable[str]]
 
 
+class RateLimitedError(Exception):
+    """Wikipedia refused twice in a row: the run stops reading for today."""
+
+
 async def fetch_day_wikitext(session: aiohttp.ClientSession, day: date) -> str:
     """The wikitext of one day's page. A missing page raises, so the day is
-    read again next run rather than journalled as empty."""
+    read again next run rather than journalled as empty. A 429 is waited out
+    once, for the delay it asks, then raised as `RateLimitedError`."""
+    for attempt in range(2):
+        try:
+            return await _fetch_once(session, day)
+        except aiohttp.ClientResponseError as exc:
+            if exc.status != 429:
+                raise
+            if attempt:
+                raise RateLimitedError(f"{page_title(day)}: refused twice (429)") from exc
+            asked = exc.headers.get("Retry-After") if exc.headers else None
+            wait = float(asked) if asked and asked.isdigit() else MAX_RETRY_AFTER_SECONDS
+            await asyncio.sleep(min(wait, MAX_RETRY_AFTER_SECONDS))
+    raise AssertionError("unreachable")
+
+
+async def _fetch_once(session: aiohttp.ClientSession, day: date) -> str:
     params = {
         "action": "parse",
         "page": f"Portal:Current_events/{page_title(day)}",
@@ -350,11 +378,23 @@ async def run_world_events(
                         WORLD_EVENTS_BUDGET_SECONDS,
                     )
                     break
+                if index:
+                    await asyncio.sleep(REQUEST_SPACING_SECONDS)
                 try:
                     items = parse_day(day, await fetch(session, day))
                     prompt = render_day(day, items, await recorded_titles(db, today))
                     async with asyncio.timeout(TRIAGE_CALL_BUDGET_SECONDS):
                         triage = (await triage_agent.run(prompt, deps=len(items))).output
+                except RateLimitedError as exc:
+                    # Every further request would be refused too, and would
+                    # count against us: the rest waits for the next run.
+                    logger.warning(
+                        "world events: rate-limited, %d day(s) left for the next run — %s",
+                        len(days) - index,
+                        exc,
+                    )
+                    failed[day.isoformat()] = f"RateLimitedError: {exc}"
+                    break
                 except Exception as exc:
                     message = redact_exception(exc)
                     logger.warning("world events: %s not read — %s", day, message)

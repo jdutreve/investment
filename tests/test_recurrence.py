@@ -177,11 +177,14 @@ async def test_a_process_innovation_is_filed_like_any_other(
         rationale="CPI speed is negative while the label says rising",
         spec={},
         trace="t",
+        measure="how often the label and the CPI speed disagree, before and after",
     )
     theme, n = await recurrence.record_innovation(db, proposal, embedder, today=date(2026, 8, 9))
 
-    row = (await db.query("SELECT type, theme_id, source_id FROM innovation"))[0]
+    row = (await db.query("SELECT type, theme_id, source_id, spec FROM innovation"))[0]
     assert row["type"] == "process"
+    # The measurement plan is filed with the idea, where its follow-up reads it.
+    assert "how often the label" in row["spec"]
     assert row["theme_id"] == theme
     assert row["source_id"] is None
     assert n == 1

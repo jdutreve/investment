@@ -2870,3 +2870,29 @@ the `.env` swap from `deepseek-v4-flash` to `glm-5.3-flash` already changes the
 fingerprint, so the next weekly sweep re-curates the whole corpus with the debt
 vocabulary in place. This matters for the NEXT vocabulary change, made without a
 model swap to ride on.
+
+---
+
+## I-65 — A system idea states its measurement; nothing executes it yet
+
+**Where it stands (owner, 2026-11-08: "the Worker is the brain of the system's
+adaptation; measure its proposals when it is possible").** The Worker may file
+one idea per scope a week — market, rule, system — and a `data` or `process`
+idea must carry `measure`: the figure that would show it worked, against what,
+over what horizon. It is journalled with the idea and read back to the Worker
+as the idea's fate. Ideas about the market and the rule are measured by the
+machine (35-year confrontation, replay); a system idea's measurement is only
+STATED.
+
+**Trigger to build:** the first system idea the owner applies. Its stated
+measurement is then the spec of the job to write.
+
+**What it would take, by kind:**
+- a new SOURCE (a feed, a central bank): how often its items reach the Worker's
+  context and are named in its reading, against the source it replaced, over
+  12 weeks — the I-26 tier score, from the journal;
+- a new SERIES: whether the invariants that need it become measurable, and
+  their record once confronted over 35 years — the birth sweep already does
+  the confronting once the series is fetched;
+- a PROCESS change: a before/after on the figure the idea names, when the
+  journal carries it.

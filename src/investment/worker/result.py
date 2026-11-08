@@ -42,6 +42,20 @@ class ImprovementType(StrEnum):
     data = "data"
 
 
+# The three scopes an idea can be about, and the kinds in each. The SYSTEM scope
+# is the Worker as the brain of the system's adaptation (owner, 2026-11-08):
+# what the system reads and how it works.
+SCOPES: dict[str, tuple[ImprovementType, ...]] = {
+    "market": (ImprovementType.new_invariant, ImprovementType.new_strategy),
+    "rule": (ImprovementType.strategy_revision,),
+    "system": (ImprovementType.data, ImprovementType.process),
+}
+
+
+def scope_of(kind: ImprovementType) -> str:
+    return next(scope for scope, kinds in SCOPES.items() if kind in kinds)
+
+
 class StrictModel(BaseModel):
     """Base for every model on the Worker's output boundary.
 
@@ -131,6 +145,22 @@ class ImprovementProposal(StrictModel):
     weight_initial: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     floor_weight: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     trace: str
+    # HOW A SYSTEM PROPOSAL WILL BE MEASURED (owner, 2026-11-08: "measure it
+    # when it is possible"). An invariant is confronted over 35 years and a rule
+    # revision replayed, by the machine; a change to what the system reads or
+    # how it works has no such path yet, so the proposal carries its own: the
+    # figure that would show it worked, against what, over what horizon — or,
+    # when nothing can settle it, why. Required for `data` and `process`.
+    measure: str = ""
+
+    @model_validator(mode="after")
+    def _a_system_proposal_says_how_it_is_measured(self) -> Self:
+        if scope_of(self.type) == "system" and not self.measure.strip():
+            raise ValueError(
+                "a data or process proposal states `measure`: the figure that would show "
+                "it worked, against what, over what horizon — or why nothing can settle it"
+            )
+        return self
 
 
 # THE LENGTH LIMITS ARE THE BUDGET (owner, 2026-11-03: "simplify and shorten its
@@ -309,7 +339,8 @@ def proposal_sections(proposals: list["ImprovementProposal"]) -> list[dict[str, 
         why = proposal.rationale.strip()
         if len(why) > _PROPOSAL_CHARS:
             why = why[:_PROPOSAL_CHARS].rsplit(" ", 1)[0] + " …"
-        points.append(f"[{proposal.type.value}] {proposal.title} — {why}")
+        measured = f" Measured by: {proposal.measure.strip()}" if proposal.measure.strip() else ""
+        points.append(f"[{proposal.type.value}] {proposal.title} — {why}{measured}")
     return [{"heading": PROPOSAL_HEADING, "points": points}] if points else []
 
 
@@ -372,8 +403,20 @@ class WorkerResult(StrictModel):
     # include innovations_proposed, an empty list if none").
     scenario_adjustments: list[ScenarioAdjustment]
     evaluations: list[EvaluationDraft]
-    # ONE AT MOST (owner, 2026-10-18): one idea worth testing a week, or none.
-    # Several a week had become the norm and none had yet become an invariant
-    # or a strategy.
-    innovations_proposed: Annotated[list[ImprovementProposal], Field(max_length=1)]
+    # ONE AT MOST PER SCOPE (owner, 2026-11-08), where it was one at most in all
+    # (owner, 2026-10-18: several a week had become the norm and none had
+    # become an invariant or a strategy). One in all set a proposal about the
+    # system against one about the market: "no competition — cooperation,
+    # symbiosis". A series the system should read and the invariant that needs
+    # it are one idea in two scopes, filed the same week.
+    innovations_proposed: Annotated[list[ImprovementProposal], Field(max_length=len(SCOPES))]
     reasoning: str  # also the Proposal vertex's reasoning (switch commentary folded in)
+
+    @model_validator(mode="after")
+    def _one_idea_per_scope(self) -> Self:
+        scopes = [scope_of(proposal.type) for proposal in self.innovations_proposed]
+        if len(set(scopes)) != len(scopes):
+            raise ValueError(
+                f"at most one idea per scope ({', '.join(SCOPES)}); got scopes {scopes}"
+            )
+        return self

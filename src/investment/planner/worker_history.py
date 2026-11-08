@@ -72,7 +72,7 @@ async def load_recent_ideas(db: InvestmentDB, today: date) -> list[dict[str, Any
     (`recurrence.import_run_innovations`), and a replay standing at one of those
     dates must not read ideas that were filed years later."""
     rows = await db.query(
-        "SELECT i.date, i.type, i.title, "
+        "SELECT i.date, i.type, i.title, i.spec, "
         "  (SELECT status FROM invariant v WHERE v.title = i.title "
         "   AND v.source = 'agent-discovery' ORDER BY v.created_at DESC LIMIT 1) "
         "  AS invariant_status, "
@@ -119,7 +119,19 @@ def idea_fate(idea: dict[str, Any]) -> str:
                 "the measured settings"
             )
         return f"strategy {status}"
-    return "recorded for the owner; nothing measures it"
+    measure = _measure(idea.get("spec"))
+    if measure:
+        return f"recorded for the owner; to be measured by: {measure}"
+    return "recorded for the owner; no measurement was stated"
+
+
+def _measure(spec: Any) -> str:
+    """The measurement plan a system proposal was filed with, if any."""
+    try:
+        parsed = json.loads(spec) if isinstance(spec, str) else spec
+    except ValueError:
+        return ""
+    return str(parsed.get("measure") or "") if isinstance(parsed, dict) else ""
 
 
 def describe_past_readings(readings: list[dict[str, Any]]) -> list[str]:
