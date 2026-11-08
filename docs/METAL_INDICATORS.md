@@ -422,3 +422,31 @@ Same data, signal timing and periods as the fifth study (S5 from 2010-09).
 CAGR, worst drawdown, position changes, whole span and both halves.
 **Reading:** CONSISTENT if the CAGR beats cash on the whole span AND on both
 halves; NOT SHOWN otherwise.
+
+### Result of the sixth study (run once, 2026-11-08)
+
+| variant | whole span | to 2013 | 2014-2026 | changes | cash (whole) | verdict |
+|---|---|---|---|---|---|---|
+| S1 MA200 (from 2001-06) | **−14.55%** (DD −99%) | −15.41% | −13.72% | 278 | +1.7% | not shown |
+| S2 MA252 (from 2001-08) | −8.59% (DD −93%) | −11.45% | −5.77% | 234 | +1.7% | not shown |
+| S3 6-month (from 2001-03) | −8.85% (DD −94%) | −8.02% | −9.68% | 264 | +1.8% | not shown |
+| S4 extremes + MA200 (from 2005-08) | +0.78% (DD −41%) | −2.58% | +3.04% | 60 | +1.8% | not shown |
+| S5 channel B (from its first touch, 2020-03-23) | **+21.94%** (DD −23%) | n/a | +21.94% | 3 | +3.0% | not shown: one half cannot be judged |
+
+Gold held over the same spans: +11.2% to +11.3% a year; +16.5% from 2020-03.
+
+**What it says.**
+
+- **Momentum both ways is ruinous on this ratio.** Long the spread above its
+  average and short below lost 9% to 15% a year, drawdowns −93% to −99%: every
+  whipsaw is paid twice, once on each side.
+- **The extremes with a momentum exit are worth cash, no more** (+0.8% a year
+  against +1.8%).
+- **The owner's channel played both ways is the best figure of the six
+  studies — on three legs.** Channel B, which uses no future data, first touched
+  in 2020-03 (it is built from 2010 and saw no touch before): long to the
+  2021-02 upper touch, short to the 2025-09 lower touch, long since. +21.9% a
+  year against 3.0% for cash and 16.5% for gold over 2020-2026, drawdown −23%.
+  Three legs in six years cannot be told from luck, and the half before 2020
+  cannot be judged at all, so the bar fixed before the run reads NOT SHOWN.
+- **Today every variant is long the spread** (copper over gold).

@@ -515,6 +515,27 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/METAL_INDICATORS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 8),
+        about="indicators",
+        question=(
+            "Played both ways — long copper against gold, or the reverse — does the "
+            "copper/gold spread pay on momentum, on its extremes, or on the channel's bands?"
+        ),
+        answer="momentum ruinous; channel, 3 legs",
+        evidence=(
+            "Momentum both ways 2001-2026: -8.6% to -14.6% a year, drawdowns -93% to -99%. "
+            "Extremes with a 200-day exit: +0.8% against +1.8% cash. Channel rebuilt from "
+            "the past ten years, from its first touch in 2020-03: long, short from 2021-02, "
+            "long from 2025-09, +21.9% a year against 3.0% cash, drawdown -23%."
+        ),
+        consequence=(
+            "Never propose trading the spread on its trend. The channel's band touches, both "
+            "ways, are the one rule that earned, on three legs: name it as a lead, never as "
+            "an edge."
+        ),
+        record="docs/METAL_INDICATORS.md",
+    ),
 )
 
 _HEADINGS = {
