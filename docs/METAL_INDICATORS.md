@@ -349,3 +349,24 @@ Today on B: R = 1.531, lower band 0.976, upper band 2.134 — 58% of the way up.
   band, about 2.13** — +39% from today's ratio, the owner's own target. For a
   holder of gold today, buying copper now is NOT the rule: the ratio sits
   between the bands, where it does nothing.
+
+## Fifth study: follow the copper/gold momentum — what CAGR? (protocol committed 2026-11-08, before the run)
+
+Owner: "no — follow the momentum. What CAGR does it give?" Hold copper while
+the ratio's momentum is up, gold otherwise. Four variants fixed now, ALL
+reported, none chosen after the figures:
+
+| id | copper while | 
+|---|---|
+| M1 | R above its 200-session average |
+| M2 | R above its 252-session (12-month) average |
+| M3 | R's 126-session (6-month) change above zero |
+| M4 | entered when the cycle reads cheap (z < −1, third study, futures monthly averages), held while R stays above its 200-session average; gold otherwise |
+
+Daily R = 1000 × HG=F / GC=F, 2000-08-30 to 2026-11-06; signal at day t's
+close, switch at t+1's close, 2 × 23 bp a switch; futures daily returns. For
+each: CAGR, worst drawdown, switches, over the whole span and over 2001-2013
+and 2014-2026 (each variant starts once its signal can be read), against gold
+held and copper held over the same span. **Reading:** a variant is
+CONSISTENT if its CAGR beats gold held on the whole span AND on both halves;
+NOT SHOWN otherwise.
