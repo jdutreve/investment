@@ -59,7 +59,7 @@ from investment.planner.worker_history import (
 from investment.telegram.digest import short_title
 from investment.worker.agent import run_worker
 from investment.worker.repeated_figures import figures_in
-from investment.worker.result import WorkerResult
+from investment.worker.result import WorkerResult, proposal_sections
 from investment.worker.tools import round_for_model
 from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_knowledge
 
@@ -445,6 +445,14 @@ def render_context_for_worker(context: PlannerContext) -> str:
         lines += ["", *describe_recent_ideas(context.recent_ideas)]
     if context.invariant_vocabulary:
         lines += ["", *context.invariant_vocabulary]
+    if context.system_inventory:
+        lines += [
+            "",
+            "WHAT THIS SYSTEM READS — its whole field of view. A market, a central bank, a "
+            "series or a book absent from this list is invisible to it, and to you, until "
+            "someone proposes adding it:",
+            *[f"  {kind}: {', '.join(items)}" for kind, items in context.system_inventory.items()],
+        ]
 
     lines += [
         "",
@@ -635,6 +643,14 @@ async def journal_planner_context(
         )
 
 
+def _reading_with_proposal(worker_result: WorkerResult) -> dict[str, Any]:
+    """The reading in its parts, the week's proposal appended as its last
+    section (`worker.result.proposal_sections`)."""
+    reading = worker_result.market_signal_assessment.journal()
+    reading["sections"] += proposal_sections(worker_result.innovations_proposed)
+    return reading
+
+
 async def journal_worker_reading(
     db: InvestmentDB,
     worker_result: WorkerResult,
@@ -680,7 +696,7 @@ async def journal_worker_reading(
                 # expects, and in its parts, which is what the digest, the mail
                 # and the dashboard lay out (`worker.result.journalled_sections`).
                 "market_signal_assessment": worker_result.market_signal_assessment.render(),
-                "market_signal_reading": worker_result.market_signal_assessment.journal(),
+                "market_signal_reading": _reading_with_proposal(worker_result),
                 "reasoning": worker_result.reasoning,
             },
             event_date=made_on,

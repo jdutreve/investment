@@ -292,6 +292,27 @@ class MarketSignalReading(StrictModel):
         return [(READING_HEADINGS[name], points) for name, points in parts.items() if points]
 
 
+# THE IDEA OF THE WEEK, journalled as a section of the reading so that every
+# channel that lays the reading out shows it (owner, 2026-11-08: the Worker is
+# expected to propose systemic improvements, and a proposal nobody reads is not
+# one). Read back to the Worker through its recent ideas, which carry what
+# became of it, so the past-readings list skips it.
+PROPOSAL_HEADING = "Proposed this week"
+# A rationale long enough to say why, short enough for a phone.
+_PROPOSAL_CHARS = 400
+
+
+def proposal_sections(proposals: list["ImprovementProposal"]) -> list[dict[str, Any]]:
+    """The week's proposal as a journalled section, or nothing."""
+    points = []
+    for proposal in proposals:
+        why = proposal.rationale.strip()
+        if len(why) > _PROPOSAL_CHARS:
+            why = why[:_PROPOSAL_CHARS].rsplit(" ", 1)[0] + " …"
+        points.append(f"[{proposal.type.value}] {proposal.title} — {why}")
+    return [{"heading": PROPOSAL_HEADING, "points": points}] if points else []
+
+
 READING_HEADINGS: dict[str, str] = {
     "my_reading": "My reading (judgement, not measurement)",
     "what_would_prove_it_wrong": "What would prove the position wrong",

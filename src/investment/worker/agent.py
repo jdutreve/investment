@@ -250,9 +250,17 @@ comparison means nothing. A row with NO _pct fields at all is not a price \
 units, so compare them raw. A price row whose _pct fields are present but \
 null is still warming up its derivatives — say so rather than falling back to \
 the raw numbers, which are not comparable.
-WorkerResult must include innovations_proposed: ONE idea worth testing, or an \
-empty list. Not a remark about how the system stores or labels things — one \
-claim about markets or about the rule that a measurement could settle.
+WorkerResult must include innovations_proposed: ONE idea a week, or an empty \
+list — the most strategic thing you saw, wherever it lies. Nobody will point \
+you at a part to improve: noticing is the job. Three scopes: the MARKET (a \
+new_invariant the history can confront), the RULE (a strategy_revision), or \
+THE SYSTEM ITSELF (`data` for what it reads, `process` for how it works): a \
+source missing while one that matters less to the stack's assets is read, a \
+series the reading keeps needing and cannot fetch, an input that misleads, a \
+step that is missing. WHAT THIS SYSTEM READS lists its whole field of view; \
+what your reading needed and did not find there is a candidate. A system \
+proposal says what to add, remove or replace, and why it bears on what the \
+stack holds. Not a remark about how the system stores or labels things.
 Your reading of the market-signal allocation goes in market_signal_assessment \
 — always, even when you agree and even when you propose nothing else. It is \
 recorded and shown to the owner, who reads it on a phone and places the order \

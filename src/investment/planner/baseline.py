@@ -33,7 +33,7 @@ from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKER
 from investment.mechanical.rule_revision import measured_verdicts
 from investment.planner.invariant_vocabulary import load_invariant_vocabulary
 from investment.planner.worker_history import load_past_readings, load_recent_ideas
-from investment.watch.event_watch import EVENT_LOOKBACK_DAYS, read_event_passage
+from investment.watch.event_watch import EVENT_LOOKBACK_DAYS, EVENT_SOURCES, read_event_passage
 from investment.watch.world_events import WORLD_EVENTS_SOURCE
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
@@ -119,6 +119,9 @@ class Baseline:
     # How to write a new invariant the 35y sweep can measure, off the live
     # registries (`planner/invariant_vocabulary.py`).
     invariant_vocabulary: list[str] = dataclasses.field(default_factory=list)
+    # WHAT THE SYSTEM READS, its whole field of view (`system_inventory`): the
+    # Worker cannot propose adding what it does not know is absent.
+    system_inventory: dict[str, list[str]] = dataclasses.field(default_factory=dict)
 
 
 # -- pure core --------------------------------------------------------------
@@ -497,6 +500,29 @@ async def _top_invariants(
     return dedupe_buckets(regime_bucket, asset_bucket, global_bucket, cap=INVARIANTS_CAP)
 
 
+async def system_inventory(db: InvestmentDB) -> dict[str, list[str]]:
+    """The system's field of view, read from what it is wired to rather than
+    written down: the central banks the event watch reads (`EVENT_SOURCES`), the
+    world-events source, the series any tool can fetch (`allowed_tickers`), and
+    the books of the corpus.
+
+    WHY (owner, 2026-11-08: "I expect the Worker to propose systemic
+    improvements on its own — replacing the SNB with the BoJ, for instance —
+    without being asked to optimise the central banks"). It was never shown
+    which central banks it read, so it could not notice that the one moving
+    global yields was missing and the one moving the franc was there."""
+    tickers = await db.query("SELECT ticker FROM allowed_tickers WHERE active = 1 ORDER BY ticker")
+    books = await db.query(
+        "SELECT author, title FROM document WHERE kind = 'book' ORDER BY author, title"
+    )
+    return {
+        "central banks (official press feeds)": [s["name"] for s in EVENT_SOURCES],
+        "world events": [WORLD_EVENTS_SOURCE + ", one triage per day"],
+        "series the tools can fetch (prices, rates, macro)": [str(r["ticker"]) for r in tickers],
+        "books in the corpus": [f"{r['author']}, {r['title']}" for r in books],
+    }
+
+
 async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseline:
     """The mechanical baseline queries (docs/ARCHITECTURE.md "Detailed Planner
     Steps") — the spec's 5, plus the live market-signal decision ADR-007 made
@@ -546,5 +572,6 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         recent_events=recent_events,
         past_readings=await load_past_readings(db, today),
         recent_ideas=await load_recent_ideas(db, today),
+        system_inventory=await system_inventory(db),
         invariant_vocabulary=await load_invariant_vocabulary(db),
     )

@@ -94,6 +94,7 @@ class PlannerContext:
     past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     recent_ideas: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     invariant_vocabulary: list[str] = dataclasses.field(default_factory=list)
+    system_inventory: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     # The digest as the owner will read it, without the Worker's reading
     # (`telegram.digest.owner_view`): what the Worker must not restate. Set by
     # `PlannerPre.run`, which sits above both the digest and this module.
@@ -296,6 +297,7 @@ def assemble_context(
         past_readings=baseline.past_readings,
         recent_ideas=baseline.recent_ideas,
         invariant_vocabulary=baseline.invariant_vocabulary,
+        system_inventory=baseline.system_inventory,
         corpus_queries=list(queries.corpus_queries) if queries else [],
         zooms=[{"kind": str(z.kind), "arg": z.arg} for z in queries.zooms] if queries else [],
         candidate_invariant_ids=list(inv_pool),

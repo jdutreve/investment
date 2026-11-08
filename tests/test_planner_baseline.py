@@ -413,3 +413,28 @@ async def test_the_worker_reads_the_events_of_the_last_weeks_and_no_later(
         }
     finally:
         await db.close()
+
+
+async def test_the_inventory_is_what_the_system_is_wired_to(tmp_path: Path) -> None:
+    """Owner 2026-11-08: the Worker is shown its whole field of view, read from
+    the wiring, so it can propose what is missing."""
+    db = InvestmentDB(tmp_path / "inventory.db")
+    try:
+        for ticker, active in (("SPY", 1), ("OLD", 0)):
+            await db.command(
+                "INSERT INTO allowed_tickers (ticker, asset_class, currency, source, transform, "
+                "active) VALUES (:t, 'equities', 'USD', 'yahoo', 'none', :a)",
+                t=ticker,
+                a=active,
+            )
+        inventory = await bl.system_inventory(db)
+    finally:
+        await db.close()
+
+    assert inventory["central banks (official press feeds)"] == [
+        "Federal Reserve",
+        "European Central Bank",
+        "Bank of Japan",
+    ]
+    assert inventory["series the tools can fetch (prices, rates, macro)"] == ["SPY"]
+    assert inventory["books in the corpus"] == []

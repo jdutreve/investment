@@ -145,3 +145,34 @@ def test_market_fetch_names_every_period_it_accepts() -> None:
     keep naming every one the tool accepts."""
     doc = inspect.getdoc(WorkerTools.market_fetch) or ""
     assert all(period in doc for period in MARKET_PERIODS)
+
+
+def test_the_weekly_proposal_is_shown_to_the_owner_but_not_read_back_twice() -> None:
+    """Owner 2026-11-08: the Worker's proposal reaches every channel as a
+    section of its reading; the Worker reads it back once, in its recent ideas."""
+    from investment.planner.worker_history import describe_past_readings
+    from investment.worker.result import PROPOSAL_HEADING, ImprovementProposal, proposal_sections
+
+    proposal = ImprovementProposal(
+        type="data",
+        title="Read the Bank of Japan instead of the SNB",
+        rationale="The BoJ moves global long yields; the stack holds no franc asset.",
+        spec={},
+        trace="t",
+    )
+    sections = proposal_sections([proposal])
+    assert sections == [
+        {
+            "heading": PROPOSAL_HEADING,
+            "points": [
+                "[data] Read the Bank of Japan instead of the SNB — The BoJ moves global "
+                "long yields; the stack holds no franc asset."
+            ],
+        }
+    ]
+    reading = {"bottom_line": "Nothing is asked.", "sections": sections}
+    lines = describe_past_readings(
+        [{"made_on": "2026-11-08", "decision_date": "2026-11-02", "reading": reading}]
+    )
+    assert not any(PROPOSAL_HEADING in line for line in lines)
+    assert proposal_sections([]) == []

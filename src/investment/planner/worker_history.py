@@ -25,7 +25,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from investment.db.sqlite import InvestmentDB
-from investment.worker.result import journalled_sections
+from investment.worker.result import PROPOSAL_HEADING, journalled_sections
 
 WORKER_READING_EVENT = "WorkerReadingEvent"
 
@@ -138,6 +138,8 @@ def describe_past_readings(readings: list[dict[str, Any]]) -> list[str]:
         if isinstance(reading, dict):
             lines.append(f"    Bottom line: {reading.get('bottom_line', '')}")
             for heading, points in journalled_sections(reading):
+                if heading == PROPOSAL_HEADING:
+                    continue  # in YOUR RECENT IDEAS, with what became of it
                 lines.append(f"    {heading}:")
                 lines += [f"      - {point}" for point in points]
         elif past.get("text"):
