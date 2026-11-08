@@ -322,3 +322,30 @@ same span; where R sits today against B's bands.
 **Reading, fixed now.** The rule is CONSISTENT with the history if, on B, most
 completed copper trades beat gold AND the strategy's CAGR beats gold held;
 otherwise NOT SHOWN. A alone can never make it consistent.
+
+### Result of the fourth study (run once, 2026-11-08)
+
+| channel | copper trades (copper vs gold) | rule CAGR | worst drawdown | switches | gold held | copper held |
+|---|---|---|---|---|---|---|
+| A, as drawn (2000-2026, hindsight) | 2009-02 → still open: +6.1% | +11.09% | −58.0% | 1 | +10.86% (−44.4%) | +7.74% (−69.4%) |
+| B, rebuilt monthly from the past 10 years (2010-09 to 2026-11) | 2020-03-24 → 2021-02-25: **+81.5%**; 2025-09-08 → still open: **+25.4%** | **+13.11%** | −44.4% | 3 | +7.60% (−44.4%) | +3.69% (−58.0%) |
+
+Today on B: R = 1.531, lower band 0.976, upper band 2.134 — 58% of the way up.
+
+**What it says.**
+
+- **On B, the rule reads CONSISTENT with the history**, by the reading fixed
+  before the run: its one completed copper trade beat gold (+81.5%, 2020-21), the
+  open one is ahead (+25.4% since 2025-09), and it compounded 13.1% a year
+  against 7.6% for gold held, with the same worst drawdown.
+- **On one completed trade and one open.** Consistent is all it can be: two
+  entries in sixteen years cannot separate a skill from a pair of good draws,
+  and the rebuilt channel did not fire at the 2016 low the owner's chart marks.
+- **A is not the owner's drawn channel.** A least-squares fit over 2000-2026
+  sets its bands at the 2006-08 boom and the 2008 crash, which the owner's lines
+  leave outside; it touched once (2009) and never reached its upper band again.
+  It is reported as specified, and says little about the owner's lines.
+- **Where the rule stands today on B: in copper since 2025-09, exit at the upper
+  band, about 2.13** — +39% from today's ratio, the owner's own target. For a
+  holder of gold today, buying copper now is NOT the rule: the ratio sits
+  between the bands, where it does nothing.

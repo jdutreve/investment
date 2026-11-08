@@ -473,6 +473,26 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/METAL_INDICATORS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 8),
+        about="indicators",
+        question=(
+            "The owner's channel rule on copper/gold — switch gold to copper at a touch of "
+            "the falling channel's lower band, back at the upper band, nothing between — "
+            "with the channel rebuilt monthly from the past ten years only?"
+        ),
+        answer="consistent, on one completed trade",
+        evidence=(
+            "2010-09 to 2026-11: copper 2020-03 to 2021-02 +81.5% against gold; copper "
+            "since 2025-09 +25.4%, open; CAGR 13.1% against 7.6% for gold held, same "
+            "-44.4% drawdown. Upper band today about 2.13 against a ratio of 1.53."
+        ),
+        consequence=(
+            "A rule worth naming beside the cycle reading, not a measured edge: two entries "
+            "in sixteen years. Between the bands it says to do nothing."
+        ),
+        record="docs/METAL_INDICATORS.md",
+    ),
 )
 
 _HEADINGS = {
