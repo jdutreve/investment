@@ -7,7 +7,8 @@ are deferred with their triggers written down (docs/IMPROVEMENTS.md I-9/I-26);
 what runs here is a narrow watch over a few PINNED official sources. Changing
 the set means editing `EVENT_SOURCES` — a runtime table would be a second place
 for the same three URLs to live, and nothing has yet needed to edit them from a
-phone.
+phone. What happens OUTSIDE the central banks is read by `world_events.py`, one
+curated page per day rather than a feed (owner, 2026-11-08).
 
 THE URLS WERE VERIFIED, NOT GUESSED (Task 3.2: "URLs pinned at implementation,
 never guessed"). Each was fetched and parsed on 2026-08-12 before being written
@@ -57,6 +58,7 @@ import hashlib
 import logging
 import re
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -329,10 +331,15 @@ async def journal_triage(db: InvestmentDB, item: FeedItem, triage: EventTriage) 
         )
 
 
-def render_item(item: FeedItem) -> str:
+def render_item(item: FeedItem, recorded: list[str]) -> str:
     """The item as the triage reads it: the feed's entry, then the official
     page's text. Either may be empty, and says so — the prompt's honesty rule
-    is written for that case and must not be shielded from it."""
+    is written for that case and must not be shielded from it.
+
+    THEN WHAT IS ALREADY RECORDED from the same source (2026-11-08): the ECB
+    announced Lagarde's departure in a press release and again in its list of
+    non-monetary decisions, two URLs for one fact, and both reached the Worker."""
+    already = "\n".join(f"  - {title}" for title in recorded) or "  (nothing yet)"
     return (
         f"SOURCE: {item.source}\n"
         f"PUBLISHED: {item.published or '(the feed carried no date)'}\n"
@@ -340,7 +347,28 @@ def render_item(item: FeedItem) -> str:
         f"URL: {item.url}\n\n"
         f"TEXT AS PUBLISHED IN THE FEED:\n{item.text or '(the feed carried no text — title only)'}"
         f"\n\nTEXT OF THE OFFICIAL PAGE:\n{item.article or '(the page carried no text)'}"
+        f"\n\nALREADY RECORDED FROM THIS SOURCE IN THE LAST WEEKS:\n{already}"
     )
+
+
+# THE EVENTS WINDOW, one number for three readers: how far back this triage
+# looks for an item already recorded, how many days `world_events` reads, and
+# how far back the Worker's context lists events (`planner.baseline`). One
+# monthly decision plus a week, so every decision sees what happened since the
+# previous one.
+EVENT_LOOKBACK_DAYS = 35
+
+
+async def recorded_titles(db: InvestmentDB, source: str) -> list[str]:
+    """The titles of the events already ingested from `source` in the window."""
+    since = datetime.now(UTC).date() - timedelta(days=EVENT_LOOKBACK_DAYS)
+    rows = await db.query(
+        "SELECT title FROM document WHERE kind = 'event' AND author = :a "
+        "AND ingested_at >= :since ORDER BY ingested_at",
+        a=source,
+        since=since.isoformat(),
+    )
+    return [str(row["title"]) for row in rows]
 
 
 def event_document(item: FeedItem, triage: EventTriage) -> str:
@@ -504,8 +532,9 @@ async def run_event_watch(
                 failed[item.url] = f"{type(exc).__name__}: {message}"
                 continue
             try:
+                recorded = await recorded_titles(db, item.source)
                 async with asyncio.timeout(TRIAGE_CALL_BUDGET_SECONDS):
-                    triage = (await triage_agent.run(render_item(item))).output
+                    triage = (await triage_agent.run(render_item(item, recorded))).output
             except Exception as exc:
                 # TimeoutError included, deliberately: an item whose call ran
                 # out of wall clock is recorded and skipped like any other

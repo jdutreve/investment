@@ -134,7 +134,7 @@ async def _prices(db: InvestmentDB, ticker: str, start: date, levels: list[float
 
 def _forecast(ticker: str, threshold: float, probability: float) -> Forecast:
     return Forecast(
-        statement=f"{ticker} above {threshold}",
+        statement=f"Change: {ticker} above {threshold}",
         ticker=ticker,
         side="above",
         compared_with="value",
@@ -262,7 +262,7 @@ async def test_a_forecast_carries_its_base_rate_and_is_scored_against_it(
     assert record.base_brier == 0.0 and record.with_base == 1
     assert "history's own frequency 0.00 on 1 of them" in record_summary(record)
     assert "said 80%, history 100%" in "\n".join(describe_record(record))
-    assert record.latest_base_rates == {"IEF above 490.0": 1.0}
+    assert record.latest_base_rates == {"Change: IEF above 490.0": 1.0}
 
 
 def test_the_digest_prints_each_forecast_beside_its_base_rate() -> None:
@@ -291,11 +291,28 @@ def test_a_forecast_said_within_a_period_is_refused() -> None:
 
     with pytest.raises(pydantic.ValidationError, match="scored ON its date"):
         Forecast(
-            statement="SPY will close below its 150-day line within 6 weeks",
+            statement="Change: SPY will close below its 150-day line within 6 weeks",
             ticker="SPY",
             side="below",
             compared_with="moving_average",
             window_days=150,
             horizon_weeks=6,
             probability=0.3,
+        )
+
+
+def test_a_forecast_opens_with_its_kind_not_with_a_belief() -> None:
+    """2026-11-08: "A change I expect" beside 28% reached the owner. The label
+    is the kind of claim; the probability is the belief."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError, match="opens with its kind"):
+        Forecast(
+            statement="A change I expect: BAA10Y above 1.70 in 8 weeks",
+            ticker="BAA10Y",
+            side="above",
+            compared_with="value",
+            threshold=1.7,
+            horizon_weeks=8,
+            probability=0.28,
         )

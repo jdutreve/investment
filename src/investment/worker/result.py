@@ -151,6 +151,12 @@ ReadingPoints = Annotated[list[Point], Field(max_length=_READING_POINTS)]
 CasePoints = Annotated[list[Point], Field(max_length=_CASE_POINTS)]
 
 
+# The two kinds of forecast worth scoring, as each statement opens (agent.py's
+# prompt says what each means): persistence WITH the tape usually comes true and
+# shows no judgement, so it has no label.
+FORECAST_KINDS = ("Change:", "Persistence against the tape:")
+
+
 class Forecast(StrictModel):
     """One forecast the Worker makes, in a form a machine can score.
 
@@ -202,6 +208,15 @@ class Forecast(StrictModel):
             raise ValueError(
                 "a forecast is scored ON its date, not at any time before it: say "
                 "'in N weeks' or 'on <date>', never 'within'"
+            )
+        # THE LABEL NAMES THE KIND OF CLAIM, the probability the belief in it
+        # (2026-11-08): "A change I expect" beside 28% and "a change against the
+        # tape" for a fall that continued the tape both reached the owner.
+        if not self.statement.startswith(FORECAST_KINDS):
+            raise ValueError(
+                f"`statement` opens with its kind, one of {FORECAST_KINDS}: 'Change:' when "
+                "the series ends across its reference, 'Persistence against the tape:' when "
+                "it stays on its side while its momentum points across"
             )
         return self
 
@@ -301,12 +316,16 @@ class WorkerResult(StrictModel):
     "forgot to fill" — the schema makes the empty state explicit so a partial
     answer fails validation (Phase-1bis policy) rather than passing silently."""
 
-    regime_assessment: str
-    ranking_commentary: str  # explains the mechanical ranking, never re-ranks it
+    # NO `regime_assessment`, NO `ranking_commentary` (owner, 2026-11-08). No
+    # prompt asked for them and nothing but the journal read them, so the model
+    # filled them from the schema alone: on 2026-11-08 the commentary put the
+    # defender behind "three stack-family rows" (two of the five were not) and
+    # called a -1.0% year "shallower" than +5.1%. The regime is read in
+    # `market_signal_assessment`; the ranking is the digest's, printed as is.
     # ADR-011's ENTIRE cognitive contribution to the adopted strategy: the Worker
     # reads the mechanical decision and says where it looks wrong and what the
     # signal cannot see. It gets its own required field rather than being left to
-    # dissolve into `regime_assessment` or `reasoning`, for two reasons. The
+    # dissolve into `reasoning`, for two reasons. The
     # system prompt already asks for this reading in those words ("that reading
     # is your contribution"), so a schema with nowhere to put it asks for work it
     # then discards. And ADR-011 promises the reading is "journalled and

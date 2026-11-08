@@ -405,6 +405,8 @@ async def test_the_worker_reads_the_events_of_the_last_weeks_and_no_later(
             "source": "Federal Reserve",
             "url": "https://www.federalreserve.gov/doc-b",
             "read_on": "2026-10-11",
+            "stream": "central-bank",
+            "dated": "2026-10-11",  # no publication date: the day it was read
             "title": "ECB account",
             "published": "",
             "summary": "What ECB account said.",

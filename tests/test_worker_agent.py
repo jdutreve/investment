@@ -51,8 +51,6 @@ def test_worker_result_empty_state_is_a_value_not_an_omission() -> None:
     out, which made "nothing to propose" and "forgot the field"
     indistinguishable."""
     r = WorkerResult(
-        regime_assessment="calm",
-        ranking_commentary="as ranked",
         market_signal_assessment=a_reading("the book fits the spread"),
         reasoning="—",
         scenario_adjustments=[],
@@ -70,8 +68,6 @@ def test_an_omitted_field_fails_validation_rather_than_defaulting() -> None:
     retry, so the Worker is told what is missing."""
     with pytest.raises(ValidationError):
         WorkerResult(
-            regime_assessment="calm",
-            ranking_commentary="as ranked",
             market_signal_assessment=a_reading("the book fits the spread"),
             reasoning="—",
         )
@@ -99,8 +95,6 @@ def test_scenario_probability_is_bounded() -> None:
 
 def test_innovation_round_trip() -> None:
     r = WorkerResult(
-        regime_assessment="stagflation building",
-        ranking_commentary="defender leads on Sortino",
         market_signal_assessment=a_reading(
             "the steep-curve book is defensible; watch the haven crowding"
         ),
@@ -168,8 +162,6 @@ def test_the_persona_names_the_field_its_contribution_must_land_in() -> None:
 # requirement 1), so TestModel must be handed the JSON a real model writes —
 # left to itself it answers "success (no tool calls)", which is not a result.
 _VALID_OUTPUT = WorkerResult(
-    regime_assessment="calm",
-    ranking_commentary="as ranked",
     market_signal_assessment=a_reading("the book fits the spread"),
     reasoning="—",
     scenario_adjustments=[],
@@ -420,7 +412,7 @@ def test_a_point_that_runs_on_is_refused() -> None:
 
 def _forecast(**overrides: object) -> dict[str, object]:
     return {
-        "statement": "IEF closes above its 150-day line",
+        "statement": "Change: IEF closes above its 150-day line",
         "ticker": "IEF",
         "side": "above",
         "compared_with": "moving_average",
@@ -479,7 +471,10 @@ def test_the_reading_carries_no_restated_facts_and_keeps_its_headings() -> None:
             "What would prove the position wrong",
             ["A soft CPI print rallies bonds while the book is cash."],
         ),
-        ("Forecasts (scored when due)", ["IEF closes above its 150-day line — 35%, in 4 weeks"]),
+        (
+            "Forecasts (scored when due)",
+            ["Change: IEF closes above its 150-day line — 35%, in 4 weeks"],
+        ),
     ]
     assert "My reading" not in reading.render()  # an empty part prints no heading
 
@@ -491,8 +486,6 @@ def test_a_second_innovation_is_refused() -> None:
     )
     with pytest.raises(ValidationError):
         WorkerResult(
-            regime_assessment="calm",
-            ranking_commentary="as ranked",
             market_signal_assessment=a_reading("the book fits the spread"),
             reasoning="—",
             scenario_adjustments=[],

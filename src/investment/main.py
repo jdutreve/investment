@@ -88,6 +88,7 @@ from investment.redact import RedactingFormatter, redact_exception
 from investment.runtime import AgentRuntime
 from investment.telegram.bot import build_application
 from investment.watch.event_watch import build_triage_agent
+from investment.watch.world_events import build_world_triage_agent
 from investment.weekly import agent_now, chain_if_due
 from investment.worker.agent import build_worker_agent
 
@@ -221,6 +222,11 @@ async def run_agent(settings: Settings) -> None:
         # short structured judgement over one press item, the same shape of task
         # the curator does, and not the Worker's deliberation.
         triage_agent=build_triage_agent(
+            settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
+        ),
+        # The world-events triage, same model and effort: one day's items is
+        # the same kind of short structured judgement (`watch/world_events.py`).
+        world_triage_agent=build_world_triage_agent(
             settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
         ),
     )

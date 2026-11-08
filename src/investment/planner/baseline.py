@@ -19,6 +19,7 @@ reads (①②③⑤) still gather concurrently.
 import asyncio
 import contextlib
 import dataclasses
+import email.utils
 import json
 from datetime import date, timedelta
 from typing import Any, cast
@@ -32,7 +33,8 @@ from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKER
 from investment.mechanical.rule_revision import measured_verdicts
 from investment.planner.invariant_vocabulary import load_invariant_vocabulary
 from investment.planner.worker_history import load_past_readings, load_recent_ideas
-from investment.watch.event_watch import read_event_passage
+from investment.watch.event_watch import EVENT_LOOKBACK_DAYS, read_event_passage
+from investment.watch.world_events import WORLD_EVENTS_SOURCE
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
 # ≤20 after dedup"). ESTABLISHED FIRST, THEN THE CANDIDATES A CHECKPOINT HAS
@@ -55,15 +57,19 @@ from investment.watch.event_watch import read_event_passage
 BUCKET_K = 8
 INVARIANTS_CAP = 20
 RECENT_PROPOSALS = 3
-# THE CENTRAL-BANK EVENTS THE WORKER READS WHATEVER THE PLANNER SEARCHES
-# (owner, 2026-10-18). An event reached the Worker only if one of Call 1a's
-# three corpus queries happened to retrieve it, so the September Fed and ECB
-# hikes could sit in the corpus unread. One monthly decision plus a week of
-# lookback, so every decision sees what happened since the previous one.
-EVENT_LOOKBACK_DAYS = 35
-# Eight: the decisions and speeches of the month, newest first; a fifteenth
-# item was a September account still being read in November (2026-11-03).
-RECENT_EVENTS_CAP = 8
+# THE EVENTS THE WORKER READS WHATEVER THE PLANNER SEARCHES (owner,
+# 2026-10-18). An event reached the Worker only if one of Call 1a's three
+# corpus queries happened to retrieve it, so the September Fed and ECB hikes
+# could sit in the corpus unread. The window, one monthly decision plus a week,
+# is `event_watch.EVENT_LOOKBACK_DAYS`: the jobs that read the events and the
+# context that lists them share one number.
+#
+# A CAP PER STREAM, because one cap for both let the more prolific crowd out the
+# other. Eight central-bank items: the decisions and speeches of the month (a
+# fifteenth was a September account still being read in November, 2026-11-03).
+# Fifteen world events: two or three a week over five weeks.
+CENTRAL_BANK_EVENTS_CAP = 8
+WORLD_EVENTS_CAP = 15
 
 _INVARIANT_COLS = (
     "id, title, weight_effective, tags, author, status, "
@@ -101,8 +107,9 @@ class Baseline:
     # text the Worker reads states the live figure. None only on a database with
     # no user_profile row, where no market-signal decision can exist either.
     stack_caps: Caps | None = None
-    # The major central-bank items of the last `EVENT_LOOKBACK_DAYS`, newest
-    # first: source, url, read_on, title, summary (`_recent_events`).
+    # The major central-bank items and world events of the last
+    # `EVENT_LOOKBACK_DAYS`, newest first by their own date: source, url,
+    # read_on, stream, dated, title, summary (`_recent_events`).
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # The Worker's own last readings and recent ideas with their fate
     # (`planner/worker_history.py`), so it stops saying again what the owner
@@ -324,28 +331,54 @@ async def _macro(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
 
 
 async def _recent_events(db: InvestmentDB, today: date) -> list[dict[str, Any]]:
-    """The event documents read in the lookback window, newest first, each
-    with the title and summary its first passage carries
-    (`event_watch.read_event_passage`). Bounded above by `today` so a replay
-    reads only what had been read by then."""
+    """The event documents read in the lookback window, each with the title and
+    summary its first passage carries (`event_watch.read_event_passage`) and its
+    `stream`: `world` for `world_events`' items, `central-bank` for the rest.
+    Bounded above by `today` so a replay reads only what had been read by then.
+
+    NEWEST BY THE EVENT'S OWN DATE, not by when it was read: a first run reads
+    five weeks of world events in one morning, and ordered by reading they come
+    out in no order at all. An item older than the window by its own date is
+    dropped, however recently it was read."""
     rows = await db.query(
         "SELECT d.author, d.source_path, d.ingested_at, p.content FROM document d "
         "JOIN passage p ON p.document_id = d.id AND p.position = 0 "
-        "WHERE d.kind = 'event' AND d.ingested_at >= :since AND d.ingested_at < :until "
-        "ORDER BY d.ingested_at DESC LIMIT :cap",
+        "WHERE d.kind = 'event' AND d.ingested_at >= :since AND d.ingested_at < :until",
         since=(today - timedelta(days=EVENT_LOOKBACK_DAYS)).isoformat(),
         until=(today + timedelta(days=1)).isoformat(),
-        cap=RECENT_EVENTS_CAP,
     )
-    return [
-        {
+    events = []
+    for row in rows:
+        event = {
             "source": row["author"],
             "url": row["source_path"],
             "read_on": str(row["ingested_at"])[:10],
+            "stream": "world" if row["author"] == WORLD_EVENTS_SOURCE else "central-bank",
             **read_event_passage(str(row["content"])),
         }
-        for row in rows
-    ]
+        dated = event_date(event["published"]) or date.fromisoformat(event["read_on"])
+        event["dated"] = dated.isoformat()
+        if dated >= today - timedelta(days=EVENT_LOOKBACK_DAYS):
+            events.append(event)
+    events.sort(key=lambda e: e["dated"], reverse=True)
+    caps = {"world": WORLD_EVENTS_CAP, "central-bank": CENTRAL_BANK_EVENTS_CAP}
+    kept: list[dict[str, Any]] = []
+    for stream, cap in caps.items():
+        kept += [e for e in events if e["stream"] == stream][:cap]
+    return sorted(kept, key=lambda e: e["dated"], reverse=True)
+
+
+def event_date(published: str) -> date | None:
+    """An event's own date out of its `Published:` line: an ISO date for the
+    world events, an RFC 2822 stamp for the Fed's and the ECB's feeds, nothing
+    for the SNB's."""
+    if not published:
+        return None
+    with contextlib.suppress(ValueError):
+        return date.fromisoformat(published[:10])
+    with contextlib.suppress(TypeError, ValueError):
+        return email.utils.parsedate_to_datetime(published).date()
+    return None
 
 
 async def _ranking(db: InvestmentDB) -> list[dict[str, Any]]:

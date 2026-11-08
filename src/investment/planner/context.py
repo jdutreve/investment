@@ -230,7 +230,11 @@ def standing_label(invariant: dict[str, Any]) -> str:
     candidate is never shown as established in one and not in the other."""
     if invariant.get("status") == REFERENCE_STATUS:
         return "reference note, not measured"
-    weight = f"weight {invariant.get('weight_effective', '?')}"
+    # Two decimals: `0.6000000000000001` is a float's spelling, not a weight.
+    raw = invariant.get("weight_effective")
+    weight = (
+        f"weight {round(raw, 2) if isinstance(raw, float) else raw if raw is not None else '?'}"
+    )
     # The record behind the weight, when it was loaded (`evidence_summaries`):
     # a weight alone reads the same at 4 of 5 and at 40 of 50.
     evidence = invariant.get("evidence")
@@ -326,11 +330,13 @@ def render_baseline_summary(baseline: Baseline) -> str:
             )
 
     # Titles only: Call 1a picks its searches on what is NEW, and a fresh
-    # central-bank decision is the first kind of new its prompt names.
+    # central-bank decision or world event is the first kind of new its prompt
+    # names.
     if baseline.recent_events:
-        lines.append("Central-bank events read in the last weeks:")
+        lines.append("Central-bank and world events of the last weeks:")
         for event in baseline.recent_events:
-            lines.append(f"  {event.get('read_on')} {event.get('source')}: {event.get('title')}")
+            source = "world" if event.get("stream") == "world" else event.get("source")
+            lines.append(f"  {event.get('dated')} {source}: {event.get('title')}")
 
     liq = baseline.global_liquidity
     if liq:

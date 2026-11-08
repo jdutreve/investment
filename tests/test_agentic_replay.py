@@ -240,8 +240,6 @@ INNOVATION: dict[str, Any] = {
 
 def _worker_output(*, innovations: bool = False) -> dict[str, Any]:
     return {
-        "regime_assessment": "stagflation deepening",
-        "ranking_commentary": "defender leads",
         "market_signal_assessment": a_reading(
             "the spread is wide; the book fits, the fiscal impulse is not in it"
         ),

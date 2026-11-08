@@ -54,8 +54,6 @@ _REALLOC = {
 
 def _worker_output() -> dict:
     return {
-        "regime_assessment": "stagflation deepening",
-        "ranking_commentary": "defender leads on Sortino",
         "market_signal_assessment": a_reading(
             "the wide-spread book reads the stress correctly, "
             "but the signal cannot see the fiscal impulse building"
@@ -195,7 +193,6 @@ async def test_every_cycle_is_knowledge_only(rig) -> None:  # type: ignore[no-un
     # lay out — the bottom line apart from whatever sections were filled.
     assert payload["market_signal_reading"]["bottom_line"].startswith("the wide-spread book")
     assert payload["market_signal_reading"]["sections"] == []
-    assert payload["regime_assessment"] == "stagflation deepening"
     assert payload["trigger"] == "weekly"
 
     # ...and neither is the Worker's INPUT. Asked on 2026-10-04 which invariants
@@ -226,7 +223,7 @@ async def test_the_readings_forecasts_are_recorded_with_it(rig) -> None:  # type
     out = _worker_output()
     out["market_signal_assessment"]["forecasts"] = [
         {
-            "statement": "GLD ends below 3000",
+            "statement": "Change: GLD ends below 3000",
             "ticker": "GLD",
             "side": "below",
             "compared_with": "value",
@@ -312,8 +309,8 @@ def test_render_context_marks_the_defender_and_active_lighthouses() -> None:
     # DORMANT SURVIVES the removal, because it is a fact about the market and
     # not about a gate: a lighthouse whose condition does not hold today
     # describes a world that is not present.
-    assert "(weight 0.7, null, integrated, dormant)" in text
-    assert "(weight 0.7, null, integrated)" in text  # inv-gold, condition holding
+    assert "(established; weight 0.7, DORMANT)" in text
+    assert "(established; weight 0.7, ACTIVE)" in text  # inv-gold, condition holding
     assert "COACH NOTES: framed" in text
 
 

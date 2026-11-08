@@ -35,6 +35,8 @@ leaves no trace at all.
 import dataclasses
 import functools
 import json
+import math
+import re
 from datetime import date
 from typing import Any
 
@@ -54,6 +56,7 @@ from investment.planner.worker_history import (
     describe_past_readings,
     describe_recent_ideas,
 )
+from investment.telegram.digest import short_title
 from investment.worker.agent import run_worker
 from investment.worker.repeated_figures import figures_in
 from investment.worker.result import WorkerResult
@@ -107,11 +110,16 @@ def _allocation(row: dict[str, Any]) -> dict[str, float]:
     alloc = row.get("allocation")
     if isinstance(alloc, str):
         alloc = json.loads(alloc)
-    return {str(k): float(v) for k, v in (alloc or {}).items()}
+    # One decimal: a drifted weight printed as 30.211428794191463 is noise.
+    return {str(k): round(float(v), 1) for k, v in (alloc or {}).items()}
 
 
 def _market_signal_lines(
-    state: dict[str, Any], macro: list[dict[str, Any]], caps: Caps | None
+    state: dict[str, Any],
+    macro: list[dict[str, Any]],
+    caps: Caps | None,
+    *,
+    in_digest: bool = False,
 ) -> list[str]:
     """The live allocation state as the Worker reads it (ADR-007). Two things it
     must convey, and the phrasing carries both:
@@ -167,6 +175,29 @@ def _market_signal_lines(
         return []
     if caps is None:
         raise ValueError("a market-signal decision is in force but no binding caps were read")
+    # THE DIGEST CARRIES THE DECISION when it is in the context, so it is not
+    # printed twice (owner, 2026-11-08): its 🧭 block holds the book, the moves,
+    # both signals as decided, the overlay, the count toward a switch, the reason,
+    # today's paired reads and the next order. What only this block adds is how
+    # to read those two clocks; the pair's speeds are in the MACRO TAPE.
+    if in_digest:
+        return [
+            "",
+            "MARKET-SIGNAL ALLOCATION (already decided mechanically — do NOT re-pick "
+            "the book; read it, and say where it looks wrong): it is the 🧭 block of the "
+            "digest below, printed to the owner as is.",
+            "  TWO CLOCKS IN IT, keep them apart. Its signal lines '(knowable …)' and its "
+            "'Why' are what the monthly decision saw, the ONLY figures that explain the "
+            "book in force. Its 'Today' and 'Trend today' lines are today's tape: they "
+            "decided nothing, and they are your best proxy for what the NEXT decision will "
+            "see. Never mix a level from one with a speed from the other.",
+            "  BOTH SIGNALS ARE READ ON ONE DATE, the latest both have: the book is picked "
+            "by where the spread AND the slope sit against their medians, so a row each "
+            "from a different day describes a state that existed on no day. If you fetch "
+            "a newer print of one of them yourself, call it a one-sided reading.",
+            "",
+            *describe_rule(caps).splitlines(),
+        ]
     latest = {str(row.get("ticker")): row for row in macro}
     signals = state.get("signals") or {}
     overlay = state.get("trend_overlay") or {}
@@ -276,12 +307,25 @@ def _market_signal_lines(
 EVENT_SUMMARY_CHARS = 400
 
 
+def _event_line(event: dict[str, Any]) -> str:
+    """One event as the Worker reads it. The publication date when the source
+    gave one; else the day it was read, said as such — a September decision read
+    in October must not pass for an October one."""
+    when = event.get("published") or f"read {event.get('read_on')}"
+    summary = _clipped(str(event.get("summary") or "(no summary)"), EVENT_SUMMARY_CHARS)
+    source = "" if event.get("stream") == "world" else f"{event.get('source')}: "
+    return f"  [{when}] {source}{event.get('title')} — {summary}"
+
+
 def _clipped(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + " …"
 
 
 def _rounded(value: Any, digits: int) -> str:
-    return f"{float(value):.{digits}f}" if isinstance(value, int | float) else "?"
+    if not isinstance(value, int | float):
+        return "?"
+    # A Calmar with no drawdown is infinite, which says "undefined", not "best".
+    return f"{float(value):.{digits}f}" if math.isfinite(value) else "n/a"
 
 
 def _liquidity_line(liquidity: dict[str, Any]) -> str:
@@ -293,6 +337,53 @@ def _liquidity_line(liquidity: dict[str, Any]) -> str:
         f"{state}, level {_rounded(liquidity.get('level'), 2)} on {liquidity.get('ts', '?')}, "
         f"speed {_rounded(liquidity.get('speed'), 2)}"
     )
+
+
+# A line of a passage this long or longer is a sentence worth deduplicating;
+# shorter ones are headings and table stubs that repeat legitimately.
+_REPEATABLE_LINE_CHARS = 60
+# What the PDF extraction leaves of a figure: a markdown image link.
+_IMAGE_LINE = re.compile(r"^!\[[^\]]*\]\([^)]*\)$")
+
+
+def _passage_lines(excerpt: str, printed: set[str]) -> list[str]:
+    """The lines of one passage worth printing, `printed` carrying what earlier
+    passages of the same context already showed. Neighbouring passages of one
+    book overlap (2026-11-08: Rasmussen's trend-following paragraph twice), and
+    a figure survives extraction only as its image link."""
+    kept = []
+    for raw in excerpt.splitlines():
+        line = raw.strip()
+        if not line or _IMAGE_LINE.match(line):
+            continue
+        if len(line) >= _REPEATABLE_LINE_CHARS:
+            if line in printed:
+                continue
+            printed.add(line)
+        kept.append(line)
+    return kept
+
+
+def _invariant_facts(inv: dict[str, Any], context: PlannerContext) -> str:
+    """The parenthesis after an invariant's title: its standing, its author when
+    it has one, and whether its condition holds today.
+
+    ITS RECORD ONCE (2026-11-08): an invariant the digest already lists among
+    its candidates is printed there with the same record, so it is pointed to
+    rather than restated. The status is said by `standing_label` ("candidate",
+    "reference note"), so it is not repeated after it; only an established one
+    needs the word."""
+    if context.owner_view and short_title(inv.get("title", "")) in context.owner_view:
+        standing = "its record is in the digest's candidates above"
+    else:
+        standing = standing_label(inv)
+    if inv.get("status") == "integrated":
+        standing = f"established; {standing}"
+    parts = [standing]
+    if inv.get("author"):
+        parts.append(str(inv["author"]))
+    parts.append("ACTIVE" if inv.get("active") else "DORMANT")
+    return ", ".join(parts)
 
 
 def render_context_for_worker(context: PlannerContext) -> str:
@@ -312,7 +403,14 @@ def render_context_for_worker(context: PlannerContext) -> str:
         f"signal strength {_rounded(regime.get('confidence'), 0)}/100, not a probability",
         f"GLOBAL LIQUIDITY: {_liquidity_line(context.global_liquidity)}",
     ]
-    lines.extend(_market_signal_lines(context.market_signal, context.macro, context.stack_caps))
+    lines.extend(
+        _market_signal_lines(
+            context.market_signal,
+            context.macro,
+            context.stack_caps,
+            in_digest=bool(context.owner_view),
+        )
+    )
     # WHAT THE OWNER READS AROUND THE READING (owner, 2026-11-01: no figure given
     # elsewhere, "relevant proposals, not leftovers"). The digest itself, so the
     # Worker knows exactly what not to restate; `run_worker` checks it did not.
@@ -373,7 +471,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
         # (baseline._scenarios docstring).
         lines.append(
             f"  {sc.get('strategy_id')}/{sc.get('name') or sc.get('scenario')}: "
-            f"{sc.get('probability')} ({sc.get('shift', 0.0):+})"
+            f"{_rounded(sc.get('probability'), 1)}% ({float(sc.get('shift') or 0.0):+.2f})"
         )
     # THE MACRO TAPE AND THE REGIME STANDINGS, handed over rather than sold.
     # Measured across the two M8b runs: the Worker spent 37 tool calls
@@ -402,22 +500,28 @@ def render_context_for_worker(context: PlannerContext) -> str:
                 f"as of {row.get('ts')}"
             )
     # THE CENTRAL BANKS' OWN WORDS, beside the tape they move (owner,
-    # 2026-10-18): a decision or a shift of stance is read here whatever the
-    # corpus search found, so a rate hike cannot sit in the corpus unread.
-    if context.recent_events:
-        lines.append("")
-        lines.append(
+    # 2026-10-18), and SINCE 2026-11-08 THE WORLD AROUND THEM: the midterms
+    # and the Iran war had reached the Worker only as an ECB "energy shock".
+    # Both are read here whatever the corpus search found.
+    central_bank = [e for e in context.recent_events if e.get("stream") != "world"]
+    world = [e for e in context.recent_events if e.get("stream") == "world"]
+    if world:
+        lines += [
+            "",
+            "WORLD EVENTS — what happened outside the central banks that bears on the "
+            "macro picture (elections, wars, energy, fiscal and trade policy, other central "
+            "banks), newest first. Each summary says what happened; the clause after it is "
+            "a reading of the channel, not a measurement:",
+        ]
+        lines += [_event_line(event) for event in world]
+    if central_bank:
+        lines += [
+            "",
             "CENTRAL-BANK EVENTS — the major Fed, ECB and SNB items of the last weeks, "
             "newest first, each with a summary of its official text. They are the "
-            "policy backdrop of the tape above; weigh them in your reading:"
-        )
-        for event in context.recent_events:
-            # The publication date when the feed gave one; else the day it was
-            # read, said as such — a September decision read in October must not
-            # pass for an October one.
-            when = event.get("published") or f"read {event.get('read_on')}"
-            summary = _clipped(str(event.get("summary") or "(no summary)"), EVENT_SUMMARY_CHARS)
-            lines.append(f"  [{when}] {event.get('source')}: {event.get('title')} — {summary}")
+            "policy backdrop of the tape above; weigh them in your reading:",
+        ]
+        lines += [_event_line(event) for event in central_bank]
     if context.favors:
         lines.append("")
         lines.append(
@@ -426,9 +530,9 @@ def render_context_for_worker(context: PlannerContext) -> str:
         )
         for row in context.favors:
             lines.append(
-                f"  {row.get('strategy_id')}: sortino {row.get('sortino_rolling')}, "
-                f"calmar {row.get('calmar_rolling')}, maxDD {row.get('max_drawdown')} "
-                f"over n={row.get('n_periods')}"
+                f"  {row.get('strategy_id')}: sortino {_rounded(row.get('sortino_rolling'), 2)}, "
+                f"calmar {_rounded(row.get('calmar_rolling'), 2)}, "
+                f"maxDD {_rounded(row.get('max_drawdown'), 3)} over n={row.get('n_periods')}"
             )
     lines.append("")
     # THE CORPUS TO REASON WITH, no longer a set of citable supports. Until
@@ -441,12 +545,13 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # is a fact about the market rather than about a gate: a lighthouse whose
     # condition does not hold today describes a world that is not present, which
     # is exactly what a reader needs to weigh it.
-    lines.append("INVARIANTS (lighthouses — the corpus you reason with):")
+    lines.append(
+        "INVARIANTS (lighthouses — the corpus you reason with; ACTIVE when its condition "
+        "holds today, DORMANT when it does not):"
+    )
     for inv in context.top_invariants:
-        state = f"{inv.get('status', '?')}" + ("" if inv.get("active") else ", dormant")
         lines.append(
-            f"  {inv.get('id')} — {inv.get('title', '')} "
-            f"({standing_label(inv)}, {inv.get('author', 'null')}, {state})"
+            f"  {inv.get('id')} — {inv.get('title', '')} ({_invariant_facts(inv, context)})"
         )
     # THE BOOKS IN FULL (owner, 2026-10-25). Cut at 200 characters, mid-sentence,
     # they were 3% of the context: the corpus the Worker is asked to reason with
@@ -457,10 +562,13 @@ def render_context_for_worker(context: PlannerContext) -> str:
             "FROM THE BOOKS — passages chosen for this week, in full. Read them for a "
             "mechanism or a precedent the rule cannot see, and name the book you draw on:"
         )
+        printed: set[str] = set()
         for p in context.passages:
             source = ", ".join(str(part) for part in (p.get("author"), p.get("source")) if part)
-            lines.append(f"  [{source or 'unknown source'}]")
-            lines += [f"    {line}" for line in str(p.get("excerpt", "")).splitlines() if line]
+            kept = _passage_lines(str(p.get("excerpt", "")), printed)
+            if kept:
+                lines.append(f"  [{source or 'unknown source'}]")
+                lines += [f"    {line}" for line in kept]
     if context.notes:
         lines.append("")
         lines.append(f"COACH NOTES: {context.notes}")
@@ -542,7 +650,7 @@ async def journal_worker_reading(
     ADR-011 says the Worker's qualitative reading of the mechanical decision is
     "journalled and rendered"; this is the journalling half. It covers the whole
     prose surface rather than that one field, because the hole was never specific
-    to it: `regime_assessment` and `ranking_commentary` had NO reader anywhere
+    to it: the prose fields of the time had NO reader anywhere
     outside the Planner-Post prompt they are serialised into, and UC8 appended no
     cycle-level event at all — so a week that confronted nothing and proposed
     nothing vanished completely, indistinguishable from a week that never ran.
@@ -573,8 +681,6 @@ async def journal_worker_reading(
                 # and the dashboard lay out (`worker.result.journalled_sections`).
                 "market_signal_assessment": worker_result.market_signal_assessment.render(),
                 "market_signal_reading": worker_result.market_signal_assessment.journal(),
-                "regime_assessment": worker_result.regime_assessment,
-                "ranking_commentary": worker_result.ranking_commentary,
                 "reasoning": worker_result.reasoning,
             },
             event_date=made_on,

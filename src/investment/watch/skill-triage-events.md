@@ -21,6 +21,11 @@ will act.** Examples of the kind:
 - a financial-stability action of systemic size (a rescue, a resolution of a
   large institution).
 
+**An item that announces again what is already recorded is ROUTINE.** You are
+given the titles already recorded from the same source in the last weeks; a
+second release about the same decision or the same departure — a list of
+decisions repeating a press release — adds nothing.
+
 If you are hesitating, it is routine. A false MAJOR costs a document in the
 corpus that says nothing; a missed one costs a week's awareness — but these
 sources publish the genuinely major items in unmistakable language, and the

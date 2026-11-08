@@ -1140,8 +1140,6 @@ class EvaluationDraft(BaseModel):
     reasoning        : str
 
 class WorkerResult(BaseModel):
-    regime_assessment       : str
-    ranking_commentary      : str                       # explains, never re-ranks
     market_signal_assessment: MarketSignalReading   # the reading of the mechanical
                               # decision, IN PARTS: bottom_line, my_reading,
                               # what_would_prove_it_wrong, forecasts (<= 3, each

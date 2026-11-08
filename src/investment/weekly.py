@@ -58,6 +58,7 @@ from investment.ops.run_lock import AlreadyRunning
 from investment.runtime import AgentRuntime
 from investment.telegram.digest import collect_digest_inputs, render_digest
 from investment.watch.event_watch import run_event_watch
+from investment.watch.world_events import run_world_events
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,12 @@ def weekly_steps(
         page and decides (owner, 2026-10-18)."""
         await run_event_watch(db, runtime.ingester, runtime.triage_agent)
 
+    async def world_events() -> None:
+        """Right after the central banks: the days of the window not read yet,
+        one triage per day (owner, 2026-11-08: the midterms and the Iran war
+        were missing from the Worker's context)."""
+        await run_world_events(db, runtime.ingester, runtime.world_triage_agent, today)
+
     async def outcomes() -> None:
         """The 08:52 slot is THREE jobs: CLAUDE.md's "verdicts +12w, calibration,
         probation", and since 2026-10-18 the Worker's forecasts that have come
@@ -323,6 +330,7 @@ def weekly_steps(
             ),
         ),
         ("event-watch", event_watch),
+        ("world-events", world_events),
         # 08:10. Free on a stable corpus — the checkpoint answers "already
         # curated" without an LLM call — and the retry path for an ingestion
         # whose curation failed during the week.

@@ -211,6 +211,13 @@ overhead on top).
 **Trigger to add:** when weekly deposits alone visibly starve UC4 curation,
 or the user identifies specific sources with consistent Tier-1 signal.
 
+**Partly met 2026-11-08 (owner: the Worker's context did not know the
+Democrats had won the midterms).** World events now come from ONE curated
+source, Wikipedia's Current events portal, read a day at a time with one
+triage per day (`watch/world_events.py`) — chosen over feeds because a past
+day's page stays put for a weekly job on a laptop that sleeps, and because it
+is already a selection. Broad RSS, YouTube, X and podcasts stay deferred.
+
 **Spec:**
 - RSS: feedparser over a curated feed list, dedupe by URL hash → inbox
   (watcher picks up); REQUIRES I-26 tiering from day one.

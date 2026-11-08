@@ -169,6 +169,7 @@ def test_the_chain_runs_the_timeline_in_order(db: InvestmentDB) -> None:
         "aaaf-r",
         "benchmark-valuations",
         "event-watch",
+        "world-events",
         "curation",
         "backtests",
         "scenarios",

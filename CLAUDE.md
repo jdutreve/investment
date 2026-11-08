@@ -156,7 +156,9 @@ Scheduling (Europe/Zurich; laptop sleeps — ADR-002, so NO nightly cron):
   artefact feeding the ranking and the drawdown alert, only the DECISION is
   monthly) → 08:03 AAAF-R NAV refresh → 08:04 benchmark valuations + derived
   signals (the series every invariant is measured on; seed-only until
-  2026-10-04) → 08:05 UC3 event watch →
+  2026-10-04) → 08:05 UC3 event watch → 08:06 world events (`watch/world_events.py`:
+  Wikipedia's Current events portal, one triage per day, so elections, wars,
+  energy and fiscal shocks reach the Worker — owner 2026-11-08) →
   08:10 UC4 curation sweep → 08:30 backtests→FAVORS → 08:35 scenario
   probabilities → 08:38 invariant forward sweep (`source='forward'`: every
   moment whose 12-week window has completed since the last sweep, confronted

@@ -300,12 +300,16 @@ it holds that day. It is scored on that date only, not at any time before it: \
 write "in N weeks", never "within". \
 `statement` says the same thing in plain words: the claim and one clause of \
 reason, about 25 words. Forecast what you have a view \
-on and what matters for the position: a probability near 50% says you have \
-none, and one near 0% or 100% on something already settled tells the owner \
-nothing: it is padding, and read as such. PERSISTENCE IS THE BAR: a forecast \
-that today's state still holds in a few weeks usually comes true and shows no \
-judgement. Forecast a change you expect, or a persistence the tape argues \
-against, and say in `statement` which of the two it is. Each forecast is also \
+on and what matters for the position: one near 0% or 100% on something \
+already settled tells the owner nothing: it is padding, and read as such. \
+PERSISTENCE IS THE BAR: a forecast that today's state still holds in a few \
+weeks usually comes true and shows no judgement. So each forecast is one of two \
+kinds, and `statement` opens with its label: "Change:" (the series ends on the \
+other side of its reference from where it is today) or "Persistence against \
+the tape:" (it stays on its side while its own momentum points across). The \
+label names the KIND of claim, never your belief in it: that is the \
+probability's job, so no "I expect" or "I lean against" beside a number that \
+says otherwise. Each forecast is also \
 scored against HISTORY: how often the same move, from the same distance to the \
 same reference, came true over the past decades. Your probability and that \
 frequency are printed side by side and both are scored: a probability equal to \

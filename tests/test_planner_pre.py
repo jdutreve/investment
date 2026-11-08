@@ -87,3 +87,23 @@ async def test_call1b_rejects_an_invented_id(pre: PlannerPre) -> None:
         pytest.raises(UnexpectedModelBehavior),
     ):
         await pre.run("weekly")
+
+
+@pytest.mark.parametrize(
+    "notes",
+    [
+        "Uncertain regime (56.6% conf) with a firm real economy.",
+        "x" * 1300,
+    ],
+)
+async def test_call1b_notes_are_a_framing_not_a_listing(pre: PlannerPre, notes: str) -> None:
+    """2026-11-08: the notes called the signal strength a confidence and
+    re-glossed every selected id; both are refused and sent back."""
+    query = TestModel(custom_output_args={"corpus_queries": [], "zooms": []})
+    select = TestModel(custom_output_args={"invariant_ids": [], "passage_ids": [], "notes": notes})
+    with (
+        pre.query_agent.override(model=query),
+        pre.context_agent.override(model=select),
+        pytest.raises(UnexpectedModelBehavior),
+    ):
+        await pre.run("weekly")

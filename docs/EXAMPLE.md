@@ -504,15 +504,6 @@ receives it + the 3 bridged tools — unaware of Planner, Writeback, storage.
 
 ```python
 WorkerResult {
-  regime_assessment: "Stagflation confirmed (78%). CPI accelerating, growth
-                      composite contracting, global liquidity tightening.
-                      Bear scenario 55% (+35pts shift)."
-
-  ranking_commentary: "Defender holds rank 1 on the 36M window, but the
-                       stagflation-designed challenger posts the best 3m
-                       return. momentum-macro demoted (Calmar 0.6) and
-                       drawdown-excluded (-18.2% < -15% user rule)."
-
   scenario_adjustments: [
     {strategy_id:"four-seasons-rp", scenario:"bear", probability:55,
      rationale:"VIX numeric trigger hit + CPI acceleration; base 35, bull 10"},

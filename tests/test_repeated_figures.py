@@ -30,8 +30,6 @@ def test_a_figure_repeats_whatever_its_sign_or_percent_sign() -> None:
 
 def _output(bottom_line: str) -> str:
     return WorkerResult(
-        regime_assessment="calm",
-        ranking_commentary="as ranked",
         market_signal_assessment=a_reading(bottom_line),
         reasoning="-",
         scenario_adjustments=[],
@@ -103,7 +101,7 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
         reading = a_reading("Nothing is asked.")
         reading["forecasts"] = [
             {
-                "statement": "SPY below its 150-day line in 9 weeks",
+                "statement": "Change: SPY below its 150-day line in 9 weeks",
                 "ticker": "SPY",
                 "side": "below",
                 "compared_with": "moving_average",
@@ -113,8 +111,6 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
             }
         ]
         output = WorkerResult(
-            regime_assessment="calm",
-            ranking_commentary="as ranked",
             market_signal_assessment=reading,
             reasoning="-",
             scenario_adjustments=[],

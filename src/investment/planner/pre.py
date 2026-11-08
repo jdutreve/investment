@@ -26,6 +26,7 @@ load — exactly as `retrieve` takes vectors rather than text.
 
 import dataclasses
 import logging
+import re
 from typing import Any, Protocol
 
 import numpy as np
@@ -102,9 +103,17 @@ select what the expert should see this week. Output a ContextSelection:
 
 - invariant_ids: the ~12-15 most relevant invariants from the pool. ALWAYS keep
   any cited by a pending or recently-judged proposal (continuity with
-  outcomes); prioritise invariants whose weight moved this week; dedupe.
-- passage_ids: the passages worth showing, from the pool only.
-- notes: a one-line "why included" per invariant, plus your framing of the week.
+  outcomes); prioritise invariants whose condition holds TODAY (marked
+  ACTIVE), then those whose weight moved this week; dedupe. A DORMANT one —
+  its condition does not hold — earns a place only when the week's question is
+  whether that condition is about to hold.
+- passage_ids: the passages worth showing, from the pool only. Two passages
+  that say the same thing are one passage.
+- notes: your framing of the week in a few sentences — the tension the expert
+  should weigh, and what changed. NOT a list of the invariants or passages you
+  selected: the expert reads them in full, so name none of their ids. The
+  regime's figure is a signal strength out of 100, never a confidence or a
+  probability. Call a condition active only if it is marked ACTIVE.
 
 NEVER invent an id. Selecting an id absent from the pool will be rejected and
 you will be asked to correct it."""
@@ -146,6 +155,12 @@ def build_query_agent(
     )
 
 
+# The coach's framing, bounded: a few sentences, which the 2026-11-08 framing
+# paragraph was (about a thousand characters) before its per-id listing.
+NOTES_MAX_CHARS = 1200
+CONFIDENCE_WORDING = re.compile(r"\d+(?:\.\d+)?\s*%\s*conf|\bconfidence\b", re.I)
+
+
 def build_context_agent(
     model_name: str, api_key: str, *, reasoning_effort: str, base_url: str
 ) -> Agent[_Pools, ContextSelection]:
@@ -169,17 +184,43 @@ def build_context_agent(
                 f"These ids are not in the provided pool: {missing}. "
                 "Select only ids present in the context — do not invent."
             )
+        # THE NOTES ARE THE FRAMING, NOT A THIRD LISTING (2026-11-08): they
+        # re-glossed all fourteen selected invariants and every passage the
+        # Worker reads in full two sections above, called the regime's signal
+        # strength "56.6% conf" and dormant conditions "most directly triggered".
+        named = [
+            i for i in (*ctx.deps.invariant_ids, *ctx.deps.passage_ids) if i in selection.notes
+        ]
+        problems = []
+        if named:
+            problems.append(
+                f"they name pool ids {named[:5]}; the expert reads the selection itself"
+            )
+        if CONFIDENCE_WORDING.search(selection.notes):
+            problems.append("they call the regime's signal strength a confidence")
+        if len(selection.notes) > NOTES_MAX_CHARS:
+            problems.append(f"they run past {NOTES_MAX_CHARS} characters")
+        if problems:
+            raise ModelRetry(
+                "Rewrite `notes` as the week's framing in a few sentences: " + "; ".join(problems)
+            )
         return selection
 
     return agent
 
 
-def _render_pool(summary: str, inv_pool: dict[str, dict[str, Any]], pool: RetrievalPool) -> str:
+def _render_pool(
+    summary: str, inv_pool: dict[str, dict[str, Any]], pool: RetrievalPool, active: set[str]
+) -> str:
     """The Call 1b prompt: the baseline summary + the candidate pool the model
-    selects from (invariant ids it may keep, passages, and any zoom results)."""
-    lines = [summary, "", "CANDIDATE INVARIANTS (id — title [standing]):"]
+    selects from (invariant ids it may keep, passages, and any zoom results).
+    Each invariant says whether its condition holds today, which the coach
+    could not know and guessed at until 2026-11-08 (twelve of fourteen chosen
+    were dormant, presented as "triggered this week")."""
+    lines = [summary, "", "CANDIDATE INVARIANTS (id — title [standing; ACTIVE or DORMANT]):"]
     for iid, inv in inv_pool.items():
-        lines.append(f"  {iid} — {inv.get('title', '')} [{standing_label(inv)}]")
+        lit = "ACTIVE" if iid in active else "DORMANT"
+        lines.append(f"  {iid} — {inv.get('title', '')} [{standing_label(inv)}; {lit}]")
     if pool.passages:
         lines.append("CANDIDATE PASSAGES (id — excerpt):")
         for p in pool.passages:
@@ -239,13 +280,16 @@ class PlannerPre:
 
         inv_pool, pas_pool = invariant_pool(baseline, pool), passage_pool(pool)
         deps = _Pools(frozenset(inv_pool), frozenset(pas_pool))
+        regime_type = baseline.regime.get("regime_type_id")
+        # Read for the whole pool BEFORE the selection, so the coach chooses
+        # knowing which conditions hold today; the selection's subset follows.
+        pool_active = await active_invariant_ids(self._db, list(inv_pool), regime_type)
         selection_result = await self.context_agent.run(
-            _render_pool(summary, inv_pool, pool), deps=deps
+            _render_pool(summary, inv_pool, pool, pool_active), deps=deps
         )
         selection = selection_result.output
 
-        regime_type = baseline.regime.get("regime_type_id")
-        active = await active_invariant_ids(self._db, selection.invariant_ids, regime_type)
+        active = pool_active & set(selection.invariant_ids)
         evidence = await evidence_summaries(self._db, selection.invariant_ids)
         context = assemble_context(baseline, pool, selection, active, queries, evidence)
         return dataclasses.replace(context, owner_view=await owner_view(self._db))

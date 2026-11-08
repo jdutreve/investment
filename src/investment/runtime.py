@@ -33,6 +33,7 @@ from investment.ops.run_lock import RunLock
 from investment.planner.post import PlannerPost
 from investment.planner.pre import PlannerPre
 from investment.watch.event_watch import EventTriage
+from investment.watch.world_events import WorldDayTriage
 from investment.worker.result import WorkerResult
 
 
@@ -49,3 +50,4 @@ class AgentRuntime:
     embedder: InProcessEmbedder
     ingester: CorpusIngester
     triage_agent: Agent[None, EventTriage]
+    world_triage_agent: Agent[int, WorldDayTriage]

@@ -99,7 +99,7 @@ def test_an_item_with_no_text_still_reaches_the_model_as_such() -> None:
     """The ECB and SNB feeds carry a title and nothing else (measured
     2026-08-12). The prompt's honesty rule is written for exactly that case, so
     the emptiness must be VISIBLE rather than papered over."""
-    rendered = EW.render_item(SNB)
+    rendered = EW.render_item(SNB, [])
     assert "title only" in rendered
     assert "the feed carried no date" in rendered
     assert "the page carried no text" in rendered
@@ -110,7 +110,7 @@ def test_the_official_page_reaches_the_model_beside_the_feed() -> None:
     """The headline is not the item: the page's text is what the triage judges
     (owner, 2026-10-18 — the September rate hikes were missed on headlines)."""
     with_page = dataclasses.replace(SNB, article="The SNB raised its policy rate.")
-    rendered = EW.render_item(with_page)
+    rendered = EW.render_item(with_page, [])
     assert "TEXT OF THE OFFICIAL PAGE:\nThe SNB raised its policy rate." in rendered
 
 

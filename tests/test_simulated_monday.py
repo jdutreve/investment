@@ -115,8 +115,6 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
         call_tools=[],
         custom_output_text=json.dumps(
             {
-                "regime_assessment": "stagflation deepening",
-                "ranking_commentary": "defender leads",
                 "market_signal_assessment": a_reading(
                     "right book for the spread, blind to the fiscal impulse"
                 ),

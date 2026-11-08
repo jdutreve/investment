@@ -28,8 +28,6 @@ from investment.planner import pre as planner_pre
 from investment.worker import agent as worker_agent
 
 WORKER_OUTPUT = {
-    "regime_assessment": "stagflation deepening",
-    "ranking_commentary": "defender leads",
     "market_signal_assessment": a_reading("The defensive book fits the confirmed regime."),
     "scenario_adjustments": [],
     "evaluations": [],
