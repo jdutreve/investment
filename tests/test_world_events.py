@@ -163,3 +163,20 @@ async def test_a_rate_limit_stops_the_run_and_leaves_the_days_for_the_next(
     assert asked == [date(2026, 11, 5)]  # the oldest day, then nothing more
     assert report.days_read == 0
     assert len(await WE.days_to_read(db, TODAY)) == 3
+
+
+async def test_a_page_that_parses_into_nothing_is_not_journalled_as_a_quiet_day(
+    db: InvestmentDB, ingester: CorpusIngester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The portal has no empty days: zero items is the parser failing on a new
+    layout, and a journalled day is never read again."""
+    monkeypatch.setattr(WE, "EVENT_LOOKBACK_DAYS", 1)
+
+    async def new_layout(session: aiohttp.ClientSession, day: date) -> str:
+        return "<div class='current-events'>…</div>"
+
+    report = await WE.run_world_events(db, ingester, _agent([]), TODAY, fetch=new_layout)
+
+    assert report.days_read == 0
+    assert report.failed == {"2026-11-07": "LookupError: 2026_November_7: no item parsed"}
+    assert await WE.days_to_read(db, TODAY) == [date(2026, 11, 7)]

@@ -31,9 +31,9 @@ One-time (manual)
 Event-driven — no nightly cron (the Mac sleeps at night)
   inbox watcher: deposit + 5-min quiet → ingestion batch → curation
   curator (LLM, only on new Documents) → Telegram candidates;
-  backup after every Monday chain and every ingestion batch
+  backup after every weekly chain and every ingestion batch
 
-Weekly (Monday 08:00 when running + DUE-ON-START at launch/wake — one
+Weekly (SUNDAY 08:00 when running — Monday until 2026-08-12, + DUE-ON-START at launch/wake — one
 sequential chain: each step starts only after the previous one succeeds;
 on failure the chain aborts, emits an ErrorEvent and sends a Telegram
 alert. Times in ../CLAUDE.md are indicative.)
@@ -68,6 +68,9 @@ alert. Times in ../CLAUDE.md are indicative.)
   UC2  (absorbed — see tombstone below)
   UC3  Event Watch          → Document(kind=event) deposits (pinned
                               official sources, LLM triage + enrichment)
+  —    World events         → Document(kind=event) deposits from Wikipedia's
+                              Current events portal, one triage per day
+                              (08:06, watch/world_events.py, 2026-11-08)
   UC4  Knowledge Curation   → KnowledgeEvent
   UC5  Knowledge Storage    → DB updated (transverse mechanism, see below)
   UC6  Portfolio Valuation  → ValuationEvent
@@ -320,7 +323,7 @@ data, and the digest renders a non-empty defender row.
 ---
 
 ## UC1 — Market Feed
-**Trigger:** Monday chain 08:00 (catch-up of all days since last run) —
+**Trigger:** Sunday chain 08:00 (catch-up of all days since last run) —
 also invoked on-demand as the prelude to an ad-hoc UC9 UC8 re-run.
 **What it does:** Fetches prices from Yahoo Finance and macro series from FRED.
 Applies per-series transforms (DATA_MODELS.md "MarketData semantics") and
@@ -351,10 +354,11 @@ A separate MarketEvent was a duplicate that nothing consumed.
 
 ## UC3 — Event Watch (qualitative Tier-1 events, trusted sources only)
 
-**Trigger:** Weekly chain (Monday, after the catch-up, before UC4).
+**Trigger:** Weekly chain (Sunday, after the catch-up, before UC4).
 **What it does:** NOT a feed vacuum — a narrow watch over a few PINNED
 official sources (static `EVENT_SOURCES` constant in code: Fed press
-releases / FOMC statements, ECB press, SNB press; changing sources = edit
+releases / FOMC statements, ECB press, BoJ press — the SNB until
+2026-11-08; changing sources = edit
 the constant — complexify to runtime config only if a real need appears):
 
 1. Fetch new items since last run (dedupe by URL against existing Document source_paths) — mechanical.
@@ -377,6 +381,18 @@ the constant — complexify to runtime config only if a real need appears):
    Passages + embeddings → Worker context and citable in
    `Evaluation.events`.
 
+**World events (2026-11-08, `watch/world_events.py`), the step right after.**
+The central banks were the only events the Worker read, so a change of US
+Congress and the Iran war reached it only as an ECB "energy shock". Each day
+of the same window not read yet is fetched from Wikipedia's "Current events"
+portal (MediaWiki API, one page per day, a contact User-Agent per Wikimedia's
+robot policy), parsed into items, and triaged in ONE call per day
+(`skill-triage-world-events`): the few items that move rates, inflation,
+growth, credit, energy or the dollar become Document(kind=event) in the same
+format, listed to the Worker as WORLD EVENTS beside the central banks'. A day
+is journalled once read (`WorldEventsDayEvent`); a day whose page failed, or
+parsed into no item, is read again next run; a rate limit ends the run.
+
 The user note channel (one-line Telegram messages → `kind=note`) remains
 as a complement. Quantitative shocks stay mechanical (VIX/liquidity tags).
 General auto-watch (broad RSS, YouTube/X) stays deferred — I-9/I-26.
@@ -391,9 +407,9 @@ IngestionEvent).
 1. **Event-driven:** ~5 minutes after a deposit (watcher quiet period),
    whenever the ingestion batch created ≥1 new Document, the curation
    curator processes it immediately — a deposited book yields its invariant
-   candidates within minutes, not the next Monday. Knowledge extraction
+   candidates within minutes, not the next Sunday. Knowledge extraction
    only — never decisions.
-2. **Weekly cron (Monday, after UC3):** sweep over anything not yet curated
+2. **Weekly cron (Sunday, after UC3):** sweep over anything not yet curated
    + re-curation opportunities on existing invariants.
 3. **UC0 seed batch** (step 6b, default): initial pass over the whole corpus.
 
@@ -429,7 +445,7 @@ always the real free-text provenance (document+page, backtest run).
 ---
 
 ## UC5 — Knowledge Storage
-**Not a use case in the Monday sequence** — a transverse mechanism invoked by
+**Not a use case in the weekly sequence** — a transverse mechanism invoked by
 any UC that has data to persist. Planner Post decides what to persist;
 Writeback executes.
 **Order:** EventLog append → graph vertex → edges → FTS → vector → documents.
@@ -439,12 +455,12 @@ Writeback executes.
 ---
 
 ## UC6 — Portfolio Valuation
-**Trigger:** Weekly cron (Monday, before Worker).
+**Trigger:** Weekly cron (Sunday, before Worker).
 **What it does:** Calculates USD `sharpe_rolling`, `sortino_rolling`,
 `calmar_rolling`, `max_drawdown`, `volatility`, plus cumulative
 `return_3m / 6m / 1y / 3y / 5y` for all enabled portfolios, including the
 defender. Risk-free rate = 3M T-Bill. Rolling indicator window = 36M.
-Updates each `Portfolio` vertex. (PortfolioNAV TS is written by the Monday
+Updates each `Portfolio` vertex. (PortfolioNAV TS is written by the weekly
 08:00 catch-up job only — UC6 reads it, it does not append.)
 **Output:** ValuationEvent → EventLog.
 
@@ -478,7 +494,7 @@ contextualized via FAVORS edges (updated weekly), not directly valued.
 > digest read. The ranking RULE and the binding caps below are unchanged and
 > still bind.
 
-**Trigger:** Weekly cron (Monday, after UC6).
+**Trigger:** Weekly cron (Sunday, after UC6).
 **What it does:** Ranks all `Portfolio(enabled=true)`, including the live
 defender. The current regime does not filter the ranking universe — it is
 context. Every ranked portfolio includes its concrete allocation.
@@ -534,7 +550,7 @@ context. Every ranked portfolio includes its concrete allocation.
 > below still describe running code; they no longer describe anything the Worker
 > does. Read them as the bridge's specification, not as UC8's behaviour.
 
-**Trigger:** Weekly Worker cycle (Monday 09:00).
+**Trigger:** Weekly Worker cycle (Sunday 09:00).
 **Principle: the Worker proposes, Writeback disposes.** All gates are
 deterministic and run mechanically in Writeback; the Worker contributes
 judgment (reasoning, qualitative trigger interpretation, Evaluations,
@@ -680,7 +696,7 @@ user-initiated, so it does not violate the "weekly = sole scheduled decision
 cycle" rule; it may trigger at most **one ad-hoc UC8 re-run per day** —
 which always starts with the UC1 catch-up prelude (fetch + regime + NAV,
 mechanical, seconds) so the Worker never reasons on stale market data —
-while the RANKING context stays the latest Monday snapshot (no mid-week
+while the RANKING context stays the latest weekly snapshot (no mid-week
 snapshot rewrite). `/status`
 mid-week offers `/refresh` (same prelude, no UC8).
 **What it does:** Conversational interface. Any decision stored via UC5.
@@ -722,7 +738,7 @@ preferences, not theses; the agent adjudicates theses and never these
 | #  | UC                  | Trigger             | Output                                | Frequency        |
 |----|---------------------|---------------------|---------------------------------------|------------------|
 | 0  | Seed                | Manual CLI          | SeedEvent + full DB bootstrap         | Once at install  |
-| 1  | Market Feed         | Monday catch-up + on-demand | MarketData TS                         | Weekly           |
+| 1  | Market Feed         | Sunday catch-up + on-demand | MarketData TS                         | Weekly           |
 | 2  | (absorbed)          | —                   | catch-up + snapshot.market_context    | —                |
 | 3  | Event Watch         | Weekly chain        | Document(kind=event) via ingester     | Weekly           |
 | 4  | Knowledge Curation  | Weekly cron         | KnowledgeEvent                        | Weekly           |

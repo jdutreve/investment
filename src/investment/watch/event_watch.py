@@ -293,13 +293,15 @@ async def unseen(db: InvestmentDB, items: list[FeedItem]) -> list[FeedItem]:
     seen_now: set[str] = set()
     unique = []
     for item in items:
-        if item.url in seen_now:
+        if same_page(item.url) in seen_now:
             continue
-        seen_now.add(item.url)
+        seen_now.add(same_page(item.url))
         unique.append(item)
 
-    placeholders = ",".join(f":u{n}" for n in range(len(unique)))
-    params = {f"u{n}": item.url for n, item in enumerate(unique)}
+    # Both spellings of each URL are looked up: see `same_page`.
+    spellings = [f"{scheme}://{same_page(item.url)}" for item in unique for scheme in SCHEMES]
+    placeholders = ",".join(f":u{n}" for n in range(len(spellings)))
+    params = {f"u{n}": url for n, url in enumerate(spellings)}
     rows = await db.query(
         f"SELECT source_path AS url FROM document WHERE source_path IN ({placeholders}) "
         f"UNION SELECT source_id AS url FROM event_log "
@@ -307,8 +309,18 @@ async def unseen(db: InvestmentDB, items: list[FeedItem]) -> list[FeedItem]:
         f"AND NOT COALESCE(json_extract(payload, '$.needs_user_input'), 0)",
         **params,
     )
-    known = {str(r["url"]) for r in rows}
-    return [item for item in unique if item.url not in known]
+    known = {same_page(str(r["url"])) for r in rows}
+    return [item for item in unique if same_page(item.url) not in known]
+
+
+SCHEMES = ("http", "https")
+
+
+def same_page(url: str) -> str:
+    """A URL without its scheme: the identity of a page for the dedupe. The Bank
+    of Japan's feed links in `http://` and its site answers both, and on
+    2026-11-08 one policy statement was ingested twice, once per scheme."""
+    return url.split("://", 1)[-1]
 
 
 async def journal_triage(db: InvestmentDB, item: FeedItem, triage: EventTriage) -> None:

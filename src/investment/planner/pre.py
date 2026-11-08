@@ -200,11 +200,18 @@ def build_context_agent(
             problems.append("they call the regime's signal strength a confidence")
         if len(selection.notes) > NOTES_MAX_CHARS:
             problems.append(f"they run past {NOTES_MAX_CHARS} characters")
-        if problems:
-            raise ModelRetry(
-                "Rewrite `notes` as the week's framing in a few sentences: " + "; ".join(problems)
-            )
-        return selection
+        if not problems:
+            return selection
+        # COSMETIC, SO NEVER FATAL: the notes are framing, the selection is the
+        # context. On the last attempt they are dropped rather than raised,
+        # because an exhausted retry here ends the whole cognitive cycle — the
+        # week's reading lost over a word in a paragraph.
+        if ctx.retry >= ctx.max_retries:
+            logger.warning("Call 1b notes dropped after %d retries: %s", ctx.retry, problems)
+            return selection.model_copy(update={"notes": ""})
+        raise ModelRetry(
+            "Rewrite `notes` as the week's framing in a few sentences: " + "; ".join(problems)
+        )
 
     return agent
 

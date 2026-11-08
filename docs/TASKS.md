@@ -66,7 +66,7 @@ See IMPROVEMENTS.md for deferred V2 features.
 | Planner         | `PLANNER_MODEL` via OpenRouter, thinking=512/1024 (.env decides) |
 | Worker          | `WORKER_MODEL` via OpenRouter (.env decides; every role routes there — owner decision 2026-07-21) |
 | Corpus          | PDF parser direct → Passages → Invariants                     |
-| Veille          | UC3 Event Watch (pinned Fed/ECB/SNB press) + user deposits    |
+| Veille          | UC3 Event Watch (pinned Fed/ECB/BoJ press) + world events (Wikipedia Current events, 2026-11-08) + user deposits |
 | Market data     | Yahoo Finance prices + FRED macro + GROWTH_COMPOSITE + GLOBAL_LIQUIDITY |
 | Backfill        | 35y macro (→1991); tradable ~1991 via HISTORY_PROXIES         |
 |                 | (commodity TR the verify-gate); TIPS 2000, liquidity 2002     |
@@ -1237,7 +1237,7 @@ file to `inbox/failed/` + ErrorEvent (never crash the loop).
 NOT a feed vacuum (general RSS stays out — I-9/I-26): a narrow weekly watch
 over PINNED official sources — a static `EVENT_SOURCES` constant in
 `event_watch.py` (`[{name, url, domain}]`, seeded Fed/ECB/SNB press
-endpoints; URLs pinned at implementation, never guessed). Changing sources
+endpoints, the BoJ replacing the SNB on 2026-11-08; URLs pinned at implementation, never guessed). Changing sources
 = editing the constant; complexify to a runtime table only if editing via
 UC9 ever becomes a real need (guiding principle). Flow per USE_CASES UC3:
 fetch new items (dedupe by URL hash against existing Document

@@ -98,12 +98,11 @@ async def test_call1b_rejects_an_invented_id(pre: PlannerPre) -> None:
 )
 async def test_call1b_notes_are_a_framing_not_a_listing(pre: PlannerPre, notes: str) -> None:
     """2026-11-08: the notes called the signal strength a confidence and
-    re-glossed every selected id; both are refused and sent back."""
+    re-glossed every selected id; both are sent back. A model that never
+    complies loses its notes, never the cycle: they are framing, and an
+    exhausted retry would end the week's reading."""
     query = TestModel(custom_output_args={"corpus_queries": [], "zooms": []})
     select = TestModel(custom_output_args={"invariant_ids": [], "passage_ids": [], "notes": notes})
-    with (
-        pre.query_agent.override(model=query),
-        pre.context_agent.override(model=select),
-        pytest.raises(UnexpectedModelBehavior),
-    ):
-        await pre.run("weekly")
+    with pre.query_agent.override(model=query), pre.context_agent.override(model=select):
+        context = await pre.run("weekly")
+    assert context.notes == ""

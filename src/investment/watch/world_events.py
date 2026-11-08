@@ -382,6 +382,12 @@ async def run_world_events(
                     await asyncio.sleep(REQUEST_SPACING_SECONDS)
                 try:
                     items = parse_day(day, await fetch(session, day))
+                    if not items:
+                        # The portal never publishes an empty day, so this is
+                        # the PARSER failing on a page whose layout changed.
+                        # Journalled, the day would read "nothing notable" for
+                        # good; raised, it is read again once the parser is fixed.
+                        raise LookupError(f"{page_title(day)}: no item parsed")
                     prompt = render_day(day, items, await recorded_titles(db, today))
                     async with asyncio.timeout(TRIAGE_CALL_BUDGET_SECONDS):
                         triage = (await triage_agent.run(prompt, deps=len(items))).output

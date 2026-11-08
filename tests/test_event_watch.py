@@ -179,6 +179,18 @@ async def test_the_same_url_twice_in_one_run_is_triaged_once(db: InvestmentDB) -
     assert await EW.unseen(db, [FED, FED]) == [FED]
 
 
+async def test_a_page_read_under_the_other_scheme_is_not_seen_again(db: InvestmentDB) -> None:
+    """2026-11-08: the Bank of Japan's policy statement was ingested twice, once
+    as http:// and once as https://."""
+    await db.command(
+        "INSERT INTO document (id, title, kind, source_type, source_path, ingested_at, trace) "
+        "VALUES ('doc-1', 't', 'event', 'url', :url, '2026-08-01', 't')",
+        url=FED.url.replace("https://", "http://"),
+    )
+    http_order = dataclasses.replace(ORDER, url=ORDER.url.replace("https://", "http://"))
+    assert await EW.unseen(db, [FED, ORDER, http_order]) == [ORDER]
+
+
 async def test_nothing_fetched_means_nothing_queried(db: InvestmentDB) -> None:
     assert await EW.unseen(db, []) == []
 

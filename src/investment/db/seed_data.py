@@ -477,13 +477,20 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # MACRO, not a sleeve: it is a signal, never held. Taken as quoted: one
     # print went NEGATIVE (2020-04-20, -36.98, a contract-expiry squeeze), so
     # its speed is a difference in dollars, never a percentage.
+    #
+    # ITS LAG IS MEASURED, and the first guess was the dangerous direction: 1 day,
+    # as for BAA10Y, while the EIA publishes spot prices about weekly. Measured on
+    # 2026-11-08 against FRED first-release vintages, 262 observations over a
+    # year: min 1, median 6, p95 8, max 13 days. 10 is the p95 plus two days,
+    # JPNASSETS' rule; shorter dates a price before it was known, which is
+    # lookahead in the 35y sweep of every invariant written on `oil`.
     {
         "ticker": "DCOILWTICO",
         "asset_class": "MACRO",
         "currency": "USD",
         "source": "fred",
         "transform": "none",
-        "availability_lag_days": 1,
+        "availability_lag_days": 10,
     },
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch.
