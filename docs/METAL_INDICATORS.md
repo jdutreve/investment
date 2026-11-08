@@ -370,3 +370,33 @@ and 2014-2026 (each variant starts once its signal can be read), against gold
 held and copper held over the same span. **Reading:** a variant is
 CONSISTENT if its CAGR beats gold held on the whole span AND on both halves;
 NOT SHOWN otherwise.
+
+### Result of the fifth study (run once, 2026-11-08)
+
+M4 as implemented, decided before the run: a cheap reading (monthly z < −1,
+knowable the first trading day of the next month) arms the entry; while armed,
+copper whenever R is above its 200-session average; a close below it returns
+the book to gold and disarms it until the next cheap reading.
+
+| variant | whole span | to 2013 | 2014-2026 | switches | gold held (whole / to 2013 / 2014-26) | verdict |
+|---|---|---|---|---|---|---|
+| M1 R > MA200 (from 2001-06) | +2.88% (DD −70%) | +5.59% | +0.31% | 277 | +11.26% / +12.61% / +9.97% | not shown |
+| M2 R > MA252 (from 2001-08) | +6.65% (DD −67%) | +8.57% | +4.84% | 233 | +11.32% / +12.74% / +9.97% | not shown |
+| M3 6-month change > 0 (from 2001-03) | +5.83% (DD −65%) | +9.20% | +2.58% | 263 | +11.28% / +12.61% / +9.97% | not shown |
+| M4 cheap, then MA200 (from 2005-08) | **+12.34%** (DD −54%) | +12.59% | **+12.18%** | 39 | +11.16% / +12.99% / +9.97% | not shown (first half) |
+
+Copper held: +6.3% to +9.1% a year over the same spans, drawdown −69%.
+
+**What it says.**
+
+- **Momentum alone destroys value on this ratio.** Every pure trend variant
+  earned a third to two thirds of gold held, with a drawdown of −65% to −70%,
+  over 230 to 280 switches: the ratio whipsaws across its averages.
+- **Momentum as the EXIT of the cheap entry is the one that earns:** +12.3% a
+  year against +11.2% for gold, +12.2% against +10.0% since 2014, in 39
+  switches — but behind gold on 2005-2013 (+12.6% against +13.0%) and with a
+  deeper drawdown (−54% against −44%). Not consistent by the bar fixed before
+  the run; about a point a year, earned in the second half.
+- **Today every variant holds copper:** R 1.531 sits above its 200- and
+  252-session averages (1.394, 1.364), up 16% in six months; M4 entered on the
+  2024-26 cheap episode and holds while R stays above its 200-session average.

@@ -493,6 +493,28 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/METAL_INDICATORS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 8),
+        about="indicators",
+        question=(
+            "Does following the copper/gold momentum — copper while the ratio trends up, "
+            "gold otherwise — beat holding gold?"
+        ),
+        answer="no alone; barely as the exit of the cheap entry",
+        evidence=(
+            "2001-2026: above its 200-day, 252-day average or a rising 6 months gave +2.9%, "
+            "+6.7%, +5.8% a year against +11.3% for gold, drawdowns -65% to -70%, 230-280 "
+            "switches. Cheap entry then 200-day exit (2005-2026): +12.3% against +11.2%, "
+            "+12.2% against +10.0% since 2014 but +12.6% against +13.0% before, drawdown "
+            "-54% against -44%."
+        ),
+        consequence=(
+            "Do not propose trading the ratio's trend. Its only use measured here is as the "
+            "exit of a position opened when copper was cheap, for about a point a year and a "
+            "deeper drawdown."
+        ),
+        record="docs/METAL_INDICATORS.md",
+    ),
 )
 
 _HEADINGS = {
