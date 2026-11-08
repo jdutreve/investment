@@ -199,3 +199,55 @@ gold +15.45% (−26.7%), copper +12.22% (−34.9%).
   the edge: gold returned more, with a drawdown a third shallower over 2004-2026.
   Copper is in none of the stack's books and the system measures nothing that
   would put it there.
+
+## Third study: is the copper/gold cycle tradable read without hindsight? (protocol committed 2026-11-08, before the run)
+
+Owner, the same day, with a chart of the ratio: "yet the ratio looks cyclical".
+It does: a secular decline inside a falling channel, with swings of a few
+years. The first two studies tested MOMENTUM (above its 12-month average, does
+it continue?) over 12 weeks; a cycle implies the opposite, REVERSION from the
+extremes, over months. The channel on a chart is drawn through points that
+were not known at the time, so the extreme is defined here from the past alone.
+
+**Data, one monthly series for the whole span.** Copper: FRED `PCOPPUSDM` (IMF
+monthly average, 1992-01 to its last print), knowable on the first day of the
+month three months later, as in the second study. Gold: GLD's daily series
+averaged over the calendar month. Ratio r(M) = copper(M) / gold(M).
+
+**Signal.** z(M) = (ln r(M) − mean of ln r over the 60 months up to M) / the
+standard deviation over the same 60 months (a full 60 required). Read at a
+decision date D (the first of each month) as the latest z knowable at D.
+CHEAP: z < −1 (copper cheap against gold, the bottom of the channel). RICH:
+z > +1. The rest: neither.
+
+**Outcome.** Copper minus gold over h months from D: copper(month of D + h) /
+copper(month of D) − 1, minus the same for gold, on monthly averages. h = 12
+and h = 6.
+
+**Sampling.** Non-overlapping: one decision every h months from the first
+readable date, while the outcome's last month has a print. Robustness: the same
+grid started 1, 2 and 3 months later. Halves: decisions before 2012-01-01 and
+from it.
+
+**Hypotheses.**
+
+| # | group | outcome | claim |
+|---|---|---|---|
+| K1 | CHEAP vs the rest | copper − gold, 12 months | higher (copper rebounds) |
+| K2 | CHEAP vs the rest | copper − gold, 6 months | higher |
+| K3 | RICH vs the rest | copper − gold, 12 months | lower (copper gives back) |
+| K4 | RICH vs the rest | copper − gold, 6 months | lower |
+| K5 | z, all decisions | rank correlation with copper − gold, 12 months | negative |
+
+**Statistic and verdict.** As in the first two studies: difference of means
+(K5: Spearman correlation), 90% bootstrap interval (10,000 resamples, seed 0),
+one-sided p, halves, four offsets; SUPPORTED iff the claimed sign, an interval
+excluding zero, and the same sign on both halves and all four offsets;
+CONTRADICTED iff the interval lies entirely on the other side; NOT SUPPORTED
+otherwise. A group with fewer than 5 observations on the main grid gives
+TOO FEW, not a verdict: about thirty years hold five or six cycles, and the
+tails are where they are thin.
+
+**Context, no verdict:** z today, from the latest knowable copper print, and
+from the daily futures (GC=F, HG=F) on the same 60-month definition without the
+publication lag — where the ratio sits now on this scale.
