@@ -50,6 +50,7 @@ from investment.mechanical.market_signal import (
 PRICE_ASSET_CLASSES = frozenset(
     {
         "COMMODITIES",
+        "DOLLAR",
         "EM_EQUITY",
         "FX",
         "GOLD",

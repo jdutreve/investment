@@ -250,6 +250,7 @@ async def _materialize_real_rates(db: InvestmentDB, default_lookback_days: int) 
     written[EQUITY_TREND_TICKER] = await _materialize_equity_trend(db, default_lookback_days)
     written[GOLD_10Y_DEV_TICKER] = await _materialize_gold_10y_dev(db, default_lookback_days)
     written.update(await _materialize_metal_ratios(db, default_lookback_days))
+    written.update(await _materialize_fed_signals(db, default_lookback_days))
     return written
 
 
@@ -274,6 +275,63 @@ async def _materialize_metal_ratios(db: InvestmentDB, default_lookback_days: int
             written[derived_id] = 0
             continue
         deriv = derivatives.compute_derivatives(ratio, derived_id, default_lookback_days)
+        rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
+        await db.replace_ts_series("market_data", derived_id, rows)
+        written[derived_id] = len(rows)
+    return written
+
+
+# A reverse repo print older than this is not carried to a Wednesday: the
+# operation is overnight, and a gap longer than a long weekend means there was
+# none (db/seed_data.py DERIVED_SIGNALS, `net_liquidity`).
+RRP_CARRY_DAYS = 4
+
+
+def fed_path(two_year: pd.Series, fed_funds: pd.Series) -> pd.Series:
+    """`fed_path_2y`: DGS2 minus DFF on DGS2's calendar, DFF as last known on
+    each date (it prints on weekends too) — both legs dated at their knowable
+    date, so the difference is too."""
+    funds = fed_funds.sort_index().reindex(two_year.index, method="ffill")
+    return (two_year - funds).dropna()
+
+
+def net_liquidity(assets: pd.Series, treasury: pd.Series, reverse_repo: pd.Series) -> pd.Series:
+    """`net_liquidity`, billions: WALCL less WTREGEN (both millions) less
+    RRPONTSYD (billions), on WALCL's dates. The Treasury account is read as last
+    known; the reverse repo as last known within `RRP_CARRY_DAYS`, else zero.
+    An absent input makes no series: a missing reverse repo read as zero would
+    print the balance sheet less the Treasury under the name of net liquidity."""
+    if assets.empty or treasury.empty or reverse_repo.empty:
+        return pd.Series(dtype=float)
+    idx = pd.DatetimeIndex(assets.index)
+    tga = treasury.sort_index().reindex(idx, method="ffill")
+    rrp = reverse_repo.sort_index()
+    last_print = pd.Series(rrp.index, index=rrp.index).reindex(idx, method="ffill")
+    printed_on = pd.DatetimeIndex(last_print)
+    fresh = (idx - printed_on) <= pd.Timedelta(days=RRP_CARRY_DAYS)
+    drain = rrp.reindex(idx, method="ffill").where(fresh, 0.0).fillna(0.0)
+    return (assets / 1000.0 - tga / 1000.0 - drain).dropna()
+
+
+async def _materialize_fed_signals(db: InvestmentDB, default_lookback_days: int) -> dict[str, int]:
+    """The Fed's expected path and its net liquidity (db/seed_data.py
+    DERIVED_SIGNALS), from series step 9 already persisted."""
+    derived = {
+        "fed_path_2y": fed_path(
+            await ratios.load_price(db, "DGS2"), await ratios.load_price(db, "DFF")
+        ),
+        "net_liquidity": net_liquidity(
+            await ratios.load_price(db, "WALCL"),
+            await ratios.load_price(db, "WTREGEN"),
+            await ratios.load_price(db, "RRPONTSYD"),
+        ),
+    }
+    written: dict[str, int] = {}
+    for derived_id, series in derived.items():
+        if series.empty:
+            written[derived_id] = 0
+            continue
+        deriv = derivatives.compute_derivatives(series, derived_id, default_lookback_days)
         rows = _ts_rows(derived_id, "MACRO", "USD", deriv)
         await db.replace_ts_series("market_data", derived_id, rows)
         written[derived_id] = len(rows)

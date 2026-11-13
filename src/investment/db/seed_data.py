@@ -513,6 +513,45 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 5,
     },
+    # THE DOLLAR AND THE FED'S EXPECTED PATH (owner, 2026-11-13: "yes, add them
+    # and run the study", after reading a newsletter's macro panel against what
+    # the tape already held). The tape carried two exchange rates, feeding
+    # GLOBAL_LIQUIDITY, and no dollar index; the 2-year yield only inside the
+    # 10y-2y slope; the policy rate not at all.
+    #
+    # The ICE dollar index (DXY: a basket weighted toward the euro, the yen and
+    # sterling), daily from 1971. A price index: its momentum is read in percent.
+    # Class DOLLAR, its own, so it is an indicator the freshness alert watches
+    # and never a sleeve (FX is neither).
+    {
+        "ticker": "DX-Y.NYB",
+        "asset_class": "DOLLAR",
+        "currency": "USD",
+        "source": "yahoo",
+        "transform": "none",
+    },
+    # The 2-year Treasury yield (daily from 1976) and the effective federal funds
+    # rate (daily from 1954): the first prices the policy rate the market expects
+    # over two years, the second is that rate today — `fed_path_2y` below.
+    # Lags measured on 2026-11-13 against FRED first releases over a year, both
+    # series alike: min 1, median 1, p95 3, max 6 — 5 is the p95 plus two days,
+    # JPNASSETS' rule (the p95 is a Friday print published on Monday).
+    {
+        "ticker": "DGS2",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 5,
+    },
+    {
+        "ticker": "DFF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 5,
+    },
     # Crude oil, WTI spot (USD per barrel, daily from 1986) — THE WORKER'S OWN
     # PROPOSAL, the first system idea applied (innovation of 2026-11-08,
     # owner: "oui ajoute le pétrole"). Its case: the Hormuz shock drives the
@@ -624,6 +663,30 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "source": "fred",
         "transform": "none",
         "availability_lag_days": 40,  # measured; see the M2SL note above
+    },
+    # THE TWO DRAINS ON THE FED'S BALANCE SHEET (2026-11-13), the inputs of
+    # `net_liquidity` below: the Treasury's account at the Fed (WTREGEN, millions,
+    # Wednesday level from 2002-12, the H.4.1 release WALCL comes from) and the
+    # overnight reverse repo (RRPONTSYD, billions, daily from 2003-02). Measured
+    # that day against FRED first releases over a year: WTREGEN min 1, p95 1,
+    # max 2 — the same as WALCL, so it takes WALCL's 5 and the two legs of one
+    # release are dated alike; RRPONTSYD 0 on all 257 prints (the New York Fed
+    # publishes the operation the same afternoon) — 2 is the p95 plus two days.
+    {
+        "ticker": "WTREGEN",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 5,
+    },
+    {
+        "ticker": "RRPONTSYD",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "fred",
+        "transform": "none",
+        "availability_lag_days": 2,
     },
     # FX helpers for the GLOBAL_LIQUIDITY USD-conversion (market/liquidity.py
     # usd_convert). FRED, not Yahoo: DEXUSEU (USD per EUR, from 1999) and DEXJPUS
@@ -803,14 +866,20 @@ NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
 # `asset_class != 'MACRO'` until 2026-11-08, which named the only non-sleeve
 # class there was when they were written and let ^VIX, ^IRX and the FX quotes
 # through as holdable.
-NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {"FX", "METAL"}
+NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {"FX", "METAL", "DOLLAR"}
 
 # The series the Worker reads as INDICATORS on its macro tape, and whose
 # freshness is watched. VOLATILITY and RISK_FREE joined MACRO on 2026-11-08
 # (owner: the VIX "at the same level of information as oil"): ^VIX and ^IRX were
 # fetched and listed among the fetchable series, yet absent from the tape the
 # Worker reasons on.
-INDICATOR_ASSET_CLASSES: tuple[str, ...] = ("MACRO", "VOLATILITY", "RISK_FREE", "METAL")
+INDICATOR_ASSET_CLASSES: tuple[str, ...] = (
+    "MACRO",
+    "VOLATILITY",
+    "RISK_FREE",
+    "METAL",
+    "DOLLAR",
+)
 
 # THE MACRO TAPE BY FAMILY (owner, 2026-11-08: "oil, volatility, liquidity,
 # gold, rates are all macro indicators that let you understand the present and
@@ -823,6 +892,9 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
     "rates and the yield curve": (
         "DGS10",
         "T10Y2Y",
+        "DGS2",
+        "DFF",
+        "fed_path_2y",
         "^IRX",
         "DFII5",
         "real_yield_10y",
@@ -837,7 +909,18 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
         "TCMDODNS",
     ),
     "inflation and growth": ("CPIAUCSL", "INDPRO", "UNRATE", "GROWTH_COMPOSITE", "GDP"),
-    "liquidity": ("WALCL", "ECBASSETSW", "JPNASSETS", "M2SL", "m2_yoy", "m2_accel_12m"),
+    "liquidity": (
+        "WALCL",
+        "WTREGEN",
+        "RRPONTSYD",
+        "net_liquidity",
+        "ECBASSETSW",
+        "JPNASSETS",
+        "M2SL",
+        "m2_yoy",
+        "m2_accel_12m",
+    ),
+    "the dollar": ("DX-Y.NYB",),
     "energy": ("DCOILWTICO",),
     "volatility": ("^VIX",),
     "metals: gold, silver, copper": (
@@ -870,6 +953,19 @@ DERIVED_SIGNALS: dict[str, str] = {
     # four decimals every number reaches the Worker with would round away.
     "copper_gold_ratio": "1000 x HG=F / GC=F  # copper USD/lb per 1000 USD/oz of gold",
     "real_rate": "irx - CPIAUCSL(yoy_pct)   # nominal SHORT rate minus inflation",
+    # THE FED'S EXPECTED PATH (2026-11-13): what the 2-year yield prices above
+    # the policy rate today, in percentage points. Customarily read as hikes
+    # priced when positive and cuts when negative — a term premium sits in it
+    # too, so zero is the custom, not a measured neutral. Read on DGS2's
+    # calendar, DFF as last known (it prints on weekends).
+    "fed_path_2y": "DGS2 - DFF  # 2-year yield minus the effective fed funds rate",
+    # THE FED'S NET LIQUIDITY (2026-11-13), billions USD: the balance sheet less
+    # the two accounts that hold its reserves away from the banks. Read on the
+    # H.4.1 Wednesdays WALCL is dated by. A day without a reverse repo
+    # operation is ZERO, not the last one: before the standing facility opened
+    # in 2013-09 operations were rare tests, and carrying 2008's 26 bn forward
+    # for five years would invent a drain.
+    "net_liquidity": "WALCL/1000 - WTREGEN/1000 - RRPONTSYD  # Fed assets less TGA and RRP",
     # The LONG real yield — a distinct signal, not a refinement of real_rate:
     # opportunity-cost claims (gold vs a yielding alternative) are stated
     # against the 10y, and the two disagree on most of the sample (the short
@@ -946,6 +1042,11 @@ SIGNAL_ALIASES: dict[str, str] = {
     # The metals' comparators (2026-11-08): see DERIVED_SIGNALS.
     "gold_silver": "gold_silver_ratio",
     "copper_gold": "copper_gold_ratio",
+    # The dollar and the Fed (2026-11-13): see their ALLOWED_TICKERS rows and
+    # DERIVED_SIGNALS.
+    "dollar": "DX-Y.NYB",
+    "fed_path": "fed_path_2y",
+    "net_liquidity": "net_liquidity",
 }
 # THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a
 # condition's series through it, and the VALIDATION GATE demotes a signal it
