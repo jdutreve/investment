@@ -536,6 +536,67 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/METAL_INDICATORS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 13),
+        about="indicators",
+        question=(
+            "Does the policy path the 2-year yield prices above the fed funds rate "
+            "(fed_path_2y) foretell the Fed, and does it time equities or bonds?"
+        ),
+        answer="foretells the Fed; times no asset",
+        evidence=(
+            "1992-2026, 146 non-overlapping 12-week outcomes: when positive, fed funds "
+            "+0.40 pt more over 12 weeks [90%: +0.27, +0.54], both halves, every offset. "
+            "SPY +0.70% [-1.39, +2.91], IEF -0.90% [-1.94, +0.12]. SPY only while no hike "
+            "priced, else IEF: 3.80% a year against 10.56% held. Positive 77% of the time."
+        ),
+        consequence=(
+            "Read fed_path_2y as the market's forecast of the Fed's next moves, which it "
+            "has been. Do not read it as a reason to sell equities or bonds: neither "
+            "followed it, and above zero is its usual state, not an alarm."
+        ),
+        record="docs/DOLLAR_AND_FED_INDICATORS.md",
+    ),
+    Finding(
+        measured_on=date(2026, 11, 13),
+        about="indicators",
+        question=(
+            "Does a dollar above its 200-session average weigh on gold, on commodities, "
+            "or on equities against bonds over the next twelve weeks?"
+        ),
+        answer="commodities yes, gold no",
+        evidence=(
+            "1992-2026, 146 outcomes: DJP -2.92% [90%: -5.08, -0.76], p=0.012, both halves "
+            "and all offsets; GLD +0.36% [-1.65, +2.38], halves of opposite signs; SPY minus "
+            "IEF -1.68% [-3.94, +0.57]. GLD only while the dollar is below its average: "
+            "3.38% a year against 7.02% held."
+        ),
+        consequence=(
+            "A strong dollar has preceded weaker commodities, short of the corrected bar. "
+            "'Strong dollar, weak gold' is not in this history at twelve weeks: do not "
+            "propose trimming gold on the dollar's trend."
+        ),
+        record="docs/DOLLAR_AND_FED_INDICATORS.md",
+    ),
+    Finding(
+        measured_on=date(2026, 11, 13),
+        about="indicators",
+        question=(
+            "Does the Fed's net liquidity (balance sheet less the Treasury's account and "
+            "the reverse repo), rising over a quarter, precede better equities?"
+        ),
+        answer="no",
+        evidence=(
+            "2003-2026, 99 non-overlapping 12-week outcomes: SPY -0.56% [90%: -2.91, +1.70] "
+            "when rising, SPY minus IEF -2.27% [-4.92, +0.30], halves of opposite signs. "
+            "SPY only while it rises, else IEF: 6.69% a year against 11.47% held."
+        ),
+        consequence=(
+            "Net liquidity describes the Fed's plumbing; it has not timed equities outside "
+            "2020-2024. Do not cite its direction as a reason for more or less risk."
+        ),
+        record="docs/DOLLAR_AND_FED_INDICATORS.md",
+    ),
 )
 
 _HEADINGS = {

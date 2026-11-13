@@ -100,3 +100,67 @@ close t.
 CAGR, annualised volatility, Sortino (daily, against ^IRX, annualised), maximum
 drawdown, number of changes. No verdict rule: this is what each choice would
 have cost or paid, read beside H1–H8.
+
+## Result (run once, 2026-11-13)
+
+No deviation from the protocol. 146 non-overlapping 12-week outcomes for H1–H6
+(1992-01-02 to 2026-07-24), 99 for H7–H8 (2003-03-24 to 2026-08-06), offset 0.
+
+| # | signal → outcome | ON − OFF [90%] | p | halves | offsets 0/3/6/9 wk | ON | verdict |
+|---|---|---|---|---|---|---|---|
+| H1 | DOLLAR_UP → GLD (claim lower) | +0.36% [−1.65, +2.38] | 0.61 | +1.42 / −0.91 | +0.36 +0.59 −0.41 −0.36 | 54% | not supported |
+| H2 | DOLLAR_UP → DJP (claim lower) | −2.92% [−5.08, −0.76] | 0.012 | −1.92 / −4.08 | −2.92 −1.30 −0.69 −2.83 | 54% | **supported** |
+| H3 | DOLLAR_UP → SPY − IEF (claim lower) | −1.68% [−3.94, +0.57] | 0.11 | −1.85 / −2.14 | −1.68 −1.16 −0.29 −1.18 | 54% | not supported |
+| H4 | HIKES_PRICED → DFF change | +0.40 pt [+0.27, +0.54] | < 0.001 | +0.43 / +0.36 | +0.40 +0.45 +0.29 +0.50 | 77% | **supported** |
+| H5 | HIKES_PRICED → IEF (claim lower) | −0.90% [−1.94, +0.12] | 0.07 | −0.62 / −1.09 | −0.90 −0.34 −0.24 −0.32 | 77% | not supported |
+| H6 | HIKES_PRICED → SPY (claim lower) | +0.70% [−1.39, +2.91] | 0.71 | +0.45 / +0.75 | +0.70 −0.03 −1.10 −0.81 | 77% | not supported |
+| H7 | NETLIQ_UP → SPY | −0.56% [−2.91, +1.70] | 0.64 | −2.36 / +1.34 | −0.56 +0.84 −0.84 −0.11 | 59% | not supported |
+| H8 | NETLIQ_UP → SPY − IEF | −2.27% [−4.92, +0.30] | 0.93 | −4.40 / +0.26 | −2.27 +0.95 −1.04 −0.04 | 59% | not supported |
+
+**The price list**, daily to 2026-11-06, 23 bp a change:
+
+| from | rule | CAGR | vol | Sortino | max drawdown | changes |
+|---|---|---|---|---|---|---|
+| 1992-01-02 | GLD held | +7.02% | 16.6% | 0.49 | −45.6% | 0 |
+| 1992-01-02 | GLD unless DOLLAR_UP, else cash | +3.38% | 11.5% | 0.18 | −37.9% | 303 |
+| 1992-01-02 | SPY held | +10.56% | 18.3% | 0.72 | −55.2% | 0 |
+| 1992-01-02 | IEF held | +4.57% | 6.4% | 0.49 | −23.9% | 0 |
+| 1992-01-02 | SPY unless HIKES_PRICED, else IEF | +3.80% | 11.1% | 0.23 | −42.4% | 152 |
+| 2003-03-24 | SPY held | +11.47% | 18.5% | 0.83 | −55.2% | 0 |
+| 2003-03-24 | IEF held | +3.27% | 6.8% | 0.37 | −23.9% | 0 |
+| 2003-03-24 | SPY while NETLIQ_UP, else IEF | +6.69% | 15.9% | 0.53 | −49.4% | 222 |
+
+**Today** (as knowable on 2026-11-13): DX-Y.NYB 103.4 against a 200-session
+mean of 99.85 — DOLLAR_UP is ON; `fed_path_2y` +0.85 — hikes priced;
+`net_liquidity` 5,844 bn against 5,796 bn 91 days earlier — NETLIQ_UP is ON.
+
+**What it says.**
+
+- **The policy path says what it claims to say, and nothing more.** When the
+  2-year yield sits above the fed funds rate, the rate rose 0.40 point more
+  over the next twelve weeks than when it sat below — on both halves, every
+  offset, far past the corrected bar. That is the expectations at work, as
+  expected. It does not carry over to assets: equities did no worse when hikes
+  were priced, and bonds did only slightly worse (−0.90%, p = 0.07). Holding SPY
+  only while no hike was priced earned 3.80% a year against 10.56% held — below
+  IEF held. Its ON share (77%) says the zero line is not neutral: a term premium
+  keeps the 2-year above the policy rate most of the time.
+- **A rising dollar has weighed on commodities, not on gold.** DJP did 2.92%
+  worse over twelve weeks with the dollar above its 200-session average, on both
+  halves and all offsets — the one asset reading that clears the protocol's bar,
+  though not the corrected one (p = 0.012 against 0.006). Gold did not care
+  (+0.36%, halves of opposite signs): the customary "strong dollar, weak gold"
+  is not in this history at a 12-week horizon. Timing gold on the dollar halved
+  its return (3.38% against 7.02%). Equities against bonds leaned the claimed
+  way (−1.68%) without clearing the bar. The stack holds no commodity sleeve,
+  so the supported reading is about the tape, not about a book.
+- **Net liquidity carries nothing measurable.** Rising over a quarter, it was
+  followed by slightly WORSE equities (−0.56%) and worse equities against bonds
+  (−2.27%), the halves disagreeing in sign. Its popular reputation rests on
+  2020–2024; over 2003–2026 it does not time equities, and following it cost
+  almost five points a year against SPY held.
+- **Consequence for the digest and the Worker:** the three series stay on the
+  tape as descriptions of the present. `fed_path_2y` may be read as the market's
+  forecast of the Fed's next moves, which it has been; none of the three may be
+  read as a timing signal for an asset the stack holds
+  (`research_findings.FINDINGS`, 2026-11-13).
