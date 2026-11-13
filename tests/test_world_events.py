@@ -116,6 +116,13 @@ async def test_a_pick_becomes_an_event_the_worker_reads_as_a_world_event(
     report = await WE.run_world_events(db, ingester, _agent([ELECTION]), TODAY, fetch=_page)
 
     assert report.days_read == 1 and report.picked == 1 and not report.failed
+    # The ingester stamps the wall clock; the run is meant to happen on TODAY.
+    # Left as stamped, the reading window `_recent_events` draws around TODAY
+    # stopped holding it the day after TODAY, and the test with it.
+    await db.command(
+        "UPDATE document SET ingested_at = :at WHERE kind = 'event'",
+        at=f"{TODAY.isoformat()}T07:06:00+00:00",
+    )
     events = await _recent_events(db, TODAY)
     assert [(e["stream"], e["title"]) for e in events] == [
         ("world", "Democrats win control of both chambers of the US Congress")
