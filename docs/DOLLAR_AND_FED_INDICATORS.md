@@ -154,7 +154,7 @@ mean of 99.85 — DOLLAR_UP is ON; `fed_path_2y` +0.85 — hikes priced;
   its return (3.38% against 7.02%). Equities against bonds leaned the claimed
   way (−1.68%) without clearing the bar. The stack holds no commodity sleeve,
   so the supported reading is about the tape, not about a book.
-- **Net liquidity carries nothing measurable.** Rising over a quarter, it was
+- **Net liquidity, measured, times nothing.** Rising over a quarter, it was
   followed by slightly WORSE equities (−0.56%) and worse equities against bonds
   (−2.27%), the halves disagreeing in sign. Its popular reputation rests on
   2020–2024; over 2003–2026 it does not time equities, and following it cost
