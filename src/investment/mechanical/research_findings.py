@@ -606,13 +606,12 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         answer="neither times gold",
         evidence=(
-            "1992-2026, 145 non-overlapping 12-week outcomes, intervals by episode. Real "
-            "yield falling: GLD +2.54% [90%: +0.59, +4.59] on the first grid, negative on "
-            "the three grids started 3, 6 and 9 weeks later. Negative short real rate: GLD "
-            "minus the median of SPY, IEF and cash +0.54% [-3.22, +2.95], halves of opposite "
-            "signs, 13 ON episodes only. TIPS yield falling (2003-2026): GLD -1.93%. GLD "
-            "held 6.95% a year; only while the real yield falls 2.02%, only while the "
-            "short real rate is negative 4.43%."
+            "Real yield falling: GLD +2.54% on the first grid, negative on the three "
+            "shifted grids. Negative short real rate: +0.54% against the median, halves of "
+            "opposite signs, 13 episodes. TIPS yield falling: GLD -1.93%. 1992-2026, 145 "
+            "non-overlapping 12-week outcomes, intervals by episode. GLD held 6.95% a year; "
+            "only while the real yield falls 2.02%, only while the short real rate is "
+            "negative 4.43%."
         ),
         consequence=(
             "Do not cite the level or the recent direction of real rates as a reason for "
@@ -632,11 +631,11 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         answer="no: the verdict already absorbs it",
         evidence=(
-            "Placebo moving every episode (run permutation, 400 lives, 271 invariants): "
-            "a claim that knows nothing is integrated once over a life 0.15% of the time "
-            "counting windows, 0.41% on conditions ON more than 30% of days, one of 27 at "
-            "7.25% (the 10-year real-yield gold claim). Counting episodes: 0.07%, worst "
-            "2.0%, at about half the power on a true 0.70 claim (0.58 of it)."
+            "On a placebo moving every episode, the rule in force integrates a claim that "
+            "knows nothing 0.15% of the time over a life, 0.41% on dense conditions. "
+            "Counting episodes: 0.07%, for 0.58 of the power on a true 0.70 claim. "
+            "271 invariants, 400 lives each; one of 27 dense records at 7.25%, the "
+            "10-year real-yield gold claim."
         ),
         consequence=(
             "Do not propose counting by episode for the verdict. Dependence is real and "
@@ -655,10 +654,9 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         answer="the anticipation",
         evidence=(
-            "Bill yield falling, growth rising: 46/69 (null 0.48), integrated. The same "
-            "without any actual cut in the month: 42/67 (0.63). An actual cut while growth "
-            "rises: 7/14, too rare to read. After an actual cut, whatever growth does: "
-            "9/23 (0.39), equities did worse."
+            "Bill yield falling, growth rising: 46/69 (null 0.48). Without any actual cut "
+            "in the month: 42/67. After an actual cut: 9/23, equities did worse. A cut "
+            "while growth rises: 7/14, too rare to read."
         ),
         consequence=(
             "Read the integrated claim as the bill market pricing easier money in an "

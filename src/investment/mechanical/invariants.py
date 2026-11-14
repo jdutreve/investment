@@ -1520,8 +1520,9 @@ async def _mature_one(
 # THE FINGERPRINT THAT DECIDES "ALREADY MEASURED" KNOWS WHAT WAS ASKED, NOT WHAT
 # IT WAS MEASURED ON. A seed that repairs a series therefore left every record
 # measured on the old data, silently: DJP on 2026-10-04, and on 2026-10-17 the
-# year-on-year repair, after which 142 of 272 records stayed measured on a
-# misread inflation series for four weeks (docs/EPISODE_COUNTING.md). The seed
+# year-on-year repair, after which every record reading inflation, growth or a
+# real rate stayed measured on the misread series for four weeks
+# (docs/EPISODE_COUNTING.md). The seed
 # now photographs what a sweep reads before it writes anything, compares after
 # its last derived series, and re-measures the invariants that read a value
 # which changed. Only values that EXISTED before count: a row appended past a

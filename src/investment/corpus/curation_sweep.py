@@ -115,7 +115,7 @@ async def sweep_corpus(
     # Until 2026-11-14 only the seed and the Worker's innovation commit called
     # this, so an invariant born from a book ingested between two seeds kept
     # 0/0 — and the weekly forward sweep skips a definition never matured, so
-    # nothing ever measured it (16 born that afternoon). Called on every sweep,
+    # nothing ever measured it. Called on every sweep,
     # not only when this one found candidates: the fingerprint makes it free
     # for what is already measured, and a sweep that crashed after creating
     # invariants leaves them for the next one to catch. Every caller runs it

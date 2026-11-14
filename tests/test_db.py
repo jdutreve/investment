@@ -10,11 +10,13 @@ never makes a live network call (see tests/test_market.py for step 9 itself).
 
 import asyncio
 import itertools
+import json
 import sqlite3
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -74,7 +76,7 @@ async def _stub_fetch_raw(ticker_row: Any, api_key: str, start: date | None) -> 
     identical shape for every ticker/proxy so this M1-scope suite never
     touches the network (M2 step 9 itself is exercised in test_market.py)."""
     dates = pd.date_range(end=date.today() - timedelta(days=1), periods=800, freq="D")
-    return pd.Series(100.0 + 0.01 * range(800), index=dates)
+    return pd.Series(100.0 + 0.01 * np.arange(800), index=dates)
 
 
 async def test_schema_declares_every_table_it_creates(db: InvestmentDB) -> None:
@@ -179,6 +181,38 @@ async def test_single_defender_enforced_by_db(db: InvestmentDB) -> None:
     await db.upsert_vertex("portfolio", "p1", {**common, "defender": True})
     with pytest.raises(Exception, match="UNIQUE"):
         await db.upsert_vertex("portfolio", "p2", {**common, "defender": True})
+
+
+async def _seed_maturation_inventory(settings: Settings) -> dict[str, Any]:
+    db = InvestmentDB(settings.db_path)
+    try:
+        rows = await db.query(
+            "SELECT payload FROM event_log WHERE type = 'SeedEvent' ORDER BY id DESC LIMIT 1"
+        )
+    finally:
+        await db.close()
+    return dict(json.loads(rows[0]["payload"])["inventory"]["invariant_maturation"])
+
+
+async def test_a_reseed_re_measures_what_it_revised_and_nothing_else(tmp_path: Path) -> None:
+    """A second seed on the same data revises nothing and re-measures nothing —
+    no churn at every seed. A seed whose fetched history differs (a repair)
+    names the revised series and re-measures the invariants reading them."""
+    settings = _test_settings(tmp_path)
+    await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
+    await run_seed(settings, fetch_raw=_stub_fetch_raw, yahoo_rate_limit_seconds=0.0)
+    same = await _seed_maturation_inventory(settings)
+    assert same["revised_inputs"] == {"series": [], "benchmarks": [], "regimes": False}
+    assert same["remeasured"] == 0
+
+    async def repaired(ticker_row: Any, api_key: str, start: date | None) -> pd.Series:
+        history = await _stub_fetch_raw(ticker_row, api_key, start)
+        return history * pd.Series(np.linspace(1.0, 1.1, len(history)), index=history.index)
+
+    await run_seed(settings, fetch_raw=repaired, yahoo_rate_limit_seconds=0.0)
+    revised = await _seed_maturation_inventory(settings)
+    assert revised["revised_inputs"]["series"]
+    assert revised["remeasured"] >= 1
 
 
 async def test_seed_idempotent_two_runs(tmp_path: Path) -> None:

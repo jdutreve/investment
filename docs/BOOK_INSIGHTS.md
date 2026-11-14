@@ -17,11 +17,12 @@ day's re-measurement of every invariant on the repaired year-on-year series
 - **(note)**: a reference note, with no condition and no effect, so it cannot
   be measured (it carries no weight).
 
-What the measurements say overall: the claims furthest from the null rest on
-few moments (0.65 to 0.70 on 19 to 23 moments: a starting real yield and bond
-returns, gold far above its trend and bonds, momentum in corrections), then
-the equity-trend claims (0.58 to 0.60 on 43 to 61). Negative real rates and
-gold fell to 0.53 once re-measured. The cycle claims as the curator wrote them (growth/inflation quadrants,
+What the measurements say overall, setting aside records under ten moments:
+the one integrated claim, Dalio's bill yield falling while growth rises (0.67
+on 69 moments, item 11), then claims resting on few moments (0.65 to 0.70 on
+19 to 23: a starting real yield and bond returns, gold far above its trend and
+bonds, momentum in corrections), then the equity-trend claims (0.58 to 0.60 on
+43 to 61). Negative real rates and gold fell to 0.53 once re-measured. The cycle claims as the curator wrote them (growth/inflation quadrants,
 a WIDENING credit spread, an extreme spread) sit at the null.
 
 That last point is not a verdict on the adopted stack, which reads the credit

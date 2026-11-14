@@ -182,3 +182,9 @@ DFII5 2.35 against 2.13 — FALLING_TIPS is OFF.
   (`research_findings.FINDINGS`, 2026-11-14). The common reading, that gold
   moves inversely to real yields, is about moves in the SAME period; whether a
   past move predicts the next quarter is what this measured, and it does not.
+
+**Note, later the same day.** The 40/69 this document opens with was measured
+on the year-on-year series as misread until 2026-10-17. Re-measured on the
+repaired series that evening, the claim stands at 34/64 for the same null of
+0.51 (`docs/EPISODE_COUNTING.md`, "Before the run"). Nothing above depends on
+it: this study read GLD and the stored real-rate series directly.
