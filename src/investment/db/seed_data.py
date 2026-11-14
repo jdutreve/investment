@@ -894,6 +894,7 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
         "T10Y2Y",
         "DGS2",
         "DFF",
+        "fed_funds_policy",
         "fed_path_2y",
         "^IRX",
         "DFII5",
@@ -959,6 +960,11 @@ DERIVED_SIGNALS: dict[str, str] = {
     # too, so zero is the custom, not a measured neutral. Read on DGS2's
     # calendar, DFF as last known (it prints on weekends).
     "fed_path_2y": "DGS2 - DFF  # 2-year yield minus the effective fed funds rate",
+    # THE POLICY RATE (2026-11-14): DFF is the EFFECTIVE rate, whose daily
+    # spikes made a 30-day fall of 0.10 point fire on 89 days of 1997, a year
+    # without a cut. The median of its last 20 prints follows the FOMC's
+    # decisions; `fed_funds.speed < -0.20` reads "the Fed cut within the month".
+    "fed_funds_policy": "median of the last 20 DFF prints  # policy rate, spikes removed",
     # THE FED'S NET LIQUIDITY (2026-11-13), billions USD: the balance sheet less
     # the two accounts that hold its reserves away from the banks. Read on the
     # H.4.1 Wednesdays WALCL is dated by. A day without a reverse repo
@@ -1046,6 +1052,9 @@ SIGNAL_ALIASES: dict[str, str] = {
     # DERIVED_SIGNALS.
     "dollar": "DX-Y.NYB",
     "fed_path": "fed_path_2y",
+    # The Fed's own decisions, not the bill market's anticipation of them
+    # (`irx`): owner, 2026-11-14.
+    "fed_funds": "fed_funds_policy",
     "net_liquidity": "net_liquidity",
 }
 # THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a

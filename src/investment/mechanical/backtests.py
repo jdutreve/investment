@@ -313,13 +313,28 @@ def net_liquidity(assets: pd.Series, treasury: pd.Series, reverse_repo: pd.Serie
     return (assets / 1000.0 - tga / 1000.0 - drain).dropna()
 
 
+# The effective rate's day-to-day spikes (month and quarter ends, and before
+# 2008 deviations from the target lasting days) last well under 20 prints.
+# Chosen on the series alone, against the FOMC's known calendar, before any
+# outcome was read (docs/FED_CUTS_AND_EQUITIES.md): with 20 prints a 30-day
+# fall of more than 0.20 point fires on 0 to 4 days a year without a cut.
+FED_FUNDS_MEDIAN_PRINTS = 20
+
+
+def fed_funds_policy(fed_funds: pd.Series) -> pd.Series:
+    """`fed_funds_policy`: the median of the last 20 DFF prints, the policy rate
+    without the effective rate's spikes. DFF prints daily, weekends included,
+    each at its knowable date, so the median uses only what was known."""
+    return fed_funds.sort_index().rolling(FED_FUNDS_MEDIAN_PRINTS).median().dropna()
+
+
 async def _materialize_fed_signals(db: InvestmentDB, default_lookback_days: int) -> dict[str, int]:
-    """The Fed's expected path and its net liquidity (db/seed_data.py
-    DERIVED_SIGNALS), from series step 9 already persisted."""
+    """The Fed's expected path, its policy rate and its net liquidity
+    (db/seed_data.py DERIVED_SIGNALS), from series step 9 already persisted."""
+    fed_funds = await ratios.load_price(db, "DFF")
     derived = {
-        "fed_path_2y": fed_path(
-            await ratios.load_price(db, "DGS2"), await ratios.load_price(db, "DFF")
-        ),
+        "fed_path_2y": fed_path(await ratios.load_price(db, "DGS2"), fed_funds),
+        "fed_funds_policy": fed_funds_policy(fed_funds),
         "net_liquidity": net_liquidity(
             await ratios.load_price(db, "WALCL"),
             await ratios.load_price(db, "WTREGEN"),

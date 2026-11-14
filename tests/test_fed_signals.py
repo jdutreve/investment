@@ -8,7 +8,12 @@ import pandas as pd
 import pytest
 
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.backtests import _materialize_fed_signals, fed_path, net_liquidity
+from investment.mechanical.backtests import (
+    _materialize_fed_signals,
+    fed_funds_policy,
+    fed_path,
+    net_liquidity,
+)
 
 
 def _series(points: dict[str, float]) -> pd.Series:
@@ -76,8 +81,22 @@ async def test_both_fed_signals_are_written_as_indicators(tmp_path: Path) -> Non
         )
     finally:
         await db.close()
-    assert written == {"fed_path_2y": 1, "net_liquidity": 1}
+    # One DFF print: too few for the policy rate's 20-print median.
+    assert written == {"fed_path_2y": 1, "fed_funds_policy": 0, "net_liquidity": 1}
     assert [(r["ticker"], round(r["level"], 4)) for r in rows] == [
         ("fed_path_2y", 0.25),
         ("net_liquidity", 5790.0),
     ]
+
+
+def test_the_policy_rate_ignores_a_spike_and_follows_a_cut() -> None:
+    """A month-end spike of the effective rate leaves the policy rate where it
+    was; a cut moves it once more than half of the 20 prints are after it."""
+    days = pd.date_range("2026-01-01", periods=60, freq="D")
+    funds = pd.Series([4.00] * 30 + [3.75] * 30, index=days)
+    funds.iloc[10] = 4.60  # the spike
+
+    policy = fed_funds_policy(funds)
+
+    assert policy.loc["2026-01-20":"2026-01-30"].eq(4.00).all()
+    assert policy.iloc[-1] == 3.75
