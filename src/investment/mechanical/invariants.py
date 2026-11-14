@@ -1515,8 +1515,126 @@ async def _mature_one(
     )
 
 
+# -- re-measurement after a data repair -----------------------------------------
+#
+# THE FINGERPRINT THAT DECIDES "ALREADY MEASURED" KNOWS WHAT WAS ASKED, NOT WHAT
+# IT WAS MEASURED ON. A seed that repairs a series therefore left every record
+# measured on the old data, silently: DJP on 2026-10-04, and on 2026-10-17 the
+# year-on-year repair, after which 142 of 272 records stayed measured on a
+# misread inflation series for four weeks (docs/EPISODE_COUNTING.md). The seed
+# now photographs what a sweep reads before it writes anything, compares after
+# its last derived series, and re-measures the invariants that read a value
+# which changed. Only values that EXISTED before count: a row appended past a
+# series' old end is new data, which the weekly forward sweep is for.
+
+
+@dataclasses.dataclass(frozen=True)
+class MeasuredData:
+    """What a birth sweep reads, as it stands: every signal series an alias
+    points at, every benchmark series, and the regime step function."""
+
+    signals: dict[str, pd.DataFrame]  # ticker -> level/speed/acceleration
+    benchmarks: dict[tuple[str, str], pd.DataFrame]  # (kind, id) -> metrics
+    regime_starts: list[tuple[str, str]]  # (start_date, regime_type_id), in order
+
+
+@dataclasses.dataclass(frozen=True)
+class ChangedInputs:
+    tickers: frozenset[str]
+    benchmarks: frozenset[tuple[str, str]]
+    regime: bool
+
+    def __bool__(self) -> bool:
+        return bool(self.tickers or self.benchmarks or self.regime)
+
+
+async def read_measured_data(db: InvestmentDB) -> MeasuredData:
+    signals = {}
+    for ticker in sorted(set(SIGNAL_ALIASES.values())):
+        frame = await _signal_frame(db, ticker)
+        if not frame.empty:
+            signals[ticker] = frame
+    benchmarks = {
+        (kind, benchmark_id): frame
+        for kind in (BENCHMARK_KIND_ASSET_CLASS, BENCHMARK_KIND_STRATEGY, BENCHMARK_KIND_ASSET)
+        for benchmark_id, frame in (await _benchmark_frames(db, kind)).items()
+    }
+    regimes = await db.query("SELECT start_date, regime_type_id FROM regime ORDER BY start_date")
+    return MeasuredData(
+        signals, benchmarks, [(str(r["start_date"]), str(r["regime_type_id"])) for r in regimes]
+    )
+
+
+def _revised(before: pd.DataFrame, after: pd.DataFrame | None) -> bool:
+    """Did any value that existed in `before` change? Rows past its last date
+    are appended data, not a revision. A relative tolerance absorbs the float
+    noise of a history re-fetched and re-derived to the same values."""
+    if after is None:
+        return True
+    after = after[after.index <= before.index.max()]
+    if not before.index.equals(after.index):
+        return True
+    left = before.to_numpy(dtype=float, na_value=np.nan)
+    right = after[before.columns].to_numpy(dtype=float, na_value=np.nan)
+    return not np.allclose(left, right, rtol=1e-9, atol=1e-12, equal_nan=True)
+
+
+def changed_inputs(before: MeasuredData, after: MeasuredData) -> ChangedInputs:
+    last_start = before.regime_starts[-1][0] if before.regime_starts else ""
+    return ChangedInputs(
+        tickers=frozenset(
+            t for t, frame in before.signals.items() if _revised(frame, after.signals.get(t))
+        ),
+        benchmarks=frozenset(
+            k for k, frame in before.benchmarks.items() if _revised(frame, after.benchmarks.get(k))
+        ),
+        regime=before.regime_starts != [r for r in after.regime_starts if r[0] <= last_start],
+    )
+
+
+def invariants_reading(
+    invariant_rows: list[dict[str, Any]], changed: ChangedInputs
+) -> frozenset[str]:
+    """The invariants whose birth sweep reads a changed input: a condition
+    signal, the handle's own benchmark series, or — unless the claim is
+    absolute — any series of the kind it is compared against."""
+    selected = set()
+    for inv in invariant_rows:
+        if inv["status"] == REFERENCE_STATUS or not inv["effect"]:
+            continue
+        condition = json.loads(inv["condition"]) if inv["condition"] else []
+        effect = json.loads(inv["effect"])
+        signals = {p["signal"] for p in condition}
+        reads_changed_signal = (changed.regime and _REGIME_SIGNAL in signals) or any(
+            SIGNAL_ALIASES.get(s) in changed.tickers for s in signals
+        )
+        handle, method = effect["handle"], effect["method"]
+        if method == "cross_strategy" or handle.startswith("strategy:"):
+            own, compared_kind = (
+                (BENCHMARK_KIND_STRATEGY, _handle_id(handle)),
+                BENCHMARK_KIND_STRATEGY,
+            )
+        elif handle.startswith("asset:"):
+            own, compared_kind = (
+                (BENCHMARK_KIND_ASSET, _handle_id(handle)),
+                BENCHMARK_KIND_ASSET_CLASS,
+            )
+        else:
+            own = (BENCHMARK_KIND_ASSET_CLASS, _handle_id(handle))
+            compared_kind = BENCHMARK_KIND_ASSET_CLASS
+        reads_changed_benchmark = own in changed.benchmarks or (
+            method != "absolute" and any(kind == compared_kind for kind, _ in changed.benchmarks)
+        )
+        if reads_changed_signal or reads_changed_benchmark:
+            selected.add(str(inv["id"]))
+    return frozenset(selected)
+
+
 async def mature_seed_invariants(
-    db: InvestmentDB, *, remeasure_on_changed_data: bool = False
+    db: InvestmentDB,
+    *,
+    remeasure_on_changed_data: bool = False,
+    remeasure: frozenset[str] = frozenset(),
 ) -> list[MaturationResult]:
     """UC0 step 11b (docs/USE_CASES.md) — `mature_invariant()` on every
     invariant, the SAME factored, source-blind mechanism later applied to
@@ -1529,10 +1647,18 @@ async def mature_seed_invariants(
     "already matured" knows what was ASKED and how it was judged, not what it
     was measured ON: when a price history is repaired (DJP, 2026-10-04 — a
     phantom -71% day sat in it for two weeks), the stored records are the
-    answer to a question put to data that no longer exists."""
+    answer to a question put to data that no longer exists.
+
+    `remeasure` does the same for the named invariants only: the seed passes
+    the ones whose inputs it changed (`invariants_reading`), so a repair
+    re-measures what it touched and leaves every other record — and the
+    forward rows judged on what was known at their time — as they stand."""
     invariant_rows = await db.query("SELECT * FROM invariant ORDER BY id")
     inputs = await _load_measurement_inputs(db, invariant_rows)
-    return [await _mature_one(db, inv, inputs, remeasure_on_changed_data) for inv in invariant_rows]
+    return [
+        await _mature_one(db, inv, inputs, remeasure_on_changed_data or str(inv["id"]) in remeasure)
+        for inv in invariant_rows
+    ]
 
 
 @dataclasses.dataclass(frozen=True)

@@ -694,13 +694,39 @@ async def _run_backtests_favors(db: InvestmentDB) -> dict[str, Any]:
     return dataclasses.asdict(result)
 
 
-async def _mature_seed_invariants(db: InvestmentDB) -> dict[str, Any]:
+async def _mature_seed_invariants(
+    db: InvestmentDB, changed: invariants.ChangedInputs
+) -> dict[str, Any]:
     """Step 11b (M5): birth maturation of the 6 seed invariants over the
     full 35y history (mechanical/invariants.py `mature_seed_invariants`) —
     the SAME factored, source-blind mechanism later applied to every
-    post-launch birth (docs/USE_CASES.md UC0 step 11b; ADR-006)."""
-    results = await invariants.mature_seed_invariants(db)
-    return {"invariants": [dataclasses.asdict(r) for r in results]}
+    post-launch birth (docs/USE_CASES.md UC0 step 11b; ADR-006).
+
+    AND THE RE-MEASUREMENT OF WHAT THIS SEED REPAIRED: `changed` lists the
+    inputs whose existing values this run rewrote, and every invariant reading
+    one is measured again on them (owner, 2026-11-14 — see
+    `invariants.MeasuredData`)."""
+    rows = await db.query("SELECT * FROM invariant ORDER BY id")
+    remeasure = invariants.invariants_reading(rows, changed)
+    if remeasure:
+        logger.warning(
+            "UC0 step 11b: %d invariant(s) re-measured — their inputs were revised "
+            "(%d series, %d benchmarks, regimes %s)",
+            len(remeasure),
+            len(changed.tickers),
+            len(changed.benchmarks),
+            "changed" if changed.regime else "unchanged",
+        )
+    results = await invariants.mature_seed_invariants(db, remeasure=remeasure)
+    return {
+        "revised_inputs": {
+            "series": sorted(changed.tickers),
+            "benchmarks": sorted(f"{kind}:{bid}" for kind, bid in changed.benchmarks),
+            "regimes": changed.regime,
+        },
+        "remeasured": len(remeasure),
+        "invariants": [dataclasses.asdict(r) for r in results],
+    }
 
 
 async def _warm_start_scenario_probabilities(db: InvestmentDB) -> dict[str, Any]:
@@ -934,6 +960,10 @@ async def run_seed(
     db = InvestmentDB(settings.db_path)
     inventory: dict[str, Any] = {}
     try:
+        # What the birth sweep reads, BEFORE anything is rewritten: compared
+        # after the last derived series (below), it names what this seed
+        # repaired, which step 11b then re-measures.
+        measured_before = await invariants.read_measured_data(db)
         inventory["user_profile+reference_rows"] = await _seed_reference_tables(db, settings)
         inventory["pruned"] = await _prune_retired_series(db)
         inventory["framework"] = await _seed_frameworks(db)
@@ -955,6 +985,9 @@ async def run_seed(
         inventory["portfolio_nav"] = await _seed_portfolio_nav(db)
         inventory["benchmark_valuation"] = await _materialize_benchmark_valuation(db)
         inventory["backtests_favors"] = await _run_backtests_favors(db)
+        revised = invariants.changed_inputs(
+            measured_before, await invariants.read_measured_data(db)
+        )
         # Steps 6/6b sit HERE — after 10b, before 11b — and the position is
         # load-bearing at both ends:
         #   after 10b, because `signal_ranges` inlines the observed range of
@@ -968,7 +1001,7 @@ async def run_seed(
         #     them. Nothing failed; they were simply never measured.
         inventory["corpus"] = await _seed_corpus(db, settings)
         inventory["curation"] = await _seed_curation(db, settings)
-        inventory["invariant_maturation"] = await _mature_seed_invariants(db)
+        inventory["invariant_maturation"] = await _mature_seed_invariants(db, revised)
         inventory["scenario_warm_start"] = await _warm_start_scenario_probabilities(db)
         # After curation too: a contradiction between a seeded invariant and a
         # freshly extracted one is exactly the kind the check exists to catch.

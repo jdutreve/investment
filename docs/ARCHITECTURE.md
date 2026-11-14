@@ -486,6 +486,18 @@ matured. The third caller arrived on 2026-11-14: until then an invariant born
 from a book ingested between two seeds kept 0/0, because the weekly forward
 sweep skips a definition that was never matured.
 
+**Re-measured when the seed repairs its data.** The fingerprint that decides
+"already matured" knows what was asked, not what it was measured on. The seed
+therefore photographs what a sweep reads (the signal series behind every
+alias, the benchmark series, the regime starts) before writing anything, and
+compares it again after its last derived series. Every invariant that reads a
+value which existed before and changed is re-measured at step 11b; rows
+appended past a series' old end are new data, left to the forward sweep, and
+nothing else is touched (`invariants.MeasuredData`, `invariants_reading`).
+Added on 2026-11-14, after the 2026-10-17 year-on-year repair had left 142 of
+272 records measured on the misread series for four weeks
+(docs/EPISODE_COUNTING.md).
+
 **Two distinct things** the condition/effect split keeps separate:
 - **ACTIVE** — `i.condition` holds NOW → `i` applies to the current market
   (Worker context, digest "what it depends on"). *Applicability, present tense.*
