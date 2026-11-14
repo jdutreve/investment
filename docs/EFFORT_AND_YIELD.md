@@ -78,3 +78,17 @@ corpus, the Worker, the indicators or the digest as their subject.
    bill rate on the cash the stack holds (the NAV assumes ^IRX; a brokerage
    cash balance usually pays less), and the turnover (1.06 to 1.19 points a
    year, already in the stack's figures).
+
+## The owner's answer (2026-11-14): none retained
+
+"The corpus is context for the Worker according to the current context. None
+retained; I am not convinced of the relevance."
+
+The account above judges the corpus by what it was not built for. It counts
+integrated claims, signal rates and allocations moved; the corpus is there so
+that the Worker reads the present with what the books say about situations
+like it, retrieved for the context of the day. Whether that reading is better
+with the corpus than without it is not measured by any figure in this
+document. The four proposals are refused and nothing changes: books keep
+being ingested, the Worker's context keeps being worked on, and indicators
+keep being studied when the owner asks.
