@@ -477,6 +477,15 @@ identical for EVERY invariant at creation — seed, corpus ingestion,
 agent-discovery, user note, UC3 event. Provenance affects only metadata
 (author identity, floor); it never changes the maturation path.
 
+**Where it runs.** Three callers, each after the benchmark valuations it
+reads: the seed (step 11b), the Worker's innovation commit
+(`writeback.commit_innovations`) and the END OF EVERY CURATION SWEEP
+(`corpus/curation_sweep.sweep_corpus` — the post-ingestion pass and the
+Sunday 08:10 step). The fingerprint makes each call free for what is already
+matured. The third caller arrived on 2026-11-14: until then an invariant born
+from a book ingested between two seeds kept 0/0, because the weekly forward
+sweep skips a definition that was never matured.
+
 **Two distinct things** the condition/effect split keeps separate:
 - **ACTIVE** — `i.condition` holds NOW → `i` applies to the current market
   (Worker context, digest "what it depends on"). *Applicability, present tense.*

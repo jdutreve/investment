@@ -17,7 +17,9 @@ import pytest
 
 from investment.config import Settings
 from investment.corpus.curation_sweep import sweep_corpus
+from investment.db.seed_data import SYSTEM_THRESHOLDS
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import REFERENCE_STATUS
 from investment.worker.curator import curation_fingerprint
 
 
@@ -40,6 +42,14 @@ def _settings(tmp_path: Path) -> Settings:
 @pytest.fixture
 async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     conn = InvestmentDB(tmp_path / "sweep.db")
+    # The seeded thresholds, imported rather than retyped: the sweep ends with
+    # the birth maturation, which reads them, and a live database always has them.
+    for key, value in SYSTEM_THRESHOLDS.items():
+        await conn.command(
+            "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",
+            k=key,
+            v=value,
+        )
     yield conn
     await conn.close()
 
@@ -80,7 +90,7 @@ async def test_an_empty_corpus_sweeps_cleanly(db: InvestmentDB, tmp_path: Path) 
     """A database with no documents is not a failure — it is a fresh install,
     and the escalation rule must not read it as "everything failed"."""
     sweep = await sweep_corpus(db, _settings(tmp_path))
-    assert sweep == type(sweep)(documents=0, candidates=0, failed=[])
+    assert sweep == type(sweep)(documents=0, candidates=0, failed=[], matured=0)
 
 
 async def test_a_fully_checkpointed_corpus_costs_no_model_call(
@@ -156,3 +166,25 @@ async def test_one_failing_document_does_not_cost_the_others(
         "SELECT COUNT(*) AS n FROM curated_passage WHERE passage_id LIKE 'doc-bad%'"
     )
     assert int(rows[0]["n"]) == 0  # nothing checkpointed, so the retry is exact
+
+
+async def test_an_invariant_the_curator_left_unmeasured_is_matured_by_the_sweep(
+    db: InvestmentDB, tmp_path: Path
+) -> None:
+    """2026-11-14: 16 invariants born from four books ingested between two seeds
+    kept 0/0, because only the seed and the Worker's innovation commit ran the
+    birth maturation and the forward sweep skips what was never matured. The
+    sweep now ends with it. Shown on the one branch that needs no market
+    history: a claim with no condition is restated as a reference note, which
+    only the maturation does."""
+    await db.command(
+        "INSERT INTO invariant (id, title, description, source, status, condition, effect, "
+        "weight_initial, floor_weight, weight_effective, trace, created_at, updated_at) "
+        "VALUES ('inv-born', 'a fact', 'd', 'curator', 'proposed', '[]', NULL, 0.5, 0.05, "
+        "0.5, 'tr', '2026-11-14', '2026-11-14')"
+    )
+
+    await sweep_corpus(db, _settings(tmp_path))
+
+    row = (await db.query("SELECT status FROM invariant WHERE id = 'inv-born'"))[0]
+    assert row["status"] == REFERENCE_STATUS

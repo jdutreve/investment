@@ -13,6 +13,7 @@ import pytest
 
 from investment.config import Settings
 from investment.corpus.ingester import author_from
+from investment.db.seed_data import SYSTEM_THRESHOLDS
 from investment.db.sqlite import InvestmentDB
 from investment.seed import _seed_corpus, _seed_curation
 
@@ -36,6 +37,13 @@ and it has led equity weakness rather than followed it.
 @pytest.fixture
 async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     database = InvestmentDB(tmp_path / "test.db")
+    # Step 1 seeds these before step 6b runs; the sweep's birth maturation reads them.
+    for key, value in SYSTEM_THRESHOLDS.items():
+        await database.command(
+            "INSERT INTO system_thresholds (key, value, updated_at) VALUES (:k, :v, '2026-01-01')",
+            k=key,
+            v=value,
+        )
     yield database
     await database.close()
 

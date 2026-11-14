@@ -46,6 +46,7 @@ import logging
 from investment.config import Settings
 from investment.corpus.embedding import InProcessEmbedder
 from investment.db.sqlite import InvestmentDB
+from investment.mechanical.invariants import mature_seed_invariants
 from investment.worker.curator import KnowledgeCurator
 from investment.writeback.knowledge import KnowledgeWriteback
 
@@ -61,6 +62,8 @@ class CurationSweep:
     documents: int
     candidates: int
     failed: list[str]
+    # Invariants measured over the history for the first time by this sweep.
+    matured: int = 0
 
 
 async def sweep_corpus(
@@ -108,6 +111,17 @@ async def sweep_corpus(
             f"curation sweep: every document failed curation ({len(failed)}) — "
             "see the warnings above; nothing was persisted"
         )
-    sweep = CurationSweep(documents=curated, candidates=candidates, failed=failed)
+    # EVERY INVARIANT MATURES OVER THE HISTORY AT BIRTH, the curator's included.
+    # Until 2026-11-14 only the seed and the Worker's innovation commit called
+    # this, so an invariant born from a book ingested between two seeds kept
+    # 0/0 — and the weekly forward sweep skips a definition never matured, so
+    # nothing ever measured it (16 born that afternoon). Called on every sweep,
+    # not only when this one found candidates: the fingerprint makes it free
+    # for what is already measured, and a sweep that crashed after creating
+    # invariants leaves them for the next one to catch. Every caller runs it
+    # after the benchmark valuations it reads (seed step 10b, chain 08:04).
+    results = await mature_seed_invariants(db)
+    matured = sum(1 for r in results if r.skipped_reason is None)
+    sweep = CurationSweep(documents=curated, candidates=candidates, failed=failed, matured=matured)
     logger.info("curation sweep: %s", sweep)
     return sweep
