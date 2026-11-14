@@ -597,6 +597,31 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/DOLLAR_AND_FED_INDICATORS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 14),
+        about="indicators",
+        question=(
+            "Does gold answer the level of real rates, or their direction — negative short "
+            "real rate, or a real yield lower than a quarter earlier — over the next 12 weeks?"
+        ),
+        answer="neither times gold",
+        evidence=(
+            "1992-2026, 145 non-overlapping 12-week outcomes, intervals by episode. Real "
+            "yield falling: GLD +2.54% [90%: +0.59, +4.59] on the first grid, negative on "
+            "the three grids started 3, 6 and 9 weeks later. Negative short real rate: GLD "
+            "minus the median of SPY, IEF and cash +0.54% [-3.22, +2.95], halves of opposite "
+            "signs, 13 ON episodes only. TIPS yield falling (2003-2026): GLD -1.93%. GLD "
+            "held 6.95% a year; only while the real yield falls 2.02%, only while the "
+            "short real rate is negative 4.43%."
+        ),
+        consequence=(
+            "Do not cite the level or the recent direction of real rates as a reason for "
+            "more or less gold over a quarter. The corpus's 'negative real rates favour "
+            "gold' counts many windows of a few long episodes; its record is not evidence "
+            "of timing."
+        ),
+        record="docs/GOLD_AND_REAL_RATES.md",
+    ),
 )
 
 _HEADINGS = {

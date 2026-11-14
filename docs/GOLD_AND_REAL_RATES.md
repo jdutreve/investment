@@ -118,3 +118,67 @@ close t; 23 bp per change of position (ADR-010).
 CAGR, annualised volatility, Sortino (daily, against ^IRX, annualised), maximum
 drawdown, number of changes. No verdict rule: this is what each choice would
 have cost or paid, read beside H1–H6.
+
+## Result (run once, 2026-11-14)
+
+No deviation from the protocol. 145 non-overlapping 12-week outcomes for
+H1–H4 (1992-03-13 to 2026-07-10), 76 for H5 (the dates where the short real
+rate is negative), 98 for H6 (2003-04-08 to 2026-05-27), offset 0. Intervals
+are by episode; the observation-by-observation interval is shown beside it.
+
+| # | signal → outcome | ON − OFF | 90% by episode | 90% by window | p | episode-weighted | halves | offsets 0/3/6/9 wk | ON | episodes ON/OFF | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| H1 | FALLING_RY → GLD | +2.54% | [+0.59, +4.59] | [+0.53, +4.58] | 0.015 | +2.70 | +1.90 / +3.11 | +2.54 −1.34 −0.79 −0.22 | 50% | 51 / 53 | not supported |
+| H2 | FALLING_RY → GLD − median | +2.59% | [+0.58, +4.70] | [+0.56, +4.64] | 0.016 | +2.77 | +1.65 / +3.41 | +2.59 −1.36 −0.55 +0.36 | 50% | 51 / 53 | not supported |
+| H3 | NEG_SHORT → GLD − median | +0.54% | [−3.22, +2.95] | [−1.56, +2.59] | 0.43 | +0.68 | +2.98 / −3.96 | +0.54 +1.17 −0.10 +0.35 | 52% | 13 / 10 | not supported |
+| H4 | NEG_SHORT → GLD | −0.38% | [−3.78, +1.83] | [−2.46, +1.64] | 0.60 | +0.28 | +2.28 / −4.77 | −0.38 +0.47 −1.05 −0.62 | 52% | 13 / 10 | not supported |
+| H5 | FALLING_RY within NEG_SHORT → GLD − median | +2.89% | [+0.41, +5.39] | [+0.24, +5.55] | 0.028 | +3.02 | +6.32 / +1.37 | +2.89 −1.59 −0.90 +1.09 | 54% | 30 / 29 | not supported |
+| H6 | FALLING_TIPS → GLD | −1.93% | [−4.52, +0.38] | [−4.49, +0.60] | 0.91 | −3.23 | −3.59 / −0.44 | −1.93 +0.62 +2.44 +0.41 | 53% | 40 / 37 | not supported |
+
+**Onsets** (episodes of at least 20 trading days, GLD − median, no verdict):
+FALLING_RY 52 ON onsets at +0.60% against 53 OFF at +1.27% (−0.67);
+NEG_SHORT 13 against 13, +3.49% against −0.41% (+3.90); FALLING_TIPS 32
+against 38, +4.16% against +2.29% (+1.88).
+
+**The price list**, daily to 2026-11-13, 23 bp a change:
+
+| from | rule | CAGR | vol | Sortino | max drawdown | changes |
+|---|---|---|---|---|---|---|
+| 1992-03-13 | GLD held | +6.95% | 16.7% | 0.49 | −45.6% | 0 |
+| 1992-03-13 | GLD while FALLING_RY, else cash | +2.02% | 12.0% | 0.03 | −40.8% | 339 |
+| 1992-03-13 | GLD while NEG_SHORT, else cash | +4.43% | 12.2% | 0.30 | −43.4% | 50 |
+| 2003-04-08 | GLD held | +10.72% | 18.1% | 0.79 | −45.6% | 0 |
+| 2003-04-08 | GLD while FALLING_TIPS, else cash | +4.00% | 12.7% | 0.33 | −46.8% | 282 |
+
+**Today** (as knowable on 2026-11-14): `real_yield_10y` 1.38 against 1.33 a
+quarter earlier — FALLING_RY is OFF; `real_rate` +0.40 — NEG_SHORT is OFF;
+DFII5 2.35 against 2.13 — FALLING_TIPS is OFF.
+
+**What it says.**
+
+- **The direction does not time gold either.** The first grid showed +2.5
+  points with an interval clear of zero; the same grid started three, six and
+  nine weeks later showed the opposite sign three times out of three. That is
+  where the grid happened to fall, not a property of gold, and the protocol's
+  offsets exist to catch exactly this. The onsets agree (−0.67), and holding
+  gold only while the real yield fell earned 2.02% a year against 6.95% held.
+  The market's own real yield (TIPS, 2003–2026) leaned the wrong way. The
+  2011–2015 episode suggested a rule; 34 years do not contain it.
+- **The level does not either, and counting by episode shows why its record
+  looked better than it is.** Negative short real rates came in 13 episodes;
+  the windows inside them are not 13 × several independent proofs. The episode
+  interval is half again as wide as the window one ([−3.22, +2.95] against
+  [−1.56, +2.59]), the halves disagree in sign (+2.98 then −3.96). The corpus's
+  40/69 counts many windows of a few long episodes. For a signal that changes
+  state often (FALLING_RY, about 100 episodes for 145 windows) the two
+  intervals coincide, which is the expected behaviour: episode counting costs
+  nothing where windows are already independent.
+- **The one reading worth keeping is the switch of the level, not its state**:
+  the 13 times the short real rate turned negative, gold beat the median by
+  3.9 points more than the 13 times it turned positive. Thirteen against
+  thirteen, with no interval and no verdict; it is a lead, not a finding.
+- **Consequence for the Worker:** neither the level nor the recent direction
+  of real rates is a reason for more or less gold over a quarter
+  (`research_findings.FINDINGS`, 2026-11-14). The common reading, that gold
+  moves inversely to real yields, is about moves in the SAME period; whether a
+  past move predicts the next quarter is what this measured, and it does not.
