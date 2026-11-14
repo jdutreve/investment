@@ -1548,6 +1548,9 @@ class ChangedInputs:
         return bool(self.tickers or self.benchmarks or self.regime)
 
 
+NOTHING_REVISED = ChangedInputs(frozenset(), frozenset(), False)
+
+
 async def read_measured_data(db: InvestmentDB) -> MeasuredData:
     signals = {}
     for ticker in sorted(set(SIGNAL_ALIASES.values())):

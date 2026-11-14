@@ -695,7 +695,7 @@ async def _run_backtests_favors(db: InvestmentDB) -> dict[str, Any]:
 
 
 async def _mature_seed_invariants(
-    db: InvestmentDB, changed: invariants.ChangedInputs
+    db: InvestmentDB, changed: invariants.ChangedInputs = invariants.NOTHING_REVISED
 ) -> dict[str, Any]:
     """Step 11b (M5): birth maturation of the 6 seed invariants over the
     full 35y history (mechanical/invariants.py `mature_seed_invariants`) —
