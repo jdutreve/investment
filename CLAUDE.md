@@ -293,7 +293,15 @@ weekly forward continuation. **A WORKER EVALUATION IS A READING, NOT EVIDENCE**
 counted nowhere. It used to count like a measured moment and moved the score
 while leaving `status` as the last weekly restatement wrote it.
 Weight-like fields are 0–1 fractions everywhere. Every invariant matures over
-35y at birth; details: docs/ARCHITECTURE.md "Birth maturation".
+35y at birth, whoever wrote it — the seed, the Worker's innovation commit, or
+the curator, whose every sweep ends with the maturation. **A RECORD IS
+RE-MEASURED WHEN ITS DATA IS REPAIRED** (owner, 2026-11-14): the fingerprint
+that decides "already matured" knows what was asked, not what it was measured
+on, so the seed compares what a sweep reads before and after it rewrites the
+data, and re-measures every invariant reading a value that existed and
+changed. The 2026-10-17 year-on-year repair had left every record reading
+inflation, growth or a real rate measured on the misread series for four
+weeks, and nothing said so. Details: docs/ARCHITECTURE.md "Birth maturation".
 
 **Ranking rule** — all enabled portfolios ranked together, defender included,
 never privileged. Sort: `sortino_rolling` DESC, with Sortino ties GROUPED, not
