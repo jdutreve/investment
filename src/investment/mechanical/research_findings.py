@@ -622,6 +622,29 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/GOLD_AND_REAL_RATES.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 14),
+        about="corpus",
+        question=(
+            "Should an invariant's verdict count each episode of its condition once "
+            "rather than each 12-week window, so that a multi-year condition does not "
+            "pass for many independent proofs?"
+        ),
+        answer="no: the verdict already absorbs it",
+        evidence=(
+            "Placebo moving every episode (run permutation, 400 lives, 271 invariants): "
+            "a claim that knows nothing is integrated once over a life 0.15% of the time "
+            "counting windows, 0.41% on conditions ON more than 30% of days, one of 27 at "
+            "7.25% (the 10-year real-yield gold claim). Counting episodes: 0.07%, worst "
+            "2.0%, at about half the power on a true 0.70 claim (0.58 of it)."
+        ),
+        consequence=(
+            "Do not propose counting by episode for the verdict. Dependence is real and "
+            "sits in the dense records; the gold real-yield claim, proposed at 54/83, is "
+            "the one whose record most overstates its evidence."
+        ),
+        record="docs/EPISODE_COUNTING.md",
+    ),
 )
 
 _HEADINGS = {

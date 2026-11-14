@@ -120,3 +120,100 @@ and is listed here so that the result does not decide it.
 - E2's "an episode is confirmed as a whole" is the extreme of dependence, and
   independent moments the other extreme. The truth lies between, and E2 reports
   both bounds rather than one estimate.
+
+## Before the run: the guard stopped it, and what that found
+
+The first attempt stopped at the guard: at placebo zero the bench did not
+reproduce the stored records of 142 of the 272 measurable invariants (by 1 to
+8 confirmations each). The bench's own tests still passed, so its machinery
+was still production's. The backups dated the break: no mismatch on
+2026-10-06, 5 on 2026-10-11, 104 on 2026-10-18. Between those dates, commit
+2865843 (2026-10-17) repaired how year-on-year changes are read: CPI and
+industrial production had been misread. The seed repaired the series, but
+the maturation fingerprint knows what was asked, not what it was measured
+on. The records of every invariant reading inflation (49 of 63), growth
+(19 of 20), the short real rate (29 of 39) or the 10-year real yield (10 of
+12) therefore stayed measured on the
+misread series for four weeks.
+
+With the owner's agreement, every invariant was re-measured on the current
+data (`mature_seed_invariants(remeasure_on_changed_data=True)`, agent
+stopped, backup `investment.db.bak-pre-remeasure-20261114`). The records of
+142 invariants changed, their weights by 0.013 on average and 0.12 at most,
+and nine statuses moved. One invariant is integrated, the first since
+October: Dalio, "a central bank cutting while the economy is already
+accelerating fuels an equity rally", 46/69 against a null of 0.48. The guard
+then passed (0 mismatches) and the study ran once, unchanged.
+
+## Result (run once, 2026-11-14)
+
+No deviation from the protocol. 272 measurable invariants, 271 in E1 (one is
+unconditional), 264 in E2 (with at least one decided moment at shift zero).
+
+**E1 — false integrations on the run-permutation placebo** (share of 400
+lives in which a claim that knows nothing is integrated at least once):
+
+| group | n | mean A | mean B | worst A | worst B | above 7.2% A / B |
+|---|---|---|---|---|---|---|
+| ON < 10% of days | 115 | 0.03% | 0.00% | 1.25% | 0.25% | 0 / 0 |
+| ON 10–30% | 129 | 0.21% | 0.12% | 2.75% | 1.75% | 0 / 0 |
+| ON > 30% | 27 | 0.41% | 0.10% | 7.25% | 2.00% | 1 / 0 |
+| October dispersion < 1 | 140 | 0.05% | 0.03% | 2.50% | 2.00% | 0 / 0 |
+| October dispersion 1–1.5 | 34 | 0.17% | 0.08% | 2.00% | 1.50% | 0 / 0 |
+| October dispersion > 1.5 | 46 | 0.53% | 0.18% | 7.25% | 1.50% | 1 / 0 |
+| all | 271 | 0.15% | 0.07% | 7.25% | 2.00% | 1 / 0 |
+
+The one record above 7.2% under A is `inv-low-real-yields-favor-gold` (10-year
+real yield under 2.5 → GLD; ON 36% of days in 31 episodes, October dispersion
+2.93): 7.25% under A, 0.50% under B. The negative-real-rate claim on
+gold-commodities: 2.75% under A, 0.00% under B.
+
+**E2 — what B costs** (share of lives ending integrated, true claims):
+
+| group | n | 0.65 strong A / B | 0.65 independent A / B | 0.70 strong A / B | 0.70 independent A / B |
+|---|---|---|---|---|---|
+| ON < 10% | 108 | 4.0% / 1.2% | 1.6% / 1.2% | 6.4% / 2.8% | 3.4% / 2.7% |
+| ON 10–30% | 129 | 39.0% / 19.5% | 30.5% / 20.9% | 58.9% / 36.6% | 55.2% / 39.1% |
+| ON > 30% | 27 | 62.0% / 24.6% | 64.0% / 30.1% | 76.8% / 37.6% | 88.5% / 45.2% |
+| all | 264 | 27.1% / 12.6% | 22.1% / 13.8% | 39.3% / 22.9% | 37.4% / 24.8% |
+
+B keeps 0.58 of A's power on a true 0.70 claim under the strongest dependence
+(0.49 on the dense group).
+
+**E3 — today's corpus under B.** A reproduces every stored status (272 of
+272). B: integrated 1 (the same), proposed 264, rejected 7, against A's 1, 261
+and 10. Seven statuses differ, all at the rejection bar: five rejected under
+A are proposed under B (among them "nominal growth above nominal rates in a
+deleveraging → equities", 39/84 over 10 episodes, and "accelerating
+delinquencies → equities underperform", 42/91 over 44), two proposed under A
+are rejected under B. The median record has 1.3 decided moments per episode:
+for most invariants a window already is an episode.
+
+**Decision, by the rule fixed in advance: A stays.** B holds 5% in every group
+and keeps more than half the power, but A does not break where the October
+placebo could not look. Its mean on the dense conditions is 0.41%, and one of
+27 records sits above 7.2%, which is 3.7% of the group against the 5% the rule
+required. The October conclusion now extends to dense conditions, measured
+rather than floored: the checkpoint bars are conservative enough to absorb
+the dependence of long episodes.
+
+**What it says.**
+
+- **The owner's intuition is right about the evidence and the verdict already
+  allows for it.** Dependence is real and lives where expected: the dense, highly
+  dispersed records carry ten times the false-integration rate of the rare ones,
+  and counting by episode removes most of it. But that rate starts from
+  0.4%, an order of magnitude under the 5% the rule promises, because the bars
+  were set for a whole life of looks. Episode counting would buy a guarantee the
+  verdict already keeps, at the price of about half its power to recognise a
+  true claim.
+- **One record is the exception to watch:** the 10-year real-yield gold claim,
+  7.25% under A. It is `proposed` (54/83); were it ever integrated, its record
+  would be the one most likely to be a run of a few long episodes.
+- **The re-measurement mattered more than the rule.** For four weeks half the
+  corpus was judged on a misread inflation series, and nothing said so. The
+  fingerprint that decides "already measured" ignores the data, so any repair of
+  a series leaves stale records silently. It happened on 2026-10-04 (DJP) and
+  2026-10-17 (year-on-year).
+- **Still the owner's, and not decided by this result:** showing each record
+  with its count of episodes ("54/83 over 16 episodes").
