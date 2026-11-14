@@ -84,3 +84,35 @@ innovation, measured by the engine), not inserted by this study.
   the test.
 - A cut is read up to about a month late (the median's half-width plus DFF's
   5-day lag).
+
+## Result (run once, 2026-11-14)
+
+No deviation from the protocol. The guard passed: at shift zero the bench
+reproduced the integrated claim's stored record (46/69).
+
+| # | condition | days ON | decided | confirmed | rate | null | episodes | status | placebo integration | carries |
+|---|---|---|---|---|---|---|---|---|---|---|
+| H0 | bill yield falling, growth rising | 12.0% | 69 | 46 | 0.667 | 0.484 | 69 | integrated | 0.0% | yes |
+| H1 | Fed cut within the month, growth rising | 1.7% | 14 | 7 | 0.500 | 0.484 | 14 | proposed | 0.0% | no (under 20) |
+| H2 | bill yield falling, growth rising, no cut | 10.7% | 67 | 42 | 0.627 | 0.484 | 67 | proposed | 0.0% | yes |
+| H3 | Fed cut within the month | 4.7% | 23 | 9 | 0.391 | 0.484 | 23 | proposed | 0.0% | no |
+
+**Reading, by the rule fixed in advance: the anticipation carries it.**
+
+- **The claim's record does not rest on the Fed's decisions.** Take away every
+  date on which the Fed had actually cut within the month, and the bill market's
+  version keeps 42 of 67 (0.627). That is nearly the whole record, and above θ.
+  The decision version is too rare to read: a cut while growth rises held on
+  1.7% of days, and gave 14 decided moments at 7 confirmations.
+- **After an actual cut, equities did worse, not better** (H3: 9 of 23, 0.39,
+  under the null of 0.48). Cuts arrive in downturns. That is measured on 23
+  moments, too few to establish.
+- **What the integrated claim says, then:** when the bill market prices easier
+  money while the economy is still expanding, equities have beaten the other
+  asset classes over the following quarter. Dalio's story of a central bank
+  inadvertently financing a credit bubble is an interpretation of it that this
+  history does not confirm. The title now says what the condition measures
+  (`InvariantRetitledEvent`, 2026-11-14); the interpretation stays in its
+  description, where Dalio's 1927 example is.
+- **Consequence:** no condition on the Fed's cuts is proposed to the corpus. The
+  integrated claim is not about them.

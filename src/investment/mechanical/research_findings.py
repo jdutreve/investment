@@ -645,6 +645,28 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/EPISODE_COUNTING.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 14),
+        about="corpus",
+        question=(
+            "The integrated claim 'rates falling while growth rises, equities beat the "
+            "rest' reads the 3-month bill yield: does it rest on the Fed's cuts or on the "
+            "bill market's anticipation?"
+        ),
+        answer="the anticipation",
+        evidence=(
+            "Bill yield falling, growth rising: 46/69 (null 0.48), integrated. The same "
+            "without any actual cut in the month: 42/67 (0.63). An actual cut while growth "
+            "rises: 7/14, too rare to read. After an actual cut, whatever growth does: "
+            "9/23 (0.39), equities did worse."
+        ),
+        consequence=(
+            "Read the integrated claim as the bill market pricing easier money in an "
+            "expanding economy, not as the Fed financing a bubble. A Fed cut is not "
+            "evidence for equities: cuts arrive in downturns."
+        ),
+        record="docs/FED_CUTS_AND_EQUITIES.md",
+    ),
 )
 
 _HEADINGS = {

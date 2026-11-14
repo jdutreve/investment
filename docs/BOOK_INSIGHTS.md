@@ -145,10 +145,12 @@ Ten central claims, and an eleventh because it is the corpus's only integrated o
    guarantees stop the run. (note)
 10. Wealth gaps widen in bubbles and populism rises in the downturn; wealth
     taxes raise little. (note)
-11. Integrated since the re-measurement of 2026-11-14, the corpus's only one: a
-    central bank cutting short rates while the economy is already accelerating
-    fuels credit that flows into equities, which beat the median asset class.
-    (m: 46/69 = 0.67; null 0.48)
+11. Integrated since the re-measurement of 2026-11-14, the corpus's only one:
+    when the 3-month bill yield falls while growth rises, equities beat the
+    median asset class over the next 12 weeks. (m: 46/69 = 0.67; null 0.48)
+    Dalio reads it as a central bank financing a credit bubble; measured, it is
+    the bill market's anticipation, not the Fed's cuts (42/67 without any cut;
+    9/23 after an actual cut — `docs/FED_CUTS_AND_EQUITIES.md`).
 
 ## Cédric Froment — Meilleures stratégies pour gagner sur les actions (386 passages)
 
