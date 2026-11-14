@@ -574,6 +574,44 @@ def test_validate_invariant_rejects_hyphenated_signal_alias() -> None:
     assert reason is not None and "real-yield" in reason
 
 
+def _equity_trend(op: str, value: float) -> dict[str, object]:
+    return {"signal": "equity_trend", "feature": "level", "op": op, "value": value}
+
+
+def test_a_condition_no_date_can_satisfy_is_demoted() -> None:
+    """2026-11-14: "trends far above OR far below" arrived as two ANDed bounds,
+    so the invariant had no moment and would have stayed proposed at 0/0
+    forever. The gate demotes it instead."""
+    reason = invariants.validate_invariant(
+        [_equity_trend("<=", -10.0), _equity_trend(">=", 10.0)], None, _seed_registries()
+    )
+    assert reason is not None and "never hold" in reason
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        [_equity_trend(">", 1.0), _equity_trend("<", 4.0)],  # a band
+        [_equity_trend(">=", 2.0), _equity_trend("<=", 2.0)],  # holds at exactly 2
+        [_equity_trend("==", 2.0), _equity_trend("<", 3.0)],
+    ],
+)
+def test_a_condition_that_can_hold_is_not_demoted(condition: list[dict[str, object]]) -> None:
+    assert invariants.validate_invariant(condition, None, _seed_registries()) is None
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        [_equity_trend(">", 2.0), _equity_trend("<=", 2.0)],
+        [_equity_trend("==", 2.0), _equity_trend("==", 3.0)],
+        [_equity_trend("==", 3.0), _equity_trend("<", 3.0)],
+    ],
+)
+def test_bounds_that_leave_no_value_are_found(condition: list[dict[str, object]]) -> None:
+    assert invariants.validate_invariant(condition, None, _seed_registries()) is not None
+
+
 def test_validate_invariant_rejects_method_handle_mismatch() -> None:
     reason = invariants.validate_invariant(
         [],

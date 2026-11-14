@@ -572,7 +572,10 @@ mature_invariant(i)  — Writeback, at every birth (after dedup, before/at commi
     absolute ⇒ any handle, EXCEPT `asset-class:cash` on `return`: an
     absolute claim on cash is a claim about its REAL return, which is not a
     computed indicator, and on the nominal series every moment is neutral);
-    `direction` valid. FAIL on any → the
+    `direction` valid; and the condition SATISFIABLE — two ANDed bounds on
+    one (signal, feature) that leave no value between them (`<= -10` and
+    `>= 10`, an "or" written as an "and") give no moment ever, and the claim
+    would stay `proposed` at 0/0 forever (2026-11-14). FAIL on any → the
     candidate is DEMOTED to reference knowledge (empty condition/effect,
     market_score frozen 1.0, reason in `trace`) — a malformed condition/effect
     never silently breaks maturation.

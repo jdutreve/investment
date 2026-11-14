@@ -569,6 +569,42 @@ def _validate_predicate(predicate: dict[str, Any], registries: Registries) -> st
     return None
 
 
+def _never_holds(condition: list[dict[str, Any]]) -> str | None:
+    """The reason no date can satisfy `condition`, or None.
+
+    The predicates are ANDed, so two bounds on one (signal, feature) that leave
+    no value between them make a condition that never fires: its invariant
+    gets no moment, stays `proposed` at 0/0 forever, and breaks "nothing stays
+    proposed forever" (ADR-006). It happened on 2026-11-14: "trends far above
+    OR far below" written as `equity_trend.level <= -10` AND `>= 10`. Exact,
+    unlike `_disjoint`, because a false positive here demotes a sound claim:
+    `>= 2` with `<= 2` holds at 2, `> 2` with `<= 2` holds nowhere."""
+    by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for p in condition:
+        by_key.setdefault((p["signal"], p["feature"]), []).append(p)
+    for (signal, feature), predicates in by_key.items():
+        equal = {p["value"] for p in predicates if p["op"] == "=="}
+        if len(equal) > 1:
+            return f"condition can never hold: {signal}.{feature} equals {sorted(map(str, equal))}"
+        if feature in _REGIME_FEATURES:
+            continue
+        lows = [(p["value"], p["op"] == ">") for p in predicates if p["op"] in (">", ">=")]
+        highs = [(p["value"], p["op"] == "<") for p in predicates if p["op"] in ("<", "<=")]
+        lows += [(v, False) for v in equal]
+        highs += [(v, False) for v in equal]
+        if not lows or not highs:
+            continue
+        low = max(v for v, _ in lows)
+        high = min(v for v, _ in highs)
+        strict = any(s for v, s in lows if v == low) or any(s for v, s in highs if v == high)
+        if low > high or (low == high and strict):
+            return (
+                f"condition can never hold: {signal}.{feature} must be above {low} "
+                f"and below {high} at once (predicates are ANDed)"
+            )
+    return None
+
+
 def validate_invariant(
     condition: list[dict[str, Any]],
     effect: dict[str, Any] | None,
@@ -586,6 +622,9 @@ def validate_invariant(
         reason = _validate_predicate(predicate, registries)
         if reason is not None:
             return reason
+    impossible = _never_holds(condition)
+    if impossible is not None:
+        return impossible
     if effect is None:
         return None
     # A NON-OBJECT EFFECT IS A DEMOTION REASON, not a crash. `spec` is typed
