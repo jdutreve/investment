@@ -135,7 +135,7 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 def test_build_worker_agent_registers_exactly_the_three_tools(db: InvestmentDB) -> None:
     """Least privilege: the Worker gets db_query / market_fetch /
     portfolio_check and nothing else (docs/ARCHITECTURE.md WORKER)."""
-    agent = build_worker_agent(db, "test/worker", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
     tool_names = set(agent._function_toolset.tools)
     assert tool_names == {"db_query", "market_fetch", "portfolio_check"}
 
@@ -175,7 +175,7 @@ async def test_round_trip_returns_a_valid_worker_result(db: InvestmentDB) -> Non
     WorkerResult. TestModel drives the agent's output path (call_tools=[] keeps
     it to the structured output — the tools themselves are covered in
     test_worker_tools.py)."""
-    agent = build_worker_agent(db, "test/worker", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
     with agent.override(model=TestModel(call_tools=[], custom_output_text=_VALID_OUTPUT)):
         result = await run_worker(agent, "the prepared context")
     # A schema-valid WorkerResult came back through the real output path. The
@@ -194,7 +194,7 @@ async def test_a_runaway_tool_loop_is_stopped_by_the_budget(db: InvestmentDB) ->
     timeout, billing every turn. It must FAIL, not degrade — a half-cycle
     silently written to the graph is worse than a weekly run with no cognitive read.
     """
-    agent = build_worker_agent(db, "test/worker", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
     # TestModel(call_tools='all') calls every registered tool, then answers; the
     # budget is squeezed below that to force the runaway path deterministically.
     with (
@@ -210,7 +210,7 @@ async def test_the_shipped_budget_does_not_bite_a_normal_cycle(db: InvestmentDB)
     rejected by the real tool validators long before any budget, so a
     tools-and-all happy path cannot be simulated here; the runaway case above is
     what the budget exists for, and this pins that it stays out of the way."""
-    agent = build_worker_agent(db, "test/worker", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
     with agent.override(model=TestModel(call_tools=[], custom_output_text=_VALID_OUTPUT)):
         result = await run_worker(agent, "ctx")
     assert isinstance(result, WorkerResult)
@@ -332,7 +332,7 @@ async def test_a_cut_call_is_re_asked_immediately_not_left_to_the_date(
     "the date's budget ran out", wrong for "one call was cut with twenty minutes
     left"."""
     calls = {"n": 0}
-    agent = build_worker_agent(db, "test/worker", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
 
     async def _truncated_then_fine(*args: object, **kwargs: object) -> object:
         calls["n"] += 1
@@ -360,7 +360,7 @@ async def test_exhausted_calls_do_not_masquerade_as_the_date_budget(
     The type is what tells the two bounds apart, so the type is what this test
     pins: never `TimeoutError` out of here, whatever cut the calls, and the last
     cause still attached for the log line that reports it."""
-    agent = build_worker_agent(db, "test/worker", "sk-test")
+    agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
 
     async def _always_cut(*args: object, **kwargs: object) -> object:
         raise TimeoutError

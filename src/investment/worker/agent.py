@@ -30,7 +30,7 @@ here so a swap can be checked instead of guessed:
      `measure_revision` and a knob revision silently lost its measurement.
      Prompted output forces nothing and constrains nothing; the tools stay
      free to be called mid-reasoning.
-  2. a `reasoning_effort` knob the provider accepts (`WORKER_REASONING_EFFORT`).
+  2. a `reasoning_effort` knob the provider accepts (`WORKER_REASONING_EFFORT` in `.env`).
   3. tolerance for being corrected: it will get a tool argument wrong, and
      `ToolInputError` is a `ModelRetry` precisely so that costs a turn instead
      of the cycle (worker/tools.py).
@@ -152,15 +152,6 @@ class WorkerCallExhausted(Exception):
 # clothes.
 WORKER_TOOL_CALLS_LIMIT = 12
 WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
-
-# The UC8 allocation decision is the highest-stakes single call in the system;
-# 'high' is the reasoning depth for it — the balance point, not a measured
-# optimum, and overridable per call.
-#
-# Which levels a model accepts is the PROVIDER's business: OpenRouter validates
-# the value and errors loudly on one it does not know, which is the behaviour
-# we want on a model swap. Do not encode a per-model list here.
-WORKER_REASONING_EFFORT = "high"
 
 # The persona (summarised in docs/ARCHITECTURE.md "WORKER system prompt") is
 # load-bearing: it fixes the DESTINATION (Phase-1 accumulation, don't-lose
@@ -446,7 +437,7 @@ def build_worker_agent(
     model_name: str,
     api_key: str,
     *,
-    reasoning_effort: str = WORKER_REASONING_EFFORT,
+    reasoning_effort: str,
     base_url: str = "https://openrouter.ai/api/v1",
     skills: str | None = None,
 ) -> Agent[None, WorkerResult]:

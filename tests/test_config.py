@@ -24,6 +24,8 @@ GMAIL_APP_PASSWORD=from-file
 DB_PATH=/tmp/x/investment.db
 INBOX_PATH=/tmp/x/inbox
 SOURCES_PATH=/tmp/x/sources
+PLANNER_REASONING_EFFORT=high
+WORKER_REASONING_EFFORT=high
 """
 
 
@@ -88,6 +90,30 @@ def test_a_missing_model_fails_at_startup_rather_than_defaulting(
     message = str(caught.value)
     assert "planner_model" in message
     assert "worker_model" in message
+
+
+def test_a_missing_reasoning_effort_fails_at_startup_rather_than_defaulting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each model's effort lives beside it in `.env` (owner, 2026-11-15) and is
+    required for the same reason: no code constant can quietly decide it."""
+    for key in ("PLANNER_REASONING_EFFORT", "WORKER_REASONING_EFFORT"):
+        monkeypatch.delenv(key, raising=False)
+    env = tmp_path / ".env"
+    env.write_text(
+        REQUIRED.replace("PLANNER_REASONING_EFFORT=high\n", "").replace(
+            "WORKER_REASONING_EFFORT=high\n", ""
+        )
+        + "PLANNER_MODEL=p\nWORKER_MODEL=w\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError) as caught:
+        Settings(_env_file=env)  # type: ignore[call-arg]
+
+    message = str(caught.value)
+    assert "planner_reasoning_effort" in message
+    assert "worker_reasoning_effort" in message
 
 
 def test_the_env_file_is_found_independently_of_the_working_directory() -> None:

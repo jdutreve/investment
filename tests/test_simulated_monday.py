@@ -103,9 +103,9 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
 
 
 async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: InvestmentDB) -> None:
-    pre = PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test")
-    worker = build_worker_agent(db, "anthropic/x", "sk-test")
-    post = PlannerPost("planner/x", "sk-test")
+    pre = PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test", reasoning_effort="high")
+    worker = build_worker_agent(db, "anthropic/x", "sk-test", reasoning_effort="high")
+    post = PlannerPost("planner/x", "sk-test", reasoning_effort="high")
 
     query = TestModel(custom_output_args={"corpus_queries": [], "zooms": []})
     select = TestModel(

@@ -116,7 +116,7 @@ async def check_planner(settings: Settings) -> CheckResult:
         agent = build_query_agent(
             settings.planner_model,
             settings.openrouter_api_key,
-            reasoning_effort="high",
+            reasoning_effort=settings.planner_reasoning_effort,
             base_url=settings.openrouter_base_url,
         )
         result = await agent.run(PLANNER_PROBE)
@@ -134,7 +134,12 @@ async def check_worker(settings: Settings, db_path: Path) -> CheckResult:
     started = monotonic()
     try:
         # Construction inside the try, for the reason given in `check_planner`.
-        agent = build_worker_agent(db, settings.worker_model, settings.openrouter_api_key)
+        agent = build_worker_agent(
+            db,
+            settings.worker_model,
+            settings.openrouter_api_key,
+            reasoning_effort=settings.worker_reasoning_effort,
+        )
         # `agent.run` rather than `run_worker`, with the production limits
         # imported so the two cannot drift: this needs the message trace to
         # prove a tool was actually called, and `run_worker` deliberately

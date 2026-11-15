@@ -281,9 +281,13 @@ async def _run(live: Path, tmp_path: Path, *, innovations: bool = False) -> Any:
         def make_agents(snapshot_db: InvestmentDB) -> AR.CognitiveAgents:
             bound.append(snapshot_db)
             agents = AR.CognitiveAgents(
-                planner_pre=PlannerPre(snapshot_db, _StubEmbedder(), "planner/x", "sk-test"),
-                worker=build_worker_agent(snapshot_db, "worker/x", "sk-test"),
-                planner_post=PlannerPost("planner/x", "sk-test"),
+                planner_pre=PlannerPre(
+                    snapshot_db, _StubEmbedder(), "planner/x", "sk-test", reasoning_effort="high"
+                ),
+                worker=build_worker_agent(
+                    snapshot_db, "worker/x", "sk-test", reasoning_effort="high"
+                ),
+                planner_post=PlannerPost("planner/x", "sk-test", reasoning_effort="high"),
             )
             stack.enter_context(agents.planner_pre.query_agent.override(model=query))
             stack.enter_context(agents.planner_pre.context_agent.override(model=select))

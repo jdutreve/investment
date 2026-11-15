@@ -38,6 +38,8 @@ def _settings(tmp_path: Path) -> Settings:
         fred_api_key="x",
         planner_model="p",
         worker_model="w",
+        planner_reasoning_effort="high",
+        worker_reasoning_effort="high",
         telegram_bot_token="t",
         telegram_chat_id="c",
         gmail_address="test",

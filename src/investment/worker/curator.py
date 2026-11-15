@@ -593,7 +593,7 @@ class KnowledgeCurator:
         *,
         model_name: str,
         api_key: str,
-        reasoning_effort: str = "high",
+        reasoning_effort: str,
         batch_size: int = 20,
         max_concurrency: int = MAX_CONCURRENT_CALLS,
     ) -> None:

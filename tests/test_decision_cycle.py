@@ -133,9 +133,9 @@ _Rig = tuple[InvestmentDB, PlannerPre, object, PlannerPost]
 async def rig(tmp_path: Path) -> AsyncIterator[_Rig]:
     db = InvestmentDB(tmp_path / "decision_cycle.db")
     await _seed(db)
-    pre = PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test")
-    worker = build_worker_agent(db, "anthropic/x", "sk-test")
-    post = PlannerPost("planner/x", "sk-test")
+    pre = PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test", reasoning_effort="high")
+    worker = build_worker_agent(db, "anthropic/x", "sk-test", reasoning_effort="high")
+    post = PlannerPost("planner/x", "sk-test", reasoning_effort="high")
     yield db, pre, worker, post
     await db.close()
 

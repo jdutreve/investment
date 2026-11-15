@@ -160,7 +160,7 @@ def test_a_clean_result_is_left_untouched() -> None:
 
 
 async def test_run_extracts_then_guardrails() -> None:
-    post = PlannerPost("planner/x", "sk-test")
+    post = PlannerPost("planner/x", "sk-test", reasoning_effort="high")
     worker = WorkerResult(
         market_signal_assessment=a_reading("d"),
         reasoning="c",

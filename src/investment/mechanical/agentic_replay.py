@@ -608,12 +608,23 @@ async def _run_all(scratch: Path | None = None, out: Path | None = None) -> list
     def make_agents(snapshot_db: InvestmentDB) -> CognitiveAgents:
         return CognitiveAgents(
             planner_pre=PlannerPre(
-                snapshot_db, embedder, settings.planner_model, settings.openrouter_api_key
+                snapshot_db,
+                embedder,
+                settings.planner_model,
+                settings.openrouter_api_key,
+                reasoning_effort=settings.planner_reasoning_effort,
             ),
             worker=build_worker_agent(
-                snapshot_db, settings.worker_model, settings.openrouter_api_key
+                snapshot_db,
+                settings.worker_model,
+                settings.openrouter_api_key,
+                reasoning_effort=settings.worker_reasoning_effort,
             ),
-            planner_post=PlannerPost(settings.planner_model, settings.openrouter_api_key),
+            planner_post=PlannerPost(
+                settings.planner_model,
+                settings.openrouter_api_key,
+                reasoning_effort=settings.planner_reasoning_effort,
+            ),
         )
 
     results: list[EpisodeResult] = []

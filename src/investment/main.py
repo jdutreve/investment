@@ -210,24 +210,39 @@ async def run_agent(settings: Settings) -> None:
         db=db,
         settings=settings,
         lock=RunLock(keep_awake=True),
-        planner_pre=PlannerPre(db, embedder, settings.planner_model, settings.openrouter_api_key),
-        worker_agent=build_worker_agent(db, settings.worker_model, settings.openrouter_api_key),
-        planner_post=PlannerPost(settings.planner_model, settings.openrouter_api_key),
+        planner_pre=PlannerPre(
+            db,
+            embedder,
+            settings.planner_model,
+            settings.openrouter_api_key,
+            reasoning_effort=settings.planner_reasoning_effort,
+        ),
+        worker_agent=build_worker_agent(
+            db,
+            settings.worker_model,
+            settings.openrouter_api_key,
+            reasoning_effort=settings.worker_reasoning_effort,
+        ),
+        planner_post=PlannerPost(
+            settings.planner_model,
+            settings.openrouter_api_key,
+            reasoning_effort=settings.planner_reasoning_effort,
+        ),
         embedder=embedder,
         # ONE ingester, shared by the inbox watcher and the event watch: both
         # turn text into Documents, and `from_db` reads the calibrated chunking
         # and similarity thresholds out of `system_thresholds` once.
         ingester=await CorpusIngester.from_db(db, embedder),
-        # The UC3 triage runs on the PLANNER model at the curator's effort: a
+        # The UC3 triage runs on the PLANNER model at its effort: a
         # short structured judgement over one press item, the same shape of task
         # the curator does, and not the Worker's deliberation.
         triage_agent=build_triage_agent(
-            settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
+            settings.planner_model, settings.openrouter_api_key, settings.planner_reasoning_effort
         ),
         # The world-events triage, same model and effort: one day's items is
         # the same kind of short structured judgement (`watch/world_events.py`).
         world_triage_agent=build_world_triage_agent(
-            settings.planner_model, settings.openrouter_api_key, settings.curator_reasoning_effort
+            settings.planner_model, settings.openrouter_api_key, settings.planner_reasoning_effort
         ),
     )
 

@@ -54,7 +54,7 @@ async def _seed(db: InvestmentDB) -> None:
 async def pre(tmp_path: Path) -> AsyncIterator[PlannerPre]:
     db = InvestmentDB(tmp_path / "pre.db")
     await _seed(db)
-    yield PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test")
+    yield PlannerPre(db, _StubEmbedder(), "planner/x", "sk-test", reasoning_effort="high")
     await db.close()
 
 

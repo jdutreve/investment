@@ -52,7 +52,7 @@ async def test_a_reading_that_repeats_a_figure_is_sent_back_once(tmp_path: Path)
         return ModelResponse(parts=[TextPart(_output("Cash; credit is calm."))])
 
     try:
-        agent = build_worker_agent(db, "test/worker", "sk-test")
+        agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
         with agent.override(model=FunctionModel(model)):
             result = await run_worker(agent, "ctx", printed=figures_in("BAA10Y 1.49 vs 1.95"))
     finally:
@@ -70,7 +70,7 @@ async def test_a_reading_with_no_repeated_figure_is_not_sent_back(tmp_path: Path
         return ModelResponse(parts=[TextPart(_output("IEF needs 502.4 to re-enter."))])
 
     try:
-        agent = build_worker_agent(db, "test/worker", "sk-test")
+        agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
         with agent.override(model=FunctionModel(model)):
             await run_worker(agent, "ctx", printed=figures_in("BAA10Y 1.49 vs 1.95"))
     finally:
@@ -123,7 +123,7 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
         return 0.42
 
     try:
-        agent = build_worker_agent(db, "test/worker", "sk-test")
+        agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
         with agent.override(model=FunctionModel(model)):
             result = await run_worker(agent, "ctx", history=history)
     finally:

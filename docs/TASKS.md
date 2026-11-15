@@ -120,7 +120,9 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 PLANNER_MODEL=REPLACE_ME      # no default in code: .env decides
+PLANNER_REASONING_EFFORT=high # required too: every role on the planner model
 WORKER_MODEL=REPLACE_ME       # no default in code: .env decides
+WORKER_REASONING_EFFORT=high  # required too
 EMBEDDING_MODEL=all-MiniLM-L6-v2   # sentence-transformers, in-process, 384 dims
 
 # SQLite ($HOME expanded by config.py)

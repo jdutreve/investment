@@ -46,7 +46,6 @@ logger = logging.getLogger(__name__)
 TRANSPORT_RETRIES = 2
 OUTPUT_RETRIES = 2
 POST_TIMEOUT_SECONDS = 120.0
-POST_REASONING_EFFORT = "high"  # extraction + guardrail is the careful pass
 
 # The only verdicts a confrontation may carry (docs/DATA_MODELS.md
 # invariant_confrontations.verdict). The column has no CHECK constraint, so this
@@ -299,7 +298,7 @@ def build_extract_agent(
     model_name: str,
     api_key: str,
     *,
-    reasoning_effort: str = POST_REASONING_EFFORT,
+    reasoning_effort: str,
     base_url: str = "https://openrouter.ai/api/v1",
 ) -> Agent[None, PostPlannerResult]:
     provider = OpenRouterProvider(
@@ -335,7 +334,7 @@ class PlannerPost:
         model_name: str,
         api_key: str,
         *,
-        reasoning_effort: str = POST_REASONING_EFFORT,
+        reasoning_effort: str,
         base_url: str = "https://openrouter.ai/api/v1",
     ) -> None:
         self.agent = build_extract_agent(

@@ -106,19 +106,17 @@ class Settings(BaseSettings):
     # it.
     planner_model: str
     worker_model: str
-    # Reasoning depth for the curator (docs/TASKS.md Task 5.3). `high`, by owner
-    # decision 2026-07-21 after the ice-core runs.
-    #
-    # Be precise about what was and was not established, and on WHICH model —
-    # this is a measurement on the planner model of the day (2026-07-21), not a
-    # property of the setting: at `high`, the curator produced valid registry
-    # predicates and 100% of its candidates cleared the expressibility gate.
-    # `xhigh` was NEVER measured to completion — the first attempt died on the
-    # tool-calling bug, the second was stopped. So this is not "xhigh was tried
-    # and rejected"; it is "high demonstrably worked and xhigh was not worth the
-    # latency to explore". Cost was never the deciding factor either way: the
-    # whole book runs for cents at any level. Re-measure after a model swap.
-    curator_reasoning_effort: str = "high"
+    # EACH MODEL'S REASONING EFFORT, BESIDE IT and required for the same reason
+    # (owner, 2026-11-15: cohesion). Which effort a model runs at is as much a
+    # property of the model as its name — a level one provider accepts another
+    # rejects — and a swap is one place to edit, not a `.env` line plus a code
+    # constant. ONE per model: every role on the planner model (Pre, Post, the
+    # curator, both triages) reads `planner_reasoning_effort`. The curator's
+    # `high` of 2026-07-21 was measured on the planner model of that day
+    # (valid predicates, 100% through the expressibility gate; `xhigh` never
+    # run to completion): re-measure after a swap.
+    planner_reasoning_effort: str
+    worker_reasoning_effort: str
     embedding_model: str = "all-MiniLM-L6-v2"
 
     # SQLite

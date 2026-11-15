@@ -59,6 +59,8 @@ def _test_settings(tmp_path: Path) -> Settings:
         # Required, no default: config.py refuses to guess which model runs.
         planner_model="test/planner",
         worker_model="test/worker",
+        planner_reasoning_effort="high",
+        worker_reasoning_effort="high",
         openrouter_api_key="test",
         fred_api_key="test",
         telegram_bot_token="test",

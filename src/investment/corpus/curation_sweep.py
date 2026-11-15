@@ -89,7 +89,7 @@ async def sweep_corpus(
         db,
         model_name=settings.planner_model,
         api_key=settings.openrouter_api_key,
-        reasoning_effort=settings.curator_reasoning_effort,
+        reasoning_effort=settings.planner_reasoning_effort,
     )
 
     documents = await db.query("SELECT id, title FROM document ORDER BY id")
