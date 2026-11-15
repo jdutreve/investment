@@ -665,6 +665,28 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/FED_CUTS_AND_EQUITIES.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 15),
+        about="rule",
+        question=(
+            "Should a permanent-style portfolio drop its long bonds while their trend is "
+            "down (TLT below its 10-month average), the rising-rate fix that 1986-2026 "
+            "suggests?"
+        ),
+        answer="refused out of sample",
+        evidence=(
+            "1968-1986, a 20-year bond priced from DGS20: Sortino -0.077 [90%: -0.211, "
+            "+0.051] against the plain permanent, maximum drawdown -16.2% against -12.2%. "
+            "Its 1986-2026 gain came almost entirely from 2021-2023. Holding no bonds at all "
+            "earned 3 points a year more over 1975-81, then gave it back from 1981."
+        ),
+        consequence=(
+            "A decade of rising rates rewards holding no bonds only in hindsight; the bond's "
+            "own trend does not detect it in real time. The overlay already takes the bond "
+            "sleeves out on their own price; do not propose a rates-driven bond exit again."
+        ),
+        record="docs/PERMANENT_AND_RISING_RATES.md",
+    ),
 )
 
 _HEADINGS = {

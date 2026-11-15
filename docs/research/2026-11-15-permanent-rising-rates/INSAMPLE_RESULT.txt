@@ -1,0 +1,29 @@
+A. Monthly return, permanent minus no-bond, by rate regime (annualised points)
+  10y yield up over 12m    YES n=181  perm-nobond  -0.91 pts/yr  t=-1.32
+  10y yield up over 12m    no  n=240  perm-nobond  +0.00 pts/yr  t=+0.00
+  TLT 12m return < 0       YES n=130  perm-nobond  -0.81 pts/yr  t=-0.91
+  TLT 12m return < 0       no  n=356  perm-nobond  -0.08 pts/yr  t=-0.13
+  TLT below 10m average    YES n=165  perm-nobond  -0.86 pts/yr  t=-1.07
+  TLT below 10m average    no  n=321  perm-nobond  +0.03 pts/yr  t=+0.04
+
+B. Switching rule: permanent, but no bonds while the signal is on (vs permanent)
+  10y yield up over 12m    from 1992-12 (signal on   44% of months)
+      permanent   CAGR  6.88%  Sortino 1.09  maxDD  -16.1%
+      switching   CAGR  7.30%  Sortino 1.21  maxDD  -12.8%
+  TLT 12m return < 0       from 1986-06 (signal on   27% of months)
+      permanent   CAGR  6.90%  Sortino 0.96  maxDD  -16.1%
+      switching   CAGR  7.12%  Sortino 1.02  maxDD  -12.8%
+  TLT below 10m average    from 1986-06 (signal on   34% of months)
+      permanent   CAGR  6.90%  Sortino 0.96  maxDD  -16.1%
+      switching   CAGR  7.19%  Sortino 1.02  maxDD  -13.6%
+
+C. Where the gain comes from (TLT below 10m average rule), by period, cumulative points
+  1986-1993: switching  +71.8%  permanent  +75.5%
+  1994-1999: switching  +59.2%  permanent  +52.1%
+  2000-2007: switching  +67.1%  permanent  +75.3%
+  2008-2015: switching  +47.1%  permanent  +46.4%
+  2016-2020: switching  +55.3%  permanent  +57.1%
+  2021-2023: switching  +12.8%  permanent   +2.3%
+  2024-2026: switching  +41.6%  permanent  +35.3%
+  permanent worst drawdown trough 2022-09
+  switching worst drawdown trough 2008-10

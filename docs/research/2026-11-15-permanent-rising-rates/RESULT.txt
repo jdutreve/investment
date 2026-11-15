@@ -1,0 +1,42 @@
+VALIDATION (monthly)          overlap            corr   proxy/y  live/y
+  equity  vs VFINX           1980-02..2023-06  0.993   12.16%   11.42%
+  bond20y vs TLT/VUSTX       1986-06..2026-11  0.983    5.20%    5.16%
+
+BOOKS (monthly rebalance, no costs; switcher signal on 32% of months)
+  1968-03..1981-09 rising rates
+      permanent      CAGR   9.54%  Sortino  0.43  maxDD  -11.9%
+      no-bond (1/3)  CAGR  12.16%  Sortino  0.76  maxDD  -14.6%
+      switcher       CAGR   9.77%  Sortino  0.43  maxDD  -15.0%
+  1975-01..1981-09 rising rates
+      permanent      CAGR   9.79%  Sortino  0.24  maxDD  -11.6%
+      no-bond (1/3)  CAGR  12.87%  Sortino  0.61  maxDD  -12.0%
+      switcher       CAGR  10.71%  Sortino  0.35  maxDD  -12.0%
+  1981-10..1986-05 falling
+      permanent      CAGR  14.01%  Sortino  0.93  maxDD   -7.6%
+      no-bond (1/3)  CAGR   9.43%  Sortino  0.07  maxDD   -9.9%
+      switcher       CAGR  12.31%  Sortino  0.59  maxDD   -7.6%
+  W1 1968-03..1986-05
+      permanent      CAGR  10.66%  Sortino  0.54  maxDD  -12.2%
+      no-bond (1/3)  CAGR  11.46%  Sortino  0.60  maxDD  -18.3%
+      switcher       CAGR  10.42%  Sortino  0.46  maxDD  -16.2%
+  W2 1975-01..1986-05
+      permanent      CAGR  11.49%  Sortino  0.46  maxDD  -12.2%
+      no-bond (1/3)  CAGR  11.45%  Sortino  0.42  maxDD  -18.3%
+      switcher       CAGR  11.36%  Sortino  0.42  maxDD  -16.2%
+
+Q2 DECISION — switcher minus permanent, Sortino, 90% block-bootstrap interval
+  W1 1968-03..1986-05    diff -0.077  [-0.211, +0.051]  maxDD switcher -16.2% vs permanent -12.2%
+  W2 1975-01..1986-05    diff -0.043  [-0.200, +0.108]  maxDD switcher -16.2% vs permanent -12.2%
+
+STRESS WINDOWS, cumulative
+  1973-01..1974-09 bear         permanent  +10.5%    no-bond  +18.4%   switcher  +10.0%
+  1977-01..1980-01 inflation    permanent  +68.9%    no-bond +106.1%   switcher  +83.2%
+  1980-02..1981-09 Volcker      permanent   -4.2%    no-bond   -2.5%   switcher   -6.2%
+  1981-10..1982-12 bond rally   permanent  +28.8%    no-bond  +17.3%   switcher  +23.5%
+
+ASSETS, annual return by window
+  1968-03..1981-09 rising rates    SPY   6.1% TLT   1.4% GLD  20.2% cash   7.3%
+  1975-01..1981-09 rising rates    SPY  13.3% TLT   0.3% GLD  12.9% cash   8.5%
+  1981-10..1986-05 falling         SPY  23.1% TLT  27.8% GLD  -4.5% cash   9.4%
+  W1 1968-03..1986-05              SPY  10.2% TLT   7.5% GLD  13.3% cash   7.8%
+  W2 1975-01..1986-05              SPY  17.2% TLT  10.7% GLD   5.4% cash   8.9%
