@@ -56,7 +56,11 @@ logger = logging.getLogger(__name__)
 TRANSPORT_RETRIES = 2
 OUTPUT_RETRIES = 2
 PLANNER_TIMEOUT_SECONDS = 120.0
-PLANNER_REASONING_EFFORT = "medium"  # the Planner assembles context, it does not decide
+# `high` since 2026-11-15 (owner, with the planner model swap): the margin it
+# chooses — which passages and zooms the Worker reads — is the Worker's view of
+# the corpus, so the Planner reasons at the depth of the two calls around it
+# (Post, the curator). It was `medium` on the argument that it does not decide.
+PLANNER_REASONING_EFFORT = "high"
 
 
 class QueryEmbedder(Protocol):

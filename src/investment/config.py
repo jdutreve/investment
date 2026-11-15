@@ -106,8 +106,6 @@ class Settings(BaseSettings):
     # it.
     planner_model: str
     worker_model: str
-    planner_thinking_budget_pre: int = 512
-    planner_thinking_budget_post: int = 1024
     # Reasoning depth for the curator (docs/TASKS.md Task 5.3). `high`, by owner
     # decision 2026-07-21 after the ice-core runs.
     #
