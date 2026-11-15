@@ -51,7 +51,7 @@ from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
 from investment.planner.worker_history import WORKER_READING_EVENT
 from investment.worker.result import journalled_sections
-from investment.writeback.recurrence import NOTABLE_RECURRENCE
+from investment.writeback.recurrence import ANSWERED_EVENT, NOTABLE_RECURRENCE
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
@@ -1321,6 +1321,14 @@ async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:
     measured_settings: set[str] = set()
     for row in await db.query("SELECT DISTINCT overrides FROM revision_measurement"):
         measured_settings.update(json.loads(str(row["overrides"])))
+    # A theme in prose names no setting; its link to the measurement that
+    # answered it is journalled instead (`recurrence.mark_answered`).
+    answered = {
+        str(row["source_id"])
+        for row in await db.query(
+            "SELECT DISTINCT source_id FROM event_log WHERE type = :t", t=ANSWERED_EVENT
+        )
+    }
     out: list[dict[str, Any]] = []
     for theme in themes:
         members = await db.query(
@@ -1333,7 +1341,8 @@ async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:
                 "n": theme["n"],
                 "last_raised": theme["last_raised"],
                 "titles": list(dict.fromkeys(str(row["title"]) for row in members)),
-                "measured": any(
+                "measured": theme["theme_id"] in answered
+                or any(
                     _asks_for_a_measured_setting(str(row["spec"]), measured_settings)
                     for row in members
                 ),

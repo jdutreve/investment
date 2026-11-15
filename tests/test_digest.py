@@ -837,6 +837,42 @@ async def test_a_theme_the_history_has_answered_is_not_listed_as_worth_measuring
     assert "Weight inflation acceleration at turning points" in block
 
 
+async def test_a_prose_theme_journalled_as_answered_is_counted_not_listed(
+    db: InvestmentDB,
+) -> None:
+    """The M8b critiques "read the spread's trajectory, not its level" name no
+    setting, so nothing tied them to the knobs measured and rejected on
+    2026-08-11, and the digest called them "worth measuring" for three months.
+    A theme journalled as answered is counted; an unanswered one stays."""
+    from investment.writeback.recurrence import mark_answered
+
+    wordings = [
+        ("thm-spread", "Gate the wide book on spread trajectory, not only spread level"),
+        ("thm-spread", "Read credit-spread VELOCITY, not only level-vs-median"),
+        ("thm-spread", "Add a spread-direction veto to the tight-spread books"),
+        ("thm-regime", "Weight inflation acceleration at turning points"),
+        ("thm-regime", "The regime label survived a collapse in inflation"),
+        ("thm-regime", "Regime label and tape diverge"),
+    ]
+    for n, (theme, title) in enumerate(wordings):
+        await db.command(
+            "INSERT INTO innovation (id, type, title, rationale, spec, theme_id, date, trace, "
+            "created_at) VALUES (:id, 'strategy_revision', :t, 'r', '{}', :theme, '2008-07-01', "
+            "'tr', :now)",
+            id=f"inn-{n}",
+            t=title,
+            theme=theme,
+            now=f"2026-08-11T09:0{n}:00+00:00",
+        )
+
+    await mark_answered(db, "thm-spread", "spread_speed_veto rejected", date(2026, 11, 15))
+    block = "\n".join(D._recurring_block(await D._recurring_themes(db)))
+
+    assert "spread trajectory" not in block
+    assert "1 other recurring theme is not listed" in block
+    assert "Weight inflation acceleration at turning points" in block
+
+
 def test_a_title_that_is_a_paragraph_is_cut_at_a_word() -> None:
     """The curator sometimes writes a paragraph where a title was asked for;
     one of 600 characters led the digest of 2026-10-11. The record beneath the

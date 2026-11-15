@@ -251,3 +251,29 @@ async def mark_applied(db: InvestmentDB, innovation_id: str, became: str, today:
             became=became,
             id=innovation_id,
         )
+
+
+# A theme answered by a measurement its wordings cannot name (owner, 2026-11-15).
+# The digest ties a critique to its answer by the SETTING a wording names
+# (`digest._asks_for_a_measured_setting`), and the M8b critiques of July-August
+# are prose: "read the spread's trajectory, not its level" names no knob. The
+# knobs that answered them — `spread_speed_veto`, `stress_gated_sleeves`,
+# `spread_speed_wide_trigger` — were measured and rejected on 2026-08-11, and the
+# digest still listed both themes as "worth measuring" every Sunday for three
+# months. Whoever read the theme and the measurement journals the link.
+ANSWERED_EVENT = "ThemeAnsweredEvent"
+
+
+async def mark_answered(db: InvestmentDB, theme_id: str, answer: str, today: date) -> None:
+    """Record that a theme's question has been measured, and where its answer is."""
+    rows = await db.query("SELECT 1 FROM innovation WHERE theme_id = :t LIMIT 1", t=theme_id)
+    if not rows:
+        raise LookupError(f"no theme {theme_id}")
+    async with db.transaction() as tx:
+        await tx.append_event(
+            type=ANSWERED_EVENT,
+            source_uc=APPLIED_SOURCE,
+            source_id=theme_id,
+            payload={"answer": answer},
+            event_date=today,
+        )
