@@ -87,9 +87,9 @@ async def sweep_corpus(
     writeback = KnowledgeWriteback(db, embedder)
     curator = KnowledgeCurator(
         db,
-        model_name=settings.planner_model,
+        model_name=settings.curator_model,
         api_key=settings.openrouter_api_key,
-        reasoning_effort=settings.planner_reasoning_effort,
+        reasoning_effort=settings.curator_reasoning_effort,
     )
 
     documents = await db.query("SELECT id, title FROM document ORDER BY id")

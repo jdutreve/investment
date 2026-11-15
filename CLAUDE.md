@@ -108,10 +108,14 @@ its code.
 
 Three cognitive roles, strictly separated (full spec: docs/ARCHITECTURE.md):
 
-**Which MODEL runs each role is `.env`'s business alone** — `PLANNER_MODEL` and
-`WORKER_MODEL` have NO default in the code (the agent refuses to start without
-them) and no source file may name a model. Each role states the CAPABILITIES it
-requires; a swap is a `.env` edit plus a smoke test, never a code change.
+**Which MODEL runs each role is `.env`'s business alone** — `PLANNER_MODEL`,
+`WORKER_MODEL` and `CURATOR_MODEL` (the curator and both event triages), each
+with its `*_REASONING_EFFORT` beside it, have NO default in the code (the agent
+refuses to start without them) and no source file may name a model or an
+effort. Each role states the CAPABILITIES it requires; a swap is a `.env` edit
+plus a smoke test, never a code change — and for the curator, a re-run on
+windows that produced candidates before (a planner swap lost that on
+2026-11-15, which is why the curator has its own model).
 
 - **PLANNER** (`PLANNER_MODEL` via OpenRouter, thinking mode) — assembles Worker
   context: mechanical baseline queries + LLM-chosen margin (corpus searches,

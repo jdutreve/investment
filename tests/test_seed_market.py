@@ -145,6 +145,8 @@ def _settings(tmp_path: Path) -> Settings:
         worker_model="test/worker",
         planner_reasoning_effort="high",
         worker_reasoning_effort="high",
+        curator_model="test/curator",
+        curator_reasoning_effort="high",
         openrouter_api_key="test",
         fred_api_key="test",
         telegram_bot_token="test",

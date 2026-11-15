@@ -2,6 +2,8 @@
 src/investment/planner/post.py). The deterministic guardrail directly (the
 "hallucinations die" core); the LLM round-trip via PydanticAI TestModel."""
 
+import dataclasses
+
 from conftest import a_reading
 from pydantic_ai.models.test import TestModel
 
@@ -84,6 +86,21 @@ def test_evidenced_verdict_survives() -> None:
     cleaned = apply_guardrail(result, _context())
     assert cleaned.evaluations[0].verdict == "confirms"
     assert cleaned.regime_notes == ""
+
+
+def test_a_strategy_shown_only_in_favors_is_known() -> None:
+    """`market-signal-stack` has no scenarios, so a known set read off the
+    scenario table dropped the Worker's evaluation of the one strategy that
+    allocates, every week. FAVORS shows it; an evaluation of it is kept."""
+    context = dataclasses.replace(
+        _context(), favors=[{"strategy_id": "s1"}, {"strategy_id": "market-signal-stack"}]
+    )
+    kept = apply_guardrail(
+        PostPlannerResult(evaluations=[_eval("market-signal-stack", "neutral", ["Stagflation"])]),
+        context,
+    )
+    assert [ev.strategy_id for ev in kept.evaluations] == ["market-signal-stack"]
+    assert "unknown strategy" not in kept.regime_notes
 
 
 def test_unknown_strategy_evaluation_is_dropped() -> None:

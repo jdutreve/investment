@@ -233,16 +233,16 @@ async def run_agent(settings: Settings) -> None:
         # turn text into Documents, and `from_db` reads the calibrated chunking
         # and similarity thresholds out of `system_thresholds` once.
         ingester=await CorpusIngester.from_db(db, embedder),
-        # The UC3 triage runs on the PLANNER model at its effort: a
-        # short structured judgement over one press item, the same shape of task
-        # the curator does, and not the Worker's deliberation.
+        # The UC3 triage runs on the CURATOR's model at its effort: a short
+        # structured judgement over one press item, the same shape of task the
+        # curator does, and not the Worker's deliberation.
         triage_agent=build_triage_agent(
-            settings.planner_model, settings.openrouter_api_key, settings.planner_reasoning_effort
+            settings.curator_model, settings.openrouter_api_key, settings.curator_reasoning_effort
         ),
         # The world-events triage, same model and effort: one day's items is
         # the same kind of short structured judgement (`watch/world_events.py`).
         world_triage_agent=build_world_triage_agent(
-            settings.planner_model, settings.openrouter_api_key, settings.planner_reasoning_effort
+            settings.curator_model, settings.openrouter_api_key, settings.curator_reasoning_effort
         ),
     )
 

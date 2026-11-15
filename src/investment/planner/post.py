@@ -157,7 +157,16 @@ def _title_tokens(title: str) -> set[str]:
 
 
 def known_context(context: PlannerContext) -> KnownContext:
-    strategies = {str(s["strategy_id"]) for s in context.scenarios}
+    # THE STRATEGIES THE WORKER WAS SHOWN, from every table that shows one
+    # (2026-11-15). This read the scenario table alone, written when every
+    # strategy had scenarios; `market-signal-stack` has none, so the Worker's
+    # weekly evaluation of the one strategy that allocates was dropped as
+    # "unknown" — and the Post model, told the stack was unknown, wrote
+    # evaluations of the four it did know in its place. FAVORS lists every
+    # enabled strategy for the current regime, the stack included.
+    strategies = {str(s["strategy_id"]) for s in context.scenarios} | {
+        str(f["strategy_id"]) for f in context.favors
+    }
     invariants = {str(i["id"]) for i in context.top_invariants}
     portfolios = {str(r["portfolio_id"]) for r in context.ranking}
 

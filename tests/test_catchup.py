@@ -40,6 +40,8 @@ def _settings(tmp_path: Path) -> Settings:
         worker_model="w",
         planner_reasoning_effort="high",
         worker_reasoning_effort="high",
+        curator_model="test/curator",
+        curator_reasoning_effort="high",
         telegram_bot_token="t",
         telegram_chat_id="c",
         gmail_address="test",

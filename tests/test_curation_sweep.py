@@ -31,6 +31,8 @@ def _settings(tmp_path: Path) -> Settings:
         worker_model="test/worker",
         planner_reasoning_effort="high",
         worker_reasoning_effort="high",
+        curator_model="test/curator",
+        curator_reasoning_effort="high",
         telegram_bot_token="t",
         telegram_chat_id="c",
         gmail_address="test",
@@ -107,7 +109,7 @@ async def test_a_fully_checkpointed_corpus_costs_no_model_call(
     await _checkpoint(
         db,
         passages,
-        curation_fingerprint(settings.planner_model, settings.planner_reasoning_effort),
+        curation_fingerprint(settings.curator_model, settings.curator_reasoning_effort),
     )
 
     sweep = await sweep_corpus(db, settings)
@@ -156,7 +158,7 @@ async def test_one_failing_document_does_not_cost_the_others(
     failed document is named — a count would never lead anyone to it — and its
     passages stay unmarked, so the next week retries precisely those."""
     settings = _settings(tmp_path)
-    fingerprint = curation_fingerprint(settings.planner_model, settings.planner_reasoning_effort)
+    fingerprint = curation_fingerprint(settings.curator_model, settings.curator_reasoning_effort)
     await _checkpoint(db, await _document(db, "doc-ok", passages=2), fingerprint)
     await _document(db, "doc-bad", passages=2)  # uncurated -> reaches the stub key -> 401
 

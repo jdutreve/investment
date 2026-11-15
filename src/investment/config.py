@@ -106,17 +106,28 @@ class Settings(BaseSettings):
     # it.
     planner_model: str
     worker_model: str
+    # THE CURATOR'S OWN MODEL (owner, 2026-11-15). It shared the planner's until
+    # a swap showed the two jobs do not travel together: on ten windows where
+    # the old model wrote ten candidates (nine admissible), the new planner
+    # model wrote none — it kept every claim as a reference note because the
+    # registry held no EXACT equivalent (1907's call money is not `^IRX`),
+    # while the Planner's Post on the same model extracted more faithfully than
+    # the old one. Reading a passage into a registry condition is its own
+    # capability; the two event triages, the same kind of short structured
+    # judgement over text, run on it too.
+    curator_model: str
     # EACH MODEL'S REASONING EFFORT, BESIDE IT and required for the same reason
     # (owner, 2026-11-15: cohesion). Which effort a model runs at is as much a
     # property of the model as its name — a level one provider accepts another
     # rejects — and a swap is one place to edit, not a `.env` line plus a code
-    # constant. ONE per model: every role on the planner model (Pre, Post, the
-    # curator, both triages) reads `planner_reasoning_effort`. The curator's
-    # `high` of 2026-07-21 was measured on the planner model of that day
-    # (valid predicates, 100% through the expressibility gate; `xhigh` never
-    # run to completion): re-measure after a swap.
+    # constant. One per model: Pre and Post read the planner's; the curator and
+    # both triages read the curator's. The curator's `high` of 2026-07-21 was
+    # measured on its model of that day (valid predicates, 100% through the
+    # expressibility gate; `xhigh` never run to completion): re-measure after a
+    # swap, on windows that produced candidates before.
     planner_reasoning_effort: str
     worker_reasoning_effort: str
+    curator_reasoning_effort: str
     embedding_model: str = "all-MiniLM-L6-v2"
 
     # SQLite
