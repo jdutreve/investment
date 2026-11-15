@@ -54,6 +54,21 @@ def test_compute_derivatives_monthly_observation_lookback() -> None:
     assert out["acceleration"].iloc[2] == pytest.approx((5.3 - 5.1) - (5.1 - 5.0))
 
 
+def test_compute_derivatives_drops_a_publication_without_a_reading() -> None:
+    """October 2026's CPI has no year-on-year (October 2025 was never
+    published). Kept as a NaN row it was stored empty, read as an inflation
+    print by the regime detector, and cost the next print its speed; dropped,
+    the next print's change spans the gap, as December 2025's did."""
+    idx = _dates("2026-08-01", 4, freq="MS")
+    level = pd.Series([3.3, 3.7, float("nan"), 3.5], index=idx)
+    out = derivatives.compute_derivatives(level, "CPIAUCSL", default_lookback_days=30)
+    assert pd.Timestamp("2026-10-01") not in out.index
+    assert out.loc[pd.Timestamp("2026-11-01"), "speed"] == pytest.approx(3.5 - 3.7)
+    assert out.loc[pd.Timestamp("2026-11-01"), "acceleration"] == pytest.approx(
+        (3.5 - 3.7) - (3.7 - 3.3)
+    )
+
+
 def test_compute_derivatives_daily_calendar_lookback() -> None:
     idx = _dates("2020-01-01", 90, freq="D")
     level = pd.Series(np.arange(90, dtype=float), index=idx)

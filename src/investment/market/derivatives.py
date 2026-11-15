@@ -109,6 +109,17 @@ def compute_derivatives(level: pd.Series, ticker: str, default_lookback_days: in
     'speed = delta1m of YoY, accel = delta of speed')."""
     level = level.sort_index()
     if ticker in OBSERVATION_LOOKBACK_TICKERS:
+        # A PUBLICATION WITHOUT A READING IS NOT A PRINT (2026-11-15). October
+        # 2026's CPI has no year-on-year, October 2025 never having been
+        # published (`_year_on_year`), and kept as a NaN row it became one:
+        # stored empty, read by the regime detector as an inflation print
+        # ("flat" — `classify_inflation` on a None level), returned by every
+        # latest-row reader in place of the last real reading, and the gap it
+        # left in `diff(1)` would have cost the next print its speed and the
+        # two after it their acceleration. Dropped, it is what October 2025
+        # itself was a year earlier — a month absent from the series — and the
+        # next print's change spans the gap, as December 2025's did.
+        level = level.dropna()
         speed = level.diff(1)
         acceleration = speed.diff(1)
     else:
