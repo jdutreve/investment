@@ -709,6 +709,28 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/INVARIANTS_1968.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 16),
+        about="corpus",
+        question=(
+            "Does the invariant engine find an effect that is there — oracle signals of known "
+            "accuracy, planted and matured by its own machinery?"
+        ),
+        answer="not until the sampler was fixed",
+        evidence=(
+            "Before: oracles right 70% of the time measured 0.55, 0 of 40 integrated; the "
+            "sampler took the next active day after each horizon, so a flickering condition "
+            "drew a moment per horizon in good times and bad. Fixed grid: 0.70 measured "
+            "0.704, 20 of 20 integrated, 0 of 40 uninformative ones."
+        ),
+        consequence=(
+            "Every invariant record measured before 2026-11-16 understated conditions that "
+            "flicker, and so did the findings built on them (corpus against noise, ideas "
+            "judged, the 1968 history): read them as provisional until the records are "
+            "re-measured on the fixed grid."
+        ),
+        record="docs/INSTRUMENT_POSITIVE_CONTROL.md",
+    ),
 )
 
 _HEADINGS = {

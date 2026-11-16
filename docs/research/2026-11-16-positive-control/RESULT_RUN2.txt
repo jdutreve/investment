@@ -1,0 +1,15 @@
+                planted_realised  measured_rate  decided_moments  integrated  rejected
+p    frequency                                                                        
+0.50 common                0.499          0.511            76.95           0         2
+     rare                  0.489          0.509            14.45           0         0
+0.55 common                0.550          0.538            76.60           0         0
+     rare                  0.552          0.571            15.50           0         0
+0.60 common                0.599          0.623            79.30           8         0
+     rare                  0.601          0.609            15.90           0         0
+0.70 common                0.705          0.704            82.25          20         0
+     rare                  0.708          0.727            16.75           1         0
+
+C1 rate recovery within 0.05 in every cell: PASS
+C2 at most 2 of 40 uninformative integrated: PASS
+C3 at least 16 of 20 strong common integrated: PASS
+INSTRUMENT PASSES

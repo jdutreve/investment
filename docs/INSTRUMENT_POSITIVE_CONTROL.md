@@ -115,3 +115,27 @@ criteria, on a fresh copy, with the engine as fixed above. Run once.
 - If it PASSES, the instrument is sound, and re-measuring production is
   proposed to the owner.
 - If it FAILS, the fix is not enough and nothing is re-measured.
+
+## Run 2 (2026-11-16): THE INSTRUMENT PASSES
+
+Raw output: `docs/research/2026-11-16-positive-control/RESULT_RUN2.txt`.
+
+| Planted p | Measured rate (common / rare) | Decided moments | Integrated (common / rare) |
+|---|---|---|---|
+| 0.50 | 0.511 / 0.509 | 77 / 14 | 0 / 0 of 20 |
+| 0.55 | 0.538 / 0.571 | 77 / 16 | 0 / 0 |
+| 0.60 | 0.623 / 0.609 | 79 / 16 | 8 / 0 |
+| 0.70 | 0.704 / 0.727 | 82 / 17 | 20 / 1 |
+
+- **C1, rate recovery:** PASS.
+- **C2, no false integration:** PASS (0 of 40).
+- **C3, power on a strong effect:** PASS (20 of 20).
+
+The engine now measures what it claims to:
+- it recovers every planted rate within 0.03;
+- it integrates no noise;
+- it integrates every strong common effect, and four in ten of the 0.60 ones.
+
+A rare condition, about 15 moments over the history, can be measured but
+almost never integrated, even at 0.70. That is the arithmetic of the bar,
+not a defect.
