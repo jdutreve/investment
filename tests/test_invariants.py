@@ -454,47 +454,55 @@ def test_sample_moments_empty_series() -> None:
     assert invariants.sample_moments(pd.Series(dtype=bool), pd.Timedelta(weeks=12)) == []
 
 
-def test_sample_moments_takes_short_episode_starts() -> None:
-    """A short episode still contributes its START (the decision moment),
-    because the next active day within a horizon is skipped."""
-    idx = pd.date_range("2020-01-01", periods=8, freq="D")
-    active = pd.Series([True, True, False, False, True, True, True, False], index=idx)
-    # Horizon far longer than the gap between the two bursts -> only the
-    # first burst's start survives.
-    assert invariants.sample_moments(active, pd.Timedelta(weeks=12)) == [idx[0]]
-    # Horizon shorter than the gap -> each burst contributes its start.
-    assert invariants.sample_moments(active, pd.Timedelta(days=3)) == [idx[0], idx[4]]
+def test_sample_moments_are_the_fixed_grid_dates_where_the_condition_holds() -> None:
+    """Moments are dates of ONE calendar, a horizon apart from a fixed anchor:
+    they do not move with where the data begins."""
+    horizon = pd.Timedelta(weeks=12)
+    early = pd.Series(True, index=pd.date_range("2020-01-01", "2021-12-31", freq="D"))
+    late = early.loc["2020-06-15":]
+    grid = set(invariants.sample_moments(early, horizon))
+    assert set(invariants.sample_moments(late, horizon)) <= grid
+    for moment in grid:
+        assert (moment - invariants.MOMENT_GRID_ANCHOR) % horizon == pd.Timedelta(0)
 
 
 def test_sample_moments_spaces_a_long_episode_by_horizon() -> None:
-    """THE fix behind the gold verdict: a LONG episode is sampled THROUGHOUT
-    at horizon spacing, not collapsed to its first day. `real_rate < 2.5`
-    holds for one 7050-day block (2001-2020) — per-episode scoring gave that
-    whole era ONE data point and let 1990s threshold chatter carry the
-    verdict (0.158/refuted on N=19 vs 0.542/undecided on N=107)."""
+    """A LONG episode is sampled THROUGHOUT at horizon spacing, not collapsed to
+    its first day (the M5 gold lesson), and the windows never overlap."""
     idx = pd.date_range("2020-01-01", periods=365, freq="D")
-    active = pd.Series(True, index=idx)
-    moments = invariants.sample_moments(active, pd.Timedelta(weeks=12))
-    assert len(moments) == 5  # 365d / 84d, walking forward
-    assert moments[0] == idx[0]
-    # Non-overlapping: consecutive outcome windows never share a day, which
-    # is what the Wilson bound in the verdict assumes.
+    moments = invariants.sample_moments(pd.Series(True, index=idx), pd.Timedelta(weeks=12))
+    assert len(moments) in (4, 5)
     gaps = [(b - a).days for a, b in itertools.pairwise(moments)]
-    assert all(g >= 84 for g in gaps)
+    assert all(g == 84 for g in gaps)
 
 
 def test_sample_moments_is_continuous_in_condition_frequency() -> None:
-    """No cliff between 'nearly always' and 'always' — the discontinuity that
-    made an 88%-true condition untestable (1 moment) while a 100%-true one
-    got ~1800."""
+    """No cliff between 'nearly always' and 'always': one day off, away from a
+    grid date, changes nothing."""
     idx = pd.date_range("2020-01-01", periods=365, freq="D")
     horizon = pd.Timedelta(weeks=12)
     always = pd.Series(True, index=idx)
-    nearly = pd.Series(True, index=idx)
-    nearly.iloc[180] = False  # one day off in the middle
-    assert len(invariants.sample_moments(nearly, horizon)) == len(
+    grid = set(invariants.sample_moments(always, horizon))
+    nearly = always.copy()
+    off = next(d for d in idx[150:] if d not in grid)
+    nearly.loc[off] = False
+    assert invariants.sample_moments(nearly, horizon) == invariants.sample_moments(always, horizon)
+
+
+def test_a_flickering_condition_is_sampled_where_it_holds_not_once_per_horizon() -> None:
+    """THE DEFECT the positive control found (2026-11-16). A condition on for
+    on one day in seven at random was sampled by the old walker
+    about once per horizon — as often as one always on — so its moments said
+    nothing about it. On the grid, it is sampled on the grid dates where it is
+    on: about one in seven."""
+    idx = pd.date_range("1990-01-01", "2019-12-31", freq="D")
+    horizon = pd.Timedelta(weeks=12)
+    flicker = pd.Series(np.random.default_rng(7).random(len(idx)) < 1 / 7, index=idx)
+    always = pd.Series(True, index=idx)
+    ratio = len(invariants.sample_moments(flicker, horizon)) / len(
         invariants.sample_moments(always, horizon)
     )
+    assert ratio < 0.3
 
 
 # -- VALIDATION GATE ---------------------------------------------------------

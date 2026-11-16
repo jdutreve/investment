@@ -59,3 +59,59 @@ If C1 fails, the engine does not measure what it claims to, and every record
 of the 273 invariants is suspect. If C1 passes, the records are trustworthy,
 and the reason so many sit near 0.50 is the size of the effects, not the
 instrument.
+
+## Run 1 (2026-11-16): THE INSTRUMENT FAILS
+
+Raw output: `docs/research/2026-11-16-positive-control/RESULT_RUN1.txt`.
+
+| Planted p | Measured rate (common / rare) | Integrated |
+|---|---|---|
+| 0.50 | 0.483 / 0.480 | 0 of 40 |
+| 0.55 | 0.498 / 0.467 | 0 of 40 |
+| 0.60 | 0.514 / 0.515 | 0 of 40 |
+| 0.70 | 0.545 / 0.562 | 0 of 40 |
+
+- **C1, rate recovery:** FAIL.
+- **C2, no false integration:** PASS.
+- **C3, power on a strong effect:** FAIL.
+
+The engine integrates no noise, but it flattens real effects to near chance.
+
+**Diagnosis**, made after the run (`sampler_diagnosis.py`):
+- **The outcome is right.** The engine's excess at every moment equals this
+  script's own E(t) exactly (correlation 1.000).
+- **The loss is the moment sampler.** It walked the active days, took one,
+  skipped a horizon and took the NEXT active day. A condition that flickers is
+  active again a few days after every skip, in good times as in bad. So the
+  walker drew about one moment per horizon whatever the condition said, and
+  measured the handle's ordinary rate. On the same oracles:
+
+  | Planted p | Truth at the walker's moments | Truth on a fixed grid |
+  |---|---|---|
+  | 0.50 | 0.496 | 0.476 |
+  | 0.60 | 0.542 | 0.592 |
+  | 0.70 | 0.592 | 0.696 |
+
+  The fixed grid takes one date every 12 weeks from a fixed anchor, kept only
+  if the condition holds on it.
+
+**The fix:** `invariants.sample_moments` now returns the dates of a fixed grid,
+one horizon apart from 1960-01-01, on which the condition holds.
+- The windows still do not overlap.
+- The choice of date no longer depends on the condition.
+- The sampler is part of the maturation fingerprint, so every record is
+  re-swept once.
+- The cost: a burst shorter than a horizon counts only if a grid date falls
+  inside it.
+
+**Every record measured before this fix is suspect**, and so are the studies
+built on those records: the corpus against noise, the ideas grouped and
+judged, and the history from 1968.
+
+## Protocol, run 2 (committed 2026-11-16, before the run)
+
+The same script, the same grid of oracles, the same seeds and the same three
+criteria, on a fresh copy, with the engine as fixed above. Run once.
+- If it PASSES, the instrument is sound, and re-measuring production is
+  proposed to the owner.
+- If it FAILS, the fix is not enough and nothing is re-measured.

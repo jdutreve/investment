@@ -367,48 +367,49 @@ def evaluate_condition(
     return mask if mask is not None else pd.Series(dtype=bool)
 
 
+# THE MOMENT GRID (2026-11-16). Moments are the dates of a FIXED calendar — one
+# every horizon from this anchor — on which the condition holds. A fixed anchor,
+# so a record's moments depend neither on where its data begins nor on the
+# condition's own path.
+MOMENT_GRID_ANCHOR = pd.Timestamp("1960-01-01")
+# In the maturation fingerprint: a change of sampler re-sweeps every record.
+MOMENT_SAMPLER = "fixed-grid"
+
+
 def sample_moments(active: pd.Series, horizon: pd.Timedelta) -> list[pd.Timestamp]:
-    """Moments across condition-ACTIVE time, spaced at least one `horizon`
-    apart: walk the active days forward, take one, skip a horizon, repeat.
+    """The grid dates, one horizon apart from `MOMENT_GRID_ANCHOR`, on which the
+    condition is ACTIVE (its last known state at that date).
 
-    Two properties this buys, both load-bearing:
+    NON-OVERLAPPING, as before: grid dates are a horizon apart, so the outcome
+    windows are disjoint and the verdict's binomial tails stay sound.
 
-    NON-OVERLAPPING → the verdict's binomial tails are sound. Each moment's
-    outcome
-    window is [d, d+horizon], so horizon-spacing makes the windows disjoint
-    and the moments quasi-independent — which is exactly what the exact
-    binomial tails in `time_validation_verdict` assume (they were a Wilson
-    interval when this docstring was written; the assumption is the same one).
-    Sampling active time weekly
-    instead would overlap every 12w window 12-fold and inflate N (and shrink
-    the bound) against evidence that is not there.
+    INDEPENDENT OF THE CONDITION'S PATH, which the sampler it replaces was not
+    (positive control, docs/INSTRUMENT_POSITIVE_CONTROL.md). That one walked the
+    active days, took one, skipped a horizon and took the NEXT active day. A
+    condition that flickers is active again a few days after every skip, in good
+    times and bad, so it drew about one moment per horizon whatever the condition
+    said, and measured the handle's ordinary rate: an oracle right 70% of the
+    time was scored 0.55, and none of forty was integrated. On a fixed grid the
+    date is chosen before the condition is read, so a condition that holds more
+    often before good outcomes is caught more often before them: the same oracle
+    reads 0.70.
 
-    CONTINUOUS IN CONDITION FREQUENCY → no cliff between a persistent state
-    and 'always'. One-moment-per-EPISODE had an indefensible discontinuity:
-    a condition true 100% of the time sampled ~1800 times, while one true 88%
-    of the time in a single block sampled ONCE. Measured on the real data,
-    `real_rate < 2.5` holds 88% of 35y but chatters into 36 episodes — one of
-    7050 days (2001-2020, the whole low-real-rate era) plus 35 six-day blips
-    around the threshold in the high-rate 1990s. Per-episode scoring gave the
-    19-year era a single data point and let the blips carry the verdict:
-    'low real yields favour gold' read 0.158/REFUTED on N=19, vs 0.542/
-    undecided on N=107 here (M5 verification).
-
-    A SHORT episode still contributes its start (the decision moment: "the
-    condition just became active — tilt?"), since the next active day within
-    a horizon is skipped; a LONG one is sampled throughout instead of
-    collapsing to its first day."""
+    STILL CONTINUOUS IN CONDITION FREQUENCY: a condition true 88% of the time is
+    sampled on about 88% of the grid, not once per episode (the 'low real yields
+    favour gold' lesson of M5). THE PRICE: a burst shorter than a horizon is
+    seen only if a grid date falls inside it — an event claim gets the moments
+    its frequency earns, not one per event."""
     if active.empty:
         return []
-    active_days = active.sort_index()
-    days = active_days.index[active_days.fillna(False).to_numpy(dtype=bool)]
-    moments: list[pd.Timestamp] = []
-    next_eligible: pd.Timestamp | None = None
-    for day in days:
-        if next_eligible is None or day >= next_eligible:
-            moments.append(day)
-            next_eligible = day + horizon
-    return moments
+    states = active.sort_index().fillna(False).astype(bool)
+    first, last = states.index[0], states.index[-1]
+    step = int(np.ceil((first - MOMENT_GRID_ANCHOR) / horizon))
+    count = int((last - MOMENT_GRID_ANCHOR) // horizon) - step + 1
+    if count <= 0:
+        return []
+    grid = pd.DatetimeIndex([MOMENT_GRID_ANCHOR + horizon * k for k in range(step, step + count)])
+    on = states.reindex(grid, method="ffill").fillna(False).astype(bool)
+    return list(grid[on.to_numpy()])
 
 
 # What one moment can say. Only the first two are EVIDENCE and count in N; the
@@ -1035,6 +1036,7 @@ def maturation_fingerprint(
             "effect": effect,
             "rule": rule,
             "records": [CONFIRMED, REFUTED, NEUTRAL, NO_DATA, "lift"],
+            "sampler": MOMENT_SAMPLER,
         },
         sort_keys=True,
         separators=(",", ":"),

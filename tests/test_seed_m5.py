@@ -333,17 +333,16 @@ async def test_m5_validated_at_is_not_a_ratchet(tmp_path: Path) -> None:
         await seed._seed_portfolio_nav(db)
         await seed._materialize_benchmark_valuation(db)
         await seed._run_backtests_favors(db)
-        # Nothing in the fixture integrates at the seeded level, which is the
-        # rule doing its job: its best records clear theta (31 of the first 50,
-        # 55 of 94) and a 5% lifetime level asks for more than that. Relaxed to
-        # an even chance over the life, the bar falls to theta itself and both
-        # integrate — which is all this fixture needs, an 'integrated' row to
-        # watch leave.
-        await db.command(
-            "UPDATE system_thresholds SET value = 0.50 WHERE key = :k",
-            k="invariant_verdict_confidence",
-        )
         await seed._mature_seed_invariants(db)
+        # The fixture's synthetic records integrate nothing at any defensible
+        # level since the fixed moment grid (2026-11-16), and this test is not
+        # about reaching integration: it is about LEAVING it. One measured row
+        # is set integrated, with its date, as the rule would have set it.
+        await db.command(
+            "UPDATE invariant SET status = 'integrated', validated_at = '2026-07-15' "
+            "WHERE id = (SELECT id FROM invariant WHERE confirmation_count > 0 "
+            "ORDER BY confirmation_count DESC LIMIT 1)"
+        )
 
         integrated = await db.query(
             "SELECT id, validated_at FROM invariant WHERE status = 'integrated'"
