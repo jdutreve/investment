@@ -91,6 +91,22 @@ _CASH_HANDLE = "asset-class:cash"
 # differs.
 REFERENCE_STATUS = "reference"
 
+# The FIFTH status (owner, 2026-11-15 — ADR-006 amendment of that date): a
+# claim the literature has established and this engine CANNOT measure — its
+# horizon is longer than the history can confront (a 10-year claim gets about
+# five independent moments in 58 years, the first checkpoint needs ten), or its
+# data lies outside the registry. Only the owner files one, with its sources
+# (`file_literature_claim`, journalled). The engine never confronts, weighs or
+# re-judges it; the Worker reads it as settled by the literature and says
+# where it comes from. It is not a verdict of this system and must never be
+# shown as one — "established" here means INTEGRATED, which this is not.
+LITERATURE_STATUS = "literature"
+
+# THE STATUSES THE ENGINE DOES NOT MEASURE. Every "skip what is not measured"
+# test reads this set: `!= REFERENCE_STATUS` named the only unmeasured status
+# there was, and a second one arrived (CLAUDE.md "when a second one arrives").
+UNMEASURED_STATUSES = frozenset({REFERENCE_STATUS, LITERATURE_STATUS})
+
 # -- pure core: weight formula (CLAUDE.md "Invariant weight model") --------
 
 
@@ -1163,11 +1179,14 @@ async def restate_invariant(
     outcome was knowable at t (`db/as_of_snapshot.py`, on `available_at`)."""
     row = (
         await db.query(
-            "SELECT weight_initial, floor_weight, condition, effect, null_confirmation_rate "
-            "FROM invariant WHERE id = :id",
+            "SELECT weight_initial, floor_weight, condition, effect, null_confirmation_rate, "
+            "status FROM invariant WHERE id = :id",
             id=invariant_id,
         )
     )[0]
+    # Not this engine's to restate: no evidence was counted, so none can move it.
+    if row["status"] in UNMEASURED_STATUSES:
+        return str(row["status"])
     definition = stored_definition(row)
     decided = await db.query(
         "SELECT verdict FROM invariant_confrontations "
@@ -1410,9 +1429,9 @@ class MaturationResult:
     neutral: int  # moments measured and found inside the margin band
     market_score: float
     status: str
-    skipped_reason: (
-        str | None
-    )  # 'already_matured' | 'reference_knowledge' | 'demoted' | 'no_benchmark' | None
+    # 'already_matured' | 'reference_knowledge' | 'demoted' | 'no_benchmark' |
+    # 'literature' | None
+    skipped_reason: str | None
     # The no-condition null the verdict was measured against (0.0 for an
     # 'always' condition, which is scored absolutely). Reported so the seed
     # inventory shows WHAT the score was relative to — a market_score is not
@@ -1431,6 +1450,10 @@ async def _mature_one(
     remeasure_on_changed_data: bool,
 ) -> MaturationResult:
     invariant_id = str(inv["id"])
+    # The owner's literature claims are not this engine's to judge: first,
+    # before an empty effect would file one as a reference note.
+    if inv["status"] == LITERATURE_STATUS:
+        return MaturationResult(invariant_id, 0, 0, 0, 1.0, LITERATURE_STATUS, "literature")
     registries, thresholds, horizon = inputs.registries, inputs.thresholds, inputs.horizon
     condition = json.loads(inv["condition"]) if inv["condition"] else []
     effect = json.loads(inv["effect"]) if inv["effect"] else None
@@ -1647,7 +1670,7 @@ def invariants_reading(
     absolute — any series of the kind it is compared against."""
     selected = set()
     for inv in invariant_rows:
-        if inv["status"] == REFERENCE_STATUS or not inv["effect"]:
+        if inv["status"] in UNMEASURED_STATUSES or not inv["effect"]:
             continue
         condition = json.loads(inv["condition"]) if inv["condition"] else []
         effect = json.loads(inv["effect"])
@@ -1861,8 +1884,9 @@ async def confront_completed_moments(db: InvestmentDB, today: date) -> ForwardSw
     (`backtests.materialize_benchmark_valuation`). On stale series nothing ever
     completes."""
     invariant_rows = await db.query(
-        "SELECT * FROM invariant WHERE status != :reference ORDER BY id",
+        "SELECT * FROM invariant WHERE status NOT IN (:reference, :literature) ORDER BY id",
         reference=REFERENCE_STATUS,
+        literature=LITERATURE_STATUS,
     )
     inputs = await _load_measurement_inputs(db, invariant_rows)
 

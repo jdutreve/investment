@@ -39,6 +39,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.market_signal_cycle import run_market_signal_cycle
 from investment.mechanical.backtests import run_backtests_and_favors
 from investment.mechanical.invariants import (
+    LITERATURE_STATUS,
     REFERENCE_STATUS,
     restate_invariant,
 )
@@ -142,7 +143,9 @@ async def reweigh_invariants_asof(
     date: enough to be judged, and judged differently than in 2026.
     """
     rows = await db.query(
-        "SELECT id FROM invariant WHERE status != :reference", reference=REFERENCE_STATUS
+        "SELECT id FROM invariant WHERE status NOT IN (:reference, :literature)",
+        reference=REFERENCE_STATUS,
+        literature=LITERATURE_STATUS,
     )
     for row in rows:
         await restate_invariant(db, str(row["id"]), thresholds, as_of)

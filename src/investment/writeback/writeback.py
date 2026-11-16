@@ -54,6 +54,7 @@ from investment.mechanical.gates import (
 )
 from investment.mechanical.invariants import (
     CONFRONTATION_EVENT,
+    LITERATURE_STATUS,
     REFERENCE_STATUS,
     is_absolute_claim,
     mature_seed_invariants,
@@ -496,8 +497,9 @@ async def _commit_confrontations(
     params = {f"i{n}": iid for n, iid in enumerate(ids)}
     rows = await db.query(
         f"SELECT id, condition, effect FROM invariant WHERE id IN ({placeholders}) "
-        "AND status != :reference",
+        "AND status NOT IN (:reference, :literature)",
         reference=REFERENCE_STATUS,
+        literature=LITERATURE_STATUS,
         **params,
     )
     # The definition each confrontation TESTED, stamped on its row: evidence

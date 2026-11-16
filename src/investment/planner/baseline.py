@@ -40,6 +40,7 @@ from investment.planner.worker_history import (
 )
 from investment.watch.event_watch import EVENT_LOOKBACK_DAYS, EVENT_SOURCES, read_event_passage
 from investment.watch.world_events import WORLD_EVENTS_SOURCE
+from investment.writeback.literature import literature_claims
 
 # ④ K per bucket and the post-dedup cap (docs/TASKS.md Task 4.1: "K=8 each,
 # ≤20 after dedup"). ESTABLISHED FIRST, THEN THE CANDIDATES A CHECKPOINT HAS
@@ -108,6 +109,9 @@ class Baseline:
     # The Worker's own record as forecaster (`mechanical/forecasts.py`), so the
     # next reading is written knowing how the last ones came out.
     forecast_record: ForecastRecord | None = None
+    # The owner's literature claims (ADR-006 amendment 2026-11-15), all of them:
+    # few, curated, and read whatever the week's retrieval found.
+    literature: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     # The caps that BIND the stack today (CLAUDE.md "Binding caps"), so the rule
     # text the Worker reads states the live figure. None only on a database with
     # no user_profile row, where no market-signal decision can exist either.
@@ -587,6 +591,7 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         macro=macro,
         measured_revisions=await measured_verdicts(db),
         forecast_record=await load_forecast_record(db),
+        literature=await literature_claims(db),
         stack_caps=await _stack_caps(db),
         recent_events=recent_events,
         past_readings=await load_past_readings(db, today),

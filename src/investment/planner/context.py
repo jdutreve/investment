@@ -40,6 +40,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.mechanical.forecasts import ForecastRecord
 from investment.mechanical.gates import Caps
 from investment.mechanical.invariants import (
+    LITERATURE_STATUS,
     REFERENCE_STATUS,
     EvidenceSummary,
     describe_evidence,
@@ -94,6 +95,7 @@ class PlannerContext:
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     forecast_record: ForecastRecord | None = None
+    literature: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     stack_caps: Caps | None = None
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
@@ -237,6 +239,8 @@ def standing_label(invariant: dict[str, Any]) -> str:
     candidate is never shown as established in one and not in the other."""
     if invariant.get("status") == REFERENCE_STATUS:
         return "reference note, not measured"
+    if invariant.get("status") == LITERATURE_STATUS:
+        return "from the literature (owner), not measured here"
     # Two decimals: `0.6000000000000001` is a float's spelling, not a weight.
     raw = invariant.get("weight_effective")
     weight = (
@@ -298,6 +302,7 @@ def assemble_context(
         macro=baseline.macro,
         measured_revisions=baseline.measured_revisions,
         forecast_record=baseline.forecast_record,
+        literature=baseline.literature,
         stack_caps=baseline.stack_caps,
         recent_events=baseline.recent_events,
         past_readings=baseline.past_readings,

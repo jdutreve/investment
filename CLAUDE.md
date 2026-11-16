@@ -275,6 +275,13 @@ times out of five; measured over 4,452 confrontations the corpus's four books
 confirm at 0.506-0.536 and are pairwise indistinguishable, Dalio's rate being
 the closest to chance and the best measured. Belief buys the head start,
 history is free to take it back.
+**A LITERATURE CLAIM IS THE OWNER'S, NOT A VERDICT** (ADR-006 amendment,
+2026-11-15): status `literature` holds what the literature settled and this
+engine cannot measure (a 10-year horizon, data outside the registry). Only the
+owner files one, with its sources; the engine never confronts, weighs or
+re-judges it; the Worker reads every one in a section of its own, labelled as
+the literature's and never as integrated. "Established" in this project still
+means INTEGRATED.
 **A REFERENCE NOTE CARRIES NO WEIGHT** (owner, 2026-10-04): it has no condition
 and no effect, so nothing can ever measure it, and a weight on what is not
 measured is the author's reputation under another name. `weight_effective` is

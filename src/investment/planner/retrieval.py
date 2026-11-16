@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from investment.corpus.embedding import cosine_matrix, from_blob
 from investment.db.sqlite import InvestmentDB
-from investment.mechanical.invariants import REFERENCE_STATUS
+from investment.mechanical.invariants import LITERATURE_STATUS, REFERENCE_STATUS
 
 # The margin is BOUNDED by contract (docs/ARCHITECTURE.md: "≤3", "never raw
 # SQL"). Caps live here so both the model schema (validators below) and the
@@ -200,8 +200,11 @@ async def _fetch_invariants(db: InvestmentDB, invariant_ids: list[str]) -> list[
     params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
     rows = await db.query(
         "SELECT id, title, weight_effective, tags, author, status FROM invariant "
-        f"WHERE id IN ({placeholders}) AND status != 'rejected' "
+        # A literature claim is shown whole in its own section of the Worker's
+        # context, every week; retrieved here it would be read twice.
+        f"WHERE id IN ({placeholders}) AND status NOT IN ('rejected', :literature) "
         "ORDER BY weight_effective DESC",
+        literature=LITERATURE_STATUS,
         **params,
     )
     retrieved_at = {iid: position for position, iid in enumerate(invariant_ids)}

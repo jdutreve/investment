@@ -547,6 +547,34 @@ ruled on 2026-10-06:
   under a heading that says they are not established, as the Worker's context
   does.
 
+**Amendment (2026-11-15, owner decision) — a claim from the literature, filed by
+the owner, outside the verdict machinery.** The status `literature`
+(`invariants.LITERATURE_STATUS`) holds a claim that the literature has settled
+and that this engine CANNOT measure. Two reasons qualify:
+
+- its horizon outruns the history. "Expensive equities return less over the
+  next ten years" gets about five independent moments in 58 years, and the
+  first checkpoint needs ten. Sampled every 12 weeks instead, each outcome
+  would overlap forty others, and the record would count one decade forty
+  times;
+- or its data lies outside the registry.
+
+Only the owner files one, with its sources (`writeback.literature`, journalled
+as `LiteratureClaimEvent`):
+
+- the engine never confronts, weighs or re-judges it
+  (`invariants.UNMEASURED_STATUSES`);
+- its weight is NULL, like a reference note's;
+- the Worker reads every one, in a section of its own, as the literature's
+  claim with its sources, never as an integrated invariant.
+
+"Integration requires measurement" stands for everything else, unchanged. This
+is not integration by belief: the claim is labelled as not this system's
+verdict wherever it is shown. Why it exists: the owner asked on 2026-11-15
+why the books' knowledge never integrates, and part of the answer was that
+the engine asks one question, at one 12-week horizon, which the best-documented
+regularity in finance (valuation and long-run returns) cannot answer.
+
 ## ADR-007 — Adopt the market-signal monthly stack as V1's operating strategy
 
 **Status:** accepted (owner sign-off, 2026-07-20). Authorizes the CLAUDE.md/

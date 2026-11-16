@@ -65,10 +65,13 @@ CREATE TABLE IF NOT EXISTS invariant (
   example            TEXT,
   source             TEXT NOT NULL,
   author             TEXT,                   -- 'dalio'|'marks'|'system'|NULL ('other')
-  -- 'proposed'|'integrated'|'rejected'|'reference'. 'reference' is TERMINAL,
-  -- not a stage: reference knowledge has no condition and no effect, so no
-  -- confrontation can ever move it and ADR-006's "nothing stays proposed
+  -- 'proposed'|'integrated'|'rejected'|'reference'|'literature'. 'reference' is
+  -- TERMINAL, not a stage: reference knowledge has no condition and no effect,
+  -- so no confrontation can ever move it and ADR-006's "nothing stays proposed
   -- forever" does not apply (mechanical/invariants.py REFERENCE_STATUS).
+  -- 'literature' is the owner's: a claim the literature settled that this
+  -- engine cannot measure, filed with its sources, never judged (ADR-006
+  -- amendment 2026-11-15, LITERATURE_STATUS).
   status             TEXT NOT NULL,
   tags               TEXT NOT NULL DEFAULT '[]',  -- JSON array
   embedding          BLOB,                   -- float32 x 384
