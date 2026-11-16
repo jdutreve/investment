@@ -589,3 +589,15 @@ async def test_disjoint_conditions_are_not_a_contradiction(db: InvestmentDB) -> 
     await _integrated(db, "inv-a", low, "outperform")
     await _integrated(db, "inv-b", high, "underperform")
     assert await A.invariant_contradiction_alert(db) is None
+
+
+async def test_a_restated_reference_note_carries_its_tag_once(db: InvestmentDB) -> None:
+    """The 'NOT CERTIFIED' tag ran at every restatement and was appended
+    blindly: notes carried it up to 25 times (found 2026-11-16)."""
+    from investment.mechanical.invariants import _force_uncertified
+
+    await _integrated(db, "inv-note", "[]", "outperform")
+    for _ in range(3):
+        await _force_uncertified(db, "inv-note", "reference knowledge", status="reference")
+    trace = (await db.query("SELECT trace FROM invariant WHERE id = 'inv-note'"))[0]["trace"]
+    assert trace.count("[NOT CERTIFIED: reference knowledge]") == 1

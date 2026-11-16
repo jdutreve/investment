@@ -1100,7 +1100,10 @@ async def _force_uncertified(
         # its prior, because its evidence is still to come.
         "weight_effective = CASE WHEN :status_is = :reference THEN NULL "
         "ELSE MAX(weight_initial, floor_weight) END, "
-        "trace = trace || :suffix, updated_at = :now WHERE id = :id",
+        # ONCE: this runs at every restatement, and appending blindly wrote the
+        # same tag up to 25 times into a note's trace (found 2026-11-16).
+        "trace = CASE WHEN instr(trace, :suffix) > 0 THEN trace ELSE trace || :suffix END, "
+        "updated_at = :now WHERE id = :id",
         status=status,
         status_is=status,
         reference=REFERENCE_STATUS,
@@ -1117,7 +1120,8 @@ async def _demote_to_reference(db: InvestmentDB, invariant_id: str, reason: str)
     now = datetime.now(UTC).isoformat()
     await db.command(
         "UPDATE invariant SET condition = '[]', effect = NULL, market_score = 1.0, "
-        "trace = trace || :suffix, updated_at = :now WHERE id = :id",
+        "trace = CASE WHEN instr(trace, :suffix) > 0 THEN trace ELSE trace || :suffix END, "
+        "updated_at = :now WHERE id = :id",
         suffix=f" [DEMOTED to reference knowledge: {reason}]",
         now=now,
         id=invariant_id,
