@@ -1,0 +1,4 @@
+VFINX: overlap 1980-02..2023-06 (521 months), monthly corr 0.993, synthetic minus real +0.76 pt/yr, adds 1960-01-05..1979-12-31 -> PASS
+VUSTX: overlap 1986-06..2026-11 (404 months), monthly corr 0.986, synthetic minus real +0.13 pt/yr, adds 1962-01-03..1986-05-16 -> PASS
+VFITX: overlap 1991-11..2026-11 (421 months), monthly corr 0.962, synthetic minus real +0.15 pt/yr, adds 1962-01-03..1991-10-25 -> PASS
+VFISX: overlap 1991-11..2026-11 (421 months), monthly corr 0.969, synthetic minus real -0.24 pt/yr, adds 1976-06-02..1991-10-25 -> PASS

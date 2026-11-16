@@ -1,0 +1,54 @@
+GUARD — the integrated claim from 1991-11-01 on, against production's 46/69
+  copy: 49/73  -> STOP
+
+Q1 — the candidates before 1991-11-01 (one-sided binomial against each null)
+  IN   01M326ZB100SYNVEKGD1433EWT       pre 18/40 = 0.45 (null 0.49, p 0.744)  post 49/73  When the 3-month Treasury bill yield is lower than a month earlier whi
+  OUT  01KY2N410K3N39TB6T6C1721MW       pre 0/0  post 18/27  When inflation exceeds the short-term interest rate (real rate negativ
+  OUT  01M57TH7559BKNZWSAF54HDP3M       pre 0/0  post 28/43  When the sovereign debt burden is high, long-term bonds underperform o
+  OUT  01M3275YRF15WP4BNKJYBWJ7GF       pre 4/6  post 14/22  When currency debasement/devaluation fear is acute (gold trading well 
+  IN   inv-low-real-yields-favor-gold   pre 17/33 = 0.52 (null 0.50, p 0.521)  post 54/83  Low real yields favor gold versus cash and nominal bonds
+  IN   01M324DYM7BVVGGBV7THEZNR79       pre 22/32 = 0.69 (null 0.55, p 0.076)  post 14/20  The starting real yield dominates subsequent long-horizon bond returns
+  IN   inv-01M6X4HMTNFF00FRB1FJ6NMNR1   pre 12/15 = 0.80 (null 0.52, p 0.024)  post 26/39  Flight to quality: a fast equity-trend collapse with spreads widening 
+  IN   01M57T843TMWGJ5VWN780XYVME       pre 14/30 = 0.47 (null 0.48, p 0.637)  post 20/33  When credit growth is heavy — a proxy for the flood of private debt is
+  OUT  01M325DETPS3AMVQMD9WGV75EP       pre 1/2  post 12/18  During market corrections, momentum/growth leadership falls apart — th
+  IN   inv-gold-ratio-trend-tilt        pre 18/34 = 0.53 (null 0.51, p 0.471)  post 32/56  Gold/10y-yield above its 7y trend and rising favours gold-commodities
+  POOLED 101/184 = 0.549 against null 0.507: p 0.1425 -> NOT CONFIRMED
+
+Q2 — rate minus null before vs after 1991-11-01, invariants with 10+ moments on both
+  137 invariants: Spearman rho -0.132, one-sided p 0.9383 -> DOES NOT PERSIST
+  mean rate minus null: before +0.013, after +0.020
+
+Q3 — verdicts over 1968-2026 against production
+  copy:       {'proposed': 235, 'rejected': 37, 'integrated': 1}
+  production: {'proposed': 262, 'rejected': 10, 'integrated': 1}
+    proposed -> rejected   pre 33/57 post 32/80 null 0.51  When credit spreads are rising (credit_spread.speed > 0) while the central bank 
+    proposed -> rejected   pre 0/0 post 32/77 null 0.51  When monetary conditions tighten (liquidity contracts, credit tightens), equity 
+    proposed -> rejected   pre 8/26 post 29/52 null 0.48  When growth is rising and inflation is rising, bonds underperform the median ass
+    proposed -> rejected   pre 23/59 post 8/12 null 0.51  When inflation is elevated, real assets such as gold outperform cash as investor
+    proposed -> rejected   pre 26/65 post 20/41 null 0.49  When the currency is under speculative attack but the central bank retains credi
+    proposed -> rejected   pre 34/68 post 39/90 null 0.50  When credit conditions are deteriorating, measured as credit spreads rising, equ
+    rejected -> proposed   pre 21/33 post 20/49 null 0.49  When short-term interest rates are rising and the yield curve is flattening, cas
+    proposed -> rejected   pre 5/15 post 12/29 null 0.49  When credit_spread is above 2.5 (elevated credit stress), cash outperforms equit
+    proposed -> rejected   pre 26/66 post 54/99 null 0.49  When credit spreads narrow (credit conditions thaw), equities outperform other a
+    proposed -> rejected   pre 43/84 post 44/110 null 0.51  The dominant sector of a national equity market (measured as the highest industr
+    proposed -> rejected   pre 18/50 post 6/15 null 0.49  Inflation depresses both equity and bond real returns, but the equity-minus-bond
+    proposed -> rejected   pre 14/43 post 40/68 null 0.48  When the real yield is rising (rising anticipated real interest rates), long-mat
+    proposed -> rejected   pre 24/58 post 58/109 null 0.49  In environments with positive inflation, equities have delivered markedly higher
+    proposed -> rejected   pre 36/59 post 40/96 null 0.51  When the real required return (real yield) is rising, equities underperform bond
+    proposed -> rejected   pre 15/38 post 1/7 null 0.49  When inflation is high in absolute terms, equities outperform nominal bonds over
+    proposed -> rejected   pre 36/86 post 55/95 null 0.49  When the policy rate is being cut, equities outperform other asset classes, beca
+    proposed -> rejected   pre 26/61 post 44/80 null 0.51  When credit growth decelerates, gold and commodities outperform equities.
+    proposed -> rejected   pre 8/24 post 18/40 null 0.50  Early/escalating money printing during a deleveraging bear market produces sharp
+  integrated -> proposed   pre 18/40 post 49/73 null 0.49  When the 3-month Treasury bill yield is lower than a month earlier while the gro
+    proposed -> rejected   pre 4/16 post 12/29 null 0.50  When private credit creation is capped, the tightening is painful for businesses
+    proposed -> rejected   pre 29/51 post 26/75 null 0.51  In early-stage deleveragings, equity rebounds driven by optimism and policy easi
+    proposed -> rejected   pre 16/40 post 17/37 null 0.48  When credit spreads are compressed toward the bottom of their historical range, 
+    proposed -> rejected   pre 0/0 post 16/44 null 0.51  When total debt/GDP is already very high AND policy rates are being cut (credit 
+    proposed -> rejected   pre 37/68 post 37/92 null 0.51  When credit spreads are actively widening, equities underperform other asset cla
+    proposed -> rejected   pre 15/37 post 36/76 null 0.50  When credit spreads are at an elevated absolute level (credit stress priced well
+    proposed -> rejected   pre 22/54 post 49/92 null 0.49  When private credit growth is declining, deleveraging dynamics FORCE a policy re
+    proposed -> rejected   pre 0/0 post 15/42 null 0.51  When policy tightening occurs while indebtedness is high (deleveraging context),
+    proposed -> rejected   pre 17/41 post 44/85 null 0.48  When the real interest rate is below 3%, bonds underperform equities — the passa
+    proposed -> rejected   pre 12/32 post 25/49 null 0.45  When inflation is rising, bond returns deteriorate because rising inflation expe
+    proposed -> integrated pre 12/15 post 26/39 null 0.52  Flight to quality: a fast equity-trend collapse with spreads widening favours bo
+    proposed -> rejected   pre 8/22 post 14/32 null 0.48  Hawkish front-end flattener: when the market prices Fed hikes while the curve fl

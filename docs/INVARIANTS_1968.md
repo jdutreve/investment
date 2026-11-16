@@ -109,3 +109,82 @@ integrated, rejected and proposed counts, and which invariants change status.
 - the integrated claim's record restricted to moments from 1991-11-01 on, on
   the copy, differs from production's 46/69 by more than 3 moments. The
   1991+ record must reproduce, or the copy measures something else.
+
+## Result (run 2026-11-16, once)
+
+Scripts and raw outputs: `docs/research/2026-11-15-invariants-1968/`
+(`prehistory.py`, `run.py`, `analysis.py`, `RESULT.txt`). The extended copy
+itself is kept outside the repository.
+
+**Deviations from the protocol, all known before any result:**
+- **VFITX** starts in 1991-10 on Yahoo, not 1986, so IEF's synthetic part
+  covers 1962-1991. Its guard passed at 0.962.
+- **LBMA** answered 403 and **^BCOM** returned nothing. The seed kept the
+  stored gold history (from 1968) and commodities (from 1991), as it does in
+  production.
+- **The regime history** was not re-detected before 1992: the step only
+  detects new prints. No measurable invariant has a regime predicate, so no
+  record depends on it.
+- **The analysis script** failed on a reserved word (`null`) before printing
+  anything. It was fixed and run once.
+
+**Every pre-history guard passed:** VFINX 0.993, VUSTX 0.986, VFITX 0.962,
+VFISX 0.969.
+
+**THE REPRODUCTION GUARD TRIPPED.** The integrated claim's record from
+1991-11-01 on reads 49/73 on the copy, against 46/69 in production: 4 moments
+apart, for a tolerance of 3. Diagnosis, made after the stop:
+- the two records share 67 moments, all with the same verdict;
+- 2 moments are only in production (the first, 1991-12-16, and 1995-10-06);
+- 6 are only on the copy: 1992-02-14 and 1992-05-08, where a history that
+  starts earlier phases its 12-week moments differently, and four scattered
+  ones (1994, 2003, 2013, 2024), where the null re-measured on 58 years moves
+  the neutral margin.
+
+The copy measures the same thing, but the rule written beforehand was
+broken. By the protocol, **the figures below are not a verdict**. They are
+reported as found, and they all point the same way.
+
+**Q1 — the candidates before 1991: NOT CONFIRMED.** Pooled, 101/184 = 0.549
+against a null of 0.507, one-sided p = 0.14. Six candidates entered the test:
+
+| Candidate | Before 1991 | Null | p |
+|---|---|---|---|
+| Rates falling, growth rising → equities (the integrated one) | 18/40 = 0.45 | 0.49 | 0.74 |
+| Low real yields → gold | 17/33 = 0.52 | 0.50 | 0.52 |
+| Real yield above 3% → bonds | 22/32 = 0.69 | 0.55 | 0.08 |
+| Equity collapse with spreads widening → bonds | 12/15 = 0.80 | 0.52 | 0.02 |
+| Heavy credit growth → bonds | 14/30 = 0.47 | 0.48 | 0.64 |
+| Gold/10y ratio above its trend → gold | 18/34 = 0.53 | 0.51 | 0.47 |
+
+The other four lacked data before 1991, as expected: TIPS, debt/GDP, a
+strategy NAV, and the gold/10y ratio above 0.5.
+
+**Q2 — DOES NOT PERSIST.** Over the 137 invariants with 10 or more moments on
+each side, the Spearman correlation of rate minus null before and after 1991
+is -0.13 (one-sided p = 0.94). A good record after 1991 says nothing about the
+record before it. Mean rate minus null: +0.013 before, +0.020 after.
+
+**Q3 — the verdicts over 1968-2026.**
+- Rejected goes from 10 to 37, proposed from 262 to 235.
+- One invariant is still integrated, but not the same one. "Rates falling
+  while growth rises, equities beat the rest" falls back to proposed: 18/40
+  before 1991. "Flight to quality" (a fast equity collapse with spreads
+  widening favours bonds) is integrated, at 38/54.
+
+## Reading
+
+The longer history does not lift the candidates. It sorts them, and mostly
+downward: 27 more rejections, one integration exchanged for another. The
+integrated claim of 1991-2026 did not hold in the 1970s and 1980s. That
+matches what `docs/FED_CUTS_AND_EQUITIES.md` found: the claim reads the bill
+market's anticipation, and that market behaved differently under the
+inflation of the 1970s. The one claim that held in both eras is the
+flight-to-quality one, which is also the most mechanical.
+
+Above all, a record does not persist from one era to the other. That is the
+answer to the owner's question of 2026-11-15. With more history, the books'
+testable claims are not confirmed; they are found to depend on their era.
+Production is unchanged: adopting the 1968 history would be a separate
+decision, and these figures give no reason to take it for the sake of
+integrations.

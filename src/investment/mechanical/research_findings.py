@@ -687,6 +687,28 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/PERMANENT_AND_RISING_RATES.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 16),
+        about="corpus",
+        question=(
+            "Measured from 1968 instead of 1991, do the best invariant candidates confirm "
+            "out of sample, and does a record persist from one era to the other?"
+        ),
+        answer="no: not confirmed, does not persist",
+        evidence=(
+            "Six candidates before 1991, pooled: 101/184 = 0.549 against a null of 0.507, "
+            "p 0.14. 137 invariants, rate minus null before vs after 1991: Spearman -0.13. "
+            "Over 1968-2026: rejected 10 -> 37; the integrated bill-yield claim falls to "
+            "18/40 before 1991; flight to quality is integrated at 38/54."
+        ),
+        consequence=(
+            "A record earned since 1991 does not tell what the same claim did before; read "
+            "an invariant's record as a fact about its era. The flight-to-quality claim is "
+            "the one that held in both. Not a verdict: the copy's 1991+ record of the "
+            "integrated claim was 4 moments from production's, for a tolerance of 3."
+        ),
+        record="docs/INVARIANTS_1968.md",
+    ),
 )
 
 _HEADINGS = {
