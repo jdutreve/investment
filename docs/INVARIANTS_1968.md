@@ -188,3 +188,44 @@ testable claims are not confirmed; they are found to depend on their era.
 Production is unchanged: adopting the 1968 history would be a separate
 decision, and these figures give no reason to take it for the sake of
 integrations.
+
+## Protocol, run 2 — on the fixed moment grid (committed 2026-11-16, before the run)
+
+Run 1 was measured with the moment sampler that the positive control later
+showed to be defective (`docs/INSTRUMENT_POSITIVE_CONTROL.md`). Its records,
+and so its three answers, do not stand. Run 2 asks the same three questions
+with the engine as fixed, on the same extended copy. The market data, regimes,
+NAVs, benchmarks and backtests of run 1 are reused unchanged; only the
+maturation runs again (`mature_seed_invariants`, every record re-swept). Run
+once.
+
+**The candidates (fixed now)** are production's ten best after the re-measure
+of 2026-11-16, by rate minus null, with 20 or more moments:
+
+| id | record | null | condition → handle |
+|---|---|---|---|
+| 01M324DMGDXT46BGC4Y6TXHFK6 | 16/21 | 0.50 | real_yield > 3 → bonds |
+| 01M324DYM7BVVGGBV7THEZNR79 | 16/22 | 0.51 | real_yield > 3 → bonds |
+| inv-gold-ratio-trend-tilt | 23/33 | 0.51 | gold_10y_dev > 0 & rising → gold-commodities |
+| 01M327DFBV8WC7T0K3BBBD6VHZ | 18/28 | 0.48 | gold_10y_dev > 0.5 → equities |
+| 01M3275YRF15WP4BNKJYBWJ7GF | 17/26 | 0.50 | gold_10y_dev > 0.5 → bonds |
+| inv-low-real-yields-favor-gold | 58/88 | 0.51 | real_yield < 2.5 → GLD |
+| 01M57TH7559BKNZWSAF54HDP3M | 28/44 | 0.50 | debt_to_gdp > 250 → bonds |
+| inv-liquidity-easing-risk | 28/45 | 0.48 | broad money rising & accelerating → equities |
+| 01KY2Q6ZP79MZ1XSRMZX96GWDT | 18/29 | 0.48 | growth rising & inflation falling → equities |
+| 01M3295PB07HKMZSPN4KFZQB16 | 16/26 | 0.48 | real_rate < 0 & broad money … → equities |
+
+**Q1, Q2 and Q3** are run 1's, unchanged: the same 10-moment entry rule, the
+same pooled one-sided binomial at 5%, the same Spearman test over the
+invariants with 10 or more moments on both sides, and the same verdict
+comparison with production (now production after the re-measure).
+
+**The guard, replaced.** Run 1's guard tripped because the old sampler phased
+its moments from where the data began. On the fixed grid the moment dates are
+the same whatever the start, so the guard asks more:
+- over the ten candidates, the copy's moments from 1991-11-01 on must share
+  at least 90% of their dates with production's;
+- at least 90% of the shared moments must carry the same verdict.
+
+Otherwise the run stops. The neutral margin may still move a few moments,
+because the null is re-measured on 58 years.
