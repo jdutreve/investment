@@ -229,3 +229,58 @@ the same whatever the start, so the guard asks more:
 
 Otherwise the run stops. The neutral margin may still move a few moments,
 because the null is re-measured on 58 years.
+
+## Result, run 2 (2026-11-16, once) — on the fixed grid
+
+Raw output: `docs/research/2026-11-15-invariants-1968/RESULT_RUN2.txt`.
+
+**The guard passes.** Over the ten candidates since 1991-11-01, 353 moment
+dates are shared, 9 are only in production and 22 only on the copy: 91.9% of
+dates shared, and 100% of the shared moments carry the same verdict. The copy
+measures what production measures.
+
+**Q1 — pooled: NOT CONFIRMED** (89/159 = 0.560 against a null of 0.509,
+one-sided p = 0.11). Seven candidates entered the test:
+
+| Candidate | Before 1991 | Null | p | Since 1991 |
+|---|---|---|---|---|
+| Real yield above 3% → bonds (01M324DMG…) | **20/23 = 0.87** | 0.52 | **< 0.001** | 16/21 |
+| Real yield above 3% → bonds (01M324DYM…) | **21/25 = 0.84** | 0.55 | **0.002** | 16/19 |
+| Gold/10y above its trend and rising → gold | 12/25 = 0.48 | 0.51 | 0.69 | 29/45 |
+| Low real yields → gold | 17/33 = 0.52 | 0.50 | 0.52 | 58/88 |
+| Broad money rising and accelerating → equities | 10/26 = 0.38 | 0.49 | 0.90 | 31/46 |
+| Growth rising, inflation falling → equities | 4/16 = 0.25 | 0.49 | 0.99 | 20/31 |
+| Real rate below 0 with broad money → equities | 5/11 = 0.45 | 0.49 | 0.70 | 21/31 |
+
+The two real-yield claims are two wordings of one idea: a high starting real
+yield is followed by bonds beating the other classes. Both hold before 1991
+far beyond chance. Each would survive a Bonferroni correction for the seven
+candidates tested (0.05 / 7 = 0.007). The other five do not hold before 1991.
+
+**Q2 — DOES NOT PERSIST.** Over 122 invariants, the Spearman correlation of
+rate minus null before and after 1991 is **-0.35**. A record that is good
+in one era tends to be poor in the other.
+
+**Q3 — over 1968-2026:**
+- **Integrated: 3** (0 in production). The two real-yield → bonds claims,
+  and a QE claim with no moment before 1991 that the null re-measured on
+  58 years lets through.
+- **Rejected: 19** (4 in production).
+
+## Reading, run 2
+
+Run 1's reading stands in its general part. The corpus's testable claims
+depend on their era: their records anti-correlate across 1991, and most of
+the best candidates since 1991 do not hold before it.
+
+It now has one clear exception. **"A high real yield is followed by bonds
+outperforming"** is confirmed out of sample, on 1968-1991 data that no
+candidate list had seen, at 0.84 to 0.87. It is also one of the
+best-documented regularities in the literature: the starting yield dominates
+a bond's later return.
+
+Production integrates nothing on 35 years. On 58 years it would integrate
+this claim. Adopting the extended history in production would therefore
+change a verdict on evidence, which run 1 could not say. It would be a
+separate change: the seed's own pre-history for the ETF proxies, and 58
+years of backfill.

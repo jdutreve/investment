@@ -1,0 +1,43 @@
+GUARD — the candidates' moments from 1991-11-01 on, copy against production
+  shared dates 353, production only 9, copy only 22: 91.9%; same verdict on shared 100.0% -> PASS
+
+Q1 — the candidates before 1991-11-01 (one-sided binomial against each null)
+  IN   01M324DMGDXT46BGC4Y6TXHFK6       pre 20/23 = 0.87 (null 0.52, p 0.000)  post 16/21  When the real yield available on bonds is high, subsequent real return
+  IN   01M324DYM7BVVGGBV7THEZNR79       pre 21/25 = 0.84 (null 0.55, p 0.002)  post 16/19  The starting real yield dominates subsequent long-horizon bond returns
+  IN   inv-gold-ratio-trend-tilt        pre 12/25 = 0.48 (null 0.51, p 0.686)  post 29/45  Gold/10y-yield above its 7y trend and rising favours gold-commodities
+  OUT  01M327DFBV8WC7T0K3BBBD6VHZ       pre 3/5  post 18/26  When a government breaks a currency peg and prints money, the dollar's
+  OUT  01M3275YRF15WP4BNKJYBWJ7GF       pre 4/6  post 16/25  When currency debasement/devaluation fear is acute (gold trading well 
+  IN   inv-low-real-yields-favor-gold   pre 17/33 = 0.52 (null 0.50, p 0.521)  post 58/88  Low real yields favor gold versus cash and nominal bonds
+  OUT  01M57TH7559BKNZWSAF54HDP3M       pre 0/0  post 27/43  When the sovereign debt burden is high, long-term bonds underperform o
+  IN   inv-liquidity-easing-risk        pre 10/26 = 0.38 (null 0.49, p 0.898)  post 31/46  Accelerating broad money confirmed by positive equity trend favors equ
+  IN   01KY2Q6ZP79MZ1XSRMZX96GWDT       pre 4/16 = 0.25 (null 0.49, p 0.987)  post 20/31  When growth is rising and inflation is falling, equities outperform th
+  IN   01M3295PB07HKMZSPN4KFZQB16       pre 5/11 = 0.45 (null 0.49, p 0.701)  post 21/31  In a deleveraging with policy rates at the floor, the onset/accelerati
+  POOLED 89/159 = 0.560 against null 0.509: p 0.1134 -> NOT CONFIRMED
+
+Q2 — rate minus null before vs after 1991-11-01, invariants with 10+ moments on both
+  122 invariants: Spearman rho -0.352, one-sided p 1.0000 -> DOES NOT PERSIST
+  mean rate minus null: before +0.013, after +0.020
+
+Q3 — verdicts over 1968-2026 against production
+  copy:       {'proposed': 251, 'rejected': 19, 'integrated': 3}
+  production: {'proposed': 269, 'rejected': 4}
+    proposed -> rejected   pre 14/22 post 23/63 null 0.51  When real_rate < 0 (interest rates near zero, unable to be cut further), equitie
+    proposed -> rejected   pre 25/59 post 17/36 null 0.49  When the currency is under speculative attack but the central bank retains credi
+    proposed -> integrated pre 0/0 post 31/45 null 0.49  When central banks engage in large-scale quantitative easing (M0 increases by mo
+    proposed -> rejected   pre 39/70 post 38/91 null 0.51  The dominant sector of a national equity market (measured as the highest industr
+    proposed -> rejected   pre 26/65 post 65/116 null 0.49  In environments with positive inflation, equities have delivered markedly higher
+    proposed -> integrated pre 20/23 post 16/21 null 0.52  When the real yield available on bonds is high, subsequent real returns on bonds
+    proposed -> integrated pre 21/25 post 16/19 null 0.55  The starting real yield dominates subsequent long-horizon bond returns: when the
+    proposed -> rejected   pre 13/33 post 4/9 null 0.49  When inflation is high in absolute terms, equities outperform nominal bonds over
+    rejected -> proposed   pre 23/38 post 25/60 null 0.49  During disinflation (falling inflation), gold lags severely: over the falling-in
+    proposed -> rejected   pre 0/0 post 9/32 null 0.51  When total debt is elevated and the nominal short rate has been cut to near its 
+    proposed -> rejected   pre 3/16 post 6/12 null 0.49  When broad money growth is high (central banks 'printing a lot' of the currency 
+    proposed -> rejected   pre 0/0 post 4/20 null 0.51  When short-term interest rates approach 0% and debt deleveraging has begun (cred
+    proposed -> rejected   pre 0/0 post 10/32 null 0.51  When total debt/GDP is already very high AND policy rates are being cut (credit 
+    proposed -> rejected   pre 0/0 post 26/69 null 0.51  When mortgage/consumer delinquency rates are accelerating, equities underperform
+    proposed -> rejected   pre 12/32 post 34/72 null 0.50  When credit spreads are at an elevated absolute level (credit stress priced well
+    proposed -> rejected   pre 10/28 post 30/59 null 0.49  When private credit growth is declining, deleveraging dynamics FORCE a policy re
+    proposed -> rejected   pre 0/0 post 6/24 null 0.51  When policy tightening occurs while indebtedness is high (deleveraging context),
+    proposed -> rejected   pre 12/26 post 42/87 null 0.48  When the real interest rate is below 3%, bonds underperform equities — the passa
+    proposed -> rejected   pre 8/24 post 12/23 null 0.48  When credit growth is heavy — a proxy for the flood of private debt issuance com
+    proposed -> rejected   pre 0/7 post 17/36 null 0.51  When oil is rising while inflation is already above target, gold-commodities out

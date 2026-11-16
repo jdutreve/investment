@@ -691,21 +691,22 @@ FINDINGS: tuple[Finding, ...] = (
         measured_on=date(2026, 11, 16),
         about="corpus",
         question=(
-            "Measured from 1968 instead of 1991, do the best invariant candidates confirm "
-            "out of sample, and does a record persist from one era to the other?"
+            "Measured from 1968 instead of 1991, on the fixed moment grid, do the best "
+            "invariant candidates confirm out of sample, and does a record persist from one "
+            "era to the other?"
         ),
-        answer="no: not confirmed, does not persist",
+        answer="one idea holds; records do not persist",
         evidence=(
-            "Six candidates before 1991, pooled: 101/184 = 0.549 against a null of 0.507, "
-            "p 0.14. 137 invariants, rate minus null before vs after 1991: Spearman -0.13. "
-            "Over 1968-2026: rejected 10 -> 37; the integrated bill-yield claim falls to "
-            "18/40 before 1991; flight to quality is integrated at 38/54."
+            "Real yield above 3% -> bonds outperform: 20/23 and 21/25 before 1991 (p < 0.001 "
+            "and 0.002), after 16/21 and 16/19. The other five candidates fail before 1991; "
+            "pooled 89/159 = 0.560 vs 0.509, p 0.11. 122 invariants, rate minus null before vs "
+            "after 1991: Spearman -0.35."
         ),
         consequence=(
-            "A record earned since 1991 does not tell what the same claim did before; read "
-            "an invariant's record as a fact about its era. The flight-to-quality claim is "
-            "the one that held in both. Not a verdict: the copy's 1991+ record of the "
-            "integrated claim was 4 moments from production's, for a tolerance of 3."
+            "Read an invariant's record as a fact about its era, with one exception: a high "
+            "real yield has been followed by bonds beating the other classes in both eras, "
+            "the one corpus idea confirmed out of sample. On 58 years it would integrate; "
+            "production measures 35."
         ),
         record="docs/INVARIANTS_1968.md",
     ),
