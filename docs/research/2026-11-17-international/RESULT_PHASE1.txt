@@ -1,0 +1,35 @@
+translatable invariants measured: 71 (of 74)
+pooled p < 0.05: 9 (by chance: 3.6)
+pass at FDR 10%: 0
+DECISION (3 or more pass): STOPS HERE
+
+     p 0.0063 rate 0.641 null 0.518 dates 122  US alone   25/38  When the real interest rate is above 3%, bonds outperform other asset classes.
+      CA 43/65 DE 34/52 FR 25/40 GB 41/67 US 25/38
+     p 0.0127 rate 0.611 null 0.496 dates  73  US alone   25/37  When the short real interest rate is negative while goods-and-services inflation
+      CA 25/43 DE 23/40 FR 26/42 GB 19/31 US 25/37
+     p 0.0155 rate 0.635 null 0.505 dates  58  US alone   13/18  Periods of sharply rising inflation following currency weakness coincide with eq
+      CA 10/16 DE 5/8 FR 19/33 GB 19/29 US 13/18
+     p 0.0172 rate 0.626 null 0.517 dates 151  US alone   33/58  When the S&P 500 is below its 200-day moving average (equity_trend.level < 0), b
+      CA 46/69 DE 47/76 FR 49/80 GB 36/54 US 33/58
+     p 0.0248 rate 0.541 null 0.483 dates 243  US alone  64/122  When the real interest rate is below 3%, bonds underperform equities — the passa
+      CA 67/123 DE 76/140 FR 64/117 GB 57/104 US 64/122
+     p 0.0326 rate 0.588 null 0.517 dates 166  US alone   30/54  When the real yield available on bonds is high, subsequent real returns on bonds
+      CA 51/81 DE 60/100 FR 46/82 GB 41/71 US 30/54
+     p 0.0356 rate 0.521 null 0.496 dates 235  US alone  50/105  A fall in the required rate of return re-rates stock prices upward, so equities 
+      CA 50/105 DE 65/112 FR 60/118 GB 56/99 US 50/105
+     p 0.0392 rate 0.554 null 0.496 dates 227  US alone  64/111  When inflation is below about 3%, stocks outperform other asset classes.
+      CA 68/130 DE 89/154 FR 73/135 GB 50/91 US 64/111
+     p 0.0446 rate 0.575 null 0.506 dates 101  US alone   29/49  When inflation exceeds about 5%, stocks underperform other asset classes.
+      CA 30/51 DE 20/31 FR 37/69 GB 45/80 US 29/49
+     p 0.0578 rate 0.570 null 0.506 dates 183  US alone  63/111  Inflation above 3% erodes equities, not just bonds
+      CA 62/104 DE 45/70 FR 58/105 GB 66/126 US 63/111
+     p 0.0593 rate 0.561 null 0.504 dates 162  US alone   37/69  When the S&P 500 is below its own 200-day moving average, equities underperform 
+      CA 45/79 DE 50/85 FR 51/92 GB 38/69 US 37/69
+     p 0.0610 rate 0.558 null 0.504 dates 159  US alone   37/68  When equity prices are in a deep downtrend (equity_trend below -0.2), the bust i
+      CA 43/76 DE 48/82 FR 50/91 GB 37/68 US 37/68
+     p 0.0642 rate 0.578 null 0.495 dates 189  US alone   47/79  When an asset's price is above its long-term trend AND rising, it continues to o
+      CA 44/84 DE 54/85 FR 57/91 GB 38/76 US 47/79
+     p 0.0780 rate 0.555 null 0.495 dates 157  US alone   45/88  When real_rate is low (≤ 1%), leverage- and credit-driven asset returns (equitie
+      CA 52/88 DE 47/80 FR 53/94 GB 45/86 US 45/88
+     p 0.0851 rate 0.591 null 0.496 dates  59  US alone   21/32  When central banks engage in large-scale quantitative easing (M0 increases by mo
+      CA 23/38 DE 22/39 FR 24/38 GB 17/34 US 21/32

@@ -753,6 +753,28 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/INTERNATIONAL_FEASIBILITY.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 17),
+        about="corpus",
+        question=(
+            "Measured in five countries (US, GB, DE, CA, FR) with the production engine, "
+            "do the 71 translatable invariants integrate once the evidence is pooled?"
+        ),
+        answer="no single one; nine where 3.6 expected",
+        evidence=(
+            "Date-clustered pooled test, 71 claims: 9 with p < 0.05 (chance 3.6), none at a "
+            "10% false discovery rate (best p 0.006). Real rate above 3% -> bonds outperform: "
+            "0.641 vs 0.518, every country 0.61-0.66; equities below their 10-month average -> "
+            "bonds outperform: 0.626 vs 0.517."
+        ),
+        consequence=(
+            "The corpus holds real but modest regularities (about 0.60 against 0.51), visible as "
+            "a set and consistent across countries, none strong enough to stand alone. Lean on "
+            "the bond claims (high real rates, equities in a downtrend) as the most robust; do "
+            "not propose cross-country measurement to integrate more."
+        ),
+        record="docs/INTERNATIONAL_INVARIANTS.md",
+    ),
 )
 
 _HEADINGS = {

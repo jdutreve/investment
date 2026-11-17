@@ -79,3 +79,41 @@ is a finding. Reported either way:
 - the US-only record beside it, to show what the other countries add.
 
 This protocol was written and committed BEFORE the run, which happens once.
+
+## Result, phase 1 (2026-11-17, run once)
+
+Scripts and raw output: `docs/research/2026-11-17-international/`
+(`countries.py`, `pooled.py`, `RESULT_PHASE1.txt`).
+
+**Sanity check: PASS.** The oracle planted at 0.70 in the GB copy reads
+0.700 on monthly country data.
+
+**DECISION: STOPS HERE.** No invariant passes a 10% false discovery rate.
+The bar for the best of 71 tests is p ≤ 0.0014, and the best is 0.0063.
+
+But the corpus is not empty. **Nine** of the 71 translatable invariants have
+a pooled p below 0.05, where chance gives 3.6. The best ones say the same
+thing in every country:
+
+| Claim | Pooled | p | US / CA / DE / FR / GB |
+|---|---|---|---|
+| Real rate above 3% → bonds outperform | 0.641 vs 0.518 | 0.006 | 25/38, 43/65, 34/52, 25/40, 41/67 |
+| Negative real short rate, moderate inflation → equities outperform | 0.611 vs 0.496 | 0.013 | 25/37, 25/43, 23/40, 26/42, 19/31 |
+| Sharply rising inflation → equities underperform | 0.635 vs 0.505 | 0.016 | 13/18, 10/16, 5/8, 19/33, 19/29 |
+| Equities below their 10-month average → bonds outperform | 0.626 vs 0.517 | 0.017 | 33/58, 46/69, 47/76, 49/80, 36/54 |
+| High real yield → bonds outperform | 0.588 vs 0.517 | 0.033 | 30/54, 51/81, 60/100, 46/82, 41/71 |
+
+**Reading.** Five countries do not add five times the evidence:
+- the countries move together on the same dates, and a date is one
+  observation;
+- the 74 translatable claims are many tests at once.
+
+What the extra countries do add is **consistency**. The bond claims —
+high real rates, equities in a downtrend — hold in each country taken
+separately, which a US accident would not do.
+
+The corpus holds real, modest regularities, about 0.60 against a null near
+0.51. They are visible as a set (nine where 3.6 are expected), and none is
+strong enough to stand alone against 71 simultaneous tests. Building the
+cross-country measurement into production would not integrate them; the
+protocol's bar says so, and it stops here.
