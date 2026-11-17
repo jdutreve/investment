@@ -2047,7 +2047,7 @@ READING_MIN_DECIDED = 10
 
 
 def record_reading(evidence: EvidenceSummary) -> str | None:
-    """`promising` / `leaning` / `close to chance` / `no better than chance` /
+    """`promising` / `slight edge` / `close to chance` / `no better than chance` /
     `too few moments to read`, or None when there is no null to read against."""
     if evidence.decided < READING_MIN_DECIDED:
         return "too few moments to read"
@@ -2057,7 +2057,7 @@ def record_reading(evidence: EvidenceSummary) -> str | None:
     if edge > 0.10:
         return "promising"
     if edge > 0.05:
-        return "leaning"
+        return "slight edge"
     if edge > 0.0:
         return "close to chance"
     return "no better than chance"

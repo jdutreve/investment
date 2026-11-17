@@ -913,7 +913,7 @@ def test_a_record_says_what_it_shows_against_chance() -> None:
         )
 
     assert invariants.record_reading(evidence(16, 5, 0.50)) == "promising"
-    assert invariants.record_reading(evidence(14, 9, 0.51)) == "leaning"
+    assert invariants.record_reading(evidence(14, 9, 0.51)) == "slight edge"
     assert invariants.record_reading(evidence(26, 24, 0.50)) == "close to chance"
     assert invariants.record_reading(evidence(20, 30, 0.50)) == "no better than chance"
     assert invariants.record_reading(evidence(5, 3, 0.50)) == "too few moments to read"

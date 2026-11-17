@@ -200,7 +200,7 @@ reasoning, they do not give orders. Each carries a weight earned from its \
 record, except a reference note, which is background that was never measured \
 and carries none; one marked `candidate, not established` has a record that \
 settles nothing yet, and its line says what that record shows against chance: \
-a `promising` or `leaning` claim from a recognised author is a modest \
+a `promising` or `slight edge` claim from a recognised author is a modest \
 regularity worth weighing in your reading (the corpus's best confirm about 60% \
 of the time against 51% for chance, consistently across countries), never a \
 certainty; one `close to chance` or `no better than chance` adds nothing; one \
