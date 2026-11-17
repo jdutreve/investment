@@ -1,0 +1,11 @@
+country  span              quarters   on  outcome A (bond-cash)   outcome B (bond-equity)
+GB       1960-04..2025-01      260  108   63/108 = 0.58 p 0.051   54/108 = 0.50 p 0.538
+DE       1960-01..2025-01      261  144   77/144 = 0.53 p 0.227   78/144 = 0.54 p 0.180
+JP       2002-04..2021-04       76    3    1/3   = 0.33 p 0.875    1/3   = 0.33 p 0.875
+CA       1956-01..2025-01      277  120   66/120 = 0.55 p 0.158   71/120 = 0.59 p 0.027
+FR       1970-01..2025-01      221   92   52/92  = 0.57 p 0.126   46/92  = 0.50 p 0.541
+US       1964-07..2025-04      243   80   42/80  = 0.53 p 0.369   44/80  = 0.55 p 0.217
+
+FEASIBLE (>= 4 of 5 with 20+ quarters on): 4 -> YES
+POOLED non-US, outcome A bond-cash: 258/464 = 0.556, p 0.0089 -> HOLDS INTERNATIONALLY
+POOLED non-US, outcome B bond-equity: 249/464 = 0.537, p 0.0627 -> reported
