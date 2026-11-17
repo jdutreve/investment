@@ -200,20 +200,25 @@ async def _fetch_invariants(db: InvestmentDB, invariant_ids: list[str]) -> list[
     params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
     rows = await db.query(
         "SELECT id, title, weight_effective, tags, author, status FROM invariant "
-        # A literature claim is shown whole in its own section of the Worker's
-        # context, every week; retrieved here it would be read twice.
-        f"WHERE id IN ({placeholders}) AND status NOT IN ('rejected', :literature) "
+        # A note factored into one statement of its idea is read through that
+        # statement, once (`writeback.literature`).
+        f"WHERE id IN ({placeholders}) AND status != 'rejected' AND factored_into IS NULL "
         "ORDER BY weight_effective DESC",
-        literature=LITERATURE_STATUS,
         **params,
     )
     retrieved_at = {iid: position for position, iid in enumerate(invariant_ids)}
-    measured = [r for r in rows if r["status"] != REFERENCE_STATUS]
-    notes = sorted(
-        (r for r in rows if r["status"] == REFERENCE_STATUS),
-        key=lambda r: retrieved_at[str(r["id"])],
+    unmeasured = (LITERATURE_STATUS, REFERENCE_STATUS)
+    measured = [r for r in rows if r["status"] not in unmeasured]
+    # WHAT THE LITERATURE SETTLED, BY RELEVANCE, like a note but before the notes
+    # (owner, 2026-11-17: shown when it bears on the week, not every week).
+    literature, notes = (
+        sorted(
+            (r for r in rows if r["status"] == status),
+            key=lambda r: retrieved_at[str(r["id"])],
+        )
+        for status in unmeasured
     )
-    return [*measured, *notes]
+    return [*measured, *literature, *notes]
 
 
 async def execute_zoom(db: InvestmentDB, zoom: Zoom) -> dict[str, Any]:

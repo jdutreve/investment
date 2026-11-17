@@ -94,7 +94,9 @@ async def test_an_empty_corpus_sweeps_cleanly(db: InvestmentDB, tmp_path: Path) 
     """A database with no documents is not a failure — it is a fresh install,
     and the escalation rule must not read it as "everything failed"."""
     sweep = await sweep_corpus(db, _settings(tmp_path))
-    assert sweep == type(sweep)(documents=0, candidates=0, failed=[], matured=0)
+    assert (sweep.documents, sweep.candidates, sweep.failed, sweep.matured) == (0, 0, [], 0)
+    # Nothing to read and nothing to factor: no model call was made.
+    assert sweep.literature is not None and sweep.literature.notes_read == 0
 
 
 async def test_a_fully_checkpointed_corpus_costs_no_model_call(

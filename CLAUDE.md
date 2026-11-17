@@ -275,13 +275,14 @@ times out of five; measured over 4,452 confrontations the corpus's four books
 confirm at 0.506-0.536 and are pairwise indistinguishable, Dalio's rate being
 the closest to chance and the best measured. Belief buys the head start,
 history is free to take it back.
-**A LITERATURE CLAIM IS THE OWNER'S, NOT A VERDICT** (ADR-006 amendment,
-2026-11-15): status `literature` holds what the literature settled and this
-engine cannot measure (a 10-year horizon, data outside the registry). Only the
-owner files one, with its sources; the engine never confronts, weighs or
-re-judges it; the Worker reads every one in a section of its own, labelled as
-the literature's and never as integrated. "Established" in this project still
-means INTEGRATED.
+**A LITERATURE CLAIM IS NOT A VERDICT** (ADR-006 amendment, 2026-11-15, made
+automatic 2026-11-17): status `literature` holds a long-horizon idea this engine
+cannot measure, stated by TWO OR MORE AUTHORS of the corpus. The curator's model
+reads each note once, groups the claims by idea, and factors each idea into one
+statement (`invariant.factored_into`); nobody files or approves one. The engine
+never confronts, weighs or re-judges it; the Worker reads it when the week's
+retrieval finds it relevant, labelled as the literature's, never as integrated.
+"Established" in this project still means INTEGRATED.
 **A REFERENCE NOTE CARRIES NO WEIGHT** (owner, 2026-10-04): it has no condition
 and no effect, so nothing can ever measure it, and a weight on what is not
 measured is the author's reputation under another name. `weight_effective` is
@@ -397,9 +398,10 @@ value became KNOWABLE (publication-dated, ALFRED first-release); replay and
 maturation are point-in-time by construction (`ts ≤ t`).
 
 **Entities** — 13 vertices, 11 relations (6 M:N tables + 5 FK columns),
-3 time-series, 14 document tables (10 in the spec + `curated_passage` the M7
+3 time-series, 15 document tables (10 in the spec + `curated_passage` the M7
 curation checkpoint, `innovation` the recurrence ledger, `revision_measurement`
-the measured-verdict ledger, `forecast` the Worker's scored forecasts). These counts named what existed when they were
+the measured-verdict ledger, `forecast` the Worker's scored forecasts,
+`literature_reading` which notes state a long-horizon claim). These counts named what existed when they were
 written and drifted three times; the schema is the authority
 (`db/schema.py` section headers carry the same counts). Complete schema:
 docs/DATA_MODELS.md.

@@ -42,6 +42,7 @@ unbuilt rather than approximated.
 
 import dataclasses
 import logging
+from datetime import date
 
 from investment.config import Settings
 from investment.corpus.embedding import InProcessEmbedder
@@ -49,6 +50,7 @@ from investment.db.sqlite import InvestmentDB
 from investment.mechanical.invariants import mature_seed_invariants
 from investment.worker.curator import KnowledgeCurator
 from investment.writeback.knowledge import KnowledgeWriteback
+from investment.writeback.literature import LiteratureReport, admit_literature
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +66,8 @@ class CurationSweep:
     failed: list[str]
     # Invariants measured over the history for the first time by this sweep.
     matured: int = 0
+    # What the literature pass read and factored (writeback/literature.py).
+    literature: LiteratureReport | None = None
 
 
 async def sweep_corpus(
@@ -122,6 +126,16 @@ async def sweep_corpus(
     # after the benchmark valuations it reads (seed step 10b, chain 08:04).
     results = await mature_seed_invariants(db)
     matured = sum(1 for r in results if r.skipped_reason is None)
-    sweep = CurationSweep(documents=curated, candidates=candidates, failed=failed, matured=matured)
+    # THE LITERATURE, AFTER THE NOTES IT READS (owner, 2026-11-17): every new
+    # reference note is read once for a long-horizon claim, and the ideas they
+    # add are factored, admitted automatically when two authors state them.
+    literature = await admit_literature(db, settings, embedder, date.today())
+    sweep = CurationSweep(
+        documents=curated,
+        candidates=candidates,
+        failed=failed,
+        matured=matured,
+        literature=literature,
+    )
     logger.info("curation sweep: %s", sweep)
     return sweep

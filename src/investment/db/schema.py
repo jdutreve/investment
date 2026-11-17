@@ -1,10 +1,11 @@
 """Full SQLite schema (ADR-004) — see docs/DATA_MODELS.md for the conceptual
 spec this maps physically: 13 entity tables ("vertices"), 6 M:N tables
 ("edges" — the other 5 relations are FK+property columns on the child, per
-DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 14 document
+DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 15 document
 tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
 + `innovation`, the recurrence ledger, + `revision_measurement`,
-the measured-verdict ledger, + `forecast`, the Worker's scored forecasts).
+the measured-verdict ledger, + `forecast`, the Worker's scored forecasts,
++ `literature_reading`, which notes state a long-horizon claim).
 
 Every count in that sentence has been wrong at some point — each named what
 existed when it was typed and outlived it. They are checked against the DDL
@@ -88,6 +89,10 @@ CREATE TABLE IF NOT EXISTS invariant (
   -- bars are computed against it. NULL until swept, and on an unconditional
   -- claim (mechanical/invariants.py `null_confirmation_rate`).
   null_confirmation_rate REAL,
+  -- The statement of its idea a note was FACTORED INTO (writeback/literature.py):
+  -- the same idea in several notes, or by several authors, is read once,
+  -- through that statement. NULL for every other row.
+  factored_into      TEXT REFERENCES invariant(id),
   trace              TEXT NOT NULL,
   created_at         TEXT NOT NULL,
   validated_at       TEXT,                   -- null while still a candidate
@@ -412,7 +417,7 @@ CREATE TABLE IF NOT EXISTS portfolio_nav (
 );
 
 -- ============================================================
--- DOCUMENT TABLES (14) — plain tables, not part of the conceptual graph
+-- DOCUMENT TABLES (15) — plain tables, not part of the conceptual graph
 -- ============================================================
 
 -- Static (5)
@@ -711,6 +716,19 @@ CREATE TABLE IF NOT EXISTS revision_measurement (
 -- transaction, after its `WorkerReadingEvent`), then completed once when
 -- scored, after its `ForecastScoredEvent`. `scored_on` set with `came_true`
 -- NULL is a forecast that could not be scored, and `unscorable_reason` says why.
+-- WHICH REFERENCE NOTES STATE A LONG-HORIZON CLAIM (owner, 2026-11-17), read once
+-- per note by the curator's model (writeback/literature.py): a claim about what
+-- markets do over more than three years, which the engine cannot measure, and
+-- its canonical wording, so the same idea from two authors can be found and
+-- factored. `long_horizon` 0 is a note read and found to be no such claim.
+CREATE TABLE IF NOT EXISTS literature_reading (
+  invariant_id  TEXT PRIMARY KEY REFERENCES invariant(id),
+  long_horizon  INTEGER NOT NULL,
+  horizon_years INTEGER,
+  canonical     TEXT,
+  read_at       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS forecast (
   id                TEXT PRIMARY KEY,
   reading_event_id  TEXT NOT NULL,      -- the WorkerReadingEvent that made it
@@ -841,6 +859,8 @@ DOCUMENT_TABLES = {
     "revision_measurement",
     # 2026-10-18: the Worker's forecasts, scored when due (`mechanical/forecasts.py`).
     "forecast",
+    # 2026-11-17: which notes state a long-horizon claim (`writeback/literature.py`).
+    "literature_reading",
 }
 
 
@@ -923,6 +943,9 @@ ADDED_COLUMNS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     # column: `forecasts.fill_base_rates` computes each as of its made_on, at
     # the next scoring step, so a late fill reads only what was knowable then.
     ("forecast", "base_rate", "REAL", ()),
+    # The statement a note was factored into (writeback/literature.py). NULL on
+    # every pre-existing row: nothing was factored before.
+    ("invariant", "factored_into", "TEXT", ()),
 )
 
 # Indexes on columns that RENAMED_COLUMNS / ADDED_COLUMNS bring to an existing

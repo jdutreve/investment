@@ -91,15 +91,14 @@ _CASH_HANDLE = "asset-class:cash"
 # differs.
 REFERENCE_STATUS = "reference"
 
-# The FIFTH status (owner, 2026-11-15 — ADR-006 amendment of that date): a
-# claim the literature has established and this engine CANNOT measure — its
-# horizon is longer than the history can confront (a 10-year claim gets about
-# five independent moments in 58 years, the first checkpoint needs ten), or its
-# data lies outside the registry. Only the owner files one, with its sources
-# (`file_literature_claim`, journalled). The engine never confronts, weighs or
-# re-judges it; the Worker reads it as settled by the literature and says
-# where it comes from. It is not a verdict of this system and must never be
-# shown as one — "established" here means INTEGRATED, which this is not.
+# The FIFTH status (owner, 2026-11-15 — ADR-006 amendment of that date): an idea
+# the literature states and this engine CANNOT measure — its horizon is longer
+# than the history can confront (a 10-year claim gets about five independent
+# moments in 58 years, the first checkpoint needs ten). Admitted automatically
+# when two authors of the corpus state it (`writeback.literature`, journalled).
+# The engine never confronts, weighs or re-judges it; the Worker reads it as the
+# literature's and says where it comes from. It is not a verdict of this system
+# and must never be shown as one — "established" here means INTEGRATED.
 LITERATURE_STATUS = "literature"
 
 # THE STATUSES THE ENGINE DOES NOT MEASURE. Every "skip what is not measured"

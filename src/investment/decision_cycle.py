@@ -62,7 +62,6 @@ from investment.worker.agent import run_worker
 from investment.worker.repeated_figures import figures_in
 from investment.worker.result import WorkerResult, proposal_sections
 from investment.worker.tools import round_for_model
-from investment.writeback.literature import describe_literature
 from investment.writeback.writeback import SOURCE_UC, KnowledgeCommit, commit_knowledge
 
 # The cycle's own journal entry, `WORKER_READING_EVENT` (see
@@ -435,11 +434,6 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # the measured settings because it is read the same way, and unconditional
     # because it does not depend on the ledger having rows.
     lines += ["", *describe_findings()]
-    # The owner's literature claims (ADR-006 amendment 2026-11-15): what the
-    # literature settled and this engine cannot measure. Unconditional, like the
-    # findings, because they do not depend on what the retrieval brought back.
-    if context.literature:
-        lines += ["", *describe_literature(context.literature)]
     # How the Worker's own last forecasts came out, so the next ones are made
     # knowing it (owner, 2026-10-18).
     if context.forecast_record is not None:

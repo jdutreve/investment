@@ -559,14 +559,28 @@ and that this engine CANNOT measure. Two reasons qualify:
   times;
 - or its data lies outside the registry.
 
-Only the owner files one, with its sources (`writeback.literature`, journalled
-as `LiteratureClaimEvent`):
+**Made automatic on 2026-11-17 (owner: "tout doit être automatique").** No one
+files or approves a claim (`writeback.literature`, journalled as
+`LiteratureClaimEvent`):
+
+- every authored reference note is read once, by the curator's model, for a
+  long-horizon claim (`literature_reading`);
+- the claims are grouped by idea, and each group becomes ONE statement its
+  notes are factored into (`invariant.factored_into`);
+- a statement is `literature` when two or more authors state it. Stated by
+  one author, it stays a reference note, and it is promoted the day a second
+  author joins it. Grouping is the model's: on the ice core, a cosine put no
+  two authors' versions of one idea above 0.70.
+
+The owner-filed claim of 2026-11-16 was retired; its idea came back through
+the rule, from Dimson, Marsh & Staunton and Faber. And for every statement:
 
 - the engine never confronts, weighs or re-judges it
   (`invariants.UNMEASURED_STATUSES`);
 - its weight is NULL, like a reference note's;
-- the Worker reads every one, in a section of its own, as the literature's
-  claim with its sources, never as an integrated invariant.
+- the Worker reads one when the week's retrieval finds it relevant, like any
+  invariant (owner, 2026-11-17), labelled as the literature's with its
+  authors and sources, never as an integrated invariant.
 
 "Integration requires measurement" stands for everything else, unchanged. This
 is not integration by belief: the claim is labelled as not this system's

@@ -1,30 +1,44 @@
-"""The owner's literature claims (ADR-006 amendment 2026-11-15): filed with their
-sources, never measured, weighed or re-judged, and read whole by the Worker."""
+"""The literature, admitted automatically (writeback/literature.py): notes read once,
+the same idea factored into one statement, `literature` when two authors state it,
+never measured, and read only when the week's retrieval finds it relevant."""
 
-import dataclasses
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
 from investment.db.sqlite import InvestmentDB
-from investment.decision_cycle import render_context_for_worker
 from investment.mechanical import invariants
-from investment.planner.context import PlannerContext
-from investment.writeback.literature import (
-    LITERATURE_EVENT,
-    file_literature_claim,
-    literature_claims,
-)
+from investment.planner.retrieval import _fetch_invariants
+from investment.writeback import literature as L
 
-TODAY = date(2026, 11, 16)
+TODAY = date(2026, 11, 17)
 
 
 class _Embedder:
     def encode(self, texts: list[str]) -> np.ndarray:
         return np.zeros((len(texts), 384), dtype=np.float32)
+
+
+@dataclass
+class _Result:
+    output: Any
+
+
+class _Model:
+    """Stands in for an agent: answers each `run` with the next prepared output."""
+
+    def __init__(self, *outputs: Any) -> None:
+        self.outputs = list(outputs)
+        self.prompts: list[str] = []
+
+    async def run(self, prompt: str) -> _Result:
+        self.prompts.append(prompt)
+        return _Result(self.outputs.pop(0))
 
 
 @pytest.fixture
@@ -34,62 +48,105 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await conn.close()
 
 
-async def _file(db: InvestmentDB) -> str:
-    return await file_literature_claim(
-        db,
-        _Embedder(),
-        title="Expensive equities return less over the next ten years",
-        description="A high cyclically adjusted P/E is followed by low 10-year real returns.",
-        sources=["Campbell & Shiller (1998)"],
-        today=TODAY,
+async def _note(db: InvestmentDB, note_id: str, author: str, book: str) -> None:
+    """A reference note cited from a passage of `book` by `author`."""
+    doc = f"doc-{book}"
+    await db.command(
+        "INSERT OR IGNORE INTO document (id, title, author, kind, source_type, ingested_at, "
+        "trace) VALUES (:d, :b, :a, 'book', 'pdf', '2026-01-01', 't')",
+        d=doc,
+        b=book,
+        a=author,
+    )
+    await db.command(
+        "INSERT INTO passage (id, document_id, position, content, created_at) "
+        "VALUES (:p, :d, 0, 'text', '2026-01-01')",
+        p=f"p-{note_id}",
+        d=doc,
+    )
+    await db.command(
+        "INSERT INTO invariant (id, title, description, source, status, condition, "
+        "weight_initial, floor_weight, trace, created_at, updated_at) VALUES (:i, :t, 'd', "
+        "'curator', 'reference', '[]', 0.5, 0.05, 't', '2026-01-01', '2026-01-01')",
+        i=note_id,
+        t=f"note {note_id}",
+    )
+    await db.command(
+        "INSERT INTO supports (passage_id, invariant_id, cited) VALUES (:p, :i, 1)",
+        p=f"p-{note_id}",
+        i=note_id,
     )
 
 
-async def test_a_claim_is_journalled_then_filed_without_a_weight(db: InvestmentDB) -> None:
-    iid = await _file(db)
-    row = (await db.query("SELECT * FROM invariant WHERE id = :i", i=iid))[0]
-    assert row["status"] == invariants.LITERATURE_STATUS
-    assert row["weight_effective"] is None
-    assert "Campbell & Shiller (1998)" in row["example"]
-    events = await db.query("SELECT source_id FROM event_log WHERE type = :t", t=LITERATURE_EVENT)
-    assert [e["source_id"] for e in events] == [iid]
+def _readings(*ids: str) -> L.Readings:
+    return L.Readings(
+        notes=[
+            L.NoteReading(id=i, long_horizon_claim=True, horizon_years=10, canonical=f"claim {i}")
+            for i in ids
+        ]
+    )
 
 
-async def test_a_claim_without_sources_is_refused(db: InvestmentDB) -> None:
-    with pytest.raises(ValueError, match="sources"):
-        await file_literature_claim(
-            db, _Embedder(), title="t", description="d", sources=[], today=TODAY
-        )
+async def test_two_authors_make_one_literature_statement(db: InvestmentDB) -> None:
+    await _note(db, "n1", "Dimson", "Triumph")
+    await _note(db, "n2", "Faber", "Asset Allocation")
+    assert await L.read_notes(db, _Model(_readings("n1", "n2"))) == 2  # type: ignore[arg-type]
+    idea = "Expensive equities return less over the next decade."
+    grouper = _Model(L.Grouping(groups=[L.IdeaGroup(ids=["n1", "n2"], statement=idea)]))
+    created, factored, admitted = await L.factor_ideas(db, grouper, _Embedder(), TODAY)  # type: ignore[arg-type]
+    assert (created, factored, admitted) == (1, 2, 1)
+    statement = (await db.query("SELECT * FROM invariant WHERE source = 'factored'"))[0]
+    assert statement["status"] == invariants.LITERATURE_STATUS
+    assert statement["weight_effective"] is None
+    assert statement["title"] == idea
+    assert "Dimson" in statement["author"] and "Faber" in statement["author"]
+    notes = await db.query("SELECT factored_into FROM invariant WHERE id IN ('n1', 'n2')")
+    assert {n["factored_into"] for n in notes} == {statement["id"]}
+    events = await db.query("SELECT source_id FROM event_log WHERE type = :t", t=L.LITERATURE_EVENT)
+    assert [e["source_id"] for e in events] == [statement["id"]]
 
 
-async def test_the_engine_neither_matures_nor_restates_it(db: InvestmentDB) -> None:
-    """The birth sweep would file an effect-less row as a reference note, and the
-    weekly restatement would judge it 'proposed' on an empty record."""
-    iid = await _file(db)
-    row = (await db.query("SELECT * FROM invariant WHERE id = :i", i=iid))[0]
-    result = await invariants._mature_one(db, row, None, True)  # type: ignore[arg-type]
-    assert result.status == invariants.LITERATURE_STATUS
-    assert await invariants.restate_invariant(db, iid, {}, TODAY) == invariants.LITERATURE_STATUS
-    after = (await db.query("SELECT status, trace FROM invariant WHERE id = :i", i=iid))[0]
+async def test_one_author_is_factored_but_not_admitted_until_a_second_joins(
+    db: InvestmentDB,
+) -> None:
+    await _note(db, "n1", "Dimson", "Triumph")
+    await _note(db, "n2", "Dimson", "Triumph")
+    await L.read_notes(db, _Model(_readings("n1", "n2")))  # type: ignore[arg-type]
+    grouper = _Model(L.Grouping(groups=[L.IdeaGroup(ids=["n1", "n2"], statement="idea")]))
+    await L.factor_ideas(db, grouper, _Embedder(), TODAY)  # type: ignore[arg-type]
+    statement = (await db.query("SELECT id, status FROM invariant WHERE source = 'factored'"))[0]
+    assert statement["status"] == invariants.REFERENCE_STATUS
+
+    await _note(db, "n3", "Faber", "Asset Allocation")
+    await L.read_notes(db, _Model(_readings("n3")))  # type: ignore[arg-type]
+    joins = _Model(L.Grouping(groups=[L.IdeaGroup(ids=[statement["id"], "n3"], statement="x")]))
+    created, factored, admitted = await L.factor_ideas(db, joins, _Embedder(), TODAY)  # type: ignore[arg-type]
+    assert (created, factored, admitted) == (0, 1, 1)
+    after = (
+        await db.query("SELECT status, title FROM invariant WHERE id = :i", i=statement["id"])
+    )[0]
     assert after["status"] == invariants.LITERATURE_STATUS
-    assert "NOT CERTIFIED" not in after["trace"]
+    assert after["title"] == "idea"  # an existing statement keeps its wording
+    assert f"[{statement['id']}] (STATEMENT) idea" in joins.prompts[0]
 
 
-async def test_the_worker_reads_every_claim_and_no_weight(db: InvestmentDB) -> None:
-    await _file(db)
-    context = PlannerContext(
-        regime={},
-        global_liquidity={},
-        ranking=[],
-        scenarios=[],
-        top_invariants=[],
-        recent_proposals=[],
-        passages=[],
-        notes="",
-    )
-    text = render_context_for_worker(
-        dataclasses.replace(context, literature=await literature_claims(db))
-    )
-    assert "FROM THE LITERATURE" in text
-    assert "Expensive equities return less over the next ten years" in text
-    assert "Campbell & Shiller (1998)" in text
+async def test_nothing_new_to_factor_makes_no_model_call(db: InvestmentDB) -> None:
+    grouper = _Model()
+    assert await L.factor_ideas(db, grouper, _Embedder(), TODAY) == (0, 0, 0)  # type: ignore[arg-type]
+    assert grouper.prompts == []
+
+
+async def test_a_statement_is_never_measured_and_its_notes_are_read_through_it(
+    db: InvestmentDB,
+) -> None:
+    await _note(db, "n1", "Dimson", "Triumph")
+    await _note(db, "n2", "Faber", "Asset Allocation")
+    await L.read_notes(db, _Model(_readings("n1", "n2")))  # type: ignore[arg-type]
+    grouper = _Model(L.Grouping(groups=[L.IdeaGroup(ids=["n1", "n2"], statement="idea")]))
+    await L.factor_ideas(db, grouper, _Embedder(), TODAY)  # type: ignore[arg-type]
+    statement = (await db.query("SELECT * FROM invariant WHERE source = 'factored'"))[0]
+    result = await invariants._mature_one(db, statement, None, True)  # type: ignore[arg-type]
+    assert result.status == invariants.LITERATURE_STATUS
+    assert await invariants.restate_invariant(db, statement["id"], {}, TODAY) == "literature"
+    retrieved = await _fetch_invariants(db, ["n1", statement["id"], "n2"])
+    assert [r["id"] for r in retrieved] == [statement["id"]]
