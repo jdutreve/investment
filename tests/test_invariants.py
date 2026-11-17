@@ -891,3 +891,30 @@ def test_a_record_with_nothing_decided_says_so() -> None:
     summary = invariants.summarize_evidence("return", [_moment("2001-01-01", "neutral", 0.001)])
     assert summary.rate is None and summary.rate_range is None
     assert invariants.describe_evidence(summary).startswith("no decided moment yet; 1 neutral")
+
+
+def test_a_record_says_what_it_shows_against_chance() -> None:
+    """'proposed' alone said "not established" for a claim near chance and for
+    one at 0.76 alike (owner, 2026-11-17)."""
+
+    def evidence(confirmed: int, refuted: int, null: float | None) -> invariants.EvidenceSummary:
+        return invariants.EvidenceSummary(
+            metric="return",
+            confirmed=confirmed,
+            refuted=refuted,
+            neutral=0,
+            no_data=0,
+            rate_range=invariants.wilson_interval(confirmed, confirmed + refuted),
+            mean_lift=None,
+            worst_lift=None,
+            rate_early=None,
+            rate_late=None,
+            null_rate=null,
+        )
+
+    assert invariants.record_reading(evidence(16, 5, 0.50)) == "promising"
+    assert invariants.record_reading(evidence(14, 9, 0.51)) == "leaning"
+    assert invariants.record_reading(evidence(26, 24, 0.50)) == "close to chance"
+    assert invariants.record_reading(evidence(20, 30, 0.50)) == "no better than chance"
+    assert invariants.record_reading(evidence(5, 3, 0.50)) == "too few moments to read"
+    assert "chance 0.50: promising" in invariants.describe_evidence(evidence(16, 5, 0.50))

@@ -199,7 +199,12 @@ You steer by LIGHTHOUSES — the invariants in your context orient your \
 reasoning, they do not give orders. Each carries a weight earned from its \
 record, except a reference note, which is background that was never measured \
 and carries none; one marked `candidate, not established` has a record that \
-settles nothing yet — a lead to weigh, not knowledge; one marked `dormant` \
+settles nothing yet, and its line says what that record shows against chance: \
+a `promising` or `leaning` claim from a recognised author is a modest \
+regularity worth weighing in your reading (the corpus's best confirm about 60% \
+of the time against 51% for chance, consistently across countries), never a \
+certainty; one `close to chance` or `no better than chance` adds nothing; one \
+marked `dormant` \
 is real but its condition does not hold today, \
 so it describes a market that is not present — do not lean on it for what is \
 happening now.

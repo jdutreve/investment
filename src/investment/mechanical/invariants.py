@@ -1989,6 +1989,9 @@ class EvidenceSummary:
     # from one earned across both.
     rate_early: float | None
     rate_late: float | None
+    # What a claim that knows nothing would confirm on this protocol
+    # (`null_confirmation_rate`): the rate means nothing without it.
+    null_rate: float | None = None
 
     @property
     def decided(self) -> int:
@@ -1999,7 +2002,9 @@ class EvidenceSummary:
         return self.confirmed / self.decided if self.decided else None
 
 
-def summarize_evidence(metric: str, moments: list[Mapping[str, Any]]) -> EvidenceSummary:
+def summarize_evidence(
+    metric: str, moments: list[Mapping[str, Any]], null_rate: float | None = None
+) -> EvidenceSummary:
     """`moments` are an invariant's mechanical confrontations of ONE definition
     (`signal_date`, `verdict`, `lift`)."""
     tally = dict.fromkeys((CONFIRMED, REFUTED, NEUTRAL, NO_DATA), 0)
@@ -2028,7 +2033,34 @@ def summarize_evidence(metric: str, moments: list[Mapping[str, Any]]) -> Evidenc
         worst_lift=min(lifts) if lifts else None,
         rate_early=rate_of(decided[:half]),
         rate_late=rate_of(decided[half:]),
+        null_rate=null_rate,
     )
+
+
+# WHAT A RECORD SHOWS AGAINST CHANCE (owner, 2026-11-17). 'proposed' said only
+# "not established", for a claim near chance and for one at 0.76 alike, and the
+# owner read 262 of them as 262 failures. The bands are fixed, not fitted: below
+# ten decided moments nothing is read; then the distance from the claim's own
+# null, in points. The corpus's best regularities, measured in five countries,
+# sit about ten points above it (docs/INTERNATIONAL_INVARIANTS.md).
+READING_MIN_DECIDED = 10
+
+
+def record_reading(evidence: EvidenceSummary) -> str | None:
+    """`promising` / `leaning` / `close to chance` / `no better than chance` /
+    `too few moments to read`, or None when there is no null to read against."""
+    if evidence.decided < READING_MIN_DECIDED:
+        return "too few moments to read"
+    if evidence.rate is None or evidence.null_rate is None:
+        return None
+    edge = evidence.rate - evidence.null_rate
+    if edge > 0.10:
+        return "promising"
+    if edge > 0.05:
+        return "leaning"
+    if edge > 0.0:
+        return "close to chance"
+    return "no better than chance"
 
 
 def describe_evidence(evidence: EvidenceSummary) -> str:
@@ -2042,6 +2074,10 @@ def describe_evidence(evidence: EvidenceSummary) -> str:
         if evidence.rate_range is not None:
             low, high = evidence.rate_range
             parts[0] += f" (rate {evidence.rate:.2f}, 95% range {low:.2f}-{high:.2f})"
+        reading = record_reading(evidence)
+        if reading is not None:
+            chance = f"chance {evidence.null_rate:.2f}: " if evidence.null_rate is not None else ""
+            parts.append(f"{chance}{reading}")
     if evidence.neutral:
         parts.append(f"{evidence.neutral} neutral")
     if evidence.no_data:
@@ -2069,8 +2105,8 @@ async def evidence_summaries(
     placeholders = ",".join(f":i{n}" for n in range(len(invariant_ids)))
     params = {f"i{n}": iid for n, iid in enumerate(invariant_ids)}
     invariant_rows = await db.query(
-        f"SELECT id, condition, effect FROM invariant WHERE id IN ({placeholders}) "
-        "AND effect IS NOT NULL",
+        f"SELECT id, condition, effect, null_confirmation_rate FROM invariant "
+        f"WHERE id IN ({placeholders}) AND effect IS NOT NULL",
         **params,
     )
     moments = await db.query(
@@ -2089,6 +2125,7 @@ async def evidence_summaries(
         str(row["id"]): summarize_evidence(
             str(json.loads(row["effect"]).get("metric", "?")),
             by_definition.get((str(row["id"]), stored_definition(row)), []),
+            row["null_confirmation_rate"],
         )
         for row in invariant_rows
     }
