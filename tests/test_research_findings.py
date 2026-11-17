@@ -8,6 +8,7 @@ from pathlib import Path
 from investment.decision_cycle import render_context_for_worker
 from investment.mechanical.research_findings import (
     FINDINGS,
+    FULL_FINDING_DAYS,
     Finding,
     describe_findings,
     headline_evidence,
@@ -38,11 +39,21 @@ def test_every_finding_reaches_the_worker_whatever_else_its_context_holds() -> N
     text = render_context_for_worker(_empty_context())
     assert "WHAT STRUCTURAL TESTS ALREADY ANSWERED" in text
     for finding in FINDINGS:
-        assert finding.question in text
-        # Its headline figures since 2026-11-03 (the full table is in its record).
-        assert headline_evidence(finding.evidence) in text
-        assert re.search(r"\d\.\d|\d%|\d/\d", headline_evidence(finding.evidence))
+        # Every one by its answer and consequence — what stops a settled question
+        # from being raised again (owner, 2026-11-17: the older ones by that alone).
+        assert finding.answer.upper() in text
         assert finding.consequence in text
+        assert re.search(r"\d\.\d|\d%|\d/\d", headline_evidence(finding.evidence))
+
+
+def test_a_recent_finding_is_shown_whole_and_an_older_one_by_its_conclusion() -> None:
+    recent, old = FINDINGS[-1], FINDINGS[0]
+    lines = "\n".join(describe_findings(today=recent.measured_on))
+    assert recent.question in lines
+    assert headline_evidence(recent.evidence) in lines
+    assert old.consequence in lines
+    if (recent.measured_on - old.measured_on).days > FULL_FINDING_DAYS:
+        assert old.question not in lines
 
 
 def test_a_finding_points_at_a_record_the_repository_holds() -> None:
@@ -69,8 +80,10 @@ def test_a_finding_is_complete_and_dated() -> None:
 def test_the_rules_findings_come_first_and_in_the_order_they_were_measured() -> None:
     later = Finding(date(2026, 3, 2), "rule", "Later?", "no", "figures", "so what", "docs/X.md")
     earlier = Finding(date(2026, 3, 1), "rule", "Earlier?", "no", "figures", "so what", "docs/X.md")
-    corpus = Finding(date(2026, 1, 1), "corpus", "Corpus?", "no", "figures", "so what", "docs/X.md")
-    text = "\n".join(describe_findings((later, corpus, earlier)))
+    corpus = Finding(
+        date(2026, 2, 28), "corpus", "Corpus?", "no", "figures", "so what", "docs/X.md"
+    )
+    text = "\n".join(describe_findings((later, corpus, earlier), today=date(2026, 3, 2)))
     assert text.index("Earlier?") < text.index("Later?") < text.index("Corpus?")
     assert "ANSWER: NO. figures" in text
     assert describe_findings(()) == []

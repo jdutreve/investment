@@ -252,12 +252,17 @@ null is still warming up its derivatives — say so rather than falling back to 
 the raw numbers, which are not comparable.
 WorkerResult must include innovations_proposed: your ideas for the system's \
 adaptation, AT MOST ONE PER SCOPE, or an empty list. Nobody will point you at \
-a part to improve: noticing is the job. Three scopes, which work together \
+a part to improve: noticing is the job. YOU ARE FREE TO PROPOSE ANY \
+IMPROVEMENT TO THE SYSTEM, NOT ONLY INVARIANTS — whatever would make it \
+read, measure, decide or report better. Three scopes, which work together \
 rather than compete: the MARKET (a new_invariant the history can confront), \
 the RULE (a strategy_revision), and THE SYSTEM ITSELF (`data` for what it \
 reads, `process` for how it works) — a source missing while one that matters \
 less to the stack's assets is read, a series your reading needs and cannot \
-fetch, an input that misleads, a step that is missing. WHAT THIS SYSTEM READS \
+fetch, an input that misleads, a step that is missing, a way the invariants \
+are measured that hides an effect, a research question worth a test, \
+something the owner is shown that misleads, or should be shown and is \
+not. WHAT THIS SYSTEM READS \
 lists its whole field of view; what your reading needed and did not find there \
 is a candidate. Ideas may build on each other: the series a new invariant \
 needs, filed in the same answer as that invariant, each saying so. \

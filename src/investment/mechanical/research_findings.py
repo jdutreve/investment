@@ -784,18 +784,32 @@ _HEADINGS = {
 }
 
 
-def describe_findings(findings: tuple[Finding, ...] = FINDINGS) -> list[str]:
-    """The findings as prompt lines, the rule's first, each with its date."""
+# THE RECENT ONES IN FULL, THE OLDER ONES BY THEIR CONCLUSION (owner,
+# 2026-11-17). At 33 findings the section was a fifth of the Worker's context,
+# printed whole every week whatever the market was doing. What keeps the Worker
+# from raising a settled question again is the answer and what follows from it;
+# the question and the figures of an older finding are in its record.
+FULL_FINDING_DAYS = 21
+
+
+def describe_findings(
+    findings: tuple[Finding, ...] = FINDINGS, today: date | None = None
+) -> list[str]:
+    """The findings as prompt lines, the rule's first, each with its date: those
+    measured in the last `FULL_FINDING_DAYS` with their question and figures,
+    older ones as their answer and consequence."""
     if not findings:
         return []
+    today = today or date.today()
     lines = [
         "WHAT STRUCTURAL TESTS ALREADY ANSWERED — questions about the rule, the "
         "lighthouses and the indicators that are not a setting of the rule, each put to a "
-        "protocol written "
-        "before its figures. They weigh as much as the settings above. Before you call a "
-        "part of the rule its weak link, or propose one of these repairs, read here: the "
-        "question may have been asked and answered. Do not raise one again without saying "
-        "what new data, or what different mechanism, yours brings.",
+        "protocol written before its figures. They weigh as much as the settings above. "
+        "Before you call a part of the rule its weak link, or propose one of these repairs, "
+        "read here: the question may have been asked and answered. Do not raise one again "
+        f"without saying what new data, or what different mechanism, yours brings. Findings "
+        f"older than {FULL_FINDING_DAYS} days are given by their conclusion; their figures "
+        "are in their record.",
     ]
     for about, heading in _HEADINGS.items():
         selected = sorted((f for f in findings if f.about == about), key=lambda f: f.measured_on)
@@ -803,11 +817,18 @@ def describe_findings(findings: tuple[Finding, ...] = FINDINGS) -> list[str]:
             continue
         lines.append(f"  {heading}:")
         for finding in selected:
-            lines += [
-                f"    [{finding.measured_on.isoformat()}] {finding.question}",
-                f"      ANSWER: {finding.answer.upper()}. {headline_evidence(finding.evidence)}",
-                f"      SO: {finding.consequence}",
-            ]
+            if (today - finding.measured_on).days <= FULL_FINDING_DAYS:
+                lines += [
+                    f"    [{finding.measured_on.isoformat()}] {finding.question}",
+                    f"      ANSWER: {finding.answer.upper()}. "
+                    f"{headline_evidence(finding.evidence)}",
+                    f"      SO: {finding.consequence}",
+                ]
+            else:
+                lines.append(
+                    f"    [{finding.measured_on.isoformat()}] {finding.answer.upper()}: "
+                    f"{finding.consequence}"
+                )
     return lines
 
 
