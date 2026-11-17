@@ -732,6 +732,27 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/INSTRUMENT_POSITIVE_CONTROL.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 17),
+        about="corpus",
+        question=(
+            "Does 'a real yield above 3% is followed by bonds outperforming' hold outside the "
+            "US, and is there data to measure claims across countries?"
+        ),
+        answer="yes, weakly in each, clearly pooled",
+        evidence=(
+            "GB, DE, CA, FR since the 1960s, quarterly: bonds beat cash in the next quarter "
+            "258/464 = 0.556 (p 0.009), each country 0.53-0.58; bonds vs equities 0.537 "
+            "(p 0.06). Japan's yields too short."
+        ),
+        consequence=(
+            "The real-yield idea is a law of bond markets, not a US accident, but a modest "
+            "one: expect 55-58% hit rates per quarter, not 85%. Claims on yields, inflation, "
+            "short rates and equity prices can be measured across countries; gold and credit "
+            "spreads cannot."
+        ),
+        record="docs/INTERNATIONAL_FEASIBILITY.md",
+    ),
 )
 
 _HEADINGS = {
