@@ -1269,7 +1269,6 @@ CREATE TABLE IF NOT EXISTS forecast (...);
 -- the same reference, came true over the series' history known on `made_on`
 -- (`forecasts.base_rate`), frozen at recording; the record shows its Brier
 -- beside the Worker's, and the digest prints it beside each forecast.
-```
 
 CREATE TABLE IF NOT EXISTS literature_reading (...);
 -- invariant_id STRING (PK, the reference note read), long_horizon BOOLEAN,
@@ -1278,6 +1277,7 @@ CREATE TABLE IF NOT EXISTS literature_reading (...);
 -- read once per note by the curator's model; the canonical wording is what the
 -- grouping reads to factor one idea stated in several notes or by several
 -- authors (FACTORED_INTO).
+```
 
 Ranking rule (applies to snapshot rows):
 1. primary key = `sortino_rolling` DESC
