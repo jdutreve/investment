@@ -185,3 +185,18 @@ async def test_two_statements_of_one_idea_merge_and_reach_two_authors(db: Invest
     assert len(live) == 1 and live[0]["status"] == invariants.LITERATURE_STATUS
     notes = await db.query("SELECT factored_into FROM invariant WHERE id IN ('d1','d2','f1','f2')")
     assert {n["factored_into"] for n in notes} == {live[0]["id"]}
+
+
+class _Failing:
+    async def run(self, prompt: str) -> _Result:
+        raise RuntimeError("provider answered finish_reason=error")
+
+
+async def test_a_failed_grouping_writes_nothing_and_does_not_raise(db: InvestmentDB) -> None:
+    """2026-11-18: the provider failed the grouping call. The curation sweep, and
+    the Sunday chain behind it, must not fail with it; the next pass retries."""
+    await _note(db, "n1", "Dimson", "Triumph")
+    await _note(db, "n2", "Faber", "Asset Allocation")
+    await L.read_notes(db, _Model(_readings("n1", "n2")))  # type: ignore[arg-type]
+    assert await L.factor_ideas(db, _Failing(), _Embedder(), TODAY) == (0, 0, 0)  # type: ignore[arg-type]
+    assert not await db.query("SELECT 1 FROM invariant WHERE source = 'factored'")

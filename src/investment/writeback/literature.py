@@ -212,7 +212,15 @@ async def factor_ideas(
         [f"[{s['id']}] (STATEMENT) {s['title']}" for s in statements]
         + [f"[{i}] ({sources[i][0]}) {text}" for i, text in canonical.items()]
     )
-    grouping = (await grouper.run(prompt)).output
+    try:
+        grouping = (await grouper.run(prompt)).output
+    except Exception as exc:
+        # NEVER THE SWEEP'S FAILURE (2026-11-18: OpenRouter answered
+        # `finish_reason: error` after ten minutes). The readings are stored, so
+        # the next pass groups them; a failed grouping must not cost the curation
+        # step, and with it the Sunday chain.
+        logger.warning("literature: grouping failed, retried next pass: %s", exc)
+        return 0, 0, 0
 
     created = factored = admitted = 0
     for group in grouping.groups:
