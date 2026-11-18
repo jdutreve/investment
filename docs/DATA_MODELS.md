@@ -152,7 +152,15 @@ Invariant {
                                     --   time, i.e. demonstrably cannot reach the
                                     --   bar; ADR-006 M5/M5-bis amendments).
                                     --   Mechanical — no 'validated' human step
-                                    --   (ADR-006).
+                                    --   (ADR-006). Two statuses outside the
+                                    --   verdict: 'reference' (no condition, no
+                                    --   effect: never measured) and 'literature'
+                                    --   (a long-horizon idea two authors state,
+                                    --   admitted automatically — ADR-006
+                                    --   amendment 2026-11-15/17). The schema
+                                    --   comment in db/schema.py is the authority.
+  factored_into : STRING | null     -- FACTORED_INTO (below): the statement of
+                                    --   its idea this note was factored into.
   tags          : STRING[]          -- THEMATIC / retrieval only (NOT the
                                     --   confrontation driver — that is `condition`).
                                     --   Namespaced where applicable: 'asset:GLD',
@@ -669,7 +677,7 @@ never by timestamp comparison.
 
 ---
 
-## Graph Schema — RELATION types (11 conceptual in V1 — V2 adds MODIFIES)
+## Graph Schema — RELATION types (12 conceptual in V1 — V2 adds MODIFIES)
 
 **Physical mapping rule (composition):** the five 1:N relations below are
 **compositions** — the child cannot exist without its parent (a Scenario
@@ -682,7 +690,7 @@ table (`from_id, to_id, properties`). Guiding principle: **complexify when
 needed** — if a 1:N ever becomes M:N, creating the table then is a trivial
 SQLite migration.
 
-**1:N — FK columns on the child (5):**
+**1:N — FK columns on the child (6):**
 
 ```
 Evaluation -[UPDATES]-> Strategy       → evaluation.strategy_id
@@ -695,6 +703,10 @@ Backtest -[IN_REGIME]-> Regime         → backtest.regime_id
   + backtest.overlap_pct : FLOAT  -- percent points, 0-100
 Document -[CONTAINS]-> Passage         → passage.document_id
   + passage.position : INT, passage.page : INT
+Invariant -[FACTORED_INTO]-> Invariant → invariant.factored_into
+  -- 2026-11-17 (writeback/literature.py): the same idea in several notes, or by
+  -- several authors, is read once, through ONE statement. A note points to its
+  -- statement; a statement merged into another points to that one.
 ```
 
 **M:N — association tables (6):**
@@ -1258,6 +1270,14 @@ CREATE TABLE IF NOT EXISTS forecast (...);
 -- (`forecasts.base_rate`), frozen at recording; the record shows its Brier
 -- beside the Worker's, and the digest prints it beside each forecast.
 ```
+
+CREATE TABLE IF NOT EXISTS literature_reading (...);
+-- invariant_id STRING (PK, the reference note read), long_horizon BOOLEAN,
+--   horizon_years INTEGER, canonical STRING, read_at TIMESTAMP
+-- WHICH NOTES STATE A LONG-HORIZON CLAIM (writeback/literature.py, 2026-11-17),
+-- read once per note by the curator's model; the canonical wording is what the
+-- grouping reads to factor one idea stated in several notes or by several
+-- authors (FACTORED_INTO).
 
 Ranking rule (applies to snapshot rows):
 1. primary key = `sortino_rolling` DESC

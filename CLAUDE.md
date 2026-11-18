@@ -37,7 +37,7 @@ auto-execution and learning from real performance.
 | `docs/V1_STRATEGY.md` | **THE ADOPTED STRATEGY (ADR-007)** — the market-signal monthly stack, the migration plan, impact map, roadmap Step 0→7, open owner decisions. Read alongside MILESTONES. |
 | `docs/MILESTONES.md` | **EXECUTION ORDER** — 13 increments, STOP points, incremental-seed map. Read before starting any work. |
 | `docs/TASKS.md` | Full build spec, phase by phase — the implementation source of truth (DDL, seed data, job specs, CLI/dashboard spec). |
-| `docs/DATA_MODELS.md` | Complete schema (13 entities, 11 relations, 3 TS, 13 doc tables), pinned calculation conventions, units, EventLog ordering semantics. |
+| `docs/DATA_MODELS.md` | Complete schema (13 entities, 12 relations, 3 TS, 15 doc tables), pinned calculation conventions, units, EventLog ordering semantics. |
 | `docs/ARCHITECTURE.md` | Regime detection algorithm, Planner/Worker cycle, invariant confrontation & birth maturation, unified improvement cycle, replay harness. |
 | `docs/USE_CASES.md` | UC0–UC9 step by step, proposal gates detail, Event Watch. |
 | `docs/REVISION_NOTES.md` | V1 scope, core concepts, ranking rule, the 3 validations and their honest bounds. |
@@ -397,7 +397,7 @@ IN_REGIME to Regime instances. Algorithm: docs/ARCHITECTURE.md.
 value became KNOWABLE (publication-dated, ALFRED first-release); replay and
 maturation are point-in-time by construction (`ts ≤ t`).
 
-**Entities** — 13 vertices, 11 relations (6 M:N tables + 5 FK columns),
+**Entities** — 13 vertices, 12 relations (6 M:N tables + 6 FK columns),
 3 time-series, 15 document tables (10 in the spec + `curated_passage` the M7
 curation checkpoint, `innovation` the recurrence ledger, `revision_measurement`
 the measured-verdict ledger, `forecast` the Worker's scored forecasts,

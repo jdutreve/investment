@@ -1,6 +1,6 @@
 """Full SQLite schema (ADR-004) — see docs/DATA_MODELS.md for the conceptual
 spec this maps physically: 13 entity tables ("vertices"), 6 M:N tables
-("edges" — the other 5 relations are FK+property columns on the child, per
+("edges" — the other 6 relations are FK+property columns on the child, per
 DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 15 document
 tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
 + `innovation`, the recurrence ledger, + `revision_measurement`,
