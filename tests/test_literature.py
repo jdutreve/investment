@@ -150,3 +150,38 @@ async def test_a_statement_is_never_measured_and_its_notes_are_read_through_it(
     assert await invariants.restate_invariant(db, statement["id"], {}, TODAY) == "literature"
     retrieved = await _fetch_invariants(db, ["n1", statement["id"], "n2"])
     assert [r["id"] for r in retrieved] == [statement["id"]]
+
+
+async def test_two_statements_of_one_idea_merge_and_reach_two_authors(db: InvestmentDB) -> None:
+    """The first live pass left Dimson's and Faber's "cash loses to inflation over a
+    decade" as two one-author statements: an idea split in two never reaches two
+    authors. Grouped together, they merge, and the merged one is literature."""
+    for note, author, book in (
+        ("d1", "Dimson", "Triumph"),
+        ("d2", "Dimson", "Triumph"),
+        ("f1", "Faber", "Asset Allocation"),
+        ("f2", "Faber", "Asset Allocation"),
+    ):
+        await _note(db, note, author, book)
+    await L.read_notes(db, _Model(_readings("d1", "d2", "f1", "f2")))  # type: ignore[arg-type]
+    split = _Model(
+        L.Grouping(
+            groups=[
+                L.IdeaGroup(ids=["d1", "d2"], statement="cash loses to inflation"),
+                L.IdeaGroup(ids=["f1", "f2"], statement="bills earn nothing real"),
+            ]
+        )
+    )
+    await L.factor_ideas(db, split, _Embedder(), TODAY)  # type: ignore[arg-type]
+    ids = [r["id"] for r in await db.query("SELECT id FROM invariant WHERE source = 'factored'")]
+    assert len(ids) == 2
+
+    merge = _Model(L.Grouping(groups=[L.IdeaGroup(ids=ids, statement="cash loses")]))
+    created, _factored, admitted = await L.factor_ideas(db, merge, _Embedder(), TODAY)  # type: ignore[arg-type]
+    assert (created, admitted) == (0, 1)
+    live = await db.query(
+        "SELECT id, status FROM invariant WHERE source = 'factored' AND factored_into IS NULL"
+    )
+    assert len(live) == 1 and live[0]["status"] == invariants.LITERATURE_STATUS
+    notes = await db.query("SELECT factored_into FROM invariant WHERE id IN ('d1','d2','f1','f2')")
+    assert {n["factored_into"] for n in notes} == {live[0]["id"]}

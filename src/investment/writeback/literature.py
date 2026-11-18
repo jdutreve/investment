@@ -185,18 +185,26 @@ async def factor_ideas(
     db: InvestmentDB, grouper: Agent[None, Grouping], embedder: Embedder, today: date
 ) -> tuple[int, int, int]:
     """Group the unfactored long-horizon claims with the existing statements, and
-    write each group as one statement. Returns `(created, factored, admitted)`."""
+    write each group as one statement. Returns `(created, factored, admitted)`.
+
+    THE STATEMENTS ARE GROUPED TOO, every pass (owner, 2026-11-17): the first pass
+    left Dimson's and Faber's "cash loses to inflation over a decade" as two
+    one-author statements, and an idea split in two is an idea that never reaches
+    two authors. Two statements in one group MERGE into the one with the most
+    notes; the other is factored into it, its notes with it."""
     pending = await db.query(
         "SELECT r.invariant_id AS id, r.canonical FROM literature_reading r "
         "JOIN invariant i ON i.id = r.invariant_id "
         "WHERE r.long_horizon = 1 AND r.canonical IS NOT NULL AND i.factored_into IS NULL"
     )
-    if not pending:
-        return 0, 0, 0
     statements = await db.query(
-        "SELECT id, title, status, author FROM invariant WHERE source = :factored",
+        "SELECT s.id, s.title, s.status, s.author, "
+        "(SELECT COUNT(*) FROM invariant n WHERE n.factored_into = s.id) AS notes "
+        "FROM invariant s WHERE s.source = :factored AND s.factored_into IS NULL",
         factored=FACTORED_SOURCE,
     )
+    if not pending and len(statements) < 2:
+        return 0, 0, 0
     sources = await _note_sources(db, [str(p["id"]) for p in pending])
     canonical = {str(p["id"]): str(p["canonical"]) for p in pending if str(p["id"]) in sources}
     by_id = {str(s["id"]): s for s in statements}
@@ -209,11 +217,15 @@ async def factor_ideas(
     created = factored = admitted = 0
     for group in grouping.groups:
         notes = [i for i in dict.fromkeys(group.ids) if i in canonical]
-        anchors = [i for i in group.ids if i in by_id]
-        if not notes or (not anchors and len(notes) < 2):
+        anchors = sorted(
+            {i for i in group.ids if i in by_id}, key=lambda i: -int(by_id[i]["notes"])
+        )
+        if len(notes) + len(anchors) < 2 or (not anchors and len(notes) < 2):
             continue
         if anchors:
             statement_id = anchors[0]
+            for merged in anchors[1:]:
+                await _merge_statement(db, merged, statement_id, today)
         else:
             statement_id = f"inv-idea-{ULID()}"
             created += 1
@@ -242,6 +254,23 @@ async def factor_ideas(
         factored += len(notes)
         admitted += int(promoted)
     return created, factored, admitted
+
+
+async def _merge_statement(db: InvestmentDB, merged: str, into: str, today: date) -> None:
+    """One idea written twice: `merged` and its notes are factored into `into`."""
+    async with db.transaction() as tx:
+        await tx.append_event(
+            type=LITERATURE_EVENT,
+            source_uc="curation",
+            source_id=into,
+            payload={"merged": merged},
+            event_date=today,
+        )
+        await tx.command(
+            "UPDATE invariant SET factored_into = :into WHERE factored_into = :m OR id = :m",
+            into=into,
+            m=merged,
+        )
 
 
 async def _members(db: InvestmentDB, statement_id: str) -> list[str]:
