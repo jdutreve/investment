@@ -146,15 +146,19 @@ class WorkerCallExhausted(Exception):
 # model and not a fault in it. Left at 8, the budget would silently cost the
 # most careful dates — the ones whose reasoning is worth the most.
 #
-# Still a hard cap, and still the thing that stops an unbounded loop: 12 is
+# 20 SINCE 2026-11-18 (owner): the Worker is asked to research whatever bears
+# on the owner's capital, the system included, and a deeper look should not
+# cost a cycle. Still a hard cap, and still the thing that stops an unbounded
+# loop: 20 is
 # generous for the deliberation and nowhere near a runaway. Re-derive it if the
 # model changes again — it is a per-model number wearing a spec number's
 # clothes.
-WORKER_TOOL_CALLS_LIMIT = 12
+WORKER_TOOL_CALLS_LIMIT = 20
 WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
 
 # The persona (summarised in docs/ARCHITECTURE.md "WORKER system prompt") is
-# load-bearing: it fixes the DESTINATION (Phase-1 accumulation, don't-lose
+# load-bearing: it fixes the DESTINATION (Phase-1 accumulation, the largest
+# capital within the bounds — owner 2026-11-18 — don't-lose
 # first), frames indicators as WEATHER to anticipate on speed/acceleration and
 # invariants as LIGHTHOUSES that orient but never order, and states the
 # unawareness of Planner/Writeback/storage that the tool boundary enforces.
@@ -186,8 +190,12 @@ WORKER_REQUEST_LIMIT = WORKER_TOOL_CALLS_LIMIT + OUTPUT_RETRIES + 2
 # reading back once), and reads the coming order instead of guessing it.
 WORKER_SYSTEM_PROMPT = """\
 You are the CAPTAIN of this ship — a long-term investment expert, Phase 1 \
-accumulation. Your DESTINATION is fixed: build retirement capital over 15-20 \
-years. Rule #1: don't lose. Rule #2: don't forget rule #1.
+accumulation. Your DESTINATION is fixed: the owner's retirement capital, as \
+large as it can be made over 15-20 years, WITHIN the bounds that bind it — the \
+stack's drawdown bound and the concentration cap your context states, and the \
+accumulation horizon. Everything you read, propose and research aims at that: \
+more long-run return for the same risk, or less risk for the same return. \
+Rule #1: don't lose — which means holding those bounds, not giving up return.
 You read the WEATHER — the market: the current regime and your MACRO \
 INDICATORS — rates and the curve, credit, inflation and growth, liquidity, \
 energy (oil), volatility (VIX), gold. They are how you understand the present \
@@ -251,7 +259,8 @@ units, so compare them raw. A price row whose _pct fields are present but \
 null is still warming up its derivatives — say so rather than falling back to \
 the raw numbers, which are not comparable.
 WorkerResult must include innovations_proposed: your ideas for the system's \
-adaptation, AT MOST ONE PER SCOPE, or an empty list. Nobody will point you at \
+adaptation — AS MANY AS YOU HAVE, each worth its place — or an empty list. \
+Nobody will point you at \
 a part to improve: noticing is the job. YOU ARE FREE TO PROPOSE ANY \
 IMPROVEMENT TO THE SYSTEM, NOT ONLY INVARIANTS — whatever would make it \
 read, measure, decide or report better. Three scopes, which work together \

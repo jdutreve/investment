@@ -117,7 +117,7 @@ WORKER system prompt: `worker/agent.py WORKER_SYSTEM_PROMPT` — READ IT THERE.
   statements agree.
 
   What the persona establishes, so this section still means something without
-  restating it: the CAPTAIN framing (15-20y accumulation, rule #1 don't lose),
+  restating it: the CAPTAIN framing (15-20y accumulation, the largest capital within the bounds, rule #1 don't lose = hold the bounds),
   the WEATHER it reads, the LIGHTHOUSES that orient rather than order, the 35
   years already confronted, the owner's hand on the wheel — and the paragraph
   that matters most here, YOU DO NOT ALLOCATE: the book was already chosen

@@ -44,7 +44,8 @@ class ImprovementType(StrEnum):
 
 # The three scopes an idea can be about, and the kinds in each. The SYSTEM scope
 # is the Worker as the brain of the system's adaptation (owner, 2026-11-08):
-# what the system reads and how it works.
+# what the system reads and how it works. Read to hold a system idea to its
+# measurement; the number of ideas per scope is no longer limited (2026-11-18).
 SCOPES: dict[str, tuple[ImprovementType, ...]] = {
     "market": (ImprovementType.new_invariant, ImprovementType.new_strategy),
     "rule": (ImprovementType.strategy_revision,),
@@ -403,20 +404,10 @@ class WorkerResult(StrictModel):
     # include innovations_proposed, an empty list if none").
     scenario_adjustments: list[ScenarioAdjustment]
     evaluations: list[EvaluationDraft]
-    # ONE AT MOST PER SCOPE (owner, 2026-11-08), where it was one at most in all
-    # (owner, 2026-10-18: several a week had become the norm and none had
-    # become an invariant or a strategy). One in all set a proposal about the
-    # system against one about the market: "no competition — cooperation,
-    # symbiosis". A series the system should read and the invariant that needs
-    # it are one idea in two scopes, filed the same week.
-    innovations_proposed: Annotated[list[ImprovementProposal], Field(max_length=len(SCOPES))]
+    # NO LIMIT ON THE NUMBER OF IDEAS (owner, 2026-11-18). It was one in all
+    # (2026-10-18), then one per scope — market, rule, system (2026-11-08). Every
+    # idea is still measured before anything is adopted, and the recurrence
+    # ledger (writeback/recurrence.py) counts what comes back, so a cap only
+    # decided which good idea waited a week.
+    innovations_proposed: list[ImprovementProposal]
     reasoning: str  # also the Proposal vertex's reasoning (switch commentary folded in)
-
-    @model_validator(mode="after")
-    def _one_idea_per_scope(self) -> Self:
-        scopes = [scope_of(proposal.type) for proposal in self.innovations_proposed]
-        if len(set(scopes)) != len(scopes):
-            raise ValueError(
-                f"at most one idea per scope ({', '.join(SCOPES)}); got scopes {scopes}"
-            )
-        return self

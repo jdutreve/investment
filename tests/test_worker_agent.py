@@ -489,9 +489,9 @@ def _result(*ideas: ImprovementProposal) -> WorkerResult:
     )
 
 
-def test_two_ideas_in_one_scope_are_refused_but_scopes_cooperate() -> None:
-    """Owner, 2026-11-08: one idea per scope — market, rule, system — and the
-    scopes cooperate rather than compete (it was one in all since 2026-10-18)."""
+def test_the_worker_files_as_many_ideas_as_it_has() -> None:
+    """Owner, 2026-11-18: no limit on the number of ideas (it was one per scope
+    since 2026-11-08, one in all since 2026-10-18); each is measured anyway."""
     revision = ImprovementProposal(
         type=ImprovementType.strategy_revision, title="t", rationale="r", spec={}, trace="tr"
     )
@@ -503,9 +503,7 @@ def test_two_ideas_in_one_scope_are_refused_but_scopes_cooperate() -> None:
         trace="tr",
         measure="whether the invariant that needs it becomes measurable",
     )
-    with pytest.raises(ValidationError, match="one idea per scope"):
-        _result(revision, revision)
-    assert len(_result(revision, series).innovations_proposed) == 2
+    assert len(_result(revision, revision, series, series).innovations_proposed) == 4
 
 
 def test_a_system_idea_says_how_it_will_be_measured() -> None:
