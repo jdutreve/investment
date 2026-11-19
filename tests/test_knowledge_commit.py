@@ -1,7 +1,7 @@
 """Writeback knowledge commit (docs/TASKS.md Phase 6;
 src/investment/writeback/writeback.py commit_knowledge). source='evaluation'
 confrontations move weights through the shared primitive, with the
-condition-active gate; evaluations nudge conviction. Against a real throwaway
+condition-active gate; evaluations are recorded. Against a real throwaway
 SQLite."""
 
 import json
@@ -217,7 +217,9 @@ async def test_dormant_invariant_is_not_confronted(db: InvestmentDB) -> None:
     assert after == before  # untouched
 
 
-async def test_evaluation_nudges_conviction(db: InvestmentDB) -> None:
+async def test_an_evaluation_is_recorded_and_moves_no_conviction(db: InvestmentDB) -> None:
+    """Owner, 2026-11-19: a reading is recorded and applied nowhere; the
+    strategy's conviction, which no decision reads, no longer moves."""
     result = PostPlannerResult(
         evaluations=[
             EvaluationDraft(
@@ -230,9 +232,9 @@ async def test_evaluation_nudges_conviction(db: InvestmentDB) -> None:
         ]
     )
     summary = await commit_knowledge(db, result, "stag")
-    assert summary.conviction_updates == 1
+    assert summary.evaluations_recorded == 1
     conviction = (await db.query("SELECT conviction FROM strategy WHERE id='s1'"))[0]["conviction"]
-    assert conviction == pytest.approx(68.0)  # 60 + 8
+    assert conviction == pytest.approx(60.0)  # unchanged
     assert len(await db.query("SELECT type FROM event_log WHERE type='EvaluationEvent'")) == 1
 
 
@@ -266,9 +268,8 @@ async def test_evaluation_is_persisted_as_a_vertex_not_just_a_conviction_nudge(
 async def test_a_neutral_evaluation_is_recorded_though_it_moves_no_conviction(
     db: InvestmentDB,
 ) -> None:
-    """Evidence weighed and found not to move anything is still evidence — the
-    case where the reasoning IS the whole of the value. The returned count stays
-    the conviction updates, which is what the digest reports."""
+    """Evidence weighed and found not to move anything is still a reading worth
+    keeping — the case where the reasoning IS the whole of the value."""
     result = PostPlannerResult(
         evaluations=[
             EvaluationDraft(
@@ -277,7 +278,7 @@ async def test_a_neutral_evaluation_is_recorded_though_it_moves_no_conviction(
         ]
     )
     summary = await commit_knowledge(db, result, "stag")
-    assert summary.conviction_updates == 0
+    assert summary.evaluations_recorded == 1
     assert len(await db.query("SELECT id FROM evaluation")) == 1
 
 
@@ -302,7 +303,7 @@ async def test_an_evaluation_of_an_unknown_strategy_does_not_abort_the_commit(
         ]
     )
     summary = await commit_knowledge(db, result, "stag")
-    assert summary.conviction_updates == 1  # only the real one
+    assert summary.evaluations_recorded == 1  # only the real one
     rows = await db.query("SELECT strategy_id FROM evaluation")
     assert [r["strategy_id"] for r in rows] == ["s1"]
 
@@ -453,7 +454,7 @@ async def test_strategy_innovation_records_its_spec_for_activation(db: Investmen
 async def test_empty_result_is_a_clean_no_op(db: InvestmentDB) -> None:
     summary = await commit_knowledge(db, PostPlannerResult(), "stag")
     assert summary.confrontations == 0
-    assert summary.conviction_updates == 0
+    assert summary.evaluations_recorded == 0
     assert await db.query("SELECT id FROM event_log") == []
 
 

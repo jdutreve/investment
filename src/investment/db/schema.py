@@ -1,5 +1,5 @@
 """Full SQLite schema (ADR-004) — see docs/DATA_MODELS.md for the conceptual
-spec this maps physically: 13 entity tables ("vertices"), 6 M:N tables
+spec this maps physically: 13 entity tables ("vertices"), 5 M:N tables
 ("edges" — the other 6 relations are FK+property columns on the child, per
 DATA_MODELS.md "Physical mapping rule"), 3 time-series tables, 15 document
 tables (10 in the spec + `curated_passage`, the M7 curation checkpoint,
@@ -304,7 +304,7 @@ BEGIN
 END;
 
 -- ============================================================
--- M:N RELATION TABLES (6)
+-- M:N RELATION TABLES (5)
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS favors (
@@ -366,17 +366,6 @@ CREATE TABLE IF NOT EXISTS supports (
   excerpt      TEXT,
   cited        INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (passage_id, invariant_id)
-);
-
--- The invariants a reallocation Proposal cited (Worker's supporting_invariants).
--- A RELATION, not a column, so outcomes.py can read the cited set back at +12w
--- (source='proposal' confrontations) and the digest can join it — a switch
--- proposal derives its citations from the challenger's backed_by instead, so
--- this table carries reallocation citations only.
-CREATE TABLE IF NOT EXISTS proposal_cites (
-  proposal_id  TEXT NOT NULL REFERENCES proposal(id),
-  invariant_id TEXT NOT NULL REFERENCES invariant(id),
-  PRIMARY KEY (proposal_id, invariant_id)
 );
 
 -- ============================================================
@@ -822,7 +811,7 @@ ENTITY_TABLES = {
     "passage",
     "event_log",
 }
-RELATION_TABLES = {"favors", "backed_by", "holds", "designed_for", "supports", "proposal_cites"}
+RELATION_TABLES = {"favors", "backed_by", "holds", "designed_for", "supports"}
 TS_TABLES = {"market_data", "scenario_probability", "portfolio_nav"}
 # The column that makes a time-series row an OBSERVATION. A row whose value is
 # NULL has a `ts` and says nothing — a z-score's warm-up, typically — and must
@@ -987,3 +976,9 @@ DROPPED_COLUMNS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 1.0 that would now read as a measured effect.
     ("invariant_confrontations", "severity", ()),
 )
+
+# Tables removed from the DDL above, dropped from every existing database at
+# open, under the same pre-go-live caveat. `proposal_cites` held the invariants
+# a Worker reallocation cited; the Worker has allocated nothing since ADR-012
+# (2026-08-14), and the table had neither writer nor reader (owner, 2026-11-19).
+DROPPED_TABLES: tuple[str, ...] = ("proposal_cites",)

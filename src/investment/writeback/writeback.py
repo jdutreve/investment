@@ -10,8 +10,8 @@ TWO RESPONSIBILITIES, AND NEITHER IS A COGNITIVE ALLOCATION:
   moves money. `effective_caps` (stricter-of user/portfolio caps) binds here.
 - `commit_knowledge` persists the guardrailed PostPlannerResult to the graph:
   source='evaluation' confrontations (readings: condition-gated, recorded,
-  and moving no standing), conviction nudges, coherent scenario-probability updates, and innovations
-  (dedup + maturation).
+  and moving no standing), evaluations (recorded, applied nowhere), coherent
+  scenario-probability updates, and innovations (dedup + maturation).
 
 WHAT USED TO BE HERE AND IS NOT, because a docstring that still describes it
 would send the next reader looking for code that no longer exists:
@@ -462,7 +462,7 @@ class KnowledgeCommit:
     an existing one by the dedup gate is not a creation."""
 
     confrontations: int
-    conviction_updates: int
+    evaluations_recorded: int
     scenario_updates: int = 0
     innovations: int = 0
 
@@ -544,22 +544,14 @@ async def _commit_confrontations(
 async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, today: date) -> int:
     """Persist each evaluation on the routing docs/DATA_MODELS.md "Persistence
     Routing" pins — `EventLog -> vertex (events[] filled) -> UPDATES` — and
-    apply its conviction_delta to the strategy (clamped 0-100). The verdict
-    itself matures MECHANICALLY at +12w (outcomes.py); this only nudges the
-    Worker's running conviction, it does not adopt/reject anything (ADR-006).
+    return how many were recorded.
 
-    THE VERTEX IS THE POINT, not the conviction nudge. `conviction` is one
-    float that the next evaluation overwrites, so without the row the observed
-    events, the reasoning and the delta that moved it were all discarded the
-    moment they were applied — a strategy's conviction could drift 40 points
-    across a quarter with nothing on record saying why. Evaluation is one of
-    the 13 entities and UPDATES one of the relations; both were dead.
-
-    The row is written for EVERY evaluation including `conviction_delta == 0`
-    (a 'neutral' verdict is evidence that was weighed and found not to move
-    anything — the case where the reasoning is the whole of the value). The
-    RETURN stays the count of conviction updates, which is what the digest
-    reports and what the KnowledgeCommit field is named for."""
+    A READING, RECORDED AND APPLIED NOWHERE (owner, 2026-11-19). Each one used
+    to nudge the strategy's `conviction`, a number no decision reads, and on
+    2026-11-15 the Post model was found writing evaluations the Worker never
+    made, which moved it all the same (CLAUDE.md: "a Worker evaluation is a
+    reading, not evidence"). The row keeps the verdict, the events, the
+    reasoning and the strength the reader gave it; nothing else moves."""
     if not post_result.evaluations:
         return 0
     # An unknown strategy_id is DROPPED, not written. It was harmless while this
@@ -576,8 +568,6 @@ async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, 
             logger.warning("evaluation names unknown strategy '%s', dropped", ev.strategy_id)
     if not evaluations:
         return 0
-    now = datetime.now(UTC).isoformat()
-    committed = 0
     async with db.transaction() as tx:
         await tx.append_event(
             type=EVALUATION_EVENT,
@@ -606,17 +596,7 @@ async def _commit_evaluations(db: InvestmentDB, post_result: PostPlannerResult, 
                     "trace": f"UC8 Planner Post evaluation of {ev.strategy_id} on {today}",
                 },
             )
-            if ev.conviction_delta == 0.0:
-                continue
-            await tx.command(
-                "UPDATE strategy SET conviction = MAX(0, MIN(100, conviction + :d)), "
-                "updated_at = :now WHERE id = :id",
-                d=ev.conviction_delta,
-                now=now,
-                id=ev.strategy_id,
-            )
-            committed += 1
-    return committed
+    return len(evaluations)
 
 
 async def _commit_scenario_updates(
@@ -1399,7 +1379,7 @@ async def commit_knowledge(
     Phase 6). The guardrail already dropped every unknown id, every unevidenced
     verdict and every malformed/repeat confrontation, so this is pure mechanical
     persistence: source='evaluation' confrontations (readings,
-    condition-gated), the evaluation record + conviction nudges, the coherent
+    condition-gated), the evaluation record (applied nowhere), the coherent
     scenario-probability updates (bull/base/bear -> scenario id), and the
     innovations (dedup gate + 35y maturation)."""
     today = today or date.today()
@@ -1407,12 +1387,12 @@ async def commit_knowledge(
         db, [c.invariant_id for c in post_result.confrontations], regime_type
     )
     confrontations = await _commit_confrontations(db, post_result, regime_type, active, today)
-    conviction = await _commit_evaluations(db, post_result, today)
+    evaluations = await _commit_evaluations(db, post_result, today)
     scenarios = await _commit_scenario_updates(db, post_result, today)
     innovations = await commit_innovations(db, post_result, today, embedder=embedder)
     return KnowledgeCommit(
         confrontations=confrontations,
-        conviction_updates=conviction,
+        evaluations_recorded=evaluations,
         scenario_updates=scenarios,
         innovations=innovations,
     )

@@ -283,7 +283,9 @@ Strategy {
   regime_type_id : STRING               -- FK → RegimeType.id; null for framework-neutral
   framework_id   : STRING               -- lens under which the strategy is evaluated
                                         --   in V1 ('4seasons'), not its origin
-  conviction     : FLOAT                -- 0-100; updated after each Evaluation
+  conviction     : FLOAT                -- 0-100; the seed's starting value. No
+                                       --   longer moved by evaluations (owner,
+                                       --   2026-11-19: a reading is applied nowhere)
   enabled        : BOOLEAN              -- false = excluded from ranking and Worker context
   conditions     : STRING               -- must include ≥1 dimension orthogonal to regime;
                                         --   every referenced indicator must be computable
@@ -677,7 +679,7 @@ never by timestamp comparison.
 
 ---
 
-## Graph Schema — RELATION types (12 conceptual in V1 — V2 adds MODIFIES)
+## Graph Schema — RELATION types (11 conceptual in V1 — V2 adds MODIFIES)
 
 **Physical mapping rule (composition):** the five 1:N relations below are
 **compositions** — the child cannot exist without its parent (a Scenario
@@ -709,7 +711,7 @@ Invariant -[FACTORED_INTO]-> Invariant → invariant.factored_into
   -- statement; a statement merged into another points to that one.
 ```
 
-**M:N — association tables (6):**
+**M:N — association tables (5):**
 
 ```
 RegimeType -[FAVORS]-> Strategy
@@ -758,17 +760,9 @@ Passage -[SUPPORTS]-> Invariant
   --   method); the ingester now clears only the cosine half and carries
   --   `cited` through a re-scoring.
 
-Proposal -[CITES]-> Invariant
-  -- The invariants a REALLOCATION cited (the Worker's supporting_invariants),
-  --   written by Writeback when gate 6 admits them. A RELATION and not a
-  --   column, so the cited set could be read back at +12w and the digest
-  --   could join it. NOTHING READS OR WRITES IT since 2026-10-04: the
-  --   confrontation of cited invariants went with its last possible writer
-  --   (ADR-012; docs/INVARIANT_TASKS.md 5.2). A SWITCH proposal derives its citations from the challenger's
-  --   BACKED_BY instead, so this table carries reallocation citations only —
-  --   and since ADR-012 removed the cognitive reallocation, nothing live
-  --   writes it; the retained bridge's replay is its remaining reader.
-  -- No properties: the pair IS the fact.
+# Proposal -[CITES]-> Invariant WAS HERE — the invariants a Worker reallocation
+#   cited. No writer since ADR-012 (2026-08-14), no reader since 2026-10-04;
+#   the table was dropped 2026-11-19 (db/schema.py DROPPED_TABLES).
 ```
 
 **V2:** `Adaptation -[MODIFIES]-> Portfolio` (delta MAP, drawdown_before,
@@ -1362,8 +1356,8 @@ class ImprovementProposal(BaseModel):
 # allocate), along with `WorkerResult.reallocation_proposed`. It carried a
 # proposed_allocation, the scenario/favors deltas behind the 0.4/0.6 blend, a
 # blend_note and `supporting_invariants` — the citation list that fed gate 6,
-# itself deleted 2026-08-14. Nothing writes `proposal_cites` on the live path
-# any more; the rows in that table are history.
+# itself deleted 2026-08-14. The `proposal_cites` table it fed was dropped on
+# 2026-11-19.
 
 # WorkerResult must always include:
 #   innovations_proposed : list[ImprovementProposal]  (an EMPTY LIST if none —

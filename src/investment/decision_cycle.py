@@ -13,7 +13,7 @@ sibling `market_signal_cycle.py` follows the same rule. Note that the EventLog
   PlannerPre.run        → PlannerContext (baseline + Call 1a margin + Call 1b)
   Worker                → WorkerResult (interprets; proposes KNOWLEDGE)
   PlannerPost.run       → PostPlannerResult (extract + guardrail)
-  commit_knowledge      → confrontations, conviction, scenarios, innovations
+  commit_knowledge      → confrontations, evaluations, scenarios, innovations
 
 NO DISPOSITION AND NO GATE, since ADR-012 (the fourth line above read
 "Writeback.dispose → Proposal, only if every gate passes" until 2026-08-14).
@@ -25,7 +25,7 @@ is the order ADR-011 requires; the slot it occupies has already moved once.
 
 The Worker is handed the context as TEXT and stays unaware of the Planner,
 Writeback and storage (docs/ARCHITECTURE.md WORKER) — `render_context_for_worker`
-is that boundary. The knowledge commit (confrontations, conviction nudges,
+is that boundary. The knowledge commit (confrontations, evaluations,
 scenario probabilities, innovations) runs on every cycle — a quiet week still
 learns. So does `journal_worker_reading`, which records the Worker's prose
 (ADR-011) before the guardrail runs: without it a cycle that confronts nothing

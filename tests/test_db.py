@@ -101,8 +101,8 @@ async def test_schema_declares_every_table_it_creates(db: InvestmentDB) -> None:
     # + `innovation` (the recurrence ledger) + `revision_measurement` (the
     # measured-verdict ledger), both 2026-08-11, + `forecast` (the Worker's
     # scored forecasts), 2026-10-18, + `literature_reading` (which notes state a
-    # long-horizon claim), 2026-11-17.
-    assert len(expected) == 37
+    # long-horizon claim), 2026-11-17; - `proposal_cites`, dropped 2026-11-19.
+    assert len(expected) == 36
 
 
 async def test_trace_mandatory_on_vertices(db: InvestmentDB) -> None:

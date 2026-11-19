@@ -85,7 +85,6 @@ _WORLD_OBSERVATIONS: tuple[tuple[str, str], ...] = (
 # the index for a one-off prune is not a cost worth reasoning about.
 _PRUNE: tuple[tuple[str, str], ...] = (
     # A citation cannot outlive the proposal it belongs to.
-    ("proposal_cites", "proposal_id IN (SELECT id FROM proposal WHERE date(created_at) > :t)"),
     # Backtests are pruned BY THEIR REGIME, never by their own `created_at`:
     # that column holds the SEED's wall clock (2026-07-15 for every row), which
     # is not a knowability date at all — filtering on it would delete every
@@ -276,7 +275,7 @@ def advance_as_of_snapshot(snapshot: Path, source: Path, from_t: date, to_t: dat
         `regime` table itself IS topped up, and that is what the baseline reads.
       - Derived artefacts (`portfolio_weekly_snapshot`, `scenario_probability`,
         `favors`) — hydration rewrites them at each date.
-      - `proposal`, `proposal_cites`, `evaluation` — the agent's history, which
+      - `proposal`, `evaluation` — the agent's history, which
         is precisely what must survive.
     """
     if to_t <= from_t:

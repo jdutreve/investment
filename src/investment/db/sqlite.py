@@ -45,6 +45,7 @@ from investment.db.schema import (
     ADDED_COLUMNS,
     DOCUMENT_TABLES,
     DROPPED_COLUMNS,
+    DROPPED_TABLES,
     ENTITY_TABLES,
     LATE_INDEXES,
     RELATION_TABLES,
@@ -137,6 +138,8 @@ class InvestmentDB:
                     self._con.execute(statement)
                 self._con.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
                 self._con.execute("COMMIT")
+        for table in DROPPED_TABLES:
+            self._con.execute(f"DROP TABLE IF EXISTS {table}")
         for statement in LATE_INDEXES:
             self._con.execute(statement)
         self._columns_cache: dict[str, set[str]] = {}
