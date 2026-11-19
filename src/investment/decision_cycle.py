@@ -48,6 +48,7 @@ from investment.mechanical.gates import Caps
 from investment.mechanical.market_signal import MA_WINDOWS, describe_rule
 from investment.mechanical.research_findings import describe_findings
 from investment.mechanical.rule_revision import describe_measured
+from investment.mechanical.worker_book import describe_book, record_book
 from investment.planner.context import PlannerContext, macro_tape_lines, standing_label
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
@@ -434,6 +435,10 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # the measured settings because it is read the same way, and unconditional
     # because it does not depend on the ledger having rows.
     lines += ["", *describe_findings()]
+    # ITS OWN BOOK (ADR-016), right after what is settled and before its own
+    # history: what it holds, what it may hold, how it has done.
+    if context.worker_book:
+        lines += ["", *describe_book(context.worker_book)]
     # How the Worker's own last forecasts came out, so the next ones are made
     # knowing it (owner, 2026-10-18).
     if context.forecast_record is not None:
@@ -762,6 +767,10 @@ async def run_decision_cycle(
     await journal_worker_reading(
         db, worker_result, context, trigger=trigger, run_id=run_id, today=today
     )
+    # ITS OWN BOOK (ADR-016): recorded the moment it is given, before anything
+    # else can fail; held from the next session, measured with the others.
+    if worker_result.my_book is not None:
+        await record_book(db, worker_result.my_book, today or date.today())
     post_result = await planner_post.run(worker_result, context)
 
     regime_type = context.regime.get("regime_type_id")

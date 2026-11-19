@@ -54,6 +54,7 @@ from investment.mechanical.outcomes import evaluate_proposals, strategy_probatio
 from investment.mechanical.ratios import TRADING_DAYS_PER_WEEK, value_portfolios
 from investment.mechanical.scenarios import warm_start_scenario_probabilities
 from investment.mechanical.snapshots import build_snapshot
+from investment.mechanical.worker_book import refresh_book_nav
 from investment.ops.run_lock import AlreadyRunning
 from investment.runtime import AgentRuntime
 from investment.telegram.digest import collect_digest_inputs, render_digest
@@ -309,6 +310,10 @@ def weekly_steps(
         # no gate, no proposal, just a weekly NAV refresh, same category as the
         # market-signal step above and placed right beside it for that reason.
         ("aaaf-r", lambda: run_aaaf_r_cycle(db, today=today)),
+        # THE WORKER'S OWN BOOK (ADR-016): its NAV rebuilt from its journal,
+        # beside the other time-varying producers and for the same reason — the
+        # ranking and every reader of `portfolio_nav` follow it.
+        ("worker-portfolio", lambda: refresh_book_nav(db)),
         # LAST OF THE REFRESH BLOCK: the series every invariant is measured on
         # — the benchmark valuations an effect is read against, and the derived
         # signals (real rates, broad money, equity trend, gold deviation) a

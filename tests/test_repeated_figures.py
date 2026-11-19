@@ -35,6 +35,7 @@ def _output(bottom_line: str) -> str:
         scenario_adjustments=[],
         evaluations=[],
         innovations_proposed=[],
+        my_book=None,
     ).model_dump_json()
 
 
@@ -116,6 +117,7 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
             scenario_adjustments=[],
             evaluations=[],
             innovations_proposed=[],
+            my_book=None,
         ).model_dump_json()
         return ModelResponse(parts=[TextPart(output)])
 

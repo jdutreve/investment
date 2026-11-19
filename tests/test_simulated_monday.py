@@ -121,6 +121,7 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
                 "scenario_adjustments": [],
                 "evaluations": [],
                 "innovations_proposed": [],
+                "my_book": None,
                 "reasoning": "tilt to gold",
             }
         ),

@@ -363,6 +363,23 @@ def journalled_sections(reading: Mapping[str, Any]) -> list[tuple[str, list[str]
     ]
 
 
+class WorkerBook(StrictModel):
+    """The Worker's own portfolio for the coming week (ADR-016): percent per
+    ticker, `cash` allowed, long only, summing to 100."""
+
+    allocation: dict[str, float]
+    rationale: str
+
+    @model_validator(mode="after")
+    def _a_long_only_book_summing_to_100(self) -> Self:
+        if any(w < 0 for w in self.allocation.values()):
+            raise ValueError("the book is long only: no negative weight")
+        total = sum(self.allocation.values())
+        if not 99.5 <= total <= 100.5:
+            raise ValueError(f"the book's weights sum to {total:.2f}, not 100")
+        return self
+
+
 class WorkerResult(StrictModel):
     """The Worker's complete output for one UC8 cycle (docs/ARCHITECTURE.md
     "WORKER"). Always complete; empty fields mean "nothing to propose", not
@@ -410,4 +427,8 @@ class WorkerResult(StrictModel):
     # ledger (writeback/recurrence.py) counts what comes back, so a cap only
     # decided which good idea waited a week.
     innovations_proposed: list[ImprovementProposal]
+    # ITS OWN BOOK (ADR-016, owner 2026-11-19): the allocation it holds from the
+    # next session, or null to keep the one in force. A required key, like
+    # every field here: "no change" has to be said.
+    my_book: WorkerBook | None
     reasoning: str  # also the Proposal vertex's reasoning (switch commentary folded in)

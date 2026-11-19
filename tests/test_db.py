@@ -351,7 +351,10 @@ async def test_seed_allocations_respect_binding_caps(tmp_path: Path) -> None:
             assert abs(sum(allocation.values()) - 100) < 1e-9, row["id"]
             if str(row["id"]) in BENCHMARK_PORTFOLIOS:
                 continue
-            assert max(allocation.values()) <= row["max_single_asset_pct"], row["id"]
+            # Cash is the haven fallback, exempt from the concentration cap as in
+            # the gates (HAVEN_EXEMPT): the Worker's book is born all cash.
+            invested = [w for t, w in allocation.items() if t != "cash"] or [0.0]
+            assert max(invested) <= row["max_single_asset_pct"], row["id"]
         for row in await db.query("SELECT id, target_allocation FROM scenario"):
             allocation = json.loads(row["target_allocation"])
             assert abs(sum(allocation.values()) - 100) < 1e-9, row["id"]

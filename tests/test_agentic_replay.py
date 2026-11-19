@@ -246,6 +246,7 @@ def _worker_output(*, innovations: bool = False) -> dict[str, Any]:
         "scenario_adjustments": [],
         "evaluations": [],
         "innovations_proposed": [INNOVATION] if innovations else [],
+        "my_book": None,
         "reasoning": "tilt to gold",
     }
 

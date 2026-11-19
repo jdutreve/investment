@@ -95,6 +95,7 @@ class PlannerContext:
     macro: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     measured_revisions: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     forecast_record: ForecastRecord | None = None
+    worker_book: dict[str, Any] = dataclasses.field(default_factory=dict)
     stack_caps: Caps | None = None
     recent_events: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     past_readings: list[dict[str, Any]] = dataclasses.field(default_factory=list)
@@ -301,6 +302,7 @@ def assemble_context(
         macro=baseline.macro,
         measured_revisions=baseline.measured_revisions,
         forecast_record=baseline.forecast_record,
+        worker_book=baseline.worker_book,
         stack_caps=baseline.stack_caps,
         recent_events=baseline.recent_events,
         past_readings=baseline.past_readings,

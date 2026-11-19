@@ -61,6 +61,7 @@ def _worker_output() -> dict:
         "scenario_adjustments": [],
         "evaluations": [],
         "innovations_proposed": [],
+        "my_book": None,
         "reasoning": "tilt to gold as the storm builds",
     }
 

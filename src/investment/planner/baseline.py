@@ -32,6 +32,7 @@ from investment.mechanical.gates import Caps, effective_caps
 from investment.mechanical.invariants import ESTABLISHED_FIRST_SQL, ESTABLISHED_OR_JUDGED_SQL
 from investment.mechanical.market_signal import STACK_PORTFOLIO_ID, STACK_TICKERS, signal_tickers
 from investment.mechanical.rule_revision import measured_verdicts
+from investment.mechanical.worker_book import book_context
 from investment.planner.invariant_vocabulary import load_invariant_vocabulary
 from investment.planner.worker_history import (
     load_applied_ideas,
@@ -108,6 +109,8 @@ class Baseline:
     # The Worker's own record as forecaster (`mechanical/forecasts.py`), so the
     # next reading is written knowing how the last ones came out.
     forecast_record: ForecastRecord | None = None
+    # The Worker's own book (ADR-016): in force, universe, since inception.
+    worker_book: dict[str, Any] = dataclasses.field(default_factory=dict)
     # The caps that BIND the stack today (CLAUDE.md "Binding caps"), so the rule
     # text the Worker reads states the live figure. None only on a database with
     # no user_profile row, where no market-signal decision can exist either.
@@ -587,6 +590,7 @@ async def gather_baseline(db: InvestmentDB, today: date | None = None) -> Baseli
         macro=macro,
         measured_revisions=await measured_verdicts(db),
         forecast_record=await load_forecast_record(db),
+        worker_book=await book_context(db),
         stack_caps=await _stack_caps(db),
         recent_events=recent_events,
         past_readings=await load_past_readings(db, today),

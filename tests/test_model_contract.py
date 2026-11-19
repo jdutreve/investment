@@ -32,6 +32,7 @@ WORKER_OUTPUT = {
     "scenario_adjustments": [],
     "evaluations": [],
     "innovations_proposed": [],
+    "my_book": None,
     "reasoning": "the book is defensible on its stated inputs",
 }
 

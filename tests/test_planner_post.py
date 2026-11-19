@@ -184,6 +184,7 @@ async def test_run_extracts_then_guardrails() -> None:
         scenario_adjustments=[],
         evaluations=[],
         innovations_proposed=[],
+        my_book=None,
     )
     # TestModel returns an evaluation with an unknown strategy -> guardrail drops it
     forced = TestModel(

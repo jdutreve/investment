@@ -75,6 +75,7 @@ from investment.mechanical import (
     ratios,
     scenarios,
     snapshots,
+    worker_book,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -803,6 +804,15 @@ async def _seed_portfolio_nav(db: InvestmentDB) -> dict[str, Any]:
         results[momentum_minvar.PORTFOLIO_ID] = dataclasses.asdict(
             await momentum_minvar.persist_aaaf_r_nav(db, aaaf_r_run, window)
         )
+
+    # THE WORKER'S OWN BOOK (ADR-016), rebuilt from its journal; SKIPPED until
+    # its first allocation, which only a decision cycle can give.
+    book = await worker_book.refresh_book_nav(db, window)
+    results[worker_book.PORTFOLIO_ID] = (
+        {"skipped": "no allocation yet"}
+        if book.rows_written == 0
+        else {"rows_written": book.rows_written, "inception": book.inception}
+    )
 
     # SKIPPED, not failed, when the STACK's inputs are absent — the
     # incremental-seed contract (docs/MILESTONES.md "Incremental seed": each run

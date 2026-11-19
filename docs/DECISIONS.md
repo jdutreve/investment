@@ -1445,3 +1445,41 @@ Telegram-then-file fallback it implements, so widening that docstring would
 misdescribe its own contract. ADR-002's local-Mac framing is unaffected: the
 agent already calls OpenRouter, FRED, Yahoo and Telegram over the network:
 IMAP to Gmail is the same class of external call, not a new one.
+
+## ADR-016 — The Worker manages a book of its own, tracked and ranked with the others
+
+**Status:** accepted. **Date:** 2026-11-19 (owner decision). **Amends** ADR-012
+for one portfolio; ADR-012 stands for the adopted strategy.
+
+**Decision.** Besides reading the mechanical stack, the Worker manages one
+portfolio of its own, `worker-portfolio`.
+- Each cycle it may set an allocation (`WorkerResult.my_book`) over the
+  system's investable tickers and cash, long only, summing to 100, or null to
+  keep the one in force. It is free: the book need not follow the stack.
+- The allocation is journalled (`WorkerBookEvent`) and held from the next
+  business day: decided on what was knowable, traded at the next session
+  (ADR-003).
+- Its NAV is rebuilt from the journal by `replay.shadow_book_nav`, the engine of
+  every time-varying book, charged ADR-010's 23 bps per order, persisted by
+  `ratios.persist_nav`, and ranked by the same rule as every portfolio
+  (`mechanical/worker_book.py`, the chain's refresh block).
+- It is born all cash. The user's caps are its rules, as for any portfolio: the
+  Worker is told to stay within them, and the ranking flags a drawdown breach.
+  Nothing else refuses an allocation but a ticker outside the universe.
+
+**Why.** ADR-012 took allocation away from the Worker because a cognitive
+reallocation of the adopted book was applied once on conviction, unmeasured.
+A book of its own is the opposite: it moves nothing the owner holds, and it is
+MEASURED, every week, against the stack and the benchmarks. It answers a
+question the system could not ask: is the Worker's judgement, given a free
+hand, worth more than the rule?
+
+**Limits stated now.**
+- The ranking reads a 36-month rolling window, so the book has no rankable
+  Sortino before three years of history. Until then it is compared on its
+  return since inception, which its context and the digest show.
+- No history is backfilled: an LLM replayed over the past reads what it knows
+  of the past, which ADR-003 forbids.
+- The id `worker-book` belonged to a measurement book ADR-012 retired, whose
+  NAV history is still in the database. The new book is `worker-portfolio`, so
+  the two cannot mix.

@@ -363,11 +363,14 @@ monthly drift-rebalance included. `system_thresholds.replay_cost_bps` must equal
 it: a replay that validates a strategy and a ranking that compares it have to
 charge the same rate.
 
-**THE WORKER DOES NOT ALLOCATE (ADR-012)** — it READS the market-signal
-decision and contributes a qualitative reading, invariants, rule revisions and
-process critiques. It proposes no allocation, for any book: `WorkerResult` has
-no allocation field, `dispose_reallocation` and its gates are gone, and the two
-M8b measurement books with them. A disagreement with the RULE goes through
+**THE WORKER DOES NOT ALLOCATE THE STACK (ADR-012)** — it READS the
+market-signal decision and contributes a qualitative reading, invariants, rule
+revisions and process critiques. It proposes no allocation for any book the
+owner holds: `dispose_reallocation` and its gates are gone, and the two M8b
+measurement books with them. **EXCEPT ITS OWN BOOK (ADR-016, 2026-11-19)**:
+`worker-portfolio`, which it allocates freely each cycle (`my_book`), held
+from the next session, measured and ranked like every portfolio, never
+touching what the owner holds (`mechanical/worker_book.py`). A disagreement with the RULE goes through
 `innovations_proposed` (`strategy_revision`), where ADR-006's maturation
 MEASURES it instead of applying it once on conviction.
 

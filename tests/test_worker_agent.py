@@ -56,6 +56,7 @@ def test_worker_result_empty_state_is_a_value_not_an_omission() -> None:
         scenario_adjustments=[],
         evaluations=[],
         innovations_proposed=[],
+        my_book=None,
     )
     assert r.innovations_proposed == []
     assert r.scenario_adjustments == []
@@ -109,6 +110,7 @@ def test_innovation_round_trip() -> None:
                 trace="tr",
             )
         ],
+        my_book=None,
         reasoning="—",
         scenario_adjustments=[],
         evaluations=[],
@@ -167,6 +169,7 @@ _VALID_OUTPUT = WorkerResult(
     scenario_adjustments=[],
     evaluations=[],
     innovations_proposed=[],
+    my_book=None,
 ).model_dump_json()
 
 
@@ -486,6 +489,7 @@ def _result(*ideas: ImprovementProposal) -> WorkerResult:
         scenario_adjustments=[],
         evaluations=[],
         innovations_proposed=list(ideas),
+        my_book=None,
     )
 
 

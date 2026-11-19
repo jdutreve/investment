@@ -1228,6 +1228,18 @@ FRAMEWORKS: list[dict[str, object]] = [
         "(info.recipeinvesting.com/recipe/t.aaaf.html), seeded 2026-08-18 as a "
         "permanent benchmark. Holds `aaaf-r-USD`; carries no strategy.",
     },
+    {
+        # ADR-016 (owner, 2026-11-19): the Worker's own judgement, as a book.
+        # Disabled like `aaaf-r`: it drives no proposal path; its one member is
+        # measured and ranked, nothing more.
+        "id": "worker",
+        "name": "The Worker's own book",
+        "description": "Allocated by the Worker each cycle over the system's "
+        "investable tickers and cash, long only.",
+        "enabled": False,
+        "accuracy": None,
+        "trace": "ADR-016, 2026-11-19: holds `worker-portfolio`; carries no strategy.",
+    },
 ]
 
 REGIME_TYPES: list[dict[str, object]] = [
@@ -2501,6 +2513,27 @@ PORTFOLIOS: list[dict[str, object]] = [
         "bps like every other NAV. Tradable-only window: no pre-2000 history, "
         "unlike the rest of the system.",
     },
+    {
+        # THE WORKER'S OWN BOOK (ADR-016, owner 2026-11-19): it sets the
+        # allocation each cycle (`worker_result.my_book`), recorded and measured
+        # by mechanical/worker_book.py like any time-varying book, and ranked with
+        # the others. Born all cash: until its first allocation it holds nothing.
+        # The user's own caps, not stricter ones: the Worker is told to stay
+        # within them, and the ranking flags a breach as for any portfolio.
+        "id": "worker-portfolio",
+        "name": "Worker book (its own allocation)",
+        "framework_id": "worker",
+        "defender": False,
+        "enabled": True,
+        "currency": "USD",
+        "benchmark": "all-weather-USD",
+        "allocation": {"cash": 100},
+        "max_drawdown_rule": -25.0,
+        "max_single_asset_pct": 60.0,
+        "phase": "accumulation",
+        "fx_usd_exposure": 100.0,
+        "trace": "ADR-016: the Worker's own allocation, measured like every book.",
+    },
 ]
 
 # Portfolios whose allocation VARIES over time, so their NAV cannot be built by
@@ -2520,7 +2553,12 @@ PORTFOLIOS: list[dict[str, object]] = [
 # from `momentum_minvar.shadow_book_nav`-style change points (a monthly
 # momentum + min-variance re-solve), never a fixed target `backfill_nav` could
 # price.
-TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset({"ms-stack", "ms-trend-baseline", "aaaf-r-USD"})
+#
+# `worker-portfolio` joined 2026-11-19 (ADR-016): the Worker sets its allocation each
+# cycle, so its NAV is rebuilt from its journal by mechanical/worker_book.py.
+TIME_VARYING_PORTFOLIOS: frozenset[str] = frozenset(
+    {"ms-stack", "ms-trend-baseline", "aaaf-r-USD", "worker-portfolio"}
+)
 
 # THE YARDSTICKS. Ranked every week so the owner sees what the apparatus is
 # worth against them, and NEVER proposable so no cycle can hand one over as a
