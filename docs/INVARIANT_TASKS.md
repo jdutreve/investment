@@ -44,9 +44,8 @@ rehearsed: the three steps that call a model (`event-watch`, `curation`,
 
 - [ ] **6.2, the batch marked as cited** — the next curator reading, whose log
   now shows what an unusable citation looks like.
-- [ ] **The `proposal_cites` table**, without reader or writer since 5.2 — an
-  owner decision, because dropping it changes the relation count in CLAUDE.md
-  and DATA_MODELS.
+- [x] **The `proposal_cites` table**, without reader or writer since 5.2 —
+  dropped by owner decision on 2026-11-19 (db/schema.py `DROPPED_TABLES`).
 - [ ] **`docs/EXAMPLE.md` and the test list of `docs/TASKS.md` Phase 6** still
   describe the proposal-sourced confrontation removed by 5.2 — the next time
   either file is edited.
