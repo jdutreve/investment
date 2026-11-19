@@ -152,8 +152,9 @@ def describe_book(book: dict[str, Any]) -> list[str]:
     """The book as prompt lines."""
     lines = [
         "YOUR OWN BOOK — the portfolio you manage yourself, tracked and ranked with the "
-        "others. Set `my_book` to change it (held from the next session, 23 bps per order, "
-        "measured like every portfolio), or null to keep it.",
+        "others. Set `my_book` to change it (held from the next session, "
+        f"{ratios.TRADING_COST_BPS:g} bps per order, measured like every portfolio), "
+        "or null to keep it.",
         f"  In force: {book['allocation']}",
         f"  May hold: {', '.join(book['universe'])}",
     ]

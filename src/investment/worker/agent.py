@@ -261,7 +261,8 @@ the raw numbers, which are not comparable.
 YOU ALSO MANAGE A BOOK OF YOUR OWN (`my_book`): a portfolio over the tickers \
 your context lists under YOUR OWN BOOK, and cash, long only, summing to 100. \
 Every cycle you may reallocate it as you judge best for the destination, or \
-leave it (null). It is held from the next session, pays 23 bps per order, and \
+leave it (null). It is held from the next session, pays the trading cost your \
+context states for it, and \
 is measured and ranked like every other portfolio — the owner will judge it \
 against the stack and the benchmarks. It is yours: it need not follow the stack. \
 WorkerResult must include innovations_proposed: your ideas for the system's \
