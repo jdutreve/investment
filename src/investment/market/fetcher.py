@@ -36,11 +36,19 @@ FRED_TIMEOUT_SECONDS = 30.0
 FETCHED_SOURCES = frozenset({"yahoo", "fred", "cftc"})
 
 # THE CFTC'S COMMITMENTS OF TRADERS (owner, 2026-11-19, the Worker's own
-# proposal): the legacy futures-only report, through the CFTC's public API.
-# Positions are as of Tuesday and released on Friday at 15:30 ET, so a week's
-# value is knowable three days after its report date (ADR-003); the report is not
-# revised.
-CFTC_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
+# proposal), through the CFTC's public API. Positions are as of Tuesday and
+# released on Friday at 15:30 ET, so a week's value is knowable three days after
+# its report date (ADR-003); the report is not revised.
+CFTC_URL = "https://publicreporting.cftc.gov/resource/{dataset}.json"
+# Each group a series may read: the report that carries it, and its long and short
+# fields. Speculators are the legacy report's non-commercials (commodities);
+# asset managers and leveraged funds come from the Traders in Financial Futures
+# report, which separates them (see the COT_* rows in db/seed_data.py).
+CFTC_TRADERS: dict[str, tuple[str, str, str]] = {
+    "speculators": ("6dca-aqww", "noncomm_positions_long_all", "noncomm_positions_short_all"),
+    "asset_managers": ("gpe5-46if", "asset_mgr_positions_long", "asset_mgr_positions_short"),
+    "leveraged_funds": ("gpe5-46if", "lev_money_positions_long", "lev_money_positions_short"),
+}
 CFTC_TIMEOUT_SECONDS = 60.0
 CFTC_PUBLICATION_LAG_DAYS = 3
 
@@ -418,29 +426,30 @@ async def fetch_fred_series(
 # -- CFTC (positioning) ------------------------------------------------------
 
 
-def parse_cftc_net_positioning(rows: list[dict[str, str]]) -> pd.Series:
-    """Non-commercial (speculative) net position as a percent of open interest,
-    dated the Friday it was released. Positive: speculators net long."""
+def parse_cftc_net_positioning(rows: list[dict[str, str]], traders: str) -> pd.Series:
+    """A group's net position as a percent of open interest, dated the Friday it
+    was released. Positive: the group is net long."""
+    _dataset, long_field, short_field = CFTC_TRADERS[traders]
     values: dict[date, float] = {}
     for row in rows:
         open_interest = float(row["open_interest_all"])
         if open_interest <= 0:
             continue
-        net = float(row["noncomm_positions_long_all"]) - float(row["noncomm_positions_short_all"])
+        net = float(row[long_field]) - float(row[short_field])
         report = date.fromisoformat(str(row["report_date_as_yyyy_mm_dd"])[:10])
         values[report + timedelta(days=CFTC_PUBLICATION_LAG_DAYS)] = 100.0 * net / open_interest
     return _series_from_date_map(values)
 
 
 async def fetch_cftc_series(
-    contract_code: str, start: date | None, *, attempts: int = RETRY_ATTEMPTS
+    contract_code: str, traders: str, start: date | None, *, attempts: int = RETRY_ATTEMPTS
 ) -> pd.Series:
+    dataset, long_field, short_field = CFTC_TRADERS[traders]
     where = f"cftc_contract_market_code='{contract_code}'"
     if start is not None:
         where += f" AND report_date_as_yyyy_mm_dd >= '{start.isoformat()}'"
     params = {
-        "$select": "report_date_as_yyyy_mm_dd,open_interest_all,"
-        "noncomm_positions_long_all,noncomm_positions_short_all",
+        "$select": f"report_date_as_yyyy_mm_dd,open_interest_all,{long_field},{short_field}",
         "$where": where,
         "$order": "report_date_as_yyyy_mm_dd",
         "$limit": "50000",
@@ -450,12 +459,13 @@ async def fetch_cftc_series(
         timeout = aiohttp.ClientTimeout(total=CFTC_TIMEOUT_SECONDS)
         async with (
             aiohttp.ClientSession(timeout=timeout) as session,
-            session.get(CFTC_URL, params=params) as resp,
+            session.get(CFTC_URL.format(dataset=dataset), params=params) as resp,
         ):
             resp.raise_for_status()
-            return parse_cftc_net_positioning(list(await resp.json()))
+            return parse_cftc_net_positioning(list(await resp.json()), traders)
 
-    return await _with_retry(_call, label=f"cftc:{contract_code}", attempts=attempts)
+    label = f"cftc:{contract_code}:{traders}"
+    return await _with_retry(_call, label=label, attempts=attempts)
 
 
 # -- LBMA (gold) -----------------------------------------------------------
@@ -527,5 +537,7 @@ async def fetch_raw_series(
     if source == "lbma":
         return await fetch_lbma_gold_daily(attempts=attempts)
     if source == "cftc":
-        return await fetch_cftc_series(str(ticker_row["contract"]), start, attempts=attempts)
+        return await fetch_cftc_series(
+            str(ticker_row["contract"]), str(ticker_row["traders"]), start, attempts=attempts
+        )
     raise ValueError(f"unsupported source for raw fetch: {source!r}")

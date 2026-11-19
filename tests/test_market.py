@@ -523,9 +523,26 @@ def test_cftc_positioning_is_net_speculators_over_open_interest_dated_at_release
             "noncomm_positions_short_all": "1",
         },
     ]
-    series = fetcher.parse_cftc_net_positioning(rows)
+    series = fetcher.parse_cftc_net_positioning(rows, "speculators")
     assert list(series.index) == [pd.Timestamp("2026-11-13")]
     assert series.iloc[0] == pytest.approx(45.0)
+
+
+def test_a_financial_contract_reads_asset_managers_and_leveraged_funds_apart() -> None:
+    """In Treasuries the leveraged funds' basis trade is a deep net short with no
+    view; the asset managers hold the other side. One merged group read it as a
+    bet against bonds (2026-11-19)."""
+    row = {
+        "report_date_as_yyyy_mm_dd": "2026-11-10T00:00:00.000",
+        "open_interest_all": "1000",
+        "asset_mgr_positions_long": "600",
+        "asset_mgr_positions_short": "100",
+        "lev_money_positions_long": "100",
+        "lev_money_positions_short": "450",
+    }
+    managers = fetcher.parse_cftc_net_positioning([row], "asset_managers")
+    funds = fetcher.parse_cftc_net_positioning([row], "leveraged_funds")
+    assert (managers.iloc[0], funds.iloc[0]) == (pytest.approx(50.0), pytest.approx(-35.0))
 
 
 def test_every_fetched_source_is_one_the_fetcher_dispatches() -> None:
@@ -533,4 +550,5 @@ def test_every_fetched_source_is_one_the_fetcher_dispatches() -> None:
 
     sources = {t["source"] for t in ALLOWED_TICKERS if t["source"] != "composite"}
     assert sources <= fetcher.FETCHED_SOURCES
-    assert all(t.get("contract") for t in ALLOWED_TICKERS if t["source"] == "cftc")
+    cftc = [t for t in ALLOWED_TICKERS if t["source"] == "cftc"]
+    assert cftc and all(t.get("contract") and t["traders"] in fetcher.CFTC_TRADERS for t in cftc)

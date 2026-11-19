@@ -575,36 +575,138 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 10,
     },
-    # SPECULATIVE POSITIONING (owner, 2026-11-19 — the Worker's proposal of that
-    # day, to test its crowding and forced-liquidation readings against
-    # positions rather than infer them from prices). The CFTC's Commitments of
-    # Traders, legacy futures-only report: non-commercial net position as a
-    # percent of open interest, weekly, dated the Friday of its release
-    # (market/fetcher.py `fetch_cftc_series`). `contract` is the CFTC's code.
+    # POSITIONING (owner, 2026-11-19 — the Worker's proposal of that day, to test
+    # its crowding and forced-liquidation readings against positions rather than
+    # infer them from prices). The CFTC's Commitments of Traders: a group's net
+    # position as a percent of open interest, weekly, dated the Friday of its
+    # release (market/fetcher.py `fetch_cftc_series`). `contract` is the CFTC's
+    # code, `traders` the group read.
+    #
+    # FINANCIAL CONTRACTS READ TWO GROUPS, from the Traders in Financial Futures
+    # report (2006 on): ASSET MANAGERS, whose positions are directional, and
+    # LEVERAGED FUNDS. The legacy report's single "speculators" group merged them,
+    # and in Treasuries it read the hedge funds' basis trade — long cash bonds,
+    # short futures, no view — as a bet against bonds: a deep net short that is
+    # the norm since about 2018, not a signal (owner, 2026-11-19, on reading it
+    # against the Worker's long-duration book). Commodities keep the legacy
+    # report, whose non-commercials there are the speculators, from 1986.
     {
-        "ticker": "COT_ES",
+        "ticker": "COT_ES_AM",
         "asset_class": "MACRO",
         "currency": "USD",
         "source": "cftc",
         "contract": "13874A",  # S&P 500 e-mini
+        "traders": "asset_managers",
         "transform": "none",
         "availability_lag_days": 3,
     },
     {
-        "ticker": "COT_ZN",
+        "ticker": "COT_ES_LF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "13874A",  # S&P 500 e-mini
+        "traders": "leveraged_funds",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_ZN_AM",
         "asset_class": "MACRO",
         "currency": "USD",
         "source": "cftc",
         "contract": "043602",  # 10-year Treasury note
+        "traders": "asset_managers",
         "transform": "none",
         "availability_lag_days": 3,
     },
     {
-        "ticker": "COT_ZT",
+        "ticker": "COT_ZN_LF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "043602",  # 10-year Treasury note
+        "traders": "leveraged_funds",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_ZT_AM",
         "asset_class": "MACRO",
         "currency": "USD",
         "source": "cftc",
         "contract": "042601",  # 2-year Treasury note
+        "traders": "asset_managers",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_ZT_LF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "042601",  # 2-year Treasury note
+        "traders": "leveraged_funds",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_DX_AM",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "098662",  # US dollar index
+        "traders": "asset_managers",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_DX_LF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "098662",  # US dollar index
+        "traders": "leveraged_funds",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_JY_AM",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "097741",  # Japanese yen
+        "traders": "asset_managers",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_JY_LF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "097741",  # Japanese yen
+        "traders": "leveraged_funds",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_VX_AM",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "1170E1",  # VIX futures
+        "traders": "asset_managers",
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_VX_LF",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "1170E1",  # VIX futures
+        "traders": "leveraged_funds",
         "transform": "none",
         "availability_lag_days": 3,
     },
@@ -614,6 +716,7 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "currency": "USD",
         "source": "cftc",
         "contract": "088691",  # gold
+        "traders": "speculators",
         "transform": "none",
         "availability_lag_days": 3,
     },
@@ -623,6 +726,7 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "currency": "USD",
         "source": "cftc",
         "contract": "084691",  # silver
+        "traders": "speculators",
         "transform": "none",
         "availability_lag_days": 3,
     },
@@ -632,24 +736,7 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "currency": "USD",
         "source": "cftc",
         "contract": "085692",  # copper
-        "transform": "none",
-        "availability_lag_days": 3,
-    },
-    {
-        "ticker": "COT_DX",
-        "asset_class": "MACRO",
-        "currency": "USD",
-        "source": "cftc",
-        "contract": "098662",  # US dollar index
-        "transform": "none",
-        "availability_lag_days": 3,
-    },
-    {
-        "ticker": "COT_JY",
-        "asset_class": "MACRO",
-        "currency": "USD",
-        "source": "cftc",
-        "contract": "097741",  # Japanese yen
+        "traders": "speculators",
         "transform": "none",
         "availability_lag_days": 3,
     },
@@ -659,15 +746,7 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "currency": "USD",
         "source": "cftc",
         "contract": "067651",  # WTI crude oil
-        "transform": "none",
-        "availability_lag_days": 3,
-    },
-    {
-        "ticker": "COT_VX",
-        "asset_class": "MACRO",
-        "currency": "USD",
-        "source": "cftc",
-        "contract": "1170E1",  # VIX futures
+        "traders": "speculators",
         "transform": "none",
         "availability_lag_days": 3,
     },
@@ -1020,7 +1099,7 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
     "the dollar": ("DX-Y.NYB",),
     "energy": ("DCOILWTICO",),
     "volatility": ("^VIX",),
-    "speculative positioning": ("COT_ES", "COT_ZN", "COT_ZT", "COT_GC", "COT_SI", "COT_HG", "COT_DX", "COT_JY", "COT_CL", "COT_VX"),
+    "positioning": ("COT_ES_AM", "COT_ES_LF", "COT_ZN_AM", "COT_ZN_LF", "COT_ZT_AM", "COT_ZT_LF", "COT_DX_AM", "COT_DX_LF", "COT_JY_AM", "COT_JY_LF", "COT_VX_AM", "COT_VX_LF", "COT_GC", "COT_SI", "COT_HG", "COT_CL"),
     "metals: gold, silver, copper": (
         "GLD",
         "GC=F",
@@ -1153,18 +1232,24 @@ SIGNAL_ALIASES: dict[str, str] = {
     # (`irx`): owner, 2026-11-14.
     "fed_funds": "fed_funds_policy",
     "net_liquidity": "net_liquidity",
-    # Speculative positioning, net percent of open interest (2026-11-19): see the
+    # Positioning, a group's net percent of open interest (2026-11-19): see the
     # COT_* rows in ALLOWED_TICKERS.
-    "spec_equities": "COT_ES",
-    "spec_10y": "COT_ZN",
-    "spec_2y": "COT_ZT",
+    "asset_mgr_equities": "COT_ES_AM",
+    "lev_funds_equities": "COT_ES_LF",
+    "asset_mgr_10y": "COT_ZN_AM",
+    "lev_funds_10y": "COT_ZN_LF",
+    "asset_mgr_2y": "COT_ZT_AM",
+    "lev_funds_2y": "COT_ZT_LF",
+    "asset_mgr_dollar": "COT_DX_AM",
+    "lev_funds_dollar": "COT_DX_LF",
+    "asset_mgr_yen": "COT_JY_AM",
+    "lev_funds_yen": "COT_JY_LF",
+    "asset_mgr_vix": "COT_VX_AM",
+    "lev_funds_vix": "COT_VX_LF",
     "spec_gold": "COT_GC",
     "spec_silver": "COT_SI",
     "spec_copper": "COT_HG",
-    "spec_dollar": "COT_DX",
-    "spec_yen": "COT_JY",
     "spec_oil": "COT_CL",
-    "spec_vix": "COT_VX",
 }
 # THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a
 # condition's series through it, and the VALIDATION GATE demotes a signal it
