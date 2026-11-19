@@ -97,3 +97,20 @@ async def test_the_nav_is_rebuilt_from_the_journal_net_of_costs(db: InvestmentDB
     assert context["inception"] == "2026-11-20"
     assert "worker-portfolio" in context["since_inception"]
     assert "YOUR OWN BOOK" in "\n".join(B.describe_book(context))
+
+
+async def test_the_worker_reads_what_its_trading_cost_it(db: InvestmentDB) -> None:
+    # A full switch from SPY to GLD pays 2 x 23 bps; it is made before the
+    # session's return (the replay's pinned sequencing), so on the seed NAV of
+    # 100. The gap between the gross and the net return is what the Worker
+    # reads as fees.
+    await B.record_book(db, WorkerBook(allocation={"SPY": 100}, rationale="r"), THURSDAY)
+    await B.record_book(db, WorkerBook(allocation={"GLD": 100}, rationale="r"), date(2026, 11, 20))
+    await B.refresh_book_nav(db, window=5)
+    trading = (await B.book_context(db))["trading"]
+    assert trading["changes"] == 1
+    assert trading["turnover"] == pytest.approx(1.0)
+    assert trading["fees"] == pytest.approx(0.0046)
+    lines = "\n".join(B.describe_book(await B.book_context(db)))
+    assert "46 bps" in lines  # the full-switch example, rendered from the constant
+    assert "fees took 46.0 bps of return" in lines

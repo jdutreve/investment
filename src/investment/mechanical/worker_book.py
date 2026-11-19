@@ -99,19 +99,26 @@ async def book_targets(db: InvestmentDB) -> dict[pd.Timestamp, dict[str, float]]
     return targets
 
 
+async def book_nav(
+    db: InvestmentDB, targets: dict[pd.Timestamp, dict[str, float]], cost_bps: float
+) -> tuple[pd.Series, float]:
+    """The book's NAV and turnover from its journal at a given trading cost —
+    the real rate for the persisted NAV, zero for the gross one its fees are
+    measured against."""
+    tickers = sorted({t for w in targets.values() for t in w if t != ratios.CASH_TICKER})
+    prices = {t: await ratios.load_price(db, t) for t in tickers}
+    rf = await ratios.load_rf_daily(db)
+    sessions = rf.index if not tickers else pd.concat(prices, axis=1).dropna().index
+    return shadow_book_nav(targets, prices, rf, cost_bps, pd.DatetimeIndex(sessions))
+
+
 async def refresh_book_nav(db: InvestmentDB, window: int = ROLLING_WINDOW_DAYS) -> BookRefresh:
     """Rebuild the book's NAV from its journal and persist it. Nothing to do
     before the first allocation has a session to be held in."""
     targets = await book_targets(db)
     if not targets:
         return BookRefresh(0, None)
-    tickers = sorted({t for w in targets.values() for t in w if t != ratios.CASH_TICKER})
-    prices = {t: await ratios.load_price(db, t) for t in tickers}
-    rf = await ratios.load_rf_daily(db)
-    sessions = rf.index if not tickers else pd.concat(prices, axis=1).dropna().index
-    nav, _turnover = shadow_book_nav(
-        targets, prices, rf, ratios.TRADING_COST_BPS, pd.DatetimeIndex(sessions)
-    )
+    nav, _turnover = await book_nav(db, targets, ratios.TRADING_COST_BPS)
     inception = min(targets).date().isoformat()
     if nav.empty:
         logger.info("worker book: no session yet since its first allocation (%s)", inception)
@@ -125,13 +132,15 @@ COMPARED_WITH = ("ms-stack", "spy-USD", "all-weather-USD")
 
 async def book_context(db: InvestmentDB) -> dict[str, Any]:
     """What the Worker reads about its own book: the allocation in force, what
-    it may hold, and how the book has done since its first allocation against
-    the stack and the two benchmarks over the same days."""
+    it may hold, how the book has done since its first allocation against the
+    stack and the two benchmarks over the same days, and what its trading cost
+    it — so the cost of a reallocation weighs in the decision to make one."""
     rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=PORTFOLIO_ID)
     allocation = json.loads(str(rows[0]["allocation"])) if rows else {}
     targets = await book_targets(db)
     inception = min(targets).date().isoformat() if targets else None
     returns: dict[str, float] = {}
+    trading: dict[str, float] = {}
     if inception:
         book = await ratios.load_nav(db, PORTFOLIO_ID)
         if not book.empty:
@@ -140,21 +149,48 @@ async def book_context(db: InvestmentDB) -> dict[str, Any]:
                 nav = (await ratios.load_nav(db, pid)).loc[pd.Timestamp(inception) : last]
                 if len(nav) >= 2:
                     returns[pid] = float(nav.iloc[-1] / nav.iloc[0] - 1.0)
+        trading = await _trading_since_inception(db, targets)
     return {
         "allocation": allocation,
         "inception": inception,
         "universe": await book_universe(db),
         "since_inception": returns,
+        "trading": trading,
+    }
+
+
+async def _trading_since_inception(
+    db: InvestmentDB, targets: dict[pd.Timestamp, dict[str, float]]
+) -> dict[str, float]:
+    """How much the book has traded and what it paid for it: the fees are the
+    gap between the book's return without cost and with it, so the monthly
+    drift-rebalances count as well as the Worker's own changes."""
+    net, turnover = await book_nav(db, targets, ratios.TRADING_COST_BPS)
+    gross, _ = await book_nav(db, targets, 0.0)
+    if len(net) < 2:
+        return {}
+    return {
+        "changes": float(len(targets) - 1),
+        "turnover": turnover,
+        "fees": float(gross.iloc[-1] / gross.iloc[0] - net.iloc[-1] / net.iloc[0]),
     }
 
 
 def describe_book(book: dict[str, Any]) -> list[str]:
     """The book as prompt lines."""
+    bps = ratios.TRADING_COST_BPS
     lines = [
         "YOUR OWN BOOK — the portfolio you manage yourself, tracked and ranked with the "
-        "others. Set `my_book` to change it (held from the next session, "
-        f"{ratios.TRADING_COST_BPS:g} bps per order, measured like every portfolio), "
-        "or null to keep it.",
+        "others. Set `my_book` to change it (held from the next session, measured like "
+        "every portfolio), or null to keep it.",
+        f"  Trading cost, taken from the book's return: {bps:g} bps of every amount "
+        "traded, on the sale and on the purchase, from your weights as they have drifted — "
+        f"moving 20% of the book from one sleeve to another costs {0.4 * bps:.1f} bps, a full "
+        "switch "
+        f"{2 * bps:g} bps. The monthly rebalance back to your target pays the same way. "
+        "Resubmitting the allocation in force trades it back to target and pays; null "
+        "trades nothing beyond that monthly rebalance. A change must be worth more than "
+        "it costs.",
         f"  In force: {book['allocation']}",
         f"  May hold: {', '.join(book['universe'])}",
     ]
@@ -167,4 +203,11 @@ def describe_book(book: dict[str, Any]) -> list[str]:
     else:
         parts = ", ".join(f"{pid} {r:+.1%}" for pid, r in book["since_inception"].items())
         lines.append(f"  Since {book['inception']}: {parts}")
+    trading = book.get("trading") or {}
+    if trading:
+        lines.append(
+            f"  Traded since {book['inception']}: {trading['changes']:.0f} change(s) after "
+            f"the first, {trading['turnover']:.0%} of the book turned over; fees took "
+            f"{trading['fees'] * 10_000:.1f} bps of return."
+        )
     return lines
