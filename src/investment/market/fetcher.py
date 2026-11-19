@@ -30,6 +30,20 @@ logger = logging.getLogger(__name__)
 FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
 FRED_TIMEOUT_SECONDS = 30.0
 
+# THE SOURCES A SERIES IS FETCHED FROM, read by the seed and the catch-up alike.
+# Both named ('yahoo', 'fred') — the only two there were — until the CFTC arrived
+# (CLAUDE.md "when a second one arrives"). Composites are computed, never fetched.
+FETCHED_SOURCES = frozenset({"yahoo", "fred", "cftc"})
+
+# THE CFTC'S COMMITMENTS OF TRADERS (owner, 2026-11-19, the Worker's own
+# proposal): the legacy futures-only report, through the CFTC's public API.
+# Positions are as of Tuesday and released on Friday at 15:30 ET, so a week's
+# value is knowable three days after its report date (ADR-003); the report is not
+# revised.
+CFTC_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
+CFTC_TIMEOUT_SECONDS = 60.0
+CFTC_PUBLICATION_LAG_DAYS = 3
+
 # LBMA's own AM gold fixing feed — free, no key, genuinely daily
 # (business-day, ~252/y). This is the same underlying data FRED used to
 # redistribute as GOLDAMGBD228NLBM before discontinuing it (~2021 licensing
@@ -401,6 +415,49 @@ async def fetch_fred_series(
     return parse_fred_current(obs, lag_days)
 
 
+# -- CFTC (positioning) ------------------------------------------------------
+
+
+def parse_cftc_net_positioning(rows: list[dict[str, str]]) -> pd.Series:
+    """Non-commercial (speculative) net position as a percent of open interest,
+    dated the Friday it was released. Positive: speculators net long."""
+    values: dict[date, float] = {}
+    for row in rows:
+        open_interest = float(row["open_interest_all"])
+        if open_interest <= 0:
+            continue
+        net = float(row["noncomm_positions_long_all"]) - float(row["noncomm_positions_short_all"])
+        report = date.fromisoformat(str(row["report_date_as_yyyy_mm_dd"])[:10])
+        values[report + timedelta(days=CFTC_PUBLICATION_LAG_DAYS)] = 100.0 * net / open_interest
+    return _series_from_date_map(values)
+
+
+async def fetch_cftc_series(
+    contract_code: str, start: date | None, *, attempts: int = RETRY_ATTEMPTS
+) -> pd.Series:
+    where = f"cftc_contract_market_code='{contract_code}'"
+    if start is not None:
+        where += f" AND report_date_as_yyyy_mm_dd >= '{start.isoformat()}'"
+    params = {
+        "$select": "report_date_as_yyyy_mm_dd,open_interest_all,"
+        "noncomm_positions_long_all,noncomm_positions_short_all",
+        "$where": where,
+        "$order": "report_date_as_yyyy_mm_dd",
+        "$limit": "50000",
+    }
+
+    async def _call() -> pd.Series:
+        timeout = aiohttp.ClientTimeout(total=CFTC_TIMEOUT_SECONDS)
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.get(CFTC_URL, params=params) as resp,
+        ):
+            resp.raise_for_status()
+            return parse_cftc_net_positioning(list(await resp.json()))
+
+    return await _with_retry(_call, label=f"cftc:{contract_code}", attempts=attempts)
+
+
 # -- LBMA (gold) -----------------------------------------------------------
 
 
@@ -469,4 +526,6 @@ async def fetch_raw_series(
         )
     if source == "lbma":
         return await fetch_lbma_gold_daily(attempts=attempts)
+    if source == "cftc":
+        return await fetch_cftc_series(str(ticker_row["contract"]), start, attempts=attempts)
     raise ValueError(f"unsupported source for raw fetch: {source!r}")

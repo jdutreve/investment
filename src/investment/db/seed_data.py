@@ -575,6 +575,102 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "transform": "none",
         "availability_lag_days": 10,
     },
+    # SPECULATIVE POSITIONING (owner, 2026-11-19 — the Worker's proposal of that
+    # day, to test its crowding and forced-liquidation readings against
+    # positions rather than infer them from prices). The CFTC's Commitments of
+    # Traders, legacy futures-only report: non-commercial net position as a
+    # percent of open interest, weekly, dated the Friday of its release
+    # (market/fetcher.py `fetch_cftc_series`). `contract` is the CFTC's code.
+    {
+        "ticker": "COT_ES",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "13874A",  # S&P 500 e-mini
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_ZN",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "043602",  # 10-year Treasury note
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_ZT",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "042601",  # 2-year Treasury note
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_GC",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "088691",  # gold
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_SI",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "084691",  # silver
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_HG",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "085692",  # copper
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_DX",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "098662",  # US dollar index
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_JY",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "097741",  # Japanese yen
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_CL",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "067651",  # WTI crude oil
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
+    {
+        "ticker": "COT_VX",
+        "asset_class": "MACRO",
+        "currency": "USD",
+        "source": "cftc",
+        "contract": "1170E1",  # VIX futures
+        "transform": "none",
+        "availability_lag_days": 3,
+    },
     # GLOBAL_LIQUIDITY components (market/liquidity.py) — non-revised
     # in practice (ADR-003 consequences), current-vintage fetch.
     #
@@ -924,6 +1020,7 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
     "the dollar": ("DX-Y.NYB",),
     "energy": ("DCOILWTICO",),
     "volatility": ("^VIX",),
+    "speculative positioning": ("COT_ES", "COT_ZN", "COT_ZT", "COT_GC", "COT_SI", "COT_HG", "COT_DX", "COT_JY", "COT_CL", "COT_VX"),
     "metals: gold, silver, copper": (
         "GLD",
         "GC=F",
@@ -1056,6 +1153,18 @@ SIGNAL_ALIASES: dict[str, str] = {
     # (`irx`): owner, 2026-11-14.
     "fed_funds": "fed_funds_policy",
     "net_liquidity": "net_liquidity",
+    # Speculative positioning, net percent of open interest (2026-11-19): see the
+    # COT_* rows in ALLOWED_TICKERS.
+    "spec_equities": "COT_ES",
+    "spec_10y": "COT_ZN",
+    "spec_2y": "COT_ZT",
+    "spec_gold": "COT_GC",
+    "spec_silver": "COT_SI",
+    "spec_copper": "COT_HG",
+    "spec_dollar": "COT_DX",
+    "spec_yen": "COT_JY",
+    "spec_oil": "COT_CL",
+    "spec_vix": "COT_VX",
 }
 # THE SIGNAL REGISTRY IS SIGNAL_ALIASES, and nothing else: the 35y sweep loads a
 # condition's series through it, and the VALIDATION GATE demotes a signal it

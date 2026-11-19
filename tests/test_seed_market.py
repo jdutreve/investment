@@ -27,7 +27,7 @@ from investment import seed
 from investment.config import Settings
 from investment.db.seed_data import ALLOWED_TICKERS
 from investment.db.sqlite import InvestmentDB
-from investment.market import splice
+from investment.market import fetcher, splice
 from investment.market.spliced_history_archive import (
     archive_spliced_history,
     read_spliced_history,
@@ -160,7 +160,7 @@ def _settings(tmp_path: Path) -> Settings:
 
 
 def _fetchable() -> list[dict[str, object]]:
-    return [t for t in ALLOWED_TICKERS if t["source"] in ("yahoo", "fred")]
+    return [t for t in ALLOWED_TICKERS if t["source"] in fetcher.FETCHED_SOURCES]
 
 
 async def _min_ts(db: InvestmentDB, ticker: str) -> str | None:

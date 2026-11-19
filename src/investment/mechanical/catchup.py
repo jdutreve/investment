@@ -283,7 +283,7 @@ async def refresh_market_data(
     breaker = fetcher.ProviderBreaker()
 
     for ticker_row in ALLOWED_TICKERS:
-        if ticker_row["source"] not in ("yahoo", "fred"):
+        if ticker_row["source"] not in fetcher.FETCHED_SOURCES:
             continue  # composites are computed below, never fetched
         ticker = str(ticker_row["ticker"])
         if ticker_row["source"] == "yahoo":

@@ -438,7 +438,7 @@ CREATE TABLE IF NOT EXISTS allowed_tickers (
   ticker                TEXT PRIMARY KEY,
   asset_class           TEXT NOT NULL,
   currency              TEXT NOT NULL,
-  source                TEXT NOT NULL,       -- 'yahoo'|'fred'|'composite'
+  source                TEXT NOT NULL,       -- 'yahoo'|'fred'|'cftc'|'composite'
   transform             TEXT NOT NULL,       -- 'none'|'yoy_pct'|'composite'
   availability_lag_days INTEGER NOT NULL DEFAULT 0,
   description           TEXT,

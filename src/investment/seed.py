@@ -485,7 +485,7 @@ async def _seed_market_data(
     row_count = 0
     yahoo_calls = 0
 
-    fetchable = [t for t in ALLOWED_TICKERS if t["source"] in ("yahoo", "fred")]
+    fetchable = [t for t in ALLOWED_TICKERS if t["source"] in fetcher.FETCHED_SOURCES]
     for ticker_row in fetchable:
         ticker = str(ticker_row["ticker"])
         source = str(ticker_row["source"])

@@ -504,3 +504,33 @@ def test_the_first_vintage_still_reports_its_most_recent_reference_date() -> Non
     series = fetcher.parse_alfred_first_release(observations)
     assert len(series) == 1
     assert series.iloc[0] == pytest.approx(5707.4)
+
+
+def test_cftc_positioning_is_net_speculators_over_open_interest_dated_at_release() -> None:
+    """The Worker's proposal of 2026-11-19: speculative positioning, as a percent
+    of open interest, knowable on the Friday it is released (Tuesday + 3)."""
+    rows = [
+        {
+            "report_date_as_yyyy_mm_dd": "2026-11-10T00:00:00.000",
+            "open_interest_all": "400000",
+            "noncomm_positions_long_all": "220000",
+            "noncomm_positions_short_all": "40000",
+        },
+        {
+            "report_date_as_yyyy_mm_dd": "2026-11-03T00:00:00.000",
+            "open_interest_all": "0",
+            "noncomm_positions_long_all": "1",
+            "noncomm_positions_short_all": "1",
+        },
+    ]
+    series = fetcher.parse_cftc_net_positioning(rows)
+    assert list(series.index) == [pd.Timestamp("2026-11-13")]
+    assert series.iloc[0] == pytest.approx(45.0)
+
+
+def test_every_fetched_source_is_one_the_fetcher_dispatches() -> None:
+    from investment.db.seed_data import ALLOWED_TICKERS
+
+    sources = {t["source"] for t in ALLOWED_TICKERS if t["source"] != "composite"}
+    assert sources <= fetcher.FETCHED_SOURCES
+    assert all(t.get("contract") for t in ALLOWED_TICKERS if t["source"] == "cftc")

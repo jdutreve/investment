@@ -139,9 +139,12 @@ def test_the_colour_reads_the_level_from_its_favourable_side() -> None:
     assert mb.news(None, "high") == "unknown"
 
 
-def test_every_series_but_gold_declares_its_favourable_side() -> None:
+def test_every_series_but_gold_and_positioning_declares_its_favourable_side() -> None:
+    """Neither side of speculators' net position is good news in itself, any more
+    than gold's deviation from its trend is."""
     undeclared = [line.ticker for line in mb.MACRO_BOARD if line.favourable is None]
-    assert undeclared == ["gold_10y_dev"]
+    positioning = {line.ticker for line in mb.MACRO_BOARD if line.group == "Positioning"}
+    assert positioning and set(undeclared) == {"gold_10y_dev"} | positioning
 
 
 def test_a_move_carries_its_size() -> None:
