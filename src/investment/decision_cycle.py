@@ -52,6 +52,7 @@ from investment.mechanical.worker_book import describe_book, record_book
 from investment.planner.context import PlannerContext, macro_tape_lines, standing_label
 from investment.planner.post import PlannerPost, PostPlannerResult
 from investment.planner.pre import PlannerPre
+from investment.planner.system_decisions import describe_decisions
 from investment.planner.worker_history import (
     WORKER_READING_EVENT,
     describe_applied_ideas,
@@ -427,6 +428,9 @@ def render_context_for_worker(context: PlannerContext) -> str:
     # the measured settings because it is read the same way, and unconditional
     # because it does not depend on the ledger having rows.
     lines += ["", *describe_findings()]
+    # What the owner decided on the system proposals nothing measures on its own
+    # (`system_decisions`), read the same way: settled, not to be raised again.
+    lines += ["", *describe_decisions()]
     # ITS OWN BOOK (ADR-016), right after what is settled and before its own
     # history: what it holds, what it may hold, how it has done.
     if context.worker_book:

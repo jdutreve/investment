@@ -98,6 +98,11 @@ its code.
   `mechanical/research_findings.FINDINGS` (question, answer, figures,
   consequence) pointing at the TRACKED document that records it. It is rendered
   into the Worker's context beside the measured settings.
+- **A DECIDED SYSTEM PROPOSAL GOES IN `planner/system_decisions.DECISIONS`.** The Worker's
+  `data`/`process` ideas are only recorded; each session reviews the new ones, Claude
+  proposes implement-and-measure or refuse, the owner decides (a new data series is never
+  added without their approval), and the decision is an entry in the same commit — the
+  Worker reads it in its context and on each idea it filed, and stops re-proposing it.
 - **A bound whose consumption is not logged cannot be re-derived.** The Worker's
   12-tool-call budget was undiagnosable for a day — refused calls raised before
   the log line, so the budget counted fifteen and the log showed seven, and

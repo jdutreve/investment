@@ -689,3 +689,24 @@ def test_the_owners_funds_are_read_against_the_overlays_lines() -> None:
         "-2.7% vs its 150-day, +3.3% vs its 300-day — below one line: the rule would hold half"
     ) in text
     assert "Your funds against" not in _digest(owner_funds=[])
+
+
+def test_a_pending_book_says_what_it_would_hold_through_todays_overlay() -> None:
+    """The Worker's proposal of 2026-11-19: a book's name (SPY 60 / GLD 40) is
+    not what it would deliver when its sleeves are below trend."""
+    coming = {
+        "decision_date": "2026-12-01",
+        "fixed": False,
+        "priced_on": "2026-11-20",
+        "reads_close_of": "2026-11-30",
+        "target": {"IEF": 100.0},
+        "pending_book": "credit-spread-tight-yield-curve-flat",
+        "pending_count": 2,
+        "confirm_decisions": 3,
+        "pending_target": {"IEF": 100.0},
+    }
+    lines = D._coming_order_lines(coming, {"decision_date": "2026-11-02"})
+    assert lines[-1] == (
+        "      Book switch pending: credit-spread-tight-yield-curve-flat 2/3 — through "
+        "today's trend lines it would hold IEF 100"
+    )

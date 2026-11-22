@@ -40,11 +40,13 @@ from investment.mechanical.invariants import (
     evidence_summaries,
 )
 from investment.mechanical.market_signal import (
+    BOOKS,
     CONFIRM_DECISIONS,
     CREDIT_SPREAD,
     MA_WINDOWS,
     STACK_PORTFOLIO_ID,
     YIELD_SLOPE,
+    apply_trend_overlay,
     coming_decision,
     load_series,
 )
@@ -390,9 +392,16 @@ def _coming_order_lines(coming: dict[str, Any] | None, decision: dict[str, Any])
         f"   ⏭ Next order, decision of {coming['decision_date']}: {status}: {order} — {change}"
     ]
     if coming.get("pending_book"):
+        pending = coming.get("pending_target")
+        holds = (
+            " — through today's trend lines it would hold "
+            + ", ".join(f"{t} {w:g}" for t, w in sorted(pending.items(), key=lambda kv: -kv[1]))
+            if pending
+            else ""
+        )
         lines.append(
             f"      Book switch pending: {coming['pending_book']} "
-            f"{coming.get('pending_count')}/{coming.get('confirm_decisions')}"
+            f"{coming.get('pending_count')}/{coming.get('confirm_decisions')}{holds}"
         )
     return lines
 
@@ -1158,6 +1167,14 @@ async def _coming_order(db: InvestmentDB, today: date) -> dict[str, Any] | None:
         "pending_book": d.pending,
         "pending_count": d.pending_count,
         "confirm_decisions": CONFIRM_DECISIONS,
+        # What the pending book would hold through today's overlay (the Worker's
+        # proposal of 2026-11-19): a book's name says SPY 60 / GLD 40 where the
+        # overlay may deliver cash, and the owner places the order by hand.
+        "pending_target": (
+            apply_trend_overlay(BOOKS[d.pending], {t: r.share for t, r in d.trend.items()})
+            if d.pending in BOOKS
+            else None
+        ),
     }
 
 

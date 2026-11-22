@@ -29,6 +29,7 @@ from typing import Any
 
 from investment.db.seed_data import TICKER_SIGNALS
 from investment.db.sqlite import InvestmentDB
+from investment.planner.system_decisions import decision_for
 from investment.worker.result import PROPOSAL_HEADING, journalled_sections
 from investment.writeback.recurrence import APPLIED_EVENT
 
@@ -81,7 +82,7 @@ async def load_recent_ideas(db: InvestmentDB, today: date) -> list[dict[str, Any
     (`recurrence.import_run_innovations`), and a replay standing at one of those
     dates must not read ideas that were filed years later."""
     rows = await db.query(
-        "SELECT i.date, i.type, i.title, i.spec, "
+        "SELECT i.date, i.type, i.title, i.spec, GROUP_CONCAT(i.id) AS ids, "
         "  (SELECT status FROM invariant v WHERE v.title = i.title "
         "   AND v.source = 'agent-discovery' ORDER BY v.created_at DESC LIMIT 1) "
         "  AS invariant_status, "
@@ -131,6 +132,14 @@ def idea_fate(idea: dict[str, Any]) -> str:
         return f"strategy {status}"
     if idea.get("became"):
         return f"APPLIED by the owner, as {idea['became']}: what it has done so far is below"
+    decision = next(
+        filter(None, (decision_for(i) for i in str(idea.get("ids") or "").split(","))), None
+    )
+    if decision is not None:
+        return (
+            f"{decision.outcome.upper()} by the owner on {decision.decided_on.isoformat()}: "
+            f"{decision.reason}"
+        )
     measure = _measure(idea.get("spec"))
     if measure:
         return f"recorded for the owner; to be measured by: {measure}"
