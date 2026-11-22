@@ -47,6 +47,12 @@ const ASSETS: Record<string, string> = {
   GLD: "Gold",
   VCIT: "Corporate bonds",
   IEF: "Treasuries, 7-10 years",
+  SHY: "Treasuries, 1-3 years",
+  TLT: "Treasuries, 20+ years",
+  TIP: "Inflation-linked Treasuries",
+  "DX-Y.NYB": "US dollar index",
+  "SI=F": "Silver",
+  "HG=F": "Copper",
   cash: "Cash",
 };
 const ASSET_ORDER = ["SPY", "IWN", "GLD", "VCIT", "IEF", "cash"];
@@ -174,9 +180,14 @@ function AssetsCard({
   // Strongest move first (owner, 2026-10-17): by the 30-day change, highest to
   // lowest; an asset with no change known goes last.
   const change = (t: string): number => moves[t]?.change_pct ?? -Infinity;
-  const tickers = ASSET_ORDER.filter((t) => t in sleeves || t in moves).sort(
-    (a, b) => change(b) - change(a),
-  );
+  // The stack's sleeves, then every other asset the server reads — the
+  // Worker's holdings and the watched prices (macro_reading.WATCHED_ASSETS).
+  const tickers = [
+    ...ASSET_ORDER,
+    ...assets.map((asset) => asset.ticker).filter((t) => !ASSET_ORDER.includes(t)),
+  ]
+    .filter((t) => t in sleeves || t in moves)
+    .sort((a, b) => change(b) - change(a));
   if (!tickers.length) return null;
   const windows = windowsOf(decision);
   const latestAsOf = assets.reduce(
@@ -215,7 +226,9 @@ function AssetsCard({
           {tickers.map((t) => {
             const move = moves[t];
             const atDecision = sleeves[t];
-            const today = live?.sleeves[t];
+            // An asset no book of the stack holds has no journal: its trend
+            // today comes with its move, read by the same rule.
+            const today = live?.sleeves[t] ?? move?.trend;
             const reference = today ?? atDecision;
             return (
               <tr key={t}>

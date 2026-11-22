@@ -46,11 +46,21 @@ from investment.market.macro_board import (
     macro_board,
     read_themes,
 )
+from investment.mechanical import ratios
 from investment.mechanical.market_signal import STACK_TICKERS
+from investment.mechanical.worker_book import PORTFOLIO_ID as WORKER_BOOK_ID
 
 # How many lit invariants a theme shows: the heaviest, the rest are on the
 # Worker's side of the fence, not the reader's.
 INVARIANTS_PER_THEME = 2
+
+# The prices the Assets card reads beside the books' own (owner, 2026-11-22: "add
+# DXY, silver and others if relevant"). Silver and copper are what the owner
+# holds and trades by hand; the dollar is the price every USD sleeve is quoted
+# against. Oil is NOT here although it moves the stack's bonds: the card reads
+# percent changes against ten years of them, and WTI spot printed -36.98 on
+# 2020-04-20, which no percentage survives — the macro board reads it in dollars.
+WATCHED_ASSETS: tuple[str, ...] = ("DX-Y.NYB", "SI=F", "HG=F")
 
 
 _FEATURES = ("level", "speed", "acceleration")
@@ -132,6 +142,13 @@ def themes_of(condition: list[dict[str, Any]], group_of_ticker: dict[str, str]) 
     return list(dict.fromkeys(group for group in groups if group))
 
 
+async def _worker_holdings(db: InvestmentDB) -> list[str]:
+    """What the Worker's own book holds today (ADR-016), cash aside."""
+    rows = await db.query("SELECT allocation FROM portfolio WHERE id = :id", id=WORKER_BOOK_ID)
+    allocation: dict[str, float] = json.loads(str(rows[0]["allocation"])) if rows else {}
+    return [t for t, w in allocation.items() if w > 0 and t != ratios.CASH_TICKER]
+
+
 async def macro_reading(db: InvestmentDB, today: date | None = None) -> dict[str, Any]:
     """The board, its summary, what stands out on it, per theme the sentence
     and the invariants it lights, and how each asset is moving."""
@@ -174,8 +191,13 @@ async def macro_reading(db: InvestmentDB, today: date | None = None) -> dict[str
         **payload,
         "highlights": highlights(payload["board"], earlier["board"]),
         "themes": [{**theme, "invariants": lit[theme["group"]]} for theme in themes],
-        # The assets the rule can hold, as moves only: which way, how fast for
-        # each, gathering or losing pace. The set is the stack's own so a sleeve
-        # added to a book is read here without anyone listing it twice.
-        "assets": await asset_moves(db, STACK_TICKERS, today),
+        # The assets as moves: which way, how fast for each, gathering or
+        # losing pace. The stack's sleeves and the Worker's holdings are read off
+        # the books themselves, so a sleeve added to either is read here without
+        # anyone listing it twice; `WATCHED_ASSETS` adds what no book holds.
+        "assets": await asset_moves(
+            db,
+            tuple(dict.fromkeys([*STACK_TICKERS, *await _worker_holdings(db), *WATCHED_ASSETS])),
+            today,
+        ),
     }

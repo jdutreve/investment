@@ -176,6 +176,8 @@ export interface AssetMove {
   speed_z: number | null;
   acceleration_z: number | null;
   reading: string;
+  // Against the 150- and 300-day averages today, by the overlay's own rule.
+  trend: { price: number; moving_averages: (number | null)[]; share: number };
 }
 
 export interface MacroPayload {

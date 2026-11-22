@@ -357,3 +357,29 @@ async def test_an_asset_move_is_read_in_percent_not_in_dollars(tmp_path: Path) -
     assert spy["as_of"] == date.fromordinal(days[-1]).isoformat()
     assert spy["reading"] == gld["reading"]
     assert spy["change_pct"] == pytest.approx(gld["change_pct"])
+
+
+async def test_an_asset_move_carries_its_trend_read_by_the_overlays_rule(tmp_path: Path) -> None:
+    """An asset no book of the stack holds has no journal to take its trend dots
+    from, so its move carries them: one vote per `MA_WINDOWS` line it is below,
+    and no vote from a line not yet warmed up."""
+    db = InvestmentDB(tmp_path / "trend.db")
+    try:
+        start = date(2025, 1, 1).toordinal()
+        # 400 rising sessions then a fall to between the two averages.
+        levels = [100.0 + n for n in range(400)] + [400.0]
+        for n, level in enumerate(levels):
+            await db.command(
+                "INSERT INTO market_data (ticker, asset_class, currency, ts, level) "
+                "VALUES ('SI=F', 'METAL', 'USD', :ts, :l)",
+                ts=date.fromordinal(start + n).isoformat(),
+                l=level,
+            )
+        (silver,) = await mb.asset_moves(db, ("SI=F",), date.fromordinal(start + 400))
+    finally:
+        await db.close()
+    ma150 = sum(levels[-150:]) / 150
+    ma300 = sum(levels[-300:]) / 300
+    assert ma300 < 400.0 < ma150
+    assert silver["trend"]["moving_averages"] == pytest.approx((ma150, ma300))
+    assert silver["trend"]["share"] == 0.5

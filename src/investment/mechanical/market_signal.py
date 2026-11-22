@@ -1414,7 +1414,7 @@ def walk_decisions(
         # sound (see that function). It is reported in `trend` alongside the
         # sleeves, so the digest and the Worker see the same read the rule used.
         trend = {
-            ticker: _trend_read(
+            ticker: trend_read(
                 _at(prices[ticker], t),
                 [_at(moving_averages[w][ticker], t) for w in moving_averages],
             )
@@ -1544,7 +1544,7 @@ def _at(series: pd.Series, t: pd.Timestamp) -> float:
     return float("nan") if value is None else float(value)
 
 
-def _trend_read(price: float, moving_averages: Sequence[float]) -> TrendRead:
+def trend_read(price: float, moving_averages: Sequence[float]) -> TrendRead:
     """One sleeve's overlay read across every `MA_WINDOWS` line.
 
     `share` is the FRACTION of the sleeve the overlay redirects: one vote per
@@ -1981,7 +1981,7 @@ def latest_trend_reads(series: StackSeries) -> tuple[pd.Timestamp, dict[str, Tre
     two fields — two numbers on the same row that were never quoted on the
     same day, so a sleeve could sit one MA-slope away from the actual
     threshold and the badge would not show it. `min_periods=w` keeps a
-    not-yet-warmed-up window `None` exactly as `_opt`/`_trend_read` already
+    not-yet-warmed-up window `None` exactly as `_opt`/`trend_read` already
     expect, matching `load_series`'s own rolling call in every other respect
     but the shift."""
     t = series.calendar[-1]
@@ -1991,7 +1991,7 @@ def latest_trend_reads(series: StackSeries) -> tuple[pd.Timestamp, dict[str, Tre
             continue
         prices = series.prices[ticker]
         mas = [_at(prices.rolling(w, min_periods=w).mean(), t) for w in series.moving_averages]
-        reads[ticker] = _trend_read(_at(prices, t), mas)
+        reads[ticker] = trend_read(_at(prices, t), mas)
     return t, reads
 
 
@@ -2207,7 +2207,7 @@ def trend_baseline_targets(
     same `MA_WINDOW_DAYS` overlay re-read on the same monthly clock, the same
     IEF/cash haven chain — and NO credit input of any kind.
 
-    It calls `apply_trend_overlay` and `_trend_read`, the live functions, for the
+    It calls `apply_trend_overlay` and `trend_read`, the live functions, for the
     reason every measurement in this module does: a control reimplemented beside
     the thing it controls measures the reimplementation. The only difference from
     `walk_decisions` is what it does NOT do — no `classify_regime`, no
@@ -2222,7 +2222,7 @@ def trend_baseline_targets(
     previous: dict[str, float] | None = None
     for t in dates:
         shares = {
-            ticker: _trend_read(
+            ticker: trend_read(
                 _at(prices[ticker], t),
                 [_at(moving_averages[w][ticker], t) for w in moving_averages],
             ).share

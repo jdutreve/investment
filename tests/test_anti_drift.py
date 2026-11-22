@@ -251,7 +251,7 @@ async def test_the_walk_decides_on_the_previous_close_not_the_decision_day(tmp_p
 @pytest.mark.skipif(not LIVE_DB.exists(), reason=_SKIP_REASON)
 async def test_latest_trend_reads_matches_the_calendars_own_tail(tmp_path: Path) -> None:
     """`latest_trend_reads` (2026-08-19, the Stack page's "Latest" column)
-    re-runs `_trend_read` at `series.calendar[-1]` instead of a decision date —
+    re-runs `trend_read` at `series.calendar[-1]` instead of a decision date —
     this is the same reproduction guarantee the rest of this file enforces for
     the decision path, applied to the live snapshot: its numbers must be
     exactly what a direct read of the series' own tail would give, not an

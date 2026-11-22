@@ -56,6 +56,7 @@ from investment.market.derivatives import (
     WEEKLY_LOOKBACK_DAYS_TICKERS,
     asof_lag,
 )
+from investment.mechanical.market_signal import MA_WINDOWS, trend_read
 
 # What a level and a move are compared with: the series' own last ten years.
 COMPARISON_YEARS = 10
@@ -855,7 +856,12 @@ async def asset_moves(
     db: InvestmentDB, tickers: tuple[str, ...], today: date | None = None
 ) -> list[dict[str, Any]]:
     """How each asset in `tickers` is moving as of `today`, in the order given;
-    an asset the database does not price is absent."""
+    an asset the database does not price is absent.
+
+    WITH ITS TREND READ, by the overlay's own rule (`market_signal.trend_read`
+    over `MA_WINDOWS`, unshifted like `latest_trend_reads`): the card shows the
+    stack's sleeves from the stack's journal, and an asset no book of the stack
+    holds has no other source for the same dots."""
     today = today or date.today()
     days = await _default_lookback_days(db)
     since = today - timedelta(days=round(365.25 * COMPARISON_YEARS) + 2 * days)
@@ -879,10 +885,15 @@ async def asset_moves(
         acceleration = change - asof_lag(change, days)
         compared = change.index >= first_compared
         latest_change, latest_acceleration = change.iloc[-1], acceleration.iloc[-1]
+        trend = trend_read(
+            float(level.iloc[-1]),
+            [float(level.rolling(w, min_periods=w).mean().iloc[-1]) for w in MA_WINDOWS],
+        )
         out.append(
             {
                 "ticker": ticker,
                 "as_of": level.index[-1].date().isoformat(),
+                "trend": dataclasses.asdict(trend),
                 **describe_asset_move(
                     None if pd.isna(latest_change) else float(latest_change),
                     None if pd.isna(latest_acceleration) else float(latest_acceleration),
