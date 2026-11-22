@@ -887,3 +887,28 @@ def test_a_title_that_is_a_paragraph_is_cut_at_a_word() -> None:
         [{"title": long_title, "status": "proposed", "weight_effective": 0.7}]
     )
     assert all(len(text) < 200 for text in line)
+
+
+def test_the_worker_book_is_shown_with_its_return_since_inception() -> None:
+    """ADR-016: under three years of NAV the book has no rankable indicator, so
+    it is compared on its return since inception — which the digest must show,
+    not a bare ranking row."""
+    book = {
+        "allocation": {"IEF": 25.0, "SHY": 45.0, "cash": 30.0},
+        "inception": "2026-11-20",
+        "universe": ["IEF", "SHY"],
+        "since_inception": {"worker-portfolio": 0.004, "ms-stack": -0.002, "spy-USD": 0.011},
+        "trading": {"changes": 1.0, "turnover": 1.3, "fees": 0.00061},
+    }
+    text = _digest(
+        worker_book=book,
+        ranking=[{"rank": 10, "portfolio_id": "worker-portfolio", "defender": False}],
+    )
+    assert "10. worker-portfolio: no 36-month record yet" in text
+    assert "Holds SHY 45 | cash 30 | IEF 25; first allocation in force 2026-11-20" in text
+    assert "Since 2026-11-20: worker-portfolio +0.4% · ms-stack -0.2% · spy-USD +1.1%" in text
+    assert "1 change(s) after the first, 130% of the book turned over, fees 6.1 bps" in text
+
+    unmeasured = _digest(worker_book={**book, "since_inception": {}, "trading": {}})
+    assert "No session measured yet" in unmeasured
+    assert "The Worker's own book" not in _digest(worker_book=None)

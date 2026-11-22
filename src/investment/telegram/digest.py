@@ -49,6 +49,8 @@ from investment.mechanical.market_signal import (
 from investment.mechanical.metals import Cycle, Metals, load_metals
 from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
+from investment.mechanical.worker_book import PORTFOLIO_ID as WORKER_BOOK_ID
+from investment.mechanical.worker_book import book_context
 from investment.planner.worker_history import WORKER_READING_EVENT
 from investment.worker.result import journalled_sections
 from investment.writeback.recurrence import ANSWERED_EVENT, NOTABLE_RECURRENCE
@@ -204,7 +206,8 @@ def _ranking_block(ranking: list[dict[str, Any]]) -> list[str]:
             f"Sortino {sortino:.2f}{star}  Sharpe {_num(row.get('sharpe_rolling'))}  "
             f"Calmar {calmar:.1f}  NAV {_nav(row.get('nav'))}"
             if isinstance(sortino, int | float) and isinstance(calmar, int | float)
-            else f"   {row.get('rank')}. {row.get('portfolio_id')}{star}"
+            else f"   {row.get('rank')}. {row.get('portfolio_id')}{star}: "
+            "no 36-month record yet, not comparable on these indicators"
         )
         if isinstance(calmar, int | float) and is_demoted(calmar):
             line += f" ⚠️ (demoted: Calmar {calmar:.1f} below 1.0)"
@@ -628,6 +631,45 @@ def signal_label(ticker: str, value: float | None, median: float | None) -> str:
     return "?"
 
 
+def worker_book_lines(book: dict[str, Any] | None) -> list[str]:
+    """The Worker's own book (ADR-016) as the owner reads it, on every channel.
+
+    WHY A BLOCK OF ITS OWN. The ranking reads a 36-month window, so the book has
+    no rankable indicator for its first three years and its ranking row is
+    empty; ADR-016 states that until then it is compared on its return since
+    inception, "which its context and the digest show". Only the context did:
+    the digest printed a bare `worker-portfolio` row and nothing else."""
+    if not book or book.get("inception") is None:
+        return []
+    held = " | ".join(
+        f"{ticker} {weight:g}"
+        for ticker, weight in sorted(book["allocation"].items(), key=lambda kv: -kv[1])
+    )
+    lines = [
+        "🤖 The Worker's own book (paper, its judgement with a free hand — nothing you hold):",
+        f"   Holds {held or 'nothing'}; first allocation in force {book['inception']}",
+    ]
+    since = book.get("since_inception") or {}
+    if since:
+        parts = " · ".join(f"{pid} {pct(r, signed=True)}" for pid, r in since.items())
+        lines.append(f"   Since {book['inception']}: {parts}")
+    else:
+        lines.append("   No session measured yet: its return starts with the next close.")
+    trading = book.get("trading") or {}
+    if trading:
+        lines.append(
+            f"   Traded: {trading['changes']:.0f} change(s) after the first, "
+            f"{trading['turnover']:.0%} of the book turned over, fees "
+            f"{trading['fees'] * 10_000:.1f} bps of return"
+        )
+    return lines
+
+
+def _worker_book_block(book: dict[str, Any] | None) -> list[str]:
+    lines = worker_book_lines(book)
+    return ["", *lines] if lines else []
+
+
 def _stack_block(stack: dict[str, Any] | None) -> list[str]:
     """The stack's own standing — shown every week, proposal or not. The
     36-month drawdown here is the number the -25% rule is about (ADR-009); the
@@ -955,6 +997,7 @@ def render_digest(
     forecast_record: dict[str, Any] | None = None,
     coming_order: dict[str, Any] | None = None,
     metals: dict[str, Any] | None = None,
+    worker_book: dict[str, Any] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -974,6 +1017,7 @@ def render_digest(
         _regime_header(regime, global_liquidity),
         _metals_block(metals),
         _ranking_block(ranking),
+        _worker_book_block(worker_book),
         _invariant_block(invariants),
         _market_signal_block(
             market_signal, worker_reading, live_values, forecast_record, coming_order
@@ -1146,6 +1190,9 @@ class DigestInputs(TypedDict):
     # Gold, silver and copper as indicators (`mechanical/metals.py`): context,
     # never an allocation.
     metals: dict[str, Any] | None
+    # The Worker's own book (ADR-016, `worker_book.book_context`); None on a
+    # database without it.
+    worker_book: dict[str, Any] | None
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -1209,7 +1256,16 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         ),
         coming_order=await _coming_order(db, today),
         metals=_metals_standing(await load_metals(db, today)),
+        worker_book=await _worker_book(db),
     )
+
+
+async def _worker_book(db: InvestmentDB) -> dict[str, Any] | None:
+    """What the Worker reads of its own book, read once for the owner too —
+    the same function, so the two cannot tell different stories."""
+    if not await db.query("SELECT 1 FROM portfolio WHERE id = :id", id=WORKER_BOOK_ID):
+        return None
+    return await book_context(db)
 
 
 def _metals_standing(metals: Metals) -> dict[str, Any] | None:

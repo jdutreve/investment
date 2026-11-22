@@ -417,3 +417,22 @@ async def test_insufficient_history_reports_None_not_a_wrong_average(
 
 async def test_no_decision_means_no_query_and_an_empty_snapshot(db: InvestmentDB) -> None:
     assert await digest.collect_live_trend_snapshot(db, None) == {}
+
+
+def test_the_email_shows_the_worker_book_as_the_text_digest_does() -> None:
+    """One wording on every channel (`worker_book_lines`), escaped like the rest."""
+    html = render.render_digest_html(
+        _inputs(
+            worker_book={
+                "allocation": {"IEF": 100.0},
+                "inception": "2026-11-20",
+                "since_inception": {"worker-portfolio": 0.004, "<b>x</b>": 0.0},
+                "trading": {},
+            }
+        ),
+        {},
+        date(2026, 11, 22),
+    )
+    assert "The Worker&#x27;s own book" in html or "The Worker's own book" in html
+    assert "Since 2026-11-20: worker-portfolio +0.4%" in html
+    assert "<b>x</b>" not in html
