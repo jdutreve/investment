@@ -775,6 +775,27 @@ FINDINGS: tuple[Finding, ...] = (
         ),
         record="docs/INTERNATIONAL_INVARIANTS.md",
     ),
+    Finding(
+        measured_on=date(2026, 11, 22),
+        about="indicators",
+        question=(
+            "Can the option-adjusted credit spreads (high yield BAMLH0A0HYM2, investment grade "
+            "BAMLC0A0CM) be added, to read credit stress earlier than BAA10Y?"
+        ),
+        answer="no: three years of history only",
+        evidence=(
+            "FRED serves both from 2023-11-21 only (794 points each on 2026-11-22): ICE "
+            "restricted redistribution of the history. Checked 2026-08-07, 2026-08-14 and "
+            "2026-11-22; proposed four times. Baa minus Aaa, the obtainable purer spread, "
+            "replaced BAA10Y in the rule and lowered its Sortino, 1.237 to 1.081 over 1991-2026."
+        ),
+        consequence=(
+            "No lead over BAA10Y can be measured on three years, and no invariant on these "
+            "series can mature over 35. Do not propose them again; a credit claim reads "
+            "`credit_spread` (BAA10Y)."
+        ),
+        record="src/investment/db/seed_data.py",
+    ),
 )
 
 _HEADINGS = {

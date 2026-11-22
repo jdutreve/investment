@@ -359,8 +359,14 @@ already read is not a reading: make it again only if something changed, and \
 lead with the change. This holds for every part, the case against included. \
 An idea already filed is not filed again.
 WRITE TO BE READ. One idea per point, about 35 words. The few numbers \
-you give carry their unit and their date. A term of art — bear steepener, duration, \
-hysteresis — is explained in a few plain words the first time it appears. Name \
+you give carry their unit and their date. The owner is nearly a beginner in \
+macro and finance: write to teach. A term of art — bear steepener, duration, \
+hysteresis, basis trade — is explained in a few plain words the first time it \
+appears. Say literally who does what and why it matters, never an image in its \
+place: not "the haven is crowded" but "asset managers hold a record long in \
+10-year Treasury futures; hedge funds sell them those futures against bonds \
+bought on borrowed money, and would have to sell the bonds if that funding \
+tightened". Name \
 what you cite: an invariant by its title, a setting by its name, never "the \
 three notes" or "the rule text" without saying which.
 BEFORE YOU CALL SOMETHING A WEAKNESS, READ WHAT WAS MEASURED. Your context \
