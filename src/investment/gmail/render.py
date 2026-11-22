@@ -37,6 +37,7 @@ from investment.telegram.digest import (
     CANDIDATES_HEADING,
     DigestInputs,
     measured_note,
+    owner_fund_lines,
     pct,
     regime_leaning,
     regime_strength,
@@ -703,7 +704,12 @@ def _scoreboard_defender_section(
 def _worker_book_section(book: dict[str, Any] | None) -> list[str]:
     """The text digest's lines (`worker_book_lines`), headed and escaped: one
     wording on every channel."""
-    lines = worker_book_lines(book)
+    return _lines_section(worker_book_lines(book))
+
+
+def _lines_section(lines: list[str]) -> list[str]:
+    """A text-digest block as HTML: its first line the heading, each other a
+    paragraph, all escaped — one wording on every channel."""
     if not lines:
         return []
     return [f"<h2>{_esc(lines[0])}</h2>", *(f"<p>{_esc(line.strip())}</p>" for line in lines[1:])]
@@ -737,6 +743,7 @@ def render_digest_html(inputs: DigestInputs, live: dict[str, Any], today: date) 
     )
     parts += _alerts_section(inputs.get("alerts") or [])
     parts += _regime_section(inputs.get("regime") or {}, inputs.get("global_liquidity") or {})
+    parts += _lines_section(owner_fund_lines(inputs.get("owner_funds")))
     parts += _ranking_section(inputs.get("ranking") or [], today)
     parts += _worker_book_section(inputs.get("worker_book"))
     parts += _market_signal_section(

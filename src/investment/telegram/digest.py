@@ -14,6 +14,7 @@ import json
 from datetime import date, timedelta
 from typing import Any, TypedDict
 
+from investment.db.seed_data import OWNER_FUNDS
 from investment.db.sqlite import InvestmentDB
 from investment.market.liquidity import (
     COMPONENTS as LIQUIDITY_COMPONENTS,
@@ -24,6 +25,7 @@ from investment.market.liquidity import (
     level_in_sigma,
     liquidity_state,
 )
+from investment.market.macro_board import asset_moves
 from investment.market.regime import describe_directions, leaning_record, replay_persisted_inputs
 from investment.market_signal_cycle import HISTORY_START
 from investment.mechanical import ratios
@@ -644,6 +646,44 @@ def signal_label(ticker: str, value: float | None, median: float | None) -> str:
     return "?"
 
 
+# What a trend read's `share` means for a holder, in the overlay's own terms
+# (`market_signal.TrendRead.share`: one vote per breached line).
+_SHARE_HELD = {
+    0.0: "above both lines: the rule would hold all of it",
+    0.5: "below one line: the rule would hold half",
+    1.0: "below both lines: the rule would hold none of it",
+}
+
+
+def owner_fund_lines(funds: list[dict[str, Any]] | None) -> list[str]:
+    """The owner's own funds (seed_data.OWNER_FUNDS) against the trend overlay's
+    lines, on every channel (owner, 2026-11-22: "add the MSCI World to the
+    digest" — the return signal of their retirement plan). A description of
+    where the price stands, read by the stack's rule; never an order, since the
+    system holds none of these."""
+    if not funds:
+        return []
+    lines = ["🌍 Your funds against the trend lines (150- and 300-day averages, the stack's rule):"]
+    for fund in funds:
+        trend = fund["trend"]
+        distances = ", ".join(
+            f"{pct(trend['price'] / ma - 1, signed=True)} vs its {window}-day"
+            for window, ma in zip(MA_WINDOWS, trend["moving_averages"], strict=True)
+            if ma
+        )
+        held = _SHARE_HELD.get(trend["share"], f"{trend['share']:.0%} below")
+        lines.append(
+            f"   {fund['name']} ({fund['ticker']}): {trend['price']:,.2f} on {fund['as_of']}, "
+            f"{distances} — {held}"
+        )
+    return lines
+
+
+def _owner_fund_block(funds: list[dict[str, Any]] | None) -> list[str]:
+    lines = owner_fund_lines(funds)
+    return ["", *lines] if lines else []
+
+
 def worker_book_lines(book: dict[str, Any] | None) -> list[str]:
     """The Worker's own book (ADR-016) as the owner reads it, on every channel.
 
@@ -1011,6 +1051,7 @@ def render_digest(
     coming_order: dict[str, Any] | None = None,
     metals: dict[str, Any] | None = None,
     worker_book: dict[str, Any] | None = None,
+    owner_funds: list[dict[str, Any]] | None = None,
 ) -> str:
     """The full weekly digest as text (docs/EXAMPLE.md Steps 8A/8B). All the
     percent formatting lives in the block helpers; the inputs are decimal
@@ -1029,6 +1070,7 @@ def render_digest(
         _alert_block(alerts or []),
         _regime_header(regime, global_liquidity),
         _metals_block(metals),
+        _owner_fund_block(owner_funds),
         _ranking_block(ranking),
         _worker_book_block(worker_book),
         _invariant_block(invariants),
@@ -1206,6 +1248,8 @@ class DigestInputs(TypedDict):
     # The Worker's own book (ADR-016, `worker_book.book_context`); None on a
     # database without it.
     worker_book: dict[str, Any] | None
+    # The owner's own funds against the trend lines (seed_data.OWNER_FUNDS).
+    owner_funds: list[dict[str, Any]]
 
 
 async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> DigestInputs:
@@ -1270,6 +1314,10 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         coming_order=await _coming_order(db, today),
         metals=_metals_standing(await load_metals(db, today)),
         worker_book=await _worker_book(db),
+        owner_funds=[
+            {**move, "name": OWNER_FUNDS[move["ticker"]]}
+            for move in await asset_moves(db, tuple(OWNER_FUNDS), today)
+        ],
     )
 
 

@@ -35,7 +35,7 @@ from collections.abc import Callable
 from datetime import date, timedelta
 from typing import Any
 
-from investment.db.seed_data import SIGNAL_ALIASES
+from investment.db.seed_data import OWNER_FUNDS, SIGNAL_ALIASES
 from investment.db.sqlite import InvestmentDB
 from investment.market.macro_board import (
     CHANGE_LOOKBACK_DAYS,
@@ -60,7 +60,7 @@ INVARIANTS_PER_THEME = 2
 # against. Oil is NOT here although it moves the stack's bonds: the card reads
 # percent changes against ten years of them, and WTI spot printed -36.98 on
 # 2020-04-20, which no percentage survives — the macro board reads it in dollars.
-WATCHED_ASSETS: tuple[str, ...] = ("DX-Y.NYB", "SI=F", "HG=F")
+WATCHED_ASSETS: tuple[str, ...] = ("DX-Y.NYB", "SI=F", "HG=F", *OWNER_FUNDS)
 
 
 _FEATURES = ("level", "speed", "acceleration")

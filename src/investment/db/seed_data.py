@@ -530,6 +530,19 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
         "source": "yahoo",
         "transform": "none",
     },
+    # THE OWNER'S OWN FUNDS (owner, 2026-11-22): what they hold outside the system,
+    # read for its trend so the digest says each Sunday where it stands against the
+    # overlay's lines — see OWNER_FUNDS. Quoted in the fund's own currency, EUR,
+    # the one exception to "USD end to end": the owner's decision is taken on the
+    # price they hold, and the dollar moved that price's trend line on 2026-11-22
+    # (below its 300-day average in USD, above it in EUR). Never a sleeve.
+    {
+        "ticker": "CW8.PA",
+        "asset_class": "OWNER_FUND",
+        "currency": "EUR",
+        "source": "yahoo",
+        "transform": "none",
+    },
     # The 2-year Treasury yield (daily from 1976) and the effective federal funds
     # rate (daily from 1954): the first prices the policy rate the market expects
     # over two years, the second is that rate today — `fed_path_2y` below.
@@ -1041,7 +1054,16 @@ NON_PRICE_ASSET_CLASSES: frozenset[str] = frozenset(
 # `asset_class != 'MACRO'` until 2026-11-08, which named the only non-sleeve
 # class there was when they were written and let ^VIX, ^IRX and the FX quotes
 # through as holdable.
-NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {"FX", "METAL", "DOLLAR"}
+NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {
+    "FX",
+    "METAL",
+    "DOLLAR",
+    "OWNER_FUND",
+}
+
+# The funds the owner holds outside the system (class OWNER_FUND), by the name the
+# owner knows them under: the Amundi MSCI World in their retirement plan (PER).
+OWNER_FUNDS: dict[str, str] = {"CW8.PA": "MSCI World — your PER's Amundi fund, EUR"}
 
 # The series the Worker reads as INDICATORS on its macro tape, and whose
 # freshness is watched. VOLATILITY and RISK_FREE joined MACRO on 2026-11-08
@@ -1099,7 +1121,24 @@ MACRO_INDICATOR_FAMILIES: dict[str, tuple[str, ...]] = {
     "the dollar": ("DX-Y.NYB",),
     "energy": ("DCOILWTICO",),
     "volatility": ("^VIX",),
-    "positioning": ("COT_ES_AM", "COT_ES_LF", "COT_ZN_AM", "COT_ZN_LF", "COT_ZT_AM", "COT_ZT_LF", "COT_DX_AM", "COT_DX_LF", "COT_JY_AM", "COT_JY_LF", "COT_VX_AM", "COT_VX_LF", "COT_GC", "COT_SI", "COT_HG", "COT_CL"),
+    "positioning": (
+        "COT_ES_AM",
+        "COT_ES_LF",
+        "COT_ZN_AM",
+        "COT_ZN_LF",
+        "COT_ZT_AM",
+        "COT_ZT_LF",
+        "COT_DX_AM",
+        "COT_DX_LF",
+        "COT_JY_AM",
+        "COT_JY_LF",
+        "COT_VX_AM",
+        "COT_VX_LF",
+        "COT_GC",
+        "COT_SI",
+        "COT_HG",
+        "COT_CL",
+    ),
     "metals: gold, silver, copper": (
         "GLD",
         "GC=F",
