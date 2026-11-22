@@ -53,7 +53,7 @@ const ASSETS: Record<string, string> = {
   "DX-Y.NYB": "US dollar index",
   "SI=F": "Silver",
   "HG=F": "Copper",
-  "CW8.PA": "MSCI World, your PER (EUR)",
+  "IUSQ.DE": "MSCI ACWI, your PER's index (EUR)",
   cash: "Cash",
 };
 const ASSET_ORDER = ["SPY", "IWN", "GLD", "VCIT", "IEF", "cash"];

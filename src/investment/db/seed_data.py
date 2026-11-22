@@ -536,8 +536,13 @@ ALLOWED_TICKERS: list[dict[str, object]] = [
     # the one exception to "USD end to end": the owner's decision is taken on the
     # price they hold, and the dollar moved that price's trend line on 2026-11-22
     # (below its 300-day average in USD, above it in EUR). Never a sleeve.
+    #
+    # The owner's fund is BNP Paribas Easy MSCI ACWI EUR Acc (LU3243907741, Yahoo
+    # EEAB.DE), listed 2026-02: too young for a 300-day average. The series read is
+    # the same index in the same currency, iShares MSCI ACWI on Xetra in EUR
+    # (IUSQ.DE, daily from 2011-10) — the trend of an index, not of a wrapper.
     {
-        "ticker": "CW8.PA",
+        "ticker": "IUSQ.DE",
         "asset_class": "OWNER_FUND",
         "currency": "EUR",
         "source": "yahoo",
@@ -1062,8 +1067,10 @@ NON_SLEEVE_ASSET_CLASSES: frozenset[str] = NON_PRICE_ASSET_CLASSES | {
 }
 
 # The funds the owner holds outside the system (class OWNER_FUND), by the name the
-# owner knows them under: the Amundi MSCI World in their retirement plan (PER).
-OWNER_FUNDS: dict[str, str] = {"CW8.PA": "MSCI World — your PER's Amundi fund, EUR"}
+# owner knows them under: the MSCI ACWI their retirement plan (PER) returns to.
+OWNER_FUNDS: dict[str, str] = {
+    "IUSQ.DE": "MSCI ACWI in EUR — the index of your PER's BNP fund LU3243907741"
+}
 
 # The series the Worker reads as INDICATORS on its macro tape, and whose
 # freshness is watched. VOLATILITY and RISK_FREE joined MACRO on 2026-11-08

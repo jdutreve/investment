@@ -919,14 +919,14 @@ def test_the_owners_funds_are_read_against_the_overlays_lines() -> None:
     where it stands against the 150- and 300-day averages and what the stack's
     rule would hold of it."""
     fund = {
-        "ticker": "CW8.PA",
-        "name": "MSCI World — your PER's Amundi fund, EUR",
+        "ticker": "IUSQ.DE",
+        "name": "MSCI ACWI in EUR",
         "as_of": "2026-11-20",
         "trend": {"price": 667.22, "moving_averages": [685.75, 645.88], "share": 0.5},
     }
     text = _digest(owner_funds=[fund])
     assert (
-        "   MSCI World — your PER's Amundi fund, EUR (CW8.PA): 667.22 on 2026-11-20, "
+        "   MSCI ACWI in EUR (IUSQ.DE): 667.22 on 2026-11-20, "
         "-2.7% vs its 150-day, +3.3% vs its 300-day — below one line: the rule would hold half"
     ) in text
     assert "Your funds against" not in _digest(owner_funds=[])
