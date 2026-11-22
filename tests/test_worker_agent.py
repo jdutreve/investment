@@ -150,12 +150,13 @@ def test_persona_states_the_unawareness_the_tools_enforce() -> None:
 
 
 def test_the_persona_names_the_field_its_contribution_must_land_in() -> None:
-    """ADR-011: the prompt asks for a reading of the mechanical decision ("that
-    reading is your contribution"). It must also say WHERE it goes, or the model
-    puts it in `reasoning` and the journal and digest never find it — which is
-    exactly how the promise went unkept before `market_signal_assessment`
-    existed."""
-    assert "that reading is your contribution" in WORKER_SYSTEM_PROMPT
+    """The prompt names the Worker's contribution — since 2026-11-22 the critique
+    of the whole system, no longer a commentary on the rule. It must also say
+    WHERE it goes, or the model puts it in `reasoning` and the journal and
+    digest never find it — which is exactly how the promise went unkept before
+    `market_signal_assessment` existed."""
+    assert "YOUR CONTRIBUTION IS NOT TO COMMENT" in WORKER_SYSTEM_PROMPT
+    assert "gadfly of the WHOLE system" in WORKER_SYSTEM_PROMPT
     assert "market_signal_assessment" in WORKER_SYSTEM_PROMPT
     assert "market_signal_assessment" in WorkerResult.model_fields
 
@@ -396,7 +397,7 @@ def test_the_prompt_names_every_part_the_schema_requires() -> None:
 
 def test_the_bottom_line_is_required_and_comes_first() -> None:
     reading = MarketSignalReading.model_validate(
-        _reading(my_reading=["The spread cannot see positioning."])
+        _reading(what_the_system_misses=["The spread cannot see positioning."])
     )
     assert reading.render().splitlines()[0] == "Nothing is asked of you: the stack holds its book."
     with pytest.raises(ValidationError):
@@ -408,9 +409,11 @@ def test_a_point_that_runs_on_is_refused() -> None:
     is one idea: what does not fit in one is two points, and the schema says
     so to the model, which gets to answer again."""
     with pytest.raises(ValidationError):
-        MarketSignalReading.model_validate(_reading(my_reading=["x" * 401]))
+        MarketSignalReading.model_validate(_reading(what_the_system_misses=["x" * 401]))
     with pytest.raises(ValidationError):
-        MarketSignalReading.model_validate(_reading(what_would_prove_it_wrong=["one"] * 7))
+        MarketSignalReading.model_validate(_reading(what_the_system_misses=["one"] * 4))
+    with pytest.raises(ValidationError):
+        MarketSignalReading.model_validate(_reading(what_would_prove_it_wrong=["one"] * 2))
 
 
 def _forecast(**overrides: object) -> dict[str, object]:
@@ -456,7 +459,7 @@ def test_the_reading_carries_no_restated_facts_and_keeps_its_headings() -> None:
     dashboard read them from there and hold no copy."""
     assert set(MarketSignalReading.model_fields) == {
         "bottom_line",
-        "my_reading",
+        "what_the_system_misses",
         "what_would_prove_it_wrong",
         "forecasts",
     }

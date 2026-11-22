@@ -1168,7 +1168,7 @@ class EvaluationDraft(BaseModel):
 
 class WorkerResult(BaseModel):
     market_signal_assessment: MarketSignalReading   # the reading of the mechanical
-                              # decision, IN PARTS: bottom_line, my_reading,
+                              # decision, IN PARTS: bottom_line, what_the_system_misses (the gadfly part, 2026-11-22),
                               # what_would_prove_it_wrong, forecasts (<= 3, each
                               # one series vs one reference at a date, with a
                               # probability — scored when due by

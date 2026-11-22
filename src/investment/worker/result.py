@@ -171,14 +171,24 @@ class ImprovementProposal(StrictModel):
 # fits about 250 words: a point is one idea in about 35 words, the case against
 # is the two strongest cases, a forecast's statement is the claim and a
 # one-clause reason. A part that does not fit is refused and written again.
+#
+# THE CRITIQUE GOT THE ROOM (owner, 2026-11-22: "less a reader of the rule and
+# the stack, more a gadfly on the whole system, its improvements, new
+# strategies — taught to a near-beginner"). Teaching takes words, so a point of
+# what the system misses runs to about 60; the case against the position is
+# one point, the strongest.
 _BOTTOM_LINE_CHARS = 260
 _POINT_CHARS = 220
-_READING_POINTS = 3
-_CASE_POINTS = 2
+_MISSES_POINT_CHARS = 400
+_MISSES_POINTS = 3
+_CASE_POINTS = 1
 _STATEMENT_CHARS = 170
 
 Point = Annotated[str, Field(min_length=1, max_length=_POINT_CHARS)]
-ReadingPoints = Annotated[list[Point], Field(max_length=_READING_POINTS)]
+MissesPoints = Annotated[
+    list[Annotated[str, Field(min_length=1, max_length=_MISSES_POINT_CHARS)]],
+    Field(max_length=_MISSES_POINTS),
+]
 CasePoints = Annotated[list[Point], Field(max_length=_CASE_POINTS)]
 
 
@@ -290,18 +300,22 @@ class MarketSignalReading(StrictModel):
     (the decision block and today's values in every channel), and the Worker is
     asked only for what a program cannot write:
 
-    - `bottom_line`: what the owner should retain, and whether anything is asked.
-    - `my_reading`: what the instrument cannot see, as judgement.
-    - `what_would_prove_it_wrong`: the scenario in which the position in force
-      loses, and the first sign it is starting.
+    - `bottom_line`: the month's order in two sentences, and whether anything
+      is asked.
+    - `what_the_system_misses`: the gadfly part (owner, 2026-11-22) — a blind
+      spot of the whole system, a risk no rule covers, a strategy or an
+      improvement worth testing, each taught as to a near-beginner. It replaced
+      `my_reading`, a judgement on the month's decision.
+    - `what_would_prove_it_wrong`: the one strongest case against the position
+      in force, and its first sign.
     - `forecasts`: dated, scored probabilities (`Forecast`).
 
     The length limits are the instruction, enforced: a point that does not fit
     is two points, or is not one."""
 
     bottom_line: str = Field(min_length=1, max_length=_BOTTOM_LINE_CHARS)
-    # Judgement: what the instrument cannot see. Said as judgement, because it is one.
-    my_reading: ReadingPoints
+    # What the whole system cannot see, and what to try: judgement, to be measured.
+    what_the_system_misses: MissesPoints
     # The case against the position in force: how it loses, and what would show it.
     what_would_prove_it_wrong: CasePoints
     forecasts: Annotated[list[Forecast], Field(max_length=_FORECASTS)]
@@ -331,7 +345,7 @@ class MarketSignalReading(StrictModel):
         headings, written into the journal with the reading (`journal`), so that
         a forecast cannot be labelled a fact in one channel."""
         parts = {
-            "my_reading": self.my_reading,
+            "what_the_system_misses": self.what_the_system_misses,
             "what_would_prove_it_wrong": self.what_would_prove_it_wrong,
             "forecasts": [forecast.render() for forecast in self.forecasts],
         }
@@ -361,7 +375,7 @@ def proposal_sections(proposals: list["ImprovementProposal"]) -> list[dict[str, 
 
 
 READING_HEADINGS: dict[str, str] = {
-    "my_reading": "My reading (judgement, not measurement)",
+    "what_the_system_misses": "What the system does not see (judgement, to be measured)",
     "what_would_prove_it_wrong": "What would prove the position wrong",
     "forecasts": "Forecasts (scored when due)",
 }

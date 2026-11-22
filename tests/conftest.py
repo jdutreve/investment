@@ -95,7 +95,7 @@ def a_reading(bottom_line: str) -> dict[str, object]:
     serves both a `WorkerResult(...)` keyword and a model's JSON output."""
     return {
         "bottom_line": bottom_line,
-        "my_reading": [],
+        "what_the_system_misses": [],
         "what_would_prove_it_wrong": [],
         "forecasts": [],
     }
