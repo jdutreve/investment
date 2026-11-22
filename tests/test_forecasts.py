@@ -7,6 +7,7 @@ real throwaway SQLite for the record → score → record-back cycle."""
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -132,11 +133,13 @@ async def _prices(db: InvestmentDB, ticker: str, start: date, levels: list[float
     )
 
 
-def _forecast(ticker: str, threshold: float, probability: float) -> Forecast:
+def _forecast(
+    ticker: str, threshold: float, probability: float, side: Literal["above", "below"] = "above"
+) -> Forecast:
     return Forecast(
-        statement=f"Change: {ticker} above {threshold}",
+        statement=f"Change: {ticker} {side} {threshold}",
         ticker=ticker,
-        side="above",
+        side=side,
         compared_with="value",
         threshold=threshold,
         horizon_weeks=2,
@@ -157,7 +160,7 @@ async def test_a_forecast_is_scored_once_when_due_and_comes_back_in_the_record(
 ) -> None:
     # IEF ends at 500 on the due date (two weeks after MADE_ON).
     await _prices(db, "IEF", MADE_ON - timedelta(days=5), [480.0] * 10 + [500.0] * 30)
-    await _record(db, [_forecast("IEF", 490.0, 0.8), _forecast("IEF", 510.0, 0.4)])
+    await _record(db, [_forecast("IEF", 490.0, 0.8), _forecast("IEF", 510.0, 0.6, "below")])
 
     # Not due yet: nothing is scored, both are open.
     assert await score_due_forecasts(db, MADE_ON + timedelta(days=13)) == 0
@@ -169,9 +172,9 @@ async def test_a_forecast_is_scored_once_when_due_and_comes_back_in_the_record(
 
     record = await load_forecast_record(db)
     assert (record.scored, record.open, record.unscorable) == (2, 0, 0)
-    # 80% on a claim that held, 40% on one that did not: both on the right side.
+    # 80% and 60% on two claims that held: both on the right side.
     assert record.right_side == 2
-    assert record.brier == pytest.approx(((0.8 - 1) ** 2 + (0.4 - 0) ** 2) / 2)
+    assert record.brier == pytest.approx(((0.8 - 1) ** 2 + (0.6 - 1) ** 2) / 2)
     assert "Brier 0.10" in record_summary(record)
     assert "TRUE" in "\n".join(describe_record(record))
 
@@ -292,16 +295,29 @@ def test_the_digest_prints_each_forecast_beside_its_base_rate() -> None:
     assert "        · Unlikely (15% in 8 weeks, history 5%): GLD above its line" in lines
 
 
-def test_a_forecast_reads_its_odds_in_words_before_its_claim() -> None:
-    from investment.worker.result import odds_in_words
+def test_a_forecast_states_the_side_its_author_believes() -> None:
+    """Owner, 2026-11-22: "Change: SPY above its 300-day line — 20%" read as what
+    the Worker expected. The unlikely side is stated the other way round, and a
+    toss-up is no forecast."""
+    import pydantic
 
-    assert [odds_in_words(p) for p in (0.20, 0.44, 0.45, 0.55, 0.56)] == [
-        "Unlikely",
-        "Unlikely",
-        "Even odds",
-        "Even odds",
-        "Likely",
-    ]
+    def forecast(probability: float) -> Forecast:
+        return Forecast(
+            statement="Persistence: SPY stays below its 300-day line in 6 weeks",
+            ticker="SPY",
+            side="below",
+            compared_with="moving_average",
+            window_days=300,
+            horizon_weeks=6,
+            probability=probability,
+        )
+
+    assert forecast(0.8).render() == (
+        "Likely (80% in 6 weeks): Persistence: SPY stays below its 300-day line in 6 weeks"
+    )
+    for probability in (0.2, 0.5, 0.55):
+        with pytest.raises(pydantic.ValidationError, match="state the side you believe"):
+            forecast(probability)
 
 
 def test_a_forecast_said_within_a_period_is_refused() -> None:
@@ -316,7 +332,7 @@ def test_a_forecast_said_within_a_period_is_refused() -> None:
             compared_with="moving_average",
             window_days=150,
             horizon_weeks=6,
-            probability=0.3,
+            probability=0.7,
         )
 
 
@@ -333,5 +349,5 @@ def test_a_forecast_opens_with_its_kind_not_with_a_belief() -> None:
             compared_with="value",
             threshold=1.7,
             horizon_weeks=8,
-            probability=0.28,
+            probability=0.72,
         )

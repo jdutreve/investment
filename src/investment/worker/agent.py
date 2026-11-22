@@ -339,14 +339,17 @@ write "in N weeks", never "within". \
 reason, about 25 words. Forecast what you have a view \
 on and what matters for the position: one near 0% or 100% on something \
 already settled tells the owner nothing: it is padding, and read as such. \
-PERSISTENCE IS THE BAR: a forecast that today's state still holds in a few \
-weeks usually comes true and shows no judgement. So each forecast is one of two \
-kinds, and `statement` opens with its label: "Change:" (the series ends on the \
-other side of its reference from where it is today) or "Persistence against \
-the tape:" (it stays on its side while its own momentum points across). The \
-label names the KIND of claim, never your belief in it: that is the \
-probability's job, so no "I expect" or "I lean against" beside a number that \
-says otherwise. Each forecast is also \
+STATE THE SIDE YOU BELIEVE: `probability` is above 55%, the odds that your \
+statement holds. A claim you find unlikely is stated the other way round \
+("SPY stays below its 300-day line" at 80%, never "SPY above it" at 20%), and \
+one you cannot lean on either way is not a forecast: drop it. `statement` \
+opens with its kind: "Change:" (the series ends on the other side of its \
+reference from where it is today), "Persistence against the tape:" (it stays on \
+its side while its own momentum points across) or "Persistence:" (it stays on \
+its side, its momentum agreeing). A persistence usually comes true, so its whole \
+judgement is its gap to history below. The label names the KIND of claim, \
+never your belief in it: that is the probability's job, so no "I expect" \
+beside the number. Each forecast is also \
 scored against HISTORY: how often the same move, from the same distance to the \
 same reference, came true over the past decades. Your probability and that \
 frequency are printed side by side and both are scored: a probability equal to \
@@ -653,7 +656,8 @@ async def _review(
             "History's own frequency for each of your forecasts, from where each series "
             f"stands today: {lines}. Keep a probability away from history's only where your "
             "reading says this time differs, and make the statement say so truthfully; "
-            "otherwise move it to history's or replace the forecast."
+            "otherwise replace the forecast or drop it: one at history's frequency adds "
+            "nothing."
         )
     request = (
         "Review your market_signal_assessment. "

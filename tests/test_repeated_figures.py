@@ -108,7 +108,7 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
                 "compared_with": "moving_average",
                 "window_days": 150,
                 "horizon_weeks": 9,
-                "probability": 0.42 if len(seen) > 1 else 0.6,
+                "probability": 0.62 if len(seen) > 1 else 0.8,
             }
         ]
         output = WorkerResult(
@@ -122,7 +122,7 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
         return ModelResponse(parts=[TextPart(output)])
 
     async def history(forecast: object) -> float:
-        return 0.42
+        return 0.62
 
     try:
         agent = build_worker_agent(db, "test/worker", "sk-test", reasoning_effort="high")
@@ -131,5 +131,5 @@ async def test_each_forecast_is_reviewed_against_history_before_it_is_final(
     finally:
         await db.close()
     assert len(seen) == 2
-    assert "history 42%" in seen[1]
-    assert result.market_signal_assessment.forecasts[0].probability == 0.42
+    assert "history 62%" in seen[1]
+    assert result.market_signal_assessment.forecasts[0].probability == 0.62

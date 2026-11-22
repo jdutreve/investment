@@ -182,10 +182,17 @@ ReadingPoints = Annotated[list[Point], Field(max_length=_READING_POINTS)]
 CasePoints = Annotated[list[Point], Field(max_length=_CASE_POINTS)]
 
 
-# The two kinds of forecast worth scoring, as each statement opens (agent.py's
-# prompt says what each means): persistence WITH the tape usually comes true and
-# shows no judgement, so it has no label.
-FORECAST_KINDS = ("Change:", "Persistence against the tape:")
+# The kinds of forecast, as each statement opens (agent.py's prompt says what
+# each means). "Persistence:" joined on 2026-11-22, when a forecast had to state
+# the side it believes: the other side of an unlikely change is a persistence,
+# and its judgement is its gap to history, scored like any other.
+FORECAST_KINDS = ("Change:", "Persistence against the tape:", "Persistence:")
+
+# A forecast states the side its author believes, above this (owner,
+# 2026-11-22). "Change: SPY above its 300-day line — 20%" read as what the
+# Worker expected; "SPY stays below it — 80%" cannot. Between 45% and 55% there
+# is no side to state, and no forecast.
+MIN_FORECAST_PROBABILITY = 0.55
 
 
 class Forecast(StrictModel):
@@ -247,30 +254,23 @@ class Forecast(StrictModel):
             raise ValueError(
                 f"`statement` opens with its kind, one of {FORECAST_KINDS}: 'Change:' when "
                 "the series ends across its reference, 'Persistence against the tape:' when "
-                "it stays on its side while its momentum points across"
+                "it stays on its side while its momentum points across, 'Persistence:' when "
+                "it stays on its side with its momentum"
+            )
+        if self.probability <= MIN_FORECAST_PROBABILITY:
+            raise ValueError(
+                f"`probability` is {self.probability:.0%}: state the side you believe, above "
+                f"{MIN_FORECAST_PROBABILITY:.0%} — an unlikely claim is stated the other way "
+                "round, and one you cannot lean on is not a forecast"
             )
         return self
 
     def render(self) -> str:
-        """The forecast as the owner reads it: the odds IN WORDS first, then the
-        claim (owner, 2026-11-22). Written the other way — "Change: SPY above
-        its 300-day line in 6 weeks … — 20%" — the claim read as what the Worker
-        expected, two lines under a reading that called the same rebound less
-        likely, and the 20% at the end was the only sign it was the opposite."""
+        """The forecast as the owner reads it: the odds first, then the claim
+        (owner, 2026-11-22) — every claim is one its author believes
+        (`MIN_FORECAST_PROBABILITY`), so the word is always the same."""
         weeks = f"{self.horizon_weeks} week{'s' if self.horizon_weeks > 1 else ''}"
-        return f"{odds_in_words(self.probability)} ({self.probability:.0%} in {weeks}): " + (
-            self.statement
-        )
-
-
-def odds_in_words(probability: float) -> str:
-    """What a probability says about its claim. The middle band is a toss-up,
-    not a lean: 55% against a 48% history is a nuance, not an expectation."""
-    if probability < 0.45:
-        return "Unlikely"
-    if probability > 0.55:
-        return "Likely"
-    return "Even odds"
+        return f"Likely ({self.probability:.0%} in {weeks}): {self.statement}"
 
 
 # At most this many a cycle: a few forecasts the Worker means, not a spread of
