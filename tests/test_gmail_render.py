@@ -161,33 +161,6 @@ def test_a_corrected_decision_is_loud_in_the_email_too() -> None:
     assert "Recomputed under the graduated overlay" in html
 
 
-def test_a_candidate_has_its_own_heading_in_the_email_too() -> None:
-    """The third channel says what the other two say: a candidate is listed
-    under a heading that names it not established, and an email with no
-    established invariant says so instead of dropping the section."""
-    candidate = {
-        "title": "Still measured",
-        "status": "proposed",
-        "weight_effective": 0.9,
-        "confirmation_count": 12,
-        "infirmation_count": 8,
-        "author": "dalio",
-    }
-    html = render.render_digest_html(_inputs(invariants=[candidate]), {}, TODAY)
-    assert "Key Invariants" not in html
-    assert "NOT established" in html
-    assert "No invariant is established." in html
-    assert "Still measured" in html
-
-    both = render.render_digest_html(
-        _inputs(invariants=[{**candidate, "title": "Settled", "status": "integrated"}, candidate]),
-        {},
-        TODAY,
-    )
-    assert both.index("Key Invariants") < both.index("Settled") < both.index("NOT established")
-    assert "No invariant is established." not in both
-
-
 def test_the_reading_in_parts_is_a_list_per_heading_in_the_email() -> None:
     """The third channel lays the reading out as the other two do, with the
     headings the journal carries, and escapes every point."""
@@ -210,17 +183,6 @@ def test_the_reading_in_parts_is_a_list_per_heading_in_the_email() -> None:
     assert "A &lt;b&gt;bear steepener&lt;/b&gt; &amp; VCIT is rolling over." in html
 
 
-def test_answered_themes_are_counted_and_not_listed_in_the_email() -> None:
-    recurring = [
-        {"n": 7, "theme_id": "t1", "titles": ["Extend the overlay to VCIT"], "measured": True},
-        {"n": 3, "theme_id": "t2", "titles": ["Regime label and tape diverge"], "measured": False},
-    ]
-    html = render.render_digest_html(_inputs(recurring=recurring), {}, TODAY)
-    assert "Extend the overlay to VCIT" not in html
-    assert "Regime label and tape diverge" in html
-    assert "1 other recurring theme is not listed" in html
-
-
 def test_no_style_attribute_anywhere() -> None:
     """The one property the whole module exists to guarantee — the Gmail
     draft-composition API silently strips `style=`."""
@@ -235,7 +197,6 @@ def test_free_text_is_escaped() -> None:
     it (even the Worker's own stray '<b>') is escaped like everything else,
     not selectively passed through."""
     html = render.render_digest_html(_inputs(), {}, TODAY)
-    assert "10y-3m &lt; 0" in html
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
     assert "&lt;b&gt;bear steepener&lt;/b&gt;" in html

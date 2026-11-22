@@ -34,17 +34,12 @@ from investment.market.liquidity import PROXY_DESCRIPTION, STATE_READINGS
 from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.snapshots import is_demoted
 from investment.telegram.digest import (
-    CANDIDATES_HEADING,
     DigestInputs,
-    measured_note,
     owner_fund_lines,
     pct,
     regime_leaning,
     regime_strength,
-    short_title,
     signal_label,
-    split_by_standing,
-    split_recurring,
     worker_book_lines,
 )
 from investment.worker.result import journalled_sections
@@ -524,183 +519,6 @@ def _current_values_section(
 # -- Invariants / critiques / scoreboard / defender --------------------------
 
 
-def _rate_range(inv: dict[str, Any]) -> str:
-    low, high = inv.get("rate_low"), inv.get("rate_high")
-    if not isinstance(low, int | float) or not isinstance(high, int | float):
-        return "n/a"
-    return f"{low:.2f}-{high:.2f}"
-
-
-def _count_or_na(value: object) -> str:
-    return str(value) if isinstance(value, int) else "n/a"
-
-
-def _lift_or_na(value: object) -> str:
-    return f"{value:+.3f}" if isinstance(value, int | float) else "n/a"
-
-
-def _invariants_section(invariants: list[dict[str, Any]]) -> list[str]:
-    """The established invariants, then the candidates under the heading the
-    text digest gives them (`digest._invariant_block`)."""
-    established, candidates = split_by_standing(invariants)
-    lines: list[str] = []
-    if established:
-        lines += ["<h2>\U0001f511 Key Invariants</h2>", *_invariants_table(established)]
-    if candidates:
-        lines.append(f"<h2>\U0001f50e {_esc(CANDIDATES_HEADING)}</h2>")
-        if not established:
-            lines.append("<p>No invariant is established.</p>")
-        lines += _invariants_table(candidates)
-    return lines
-
-
-def _invariants_table(invariants: list[dict[str, Any]]) -> list[str]:
-    lines = [
-        _table_open(),
-        _hrow(
-            [
-                ("Invariant", "left"),
-                ("Weight", "right"),
-                ("Confirmed", "right"),
-                ("Rate, 95% range", "right"),
-                ("Neutral", "right"),
-                ("Mean lift", "right"),
-                ("Worst", "right"),
-                ("Author", "left"),
-            ],
-            bg=_GRAY,
-            fg=_DARK,
-        ),
-    ]
-    for i, inv in enumerate(invariants):
-        bg = _WHITE if i % 2 == 0 else _ALT
-        weight = inv.get("weight_effective")
-        confirmed = inv.get("confirmation_count")
-        infirmed = inv.get("infirmation_count")
-        counts = (
-            f"{confirmed}/{confirmed + infirmed}"
-            if isinstance(confirmed, int) and isinstance(infirmed, int)
-            else "n/a"
-        )
-        lines.append(
-            _drow(
-                [
-                    (_esc(short_title(inv.get("title", "?"))), "left", None, False),
-                    (
-                        f"{weight:.3f}" if isinstance(weight, int | float) else "n/a",
-                        "right",
-                        None,
-                        False,
-                    ),
-                    (counts, "right", None, False),
-                    (_rate_range(inv), "right", None, False),
-                    (_count_or_na(inv.get("neutral_count")), "right", None, False),
-                    (_lift_or_na(inv.get("mean_lift")), "right", None, False),
-                    (_lift_or_na(inv.get("worst_lift")), "right", None, False),
-                    (_esc(inv.get("author") or "system"), "left", None, False),
-                ],
-                bg,
-            )
-        )
-    lines.append("</table>")
-    return lines
-
-
-def _recurring_section(recurring: list[dict[str, Any]]) -> list[str]:
-    """The themes still worth measuring, and a count of those the history has
-    answered — the same split as the text digest (`digest.split_recurring`)."""
-    recurring, measured = split_recurring(recurring)
-    note = (
-        [f'<p><font color="#888888" size="2">{_esc(measured_note(measured))}</font></p>']
-        if measured
-        else []
-    )
-    if not recurring:
-        return ["<h2>\U0001f501 Recurring Critiques</h2>", *note] if note else []
-    lines = [
-        "<h2>\U0001f501 Recurring Critiques</h2>",
-        '<p><font color="#888888" size="2">Distinct wordings across weeks — worth measuring, '
-        "not yet acted on.</font></p>",
-        _table_open(),
-        _hrow([("Count", "left"), ("Critique (distinct wordings)", "left")], bg=_GRAY, fg=_DARK),
-    ]
-    for i, row in enumerate(sorted(recurring, key=lambda r: -int(r["n"]))):
-        bg = _WHITE if i % 2 == 0 else _ALT
-        for title in row.get("titles", []):
-            lines.append(
-                _drow(
-                    [
-                        (f"{row['n']}×", "left", None, True),  # noqa: RUF001 — matches Telegram's digest
-                        (_esc(title), "left", None, False),
-                    ],
-                    bg,
-                )
-            )
-    lines.append("</table>")
-    return [*lines, *note]
-
-
-def _scoreboard_defender_section(
-    scoreboard: dict[str, Any], defender_metrics: dict[str, Any] | None
-) -> list[str]:
-    won, total = scoreboard.get("hit_rate", (0, 0))
-    rate = pct(won / total) if total else "n/a"
-    lines = [
-        "<h2>\U0001f4cb Scoreboard &amp; Defender</h2>",
-        '<table border="0" cellpadding="0" cellspacing="0" width="100%">'
-        '<tr valign="top"><td width="50%">',
-        _table_open(),
-        _hrow([("Scoreboard Metric", "left"), ("Value", "right")]),
-        _drow(
-            [
-                ("Hit-rate @+12w", "left", None, False),
-                (f"{won}/{total} ({rate})", "right", None, False),
-            ]
-        ),
-        _drow(
-            [
-                ("Paper-tests running", "left", None, False),
-                (str(len(scoreboard.get("paper_tests", []))), "right", None, False),
-            ],
-            _ALT,
-        ),
-    ]
-    if scoreboard.get("probations"):
-        lines.append(
-            _drow(
-                [
-                    ("Strategies in probation", "left", None, False),
-                    (str(len(scoreboard["probations"])), "right", None, False),
-                ]
-            )
-        )
-    lines.append('</table></td><td width="4%"></td><td width="46%">')
-    if defender_metrics:
-        lines.append(_table_open())
-        lines.append(_hrow([("Defender Period", "left"), ("Return", "right")]))
-        periods = (
-            ("3m", "return_3m"),
-            ("6m", "return_6m"),
-            ("1y", "return_1y"),
-            ("3y", "return_3y"),
-            ("5y", "return_5y"),
-        )
-        for i, (label, key) in enumerate(periods):
-            bg = _WHITE if i % 2 == 0 else _ALT
-            value = defender_metrics.get(key)
-            if value is None:
-                continue
-            lines.append(
-                _drow(
-                    [(label, "left", None, False), (pct(value, signed=True), "right", None, False)],
-                    bg,
-                )
-            )
-        lines.append("</table>")
-    lines.append("</td></tr></table>")
-    return lines
-
-
 def _worker_book_section(book: dict[str, Any] | None) -> list[str]:
     """The text digest's lines (`worker_book_lines`), headed and escaped: one
     wording on every channel."""
@@ -753,11 +571,6 @@ def render_digest_html(inputs: DigestInputs, live: dict[str, Any], today: date) 
         forecast_record=inputs.get("forecast_record"),
     )
     parts += _current_values_section(inputs.get("market_signal"), live, today)
-    parts += _invariants_section(inputs.get("invariants") or [])
-    parts += _recurring_section(inputs.get("recurring") or [])
-    parts += _scoreboard_defender_section(
-        inputs.get("scoreboard") or {}, inputs.get("defender_metrics")
-    )
     parts.append(
         '<p><font color="#aaaaaa" size="2">Paper series throughout — V1 executes nothing '
         f"(ADR-006). Generated {today.isoformat()}.</font></p>"

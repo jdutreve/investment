@@ -49,24 +49,16 @@ from investment.mechanical.market_signal import (
     load_series,
 )
 from investment.mechanical.metals import Cycle, Metals, load_metals
-from investment.mechanical.outcomes import paper_test_progress
 from investment.mechanical.snapshots import is_demoted
 from investment.mechanical.worker_book import PORTFOLIO_ID as WORKER_BOOK_ID
 from investment.mechanical.worker_book import book_context
 from investment.planner.worker_history import WORKER_READING_EVENT
 from investment.worker.result import journalled_sections
-from investment.writeback.recurrence import ANSWERED_EVENT, NOTABLE_RECURRENCE
 from investment.writeback.writeback import MARKET_SIGNAL_EVENT
 
 # The invariants the digest lists: the heaviest lit lighthouses, not the whole
 # corpus (docs/EXAMPLE.md Step 8A shows a handful).
 DIGEST_INVARIANTS = 5
-# How many recurring themes the digest lists, the most repeated first.
-DIGEST_RECURRING_THEMES = 5
-# An invariant's title in a list. The curator sometimes writes a paragraph where
-# a title was asked for — one of 600 characters led the digest of 2026-10-11 —
-# and the record beneath it is what the line is for.
-TITLE_CHARS = 140
 # How far back the digest's BRIDGE proposal slot looks. One week, because the
 # digest is weekly and the slot means "what was decided for this digest" — a
 # UC9 ad-hoc re-run's mid-week proposal is inside it, a past Monday's is not.
@@ -268,60 +260,6 @@ def _with_evidence(invariant: dict[str, Any], evidence: EvidenceSummary | None) 
         "rate_early": evidence.rate_early,
         "rate_late": evidence.rate_late,
     }
-
-
-CANDIDATES_HEADING = "Candidates — measured, NOT established"
-
-
-def split_by_standing(
-    invariants: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """`(established, candidates)`. One splitter for the text digest and the
-    Gmail table, so that a candidate cannot sit under the established heading
-    in one channel and not in the other."""
-    established = [inv for inv in invariants if inv.get("status") != "proposed"]
-    return established, [inv for inv in invariants if inv.get("status") == "proposed"]
-
-
-def _invariant_block(invariants: list[dict[str, Any]]) -> list[str]:
-    """The established invariants, then the candidates under a heading that
-    says what they are (owner, 2026-10-06). Under a verdict held over a
-    record's life there may be none established at all; the block used to
-    disappear then, which read as "nothing to report" when the fact was
-    "nothing is established yet"."""
-    established, candidates = split_by_standing(invariants)
-    lines: list[str] = []
-    if established:
-        lines += ["", "🔑 Key Invariants (effective weight):", *_invariant_lines(established)]
-    if candidates:
-        lines += ["", f"🔎 {CANDIDATES_HEADING} (effective weight):"]
-        if not established:
-            lines.append("   No invariant is established.")
-        lines += _invariant_lines(candidates)
-    return lines
-
-
-def _invariant_lines(invariants: list[dict[str, Any]]) -> list[str]:
-    lines: list[str] = []
-    for inv in invariants:
-        weight = inv.get("weight_effective")
-        weight_str = f"{weight:.3f}" if isinstance(weight, int | float) else "?"
-        counts = (
-            f" ({inv['confirmation_count']}/"
-            f"{inv['confirmation_count'] + inv['infirmation_count']} confirmed)"
-            if "confirmation_count" in inv and "infirmation_count" in inv
-            else ""
-        )
-        author = f" [{inv.get('author') or 'system'}]"
-        evidence = inv.get("evidence")
-        if evidence:
-            # The record replaces the bare count: same numbers, with their range,
-            # their size and their stability.
-            lines.append(f"   • {short_title(inv.get('title', '?'))}: {weight_str}{author}")
-            lines.append(f"       {evidence}")
-        else:
-            lines.append(f"   • {short_title(inv.get('title', '?'))}: {weight_str}{counts}{author}")
-    return lines
 
 
 def _market_signal_block(
@@ -791,57 +729,6 @@ def _proposal_block(proposal: dict[str, Any] | None) -> list[str]:
     ]
 
 
-def _recurring_block(recurring: list[dict[str, Any]]) -> list[str]:
-    """Critiques the Worker has now arrived at from several directions.
-
-    THIS BLOCK IS THE POINT OF THE LEDGER. A recurrence counter that only ever
-    wrote a log line would repeat the failure it fixes — the M8b signal existed
-    in the output and nobody read it, and "revisit when someone notices" is not
-    a mechanism (owner, 2026-08-09). The digest is where the owner actually
-    looks, so this is where a theme that keeps coming back has to appear.
-
-    Recurrence is not proof: two of the repeated M8b themes were measured and
-    rejected. It is a RANKING of where to look, which is why the line asks for a
-    measurement rather than announcing a finding."""
-    open_themes, measured = split_recurring(recurring)
-    if not open_themes and not measured:
-        return []
-    lines = ["", "🔁 Recurring critiques (distinct wordings, worth measuring):"]
-    for row in open_themes:
-        raised = f" — last raised {row['last_raised']}" if row.get("last_raised") else ""
-        lines.append(f"   {row['n']}x — theme {row['theme_id']}{raised}")
-        # THE MEMBERS, not just the count. Cosine over prose over-merges at the
-        # margin (writeback/recurrence.py measured it), and a grouping the owner
-        # can SEE is a visible annoyance rather than one critique silently
-        # buried inside another.
-        lines += [f"      · {title}" for title in row.get("titles", [])]
-    if measured:
-        lines.append(f"   {measured_note(measured)}")
-    return lines
-
-
-def split_recurring(recurring: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """`(themes still worth measuring, how many the history has answered)`.
-
-    A THEME THE LEDGER HAS ANSWERED IS NOT "WORTH MEASURING". From 2026-08-11 to
-    2026-10-11 this block opened every week with "Extend the 200d trend overlay
-    to VCIT", seven wordings strong — a setting measured on 2026-08-11, and in
-    force since the 14th. The block ranked where to look and never asked
-    whether someone had. One splitter for the text digest and the mail, and the
-    answered themes are COUNTED rather than dropped, so their absence says why."""
-    ranked = sorted(recurring, key=lambda r: -int(r["n"]))
-    open_themes = [row for row in ranked if not row.get("measured")]
-    return open_themes[:DIGEST_RECURRING_THEMES], len(ranked) - len(open_themes)
-
-
-def measured_note(measured: int) -> str:
-    themes = "theme is" if measured == 1 else "themes are"
-    return (
-        f"{measured} other recurring {themes} not listed: the setting asked for has "
-        "been measured — its answer is in the rule's measured settings."
-    )
-
-
 def _attribution_block(attribution: dict[str, Any] | None) -> list[str]:
     """WHAT THE SIGNAL LAYER EARNED, rendered from the newest
     `SignalAttributionEvent` (`mechanical/attribution.py`).
@@ -890,59 +777,6 @@ def _alert_block(alerts: list[Alert]) -> list[str]:
         return []
     icon = {"critical": "🚨", "warn": "⚠️"}
     return [f"{icon.get(a.level, '⚠️')} {a.message}" for a in alerts] + [""]
-
-
-def _scoreboard_block(scoreboard: dict[str, Any]) -> list[str]:
-    won, total = scoreboard.get("hit_rate", (0, 0))
-    rate = pct(won / total) if total else "n/a"
-    lines = ["", "📋 Scoreboard:", f"   Proposals hit-rate: {won}/{total} ({rate}) at +12w"]
-    paper = scoreboard.get("paper_tests", [])
-    if paper:
-        lines.append(f"   Paper-tests in progress: {len(paper)}")
-        # "paper-tests in progress WITH PROPOSED-VS-INCUMBENT TO DATE"
-        # (docs/TASKS.md Task 6bis.1). The count alone answered "how many", never
-        # "are they working" — and the running excess is the only thing in the
-        # digest that says whether a live paper-test is ahead before its +12w
-        # verdict lands. 'n/a' where prices do not yet cover the window, never 0.
-        for test in paper:
-            lines.append(
-                f"      {test.get('proposal_id')}: "
-                f"{pct(test.get('excess'), signed=True)} vs incumbent since paper_started"
-            )
-    if scoreboard.get("probations"):
-        lines.append(f"   Strategies in probation: {len(scoreboard['probations'])}")
-    if scoreboard.get("calibration_flags"):
-        lines.append(f"   Scenario calibration flags: {len(scoreboard['calibration_flags'])}")
-    return lines
-
-
-def _defender_block(metrics: dict[str, Any] | None) -> list[str]:
-    if not metrics:
-        return []
-    # `_num`, not a bare interpolation: these come straight off the snapshot as
-    # REALs, and the defender's live Sharpe printed as 0.6479648177000503. Same
-    # 2-decimal presentation as `_stack_block`, so the two blocks the owner
-    # compares are formatted alike.
-    lines = [
-        "",
-        f"📈 Defender (USD, 36M): Sharpe {_num(metrics.get('sharpe_rolling'))} | "
-        f"Sortino {_num(metrics.get('sortino_rolling'))} | "
-        f"Calmar {_num(metrics.get('calmar_rolling'))}",
-    ]
-    returns = " | ".join(
-        f"{label} {pct(metrics.get(key), signed=True)}"
-        for label, key in (
-            ("3m", "return_3m"),
-            ("6m", "return_6m"),
-            ("1y", "return_1y"),
-            ("3y", "return_3y"),
-            ("5y", "return_5y"),
-        )
-        if metrics.get(key) is not None
-    )
-    if returns:
-        lines.append(f"   Returns: {returns}")
-    return lines
 
 
 def _metals_block(metals: dict[str, Any] | None) -> list[str]:
@@ -1038,13 +872,10 @@ def render_digest(
     ranking: list[dict[str, Any]],
     invariants: list[dict[str, Any]],
     proposal: dict[str, Any] | None,
-    scoreboard: dict[str, Any],
-    defender_metrics: dict[str, Any] | None = None,
     alerts: list[Alert] | None = None,
     stack: dict[str, Any] | None = None,
     market_signal: dict[str, Any] | None = None,
     worker_reading: dict[str, Any] | None = None,
-    recurring: list[dict[str, Any]] | None = None,
     signal_attribution: dict[str, Any] | None = None,
     live_values: dict[str, Any] | None = None,
     forecast_record: dict[str, Any] | None = None,
@@ -1073,57 +904,14 @@ def render_digest(
         _owner_fund_block(owner_funds),
         _ranking_block(ranking),
         _worker_book_block(worker_book),
-        _invariant_block(invariants),
         _market_signal_block(
             market_signal, worker_reading, live_values, forecast_record, coming_order
         ),
         _stack_block(stack),
         _attribution_block(signal_attribution),
         _proposal_block(proposal),
-        _recurring_block(recurring or []),
-        _scoreboard_block(scoreboard),
-        _defender_block(defender_metrics),
     ]
     return "\n".join(line for block in blocks for line in block)
-
-
-async def build_scoreboard(db: InvestmentDB) -> dict[str, Any]:
-    """Assemble the scoreboard (docs/TASKS.md Task 6bis.1): the cumulative +12w
-    hit-rate (won / decided) and the paper-tests still in progress from the
-    proposal ledger, plus the agent-discovery strategies still IN probation.
-
-    `paper_tests` comes from `outcomes.paper_test_progress` rather than from a
-    second query over the same ledger. Two reasons, and the first is that the
-    spec asks for the running proposed-vs-incumbent, which only that function
-    computes — it had no caller at all, so what it measured reached nobody. The
-    second is that the two selections are the same population (paper_started set,
-    verdict still pending) and duplicating it here is how a scoreboard starts
-    counting a different set of tests than the one it prices.
-
-    "In probation" is `status='proposed'` with no probation OutcomeEvent yet —
-    born of an innovation, not yet judged (docs/ARCHITECTURE.md "System
-    Evolution": a strategy is proposed/disabled for the whole probation window,
-    and `outcomes.strategy_probation_check` is what activates or closes it).
-
-    `calibration_flags` stays empty: scenario calibration is SUPERSEDED by
-    ADR-007 (score_scenarios was removed), so there is no calibration to flag —
-    the block omits it."""
-    rows = await db.query("SELECT json_extract(outcome, '$.verdict') AS verdict FROM proposal")
-    won = sum(1 for r in rows if r["verdict"] == "won")
-    lost = sum(1 for r in rows if r["verdict"] == "lost")
-    paper = await paper_test_progress(db)
-    probations = await db.query(
-        "SELECT id FROM strategy WHERE source = 'agent-discovery' AND status = 'proposed' "
-        "AND id NOT IN ("
-        "  SELECT source_id FROM event_log WHERE type = 'OutcomeEvent' "
-        "  AND json_extract(payload, '$.kind') = 'probation')"
-    )
-    return {
-        "hit_rate": (won, won + lost),
-        "paper_tests": paper,
-        "probations": probations,
-        "calibration_flags": [],
-    }
 
 
 # -- the DB -> digest assembler ---------------------------------------------
@@ -1225,13 +1013,10 @@ class DigestInputs(TypedDict):
     ranking: list[dict[str, Any]]
     invariants: list[dict[str, Any]]
     proposal: dict[str, Any] | None
-    scoreboard: dict[str, Any]
-    defender_metrics: dict[str, Any] | None
     alerts: list[Alert]
     stack: dict[str, Any] | None
     market_signal: dict[str, Any] | None
     worker_reading: dict[str, Any] | None
-    recurring: list[dict[str, Any]]
     signal_attribution: dict[str, Any] | None
     # TODAY's signals and trend lines beside the decision's (`collect_live_trend_snapshot`):
     # the facts the Worker no longer restates (2026-10-18), printed by the machine.
@@ -1287,7 +1072,6 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
     )
     evidence = await evidence_summaries(db, [str(r["id"]) for r in invariant_rows])
     invariants = [_with_evidence(dict(r), evidence.get(str(r["id"]))) for r in invariant_rows]
-    defender = next((r for r in ranking if r.get("defender")), None)
     market_signal = await _latest_market_signal_decision(db)
     record = await load_forecast_record(db)
     has_forecasts = record.scored or record.open or record.unscorable
@@ -1297,13 +1081,10 @@ async def collect_digest_inputs(db: InvestmentDB, today: date | None = None) -> 
         ranking=[dict(r) for r in ranking],
         invariants=invariants,
         proposal=await _latest_proposal(db, [dict(r) for r in ranking], today),
-        scoreboard=await build_scoreboard(db),
-        defender_metrics=dict(defender) if defender else None,
         alerts=await collect_alerts(db, today),
         stack=await _stack_standing(db),
         market_signal=market_signal,
         worker_reading=await _latest_worker_reading(db),
-        recurring=await _recurring_themes(db),
         signal_attribution=await _latest_attribution(db),
         live_values=await collect_live_trend_snapshot(db, market_signal),
         forecast_record=(
@@ -1410,80 +1191,6 @@ async def build_digest(db: InvestmentDB, today: date | None = None) -> str:
     terminal"). Mechanical and read-only, so any past Sunday's state re-renders
     without re-running the cognitive cycle."""
     return render_digest(**await collect_digest_inputs(db, today))
-
-
-async def _recurring_themes(db: InvestmentDB) -> list[dict[str, Any]]:
-    """Themes that have arrived in `NOTABLE_RECURRENCE` or more distinct
-    wordings, newest wording first (writeback/recurrence.py).
-
-    DISTINCT TITLES, matching the ledger's own definition: two runs replaying
-    one date write the same sentence twice, which is a rerun and not a second
-    opinion. The title shown is the most recent wording — the earliest is often
-    the vaguest, since the Worker sharpens a critique as it meets it again."""
-    # TWO QUERIES, NOT `group_concat`. The first version joined the wordings
-    # into one string, and SQLite's separator is a comma — which these titles
-    # contain ("Gate the book on spread trajectory, not only spread level"), so
-    # the digest printed each one as two entries. Caught on the real corpus the
-    # hour the ledger was first filled; a fixture of comma-free titles would
-    # have missed it.
-    themes = await db.query(
-        "SELECT theme_id, COUNT(DISTINCT title) AS n, "
-        " MAX(substr(created_at, 1, 10)) AS last_raised FROM innovation "
-        "GROUP BY theme_id HAVING n >= :min ORDER BY n DESC",
-        min=NOTABLE_RECURRENCE,
-    )
-    # The settings the history has measured, by NAME: a wording that asks for a
-    # value of one of them has its answer in `revision_measurement`, whatever
-    # value it asked for (`rule_revision.describe_measured` shows every one).
-    measured_settings: set[str] = set()
-    for row in await db.query("SELECT DISTINCT overrides FROM revision_measurement"):
-        measured_settings.update(json.loads(str(row["overrides"])))
-    # A theme in prose names no setting; its link to the measurement that
-    # answered it is journalled instead (`recurrence.mark_answered`).
-    answered = {
-        str(row["source_id"])
-        for row in await db.query(
-            "SELECT DISTINCT source_id FROM event_log WHERE type = :t", t=ANSWERED_EVENT
-        )
-    }
-    out: list[dict[str, Any]] = []
-    for theme in themes:
-        members = await db.query(
-            "SELECT title, spec FROM innovation WHERE theme_id = :t ORDER BY created_at",
-            t=theme["theme_id"],
-        )
-        out.append(
-            {
-                "theme_id": theme["theme_id"],
-                "n": theme["n"],
-                "last_raised": theme["last_raised"],
-                "titles": list(dict.fromkeys(str(row["title"]) for row in members)),
-                "measured": theme["theme_id"] in answered
-                or any(
-                    _asks_for_a_measured_setting(str(row["spec"]), measured_settings)
-                    for row in members
-                ),
-            }
-        )
-    return out
-
-
-def _asks_for_a_measured_setting(spec: str, measured_settings: set[str]) -> bool:
-    """Does this wording name settings of the rule (`spec.parameters`), all of
-    which the ledger has measured? A critique in prose alone names none and is
-    never answered this way: nothing ties it to a measurement but a reader."""
-    parameters = json.loads(spec).get("parameters")
-    return (
-        isinstance(parameters, dict) and bool(parameters) and set(parameters) <= measured_settings
-    )
-
-
-def short_title(title: Any) -> str:
-    """A title cut to `TITLE_CHARS` at a word, with an ellipsis that says so."""
-    text = str(title)
-    if len(text) <= TITLE_CHARS:
-        return text
-    return text[:TITLE_CHARS].rsplit(" ", 1)[0].rstrip(",;:.") + "…"
 
 
 async def _regime_leaning(db: InvestmentDB) -> dict[str, Any]:

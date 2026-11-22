@@ -21,8 +21,6 @@ Functions of the cycle:
   never enter probation — see `strategy_probation_check` for why the arrival of
   `market-signal-stack` among them makes that a real gap, and what now measures
   it instead.
-- `paper_test_progress()` — proposed-vs-incumbent to date for accepted
-  paper-tests (read-only; feeds the digest scoreboard).
 
 NOT BUILT — `score_scenarios()` (scenario calibration): SUPERSEDED by ADR-007
 (docs/V1_STRATEGY.md "DEMOTED / superseded"): "Scenarios (bull/base/bear per
@@ -807,64 +805,3 @@ async def strategy_probation_check(
                 await _close_strategy(db, sid, today, reason)
         results.append(ProbationResult(sid, verdict, sortino, median))
     return results
-
-
-async def paper_test_progress(db: InvestmentDB, today: date | None = None) -> list[dict[str, Any]]:
-    """Proposed-vs-incumbent to date for every ACCEPTED paper-test still running
-    (docs/ARCHITECTURE.md: "tracked EVERY week from paper_started"). Read-only —
-    feeds the digest scoreboard (`digest.build_scoreboard`, which renders the
-    running excess docs/TASKS.md Task 6bis.1 asks for); the +12w verdict is
-    evaluate_proposals's job. Returns one row per live paper-test with the
-    running excess (proposed minus incumbent since paper_started), or None where
-    prices don't yet cover it."""
-    today = today or date.today()
-    rows = await db.query(
-        "SELECT * FROM proposal WHERE paper_started IS NOT NULL "
-        "AND (outcome IS NULL OR json_extract(outcome, '$.verdict') = 'pending')"
-    )
-    # The SAME rate the +12w verdict charges, for the same reason the incumbent
-    # resolution is shared below: a running excess computed on cheaper NAVs than
-    # the verdict's would be a scoreboard that contradicts the verdict it is
-    # previewing.
-    #
-    # WITH A FALLBACK, unlike `evaluate_proposals`, and the difference is the
-    # contract rather than an oversight. This function feeds the DIGEST, which is
-    # a report and must render from whatever the database holds — including a
-    # database that holds almost nothing (`test_build_digest_on_an_empty_db_says
-    # _no_proposal`). `evaluate_proposals` decides a verdict, so a missing
-    # threshold there is a broken seed and says so. Falling back cannot introduce
-    # a second rate: ADR-010 pins `replay_cost_bps` EQUAL to
-    # `ratios.TRADING_COST_BPS`, so the constant is the reference and the row is
-    # its persisted copy — when the copy is absent, the reference is what the
-    # verdict would have used anyway.
-    rows_cost = await db.query("SELECT value FROM system_thresholds WHERE key = 'replay_cost_bps'")
-    cost_bps = float(rows_cost[0]["value"]) if rows_cost else ratios.TRADING_COST_BPS
-    end = pd.Timestamp(today)
-    progress: list[dict[str, Any]] = []
-    for proposal in rows:
-        start = pd.Timestamp(date.fromisoformat(str(proposal["paper_started"])))
-        # The SAME incumbent resolution the +12w verdict uses, deliberately.
-        # Reading `_allocation_at(defender_id)` directly — as this did — is
-        # exactly the error `_incumbent_allocation` was written to prevent, and
-        # on the ADOPTED path it does not merely mis-price the incumbent, it
-        # erases it: a market-signal proposal's `defender_id` is a BOOK
-        # portfolio, the books are `enabled = 0` (ADR-009), and only enabled
-        # portfolios get a weekly snapshot — so the lookup returned `{}` and
-        # every live paper-test reported `excess: None` forever. The weekly
-        # tracking and the verdict must also agree by construction: a running
-        # excess computed against a different incumbent than the one that
-        # decides won/lost is a scoreboard that contradicts its own verdict.
-        incumbent = normalize(await _incumbent_allocation(db, proposal))
-        proposed = normalize(await _proposed_allocation(db, proposal))
-        inc_ret = await _window_return(db, incumbent, start, end, cost_bps) if incumbent else None
-        pro_ret = await _window_return(db, proposed, start, end, cost_bps) if proposed else None
-        excess = pro_ret - inc_ret if (inc_ret is not None and pro_ret is not None) else None
-        progress.append(
-            {
-                "proposal_id": str(proposal["id"]),
-                "proposed_return": pro_ret,
-                "incumbent_return": inc_ret,
-                "excess": excess,
-            }
-        )
-    return progress

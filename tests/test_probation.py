@@ -46,8 +46,8 @@ async def _seed(db: InvestmentDB) -> None:
         "INSERT INTO system_thresholds (key, value, updated_at) "
         "VALUES ('strategy_probation_weeks', 12.0, '2026-01-01')"
     )
-    # `paper_test_progress` charges the window's rebalances at the SAME rate the
-    # +12w verdict does (ADR-010 point 2). Seeded here rather than left to the
+    # The +12w verdict charges the window's rebalances at this rate (ADR-010
+    # point 2). Seeded here rather than left to the
     # `ratios.TRADING_COST_BPS` fallback so this fixture exercises the path the
     # live database takes.
     await cmd(
@@ -202,23 +202,6 @@ async def test_probation_waits_while_the_window_is_open(db: InvestmentDB) -> Non
     assert await outcomes.strategy_probation_check(db, today=early) == []
     rows = await db.query("SELECT status FROM strategy WHERE id = 's-good'")
     assert rows[0]["status"] == "proposed"  # still maturing
-
-
-async def test_paper_test_progress_lists_live_accepted_tests(db: InvestmentDB) -> None:
-    # a proposal accepted as a paper-test, still pending
-    await db.command(
-        "INSERT INTO proposal (id, date, proposal_type, defender_id, recommendation, "
-        "market_context, reasoning, paper_started, trace, created_at) VALUES ('pt', '2026-06-01', "
-        "'reallocation', 'd', 'paper-test', '{}', 'r', '2026-06-01', 't', '2026-06-01')"
-    )
-    await db.command(
-        "INSERT INTO proposal (id, date, proposal_type, defender_id, recommendation, "
-        "market_context, reasoning, outcome, trace, created_at) VALUES ('done', '2026-01-01', "
-        "'switch', 'd', 'monitor', '{}', 'r', '{\"verdict\": \"won\"}', 't', '2026-01-01')"
-    )
-    progress = await outcomes.paper_test_progress(db, today=TODAY)
-    # only the live accepted paper-test is tracked (the decided one is excluded)
-    assert [p["proposal_id"] for p in progress] == ["pt"]
 
 
 async def test_a_strategy_scored_in_ANOTHER_regime_is_judged_there(

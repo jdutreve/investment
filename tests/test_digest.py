@@ -77,26 +77,6 @@ def _digest(**over: object) -> str:
             "defender_id": "def-pf",
             "reasoning": "bear scenario 55% (+35pts); gold tilt backed by GLD invariant",
         },
-        "scoreboard": {
-            "hit_rate": (1, 1),
-            "paper_tests": [
-                {
-                    "proposal_id": "p-42",
-                    "proposed_return": 0.061,
-                    "incumbent_return": 0.038,
-                    "excess": 0.023,
-                },
-            ],
-            "probations": [],
-            "calibration_flags": [],
-        },
-        "defender_metrics": {
-            "sharpe_rolling": 0.6479648177000503,  # ditto — the live value
-            "sortino_rolling": 1.18,
-            "calmar_rolling": 1.9,
-            "return_3m": 0.038,
-            "return_1y": 0.143,
-        },
     }
     kwargs.update(over)
     return D.render_digest(**kwargs)  # type: ignore[arg-type]
@@ -148,15 +128,12 @@ def test_render_is_complete_and_readable() -> None:
     assert "1.9 ⚠️" not in text
     # the drawdown breach is a SEPARATE rule: it restricts, it does not demote
     assert "⛔ excluded from defender role and proposal candidacy (drawdown -18.2%)" in text
-    # invariant with weight (decimal, not percent) + confirmed counts
-    assert "TIPS inflation persistence: 0.756 (8/9 confirmed) [dalio]" in text
+    # Owner, 2026-11-22: the candidates, the recurring critiques, the scoreboard
+    # and the defender block left the digest; none decided anything.
+    assert "TIPS inflation persistence" not in text
+    assert "Proposals hit-rate" not in text and "Defender (USD" not in text
     # the bridge's switch slot (ADR-012 removed the reallocation branch)
     assert "🔀 Switch proposal (switch)" in text
-    # scoreboard hit-rate + paper-tests
-    assert "Proposals hit-rate: 1/1 (100.0%) at +12w" in text
-    assert "Paper-tests in progress: 1" in text
-    # ... each with its running proposed-vs-incumbent (docs/TASKS.md Task 6bis.1)
-    assert "p-42: +2.3% vs incumbent since paper_started" in text
     # every indicator formatted, never a raw float repr — this file's one job
     # The four questions "level 95.84, speed -0.80" could not answer: what
     # state, what the index means, what the change is in, and how old it is.
@@ -165,9 +142,6 @@ def test_render_is_complete_and_readable() -> None:
     assert "7d change -0.80 index points" in text
     assert "oldest input M2SL 39d old" in text
     assert "Role: context only" in text
-    assert "Defender (USD, 36M): Sharpe 0.65 | Sortino 1.18 | Calmar 1.90" in text
-    # defender returns, signed percentages
-    assert "3m +3.8%" in text and "1y +14.3%" in text
 
 
 def test_every_ranked_row_carries_its_return_and_its_sharpe() -> None:
@@ -245,42 +219,6 @@ async def db(tmp_path: Path) -> AsyncIterator[InvestmentDB]:
     await conn.close()
 
 
-async def test_build_scoreboard_counts_the_ledger(db: InvestmentDB) -> None:
-    await _add(db, "p1", "won", None)
-    await _add(db, "p2", "won", None)
-    await _add(db, "p3", "lost", None)
-    await _add(db, "p4", "pending", "2026-01-01")  # accepted paper-test, still running
-    await _add(db, "p5", None, None)  # not yet evaluated
-    board = await D.build_scoreboard(db)
-    assert board["hit_rate"] == (2, 3)  # 2 won of 3 decided (pending/null excluded)
-    assert len(board["paper_tests"]) == 1  # p4
-
-
-async def test_scoreboard_counts_strategies_in_probation_not_past_it(db: InvestmentDB) -> None:
-    """In probation = born of an innovation, `status='proposed'`, not yet judged.
-    An activated one is PAST probation and must not be counted."""
-    await db.command(
-        "INSERT INTO framework (id, name, enabled, trace, created_at) "
-        "VALUES ('4s', 'F', 1, 't', '2026-01-01')"
-    )
-    for sid, source, status in (
-        ("in-probation", "agent-discovery", "proposed"),
-        ("activated", "agent-discovery", "active"),
-        ("seeded", "corpus", "proposed"),  # not innovation-born
-    ):
-        await db.command(
-            "INSERT INTO strategy (id, title, description, framework_id, conviction, enabled, "
-            "conditions, source, status, date_opened, trace, created_at, updated_at) VALUES "
-            "(:id, 't', 'd', '4s', 60, 0, 'c', :src, :st, '2026-01-01', 'tr', '2026-01-01', "
-            "'2026-01-01')",
-            id=sid,
-            src=source,
-            st=status,
-        )
-    board = await D.build_scoreboard(db)
-    assert [r["id"] for r in board["probations"]] == ["in-probation"]
-
-
 # -- the DB -> digest assembler ----------------------------------------------
 
 
@@ -349,12 +287,9 @@ async def test_build_digest_renders_from_the_db_alone(db: InvestmentDB) -> None:
         "Latest print leans Goldilocks (growth rising, inflation falling): 1 of 3 prints"
     ) in text
     assert "def-pf: Sortino 1.18 ★ (defender)" in text
-    assert "GLD stagflation hedge: 0.756 (8/9 confirmed) [dalio]" in text
     # the bridge's switch slot; ADR-012 removed the reallocation branch that
     # used to render an old->new move here
     assert "🔀 Switch proposal" in text
-    assert "Paper-tests in progress: 1" in text
-    assert "3m +3.8%" in text
 
 
 async def test_the_liquidity_read_obeys_the_vintage_rule(db: InvestmentDB) -> None:
@@ -442,7 +377,6 @@ async def test_a_component_with_no_data_is_named_not_skipped(db: InvestmentDB) -
 async def test_build_digest_on_an_empty_db_says_no_proposal(db: InvestmentDB) -> None:
     text = await D.build_digest(db)
     assert "No bridge proposal this week — maintain." in text
-    assert "Proposals hit-rate: 0/0" in text
 
 
 # -- the Worker's reading of the mechanical decision (ADR-011) ---------------
@@ -622,36 +556,6 @@ async def _snapshot(db: InvestmentDB) -> None:
     )
 
 
-async def test_recurring_critiques_survive_commas_in_their_titles(db: InvestmentDB) -> None:
-    """Caught on the real corpus the hour the ledger was first filled: the block
-    joined a theme's wordings with `group_concat`, whose separator is a comma —
-    and these titles contain commas, so "Gate the book on spread trajectory, not
-    only spread level" printed as two entries.
-
-    A fixture of comma-free titles would have passed. This one carries the
-    verbatim wording that broke it."""
-    titles = [
-        "Gate the credit-spread-wide book on spread trajectory, not only spread level",
-        "Market-signal book selection should read credit-spread VELOCITY, not only level",
-        "Credit-regime gate on the IWN sleeve of the credit-spread-wide book",
-    ]
-    for n, title in enumerate(titles):
-        await db.command(
-            "INSERT INTO innovation (id, type, title, rationale, spec, theme_id, date, trace, "
-            "created_at) VALUES (:id, 'strategy_revision', :t, 'r', '{}', 'thm-1', '2026-08-09', "
-            "'tr', :now)",
-            id=f"inn-{n}",
-            t=title,
-            now=f"2026-08-09T09:0{n}:00+00:00",
-        )
-
-    block = D._recurring_block(await D._recurring_themes(db))
-
-    assert any("3x" in line for line in block)
-    for title in titles:
-        assert any(title in line for line in block), f"{title!r} was split or dropped"
-
-
 def test_the_ranking_shows_sharpe_and_nav_beside_sortino_and_calmar() -> None:
     """Owner request 2026-08-12. Four indicators per row: the two the ranking
     RULE uses (Sortino then Calmar) plus Sharpe and the paper series' level."""
@@ -742,151 +646,6 @@ def test_no_measurement_yet_renders_nothing() -> None:
     header — a heading with no numbers under it reads as a broken job."""
     assert D._attribution_block(None) == []
     assert D._attribution_block({"as_of": "2026-08-28", "attribution": {}}) == []
-
-
-def test_an_invariant_is_printed_with_the_record_behind_its_weight() -> None:
-    """A weight alone reads the same at 4 of 5 and at 40 of 50. When the record
-    was loaded, the digest prints it under the weight — range, size, stability
-    — instead of a bare count."""
-    row = D._with_evidence(
-        {"title": "Low real yields favour gold", "weight_effective": 0.653, "author": "dalio"},
-        D.EvidenceSummary(
-            metric="return",
-            confirmed=54,
-            refuted=29,
-            neutral=37,
-            no_data=3,
-            rate_range=(0.54, 0.75),
-            mean_lift=0.012,
-            worst_lift=-0.21,
-            rate_early=0.7,
-            rate_late=0.6,
-        ),
-    )
-    assert (row["rate_low"], row["rate_high"], row["neutral_count"]) == (0.54, 0.75, 37)
-
-    lines = D._invariant_block([row])
-    assert lines[1] == "🔑 Key Invariants (effective weight):"
-    assert lines[2] == "   • Low real yields favour gold: 0.653 [dalio]"
-    assert lines[3].strip() == (
-        "54/83 confirmed (rate 0.65, 95% range 0.54-0.75); 37 neutral; 3 unmeasurable; "
-        "mean lift +0.012 on return, worst -0.210; early half 0.70, late half 0.60"
-    )
-
-
-def test_a_candidate_is_listed_apart_and_never_under_the_established_heading() -> None:
-    """Owner, 2026-10-06: under a verdict held over a record's life there may be
-    no established invariant at all. The block then disappeared without a word;
-    it now shows the candidates a checkpoint has judged, under a heading that
-    says they are not established, and says so when nothing is."""
-    established = {"title": "Settled", "status": "integrated", "weight_effective": 0.7}
-    candidate = {"title": "Still measured", "status": "proposed", "weight_effective": 0.9}
-
-    both = D._invariant_block([established, candidate])
-    assert both.index("   • Settled: 0.700 [system]") < both.index(
-        f"🔎 {D.CANDIDATES_HEADING} (effective weight):"
-    )
-    assert both[-1] == "   • Still measured: 0.900 [system]"
-    assert "   No invariant is established." not in both
-
-    alone = D._invariant_block([candidate])
-    assert not any("Key Invariants" in line for line in alone)
-    assert alone[2] == "   No invariant is established."
-    assert D._invariant_block([]) == []
-
-
-async def test_a_theme_the_history_has_answered_is_not_listed_as_worth_measuring(
-    db: InvestmentDB,
-) -> None:
-    """From 2026-08-11 to 2026-10-11 the digest opened this block every week
-    with "Extend the 200d trend overlay to VCIT", seven wordings strong — a
-    setting measured on 2026-08-11 and in force since the 14th. A theme one of
-    whose wordings names settings the ledger has measured is answered: it is
-    counted, not listed. One in prose alone names no setting and stays."""
-    await db.command(
-        "INSERT INTO revision_measurement (overrides_key, window_start, window_end, overrides, "
-        "title, verdict, measured_at) VALUES ('k', '1991-10-29', '2026-07-01', "
-        '\'{"trend_sleeves": ["SPY", "GLD", "IWN", "VCIT"]}\', \'t\', \'reject\', '
-        "'2026-08-11T15:00:00+00:00')"
-    )
-    wordings = [
-        ("thm-vcit", "Extend the trend overlay to VCIT", '{"parameters": {"trend_sleeves": []}}'),
-        ("thm-vcit", "Check VCIT against its own moving average", "{}"),
-        ("thm-vcit", "Close the veto-path haven hole", "{}"),
-        ("thm-regime", "Weight inflation acceleration at turning points", "{}"),
-        ("thm-regime", "The regime label survived a collapse in inflation", "{}"),
-        ("thm-regime", "Regime label and tape diverge", '{"parameters": {"unknown_knob": 1}}'),
-    ]
-    for n, (theme, title, spec) in enumerate(wordings):
-        await db.command(
-            "INSERT INTO innovation (id, type, title, rationale, spec, theme_id, date, trace, "
-            "created_at) VALUES (:id, 'strategy_revision', :t, 'r', :spec, :theme, '2008-07-01', "
-            "'tr', :now)",
-            id=f"inn-{n}",
-            t=title,
-            spec=spec,
-            theme=theme,
-            now=f"2026-08-11T09:0{n}:00+00:00",
-        )
-
-    block = "\n".join(D._recurring_block(await D._recurring_themes(db)))
-
-    assert "Extend the trend overlay to VCIT" not in block
-    assert "1 other recurring theme is not listed" in block
-    assert "3x — theme thm-regime — last raised 2026-08-11" in block
-    assert "Weight inflation acceleration at turning points" in block
-
-
-async def test_a_prose_theme_journalled_as_answered_is_counted_not_listed(
-    db: InvestmentDB,
-) -> None:
-    """The M8b critiques "read the spread's trajectory, not its level" name no
-    setting, so nothing tied them to the knobs measured and rejected on
-    2026-08-11, and the digest called them "worth measuring" for three months.
-    A theme journalled as answered is counted; an unanswered one stays."""
-    from investment.writeback.recurrence import mark_answered
-
-    wordings = [
-        ("thm-spread", "Gate the wide book on spread trajectory, not only spread level"),
-        ("thm-spread", "Read credit-spread VELOCITY, not only level-vs-median"),
-        ("thm-spread", "Add a spread-direction veto to the tight-spread books"),
-        ("thm-regime", "Weight inflation acceleration at turning points"),
-        ("thm-regime", "The regime label survived a collapse in inflation"),
-        ("thm-regime", "Regime label and tape diverge"),
-    ]
-    for n, (theme, title) in enumerate(wordings):
-        await db.command(
-            "INSERT INTO innovation (id, type, title, rationale, spec, theme_id, date, trace, "
-            "created_at) VALUES (:id, 'strategy_revision', :t, 'r', '{}', :theme, '2008-07-01', "
-            "'tr', :now)",
-            id=f"inn-{n}",
-            t=title,
-            theme=theme,
-            now=f"2026-08-11T09:0{n}:00+00:00",
-        )
-
-    await mark_answered(db, "thm-spread", "spread_speed_veto rejected", date(2026, 11, 15))
-    block = "\n".join(D._recurring_block(await D._recurring_themes(db)))
-
-    assert "spread trajectory" not in block
-    assert "1 other recurring theme is not listed" in block
-    assert "Weight inflation acceleration at turning points" in block
-
-
-def test_a_title_that_is_a_paragraph_is_cut_at_a_word() -> None:
-    """The curator sometimes writes a paragraph where a title was asked for;
-    one of 600 characters led the digest of 2026-10-11. The record beneath the
-    title is what the line is for."""
-    long_title = "When the policy rate is hiked sharply under duress " * 12
-    shown = D.short_title(long_title)
-    assert len(shown) <= D.TITLE_CHARS and shown.endswith("…")
-    assert long_title.startswith(shown[:-1])
-    assert not shown[:-1].endswith(" ")
-    assert D.short_title("Low real yields favour gold") == "Low real yields favour gold"
-    line = D._invariant_block(
-        [{"title": long_title, "status": "proposed", "weight_effective": 0.7}]
-    )
-    assert all(len(text) < 200 for text in line)
 
 
 def test_the_worker_book_is_shown_with_its_return_since_inception() -> None:

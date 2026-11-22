@@ -211,8 +211,7 @@ def weekly_steps(
         probation", and since 2026-10-18 the Worker's forecasts that have come
         due (`mechanical/forecasts.py`) — before `uc8`, so the Worker reads a
         record that includes them. Scenario calibration is not among them:
-        ADR-007 superseded it and `score_scenarios` was removed, which
-        `digest.build_scoreboard` records by keeping `calibration_flags` empty."""
+        ADR-007 superseded it and `score_scenarios` was removed."""
         await evaluate_proposals(db, today)
         await strategy_probation_check(db, today)
         await score_due_forecasts(db, today)

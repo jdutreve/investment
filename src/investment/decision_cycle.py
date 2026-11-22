@@ -58,7 +58,6 @@ from investment.planner.worker_history import (
     describe_past_readings,
     describe_recent_ideas,
 )
-from investment.telegram.digest import short_title
 from investment.worker.agent import run_worker
 from investment.worker.repeated_figures import figures_in
 from investment.worker.result import WorkerResult, proposal_sections
@@ -366,19 +365,12 @@ def _passage_lines(excerpt: str, printed: set[str]) -> list[str]:
     return kept
 
 
-def _invariant_facts(inv: dict[str, Any], context: PlannerContext) -> str:
+def _invariant_facts(inv: dict[str, Any]) -> str:
     """The parenthesis after an invariant's title: its standing, its author when
-    it has one, and whether its condition holds today.
-
-    ITS RECORD ONCE (2026-11-08): an invariant the digest already lists among
-    its candidates is printed there with the same record, so it is pointed to
-    rather than restated. The status is said by `standing_label` ("candidate",
-    "reference note"), so it is not repeated after it; only an established one
+    it has one, and whether its condition holds today. The status is said by
+    `standing_label` ("candidate", "reference note"); only an established one
     needs the word."""
-    if context.owner_view and short_title(inv.get("title", "")) in context.owner_view:
-        standing = "its record is in the digest's candidates above"
-    else:
-        standing = standing_label(inv)
+    standing = standing_label(inv)
     if inv.get("status") == "integrated":
         standing = f"established; {standing}"
     parts = [standing]
@@ -561,9 +553,7 @@ def render_context_for_worker(context: PlannerContext) -> str:
         "holds today, DORMANT when it does not):"
     )
     for inv in context.top_invariants:
-        lines.append(
-            f"  {inv.get('id')} — {inv.get('title', '')} ({_invariant_facts(inv, context)})"
-        )
+        lines.append(f"  {inv.get('id')} — {inv.get('title', '')} ({_invariant_facts(inv)})")
     # THE BOOKS IN FULL (owner, 2026-10-25). Cut at 200 characters, mid-sentence,
     # they were 3% of the context: the corpus the Worker is asked to reason with
     # reached it as fragments. A passage is at most a thousand characters.

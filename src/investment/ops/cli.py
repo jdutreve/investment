@@ -169,8 +169,7 @@ def cmd_status(db_path: Path, as_json: bool) -> None:
         last_chain = con.execute(
             "SELECT last_chain_success FROM detector_state WHERE id = 'singleton'"
         ).fetchone()
-        # Paper-tests IN PROGRESS — the same definition the digest scoreboard
-        # uses (`digest.build_scoreboard`): started, not yet decided at +12w.
+        # Paper-tests IN PROGRESS: started, not yet decided at +12w.
         #
         # This used to count `user_response = 'pending'`, which ADR-006 emptied
         # of meaning: there is no user accept/reject step any more, so nothing

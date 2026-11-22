@@ -87,18 +87,10 @@ export interface Overview {
   ranking: Row[];
   invariants: Row[];
   proposal: Row | null;
-  scoreboard: {
-    hit_rate: [number, number];
-    paper_tests: Row[];
-    probations: Row[];
-    calibration_flags: unknown[];
-  };
-  defender_metrics: Row | null;
   alerts: Alert[];
   stack: Row | null;
   market_signal: Row | null;
   worker_reading: Row | null;
-  recurring: Row[];
   // The newest SignalAttributionEvent payload (mechanical/attribution.py):
   // what the signal layer earned against its control arm, and who Pareto-
   // dominates the stack. Declared here because DigestInputs is served whole —

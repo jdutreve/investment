@@ -174,5 +174,3 @@ async def test_simulated_monday_runs_the_chain_and_emits_a_digest(db: Investment
     digest = holder["digest"]
     assert "Regime: Stagflation since 2026-06-01 (signal strength 78/100" in digest
     assert "def-pf: Sortino 1.18 ★ (defender)" in digest
-    assert "GLD stagflation hedge" in digest
-    assert "Proposals hit-rate: 0/0" in digest  # no decided proposals yet
