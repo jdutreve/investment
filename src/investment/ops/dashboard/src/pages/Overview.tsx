@@ -276,13 +276,21 @@ function AssetsCard({
                     <span className="muted">—</span>
                   )}
                 </td>
-                {windows.map((w, index) => (
-                  <td className="num muted" key={w}>
-                    {reference
-                      ? distance(reference.price, reference.moving_averages[index] ?? null)
-                      : "—"}
-                  </td>
-                ))}
+                {windows.map((w, index) => {
+                  // Green above the line, red below (owner, 2026-11-22): the
+                  // overlay's own question, read at a glance.
+                  const line = reference?.moving_averages[index] ?? null;
+                  const tone = !reference || !line
+                    ? "muted"
+                    : reference.price >= line
+                      ? "heat-text-good"
+                      : "heat-text-bad";
+                  return (
+                    <td className={`num ${tone}`} key={w}>
+                      {reference ? distance(reference.price, line) : "—"}
+                    </td>
+                  );
+                })}
                 <td className="center">
                   <TrendDot share={atDecision?.share} />
                 </td>

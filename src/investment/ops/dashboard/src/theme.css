@@ -924,6 +924,9 @@ details.reading p {
 .heat-text-bad {
   color: var(--heat-bad);
 }
+.heat-text-good {
+  color: var(--heat-good);
+}
 
 /* ---------- overview: the macro tiles and the short "why" ---------- */
 .tiles {
