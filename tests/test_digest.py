@@ -707,6 +707,7 @@ def test_a_pending_book_says_what_it_would_hold_through_todays_overlay() -> None
     }
     lines = D._coming_order_lines(coming, {"decision_date": "2026-11-02"})
     assert lines[-1] == (
-        "      Book switch pending: credit-spread-tight-yield-curve-flat 2/3 — through "
+        "      Book switch pending: credit-spread-tight-yield-curve-flat (SPY 60 / GLD 40) 2/3 "
+        "— through "
         "today's trend lines it would hold IEF 100"
     )

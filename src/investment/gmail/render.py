@@ -35,6 +35,7 @@ from investment.mechanical.market_signal import MA_WINDOWS, STACK_PORTFOLIO_ID
 from investment.mechanical.snapshots import is_demoted
 from investment.telegram.digest import (
     DigestInputs,
+    book_label,
     owner_fund_lines,
     pct,
     regime_leaning,
@@ -356,7 +357,8 @@ def _market_signal_section(
     )
     lines = [
         "<h2>\U0001f9ed Market-Signal Decision (paper-test)</h2>",
-        f"<p>{label.capitalize()} <b>{_esc(decision.get('held_book', '?'))}</b> — decided "
+        f"<p>{label.capitalize()} <b>{_esc(book_label(decision.get('held_book', '?')))}</b> "
+        "— decided "
         f"<b>{_esc(decision.get('decision_date', '?'))}</b> — {changed}.</p>",
         *_decision_target_table(decision),
     ]

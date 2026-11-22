@@ -312,7 +312,8 @@ def _market_signal_block(
     lines = [
         "",
         f"🧭 Market-signal decision (paper-test) — {label} "
-        f"{decision.get('held_book', '?')}, decided {decision.get('decision_date', '?')}:",
+        f"{book_label(decision.get('held_book', '?'))}, "
+        f"decided {decision.get('decision_date', '?')}:",
         "   " + (" | ".join(moves) if moves else "no change — the stack holds its book"),
     ]
     # A refused decision writes no Proposal (ADR-009: the gates are regression
@@ -358,7 +359,7 @@ def _market_signal_block(
     hysteresis = decision.get("hysteresis") or {}
     if hysteresis.get("pending_book"):
         lines.append(
-            f"   Pending switch to {hysteresis['pending_book']}: "
+            f"   Pending switch to {book_label(hysteresis['pending_book'])}: "
             f"{hysteresis.get('pending_count')}/{hysteresis.get('confirm_decisions')} confirmations"
         )
     if decision.get("reasoning"):
@@ -369,6 +370,18 @@ def _market_signal_block(
         _worker_challenge_lines(worker_reading, decision.get("decision_date"), forecast_record)
     )
     return lines
+
+
+def book_label(name: Any) -> str:
+    """A book's name with its weights (owner, 2026-11-22: "the name must carry its
+    allocation, to know what it is"): `credit-spread-tight-yield-curve-flat`
+    alone does not say SPY 60 / GLD 40. A name the rule no longer defines is
+    printed bare."""
+    weights = BOOKS.get(str(name))
+    if not weights:
+        return str(name)
+    held = " / ".join(f"{t} {w:g}" for t, w in sorted(weights.items(), key=lambda kv: -kv[1]))
+    return f"{name} ({held})"
 
 
 def _coming_order_lines(coming: dict[str, Any] | None, decision: dict[str, Any]) -> list[str]:
@@ -400,7 +413,7 @@ def _coming_order_lines(coming: dict[str, Any] | None, decision: dict[str, Any])
             else ""
         )
         lines.append(
-            f"      Book switch pending: {coming['pending_book']} "
+            f"      Book switch pending: {book_label(coming['pending_book'])} "
             f"{coming.get('pending_count')}/{coming.get('confirm_decisions')}{holds}"
         )
     return lines
