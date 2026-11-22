@@ -282,7 +282,26 @@ def test_the_digest_prints_each_forecast_beside_its_base_rate() -> None:
         "latest_base_rates": {"GLD above its line": 0.05},
     }
     lines = _worker_challenge_lines(reading, "2026-11-02", record)
+    # Journalled before the odds led the point: the base rate at the end.
     assert "        · GLD above its line — 15%, in 8 weeks (history: 5%)" in lines
+
+    reading["market_signal_reading"]["sections"][0]["points"] = [  # type: ignore[index]
+        "Unlikely (15% in 8 weeks): GLD above its line"
+    ]
+    lines = _worker_challenge_lines(reading, "2026-11-02", record)
+    assert "        · Unlikely (15% in 8 weeks, history 5%): GLD above its line" in lines
+
+
+def test_a_forecast_reads_its_odds_in_words_before_its_claim() -> None:
+    from investment.worker.result import odds_in_words
+
+    assert [odds_in_words(p) for p in (0.20, 0.44, 0.45, 0.55, 0.56)] == [
+        "Unlikely",
+        "Unlikely",
+        "Even odds",
+        "Even odds",
+        "Likely",
+    ]
 
 
 def test_a_forecast_said_within_a_period_is_refused() -> None:

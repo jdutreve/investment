@@ -476,7 +476,7 @@ def test_the_reading_carries_no_restated_facts_and_keeps_its_headings() -> None:
         ),
         (
             "Forecasts (scored when due)",
-            ["Change: IEF closes above its 150-day line — 35%, in 4 weeks"],
+            ["Unlikely (35% in 4 weeks): Change: IEF closes above its 150-day line"],
         ),
     ]
     assert "My reading" not in reading.render()  # an empty part prints no heading

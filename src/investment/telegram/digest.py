@@ -537,15 +537,28 @@ def _worker_challenge_lines(
         for heading, points in journalled_sections(parts):
             lines.append(f"      {heading}")
             for point in points:
-                base = next((b for st, b in bases.items() if point.startswith(st)), None)
-                history = f" (history: {base:.0%})" if base is not None else ""
-                lines.append(f"        · {point}{history}")
+                lines.append(f"        · {_with_base_rate(point, bases)}")
         if forecast_record:
             lines.append(f"      {forecast_record['summary']}")
         return lines
     # A reading journalled before it had parts: its text, as it was written.
     assessment = str(reading.get("market_signal_assessment") or "").strip()
     return [f"   🗣 Worker challenge{suffix}: {assessment}"] if assessment else []
+
+
+def _with_base_rate(point: str, bases: dict[str, float]) -> str:
+    """A forecast with history's own frequency beside its odds: a probability
+    that only restates history tells the owner nothing. The odds lead the point
+    (`Forecast.render`, 2026-11-22), so the base rate goes inside their
+    parenthesis; a point journalled before then ends with its odds and takes it
+    at the end."""
+    base = next((b for statement, b in bases.items() if statement in point), None)
+    if base is None:
+        return point
+    odds, sep, claim = point.partition("): ")
+    if sep and not any(point.startswith(statement) for statement in bases):
+        return f"{odds}, history {base:.0%}): {claim}"
+    return f"{point} (history: {base:.0%})"
 
 
 # -- today's values (live, weekly) ------------------------------------------

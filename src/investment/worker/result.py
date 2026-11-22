@@ -252,10 +252,25 @@ class Forecast(StrictModel):
         return self
 
     def render(self) -> str:
-        """The forecast as the owner reads it: the words, then the odds and the
-        horizon."""
+        """The forecast as the owner reads it: the odds IN WORDS first, then the
+        claim (owner, 2026-11-22). Written the other way — "Change: SPY above
+        its 300-day line in 6 weeks … — 20%" — the claim read as what the Worker
+        expected, two lines under a reading that called the same rebound less
+        likely, and the 20% at the end was the only sign it was the opposite."""
         weeks = f"{self.horizon_weeks} week{'s' if self.horizon_weeks > 1 else ''}"
-        return f"{self.statement} — {self.probability:.0%}, in {weeks}"
+        return f"{odds_in_words(self.probability)} ({self.probability:.0%} in {weeks}): " + (
+            self.statement
+        )
+
+
+def odds_in_words(probability: float) -> str:
+    """What a probability says about its claim. The middle band is a toss-up,
+    not a lean: 55% against a 48% history is a nuance, not an expectation."""
+    if probability < 0.45:
+        return "Unlikely"
+    if probability > 0.55:
+        return "Likely"
+    return "Even odds"
 
 
 # At most this many a cycle: a few forecasts the Worker means, not a spread of
